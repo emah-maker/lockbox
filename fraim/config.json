@@ -1,0 +1,10 @@
+{
+  "project": {
+    "name": "Phone Box",
+    "industry": "Consumer hardware / focus & digital-wellbeing devices"
+  },
+  "mode": "conversational",
+  "customizations": {
+    "architectureDoc": "fraim/personalized-employee/context/project_context.md"
+  }
+}

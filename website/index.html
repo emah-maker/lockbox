@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Phone Box — The Smart Focus Lockbox</title>
+  <meta name="description" content="Phone Box is the smart focus lockbox: true physical lockaway, a touchscreen countdown, a tunable emergency override, and no subscription — ever. One-time $99." />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect x='4' y='2.5' width='16' height='19' rx='3' fill='%230a0d0c' stroke='%2300c040' stroke-width='1.8'/%3E%3Crect x='7.5' y='6' width='9' height='9' rx='1.4' fill='%2300c040'/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <!-- ===== NAV ===== -->
+  <header class="nav" id="top">
+    <div class="wrap nav__inner">
+      <a class="brand" href="#top" aria-label="Phone Box home">
+        <span class="brand__mark" aria-hidden="true">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" role="img" aria-hidden="true">
+            <rect x="4" y="2.5" width="16" height="19" rx="3" stroke="currentColor" stroke-width="1.8"/>
+            <rect x="7.5" y="6" width="9" height="9" rx="1.4" fill="currentColor" opacity="0.85"/>
+            <circle cx="12" cy="18.4" r="1.3" fill="currentColor"/>
+          </svg>
+        </span>
+        <span class="brand__name">Phone&nbsp;Box</span>
+      </a>
+      <nav class="nav__links" aria-label="Primary">
+        <a href="#pillars">Features</a>
+        <a href="#how">How it works</a>
+        <a href="#adjust">Make it yours</a>
+        <a href="#compare">Compare</a>
+        <a href="#pricing">Pricing</a>
+        <a href="#faq">FAQ</a>
+      </nav>
+      <a class="btn btn--sm btn--primary" href="#waitlist">Join the waitlist</a>
+    </div>
+  </header>
+
+  <main id="main">
+    <!-- ===== HERO ===== -->
+    <section class="hero" aria-labelledby="hero-title">
+      <div class="wrap hero__grid">
+        <div class="hero__copy reveal">
+          <p class="eyebrow"><span class="dot"></span>Pre-order · Founding batch</p>
+          <h1 id="hero-title">The smart focus lockbox.</h1>
+          <p class="lead">
+            Set a timer, drop your phone in, and it stays physically locked away until
+            you're done. A touchscreen countdown, a tunable emergency override, and
+            <strong>no subscription — ever.</strong>
+          </p>
+          <div class="hero__cta">
+            <a class="btn btn--primary btn--lg" href="#waitlist">Reserve for $79</a>
+            <a class="btn btn--ghost btn--lg" href="#how">See how it works</a>
+          </div>
+          <ul class="hero__points">
+            <li>True physical lockaway</li>
+            <li>One-time purchase</li>
+            <li>Rechargeable &amp; opaque</li>
+          </ul>
+        </div>
+
+        <!-- ===== DEVICE MOCKUP (pure CSS/SVG) ===== -->
+        <div class="hero__device reveal">
+          <figure class="device" role="img"
+            aria-label="Phone Box device: an opaque lockbox with a small portrait touchscreen showing a green countdown timer and a battery indicator.">
+            <div class="device__body">
+              <div class="device__lid"></div>
+              <div class="device__screen" id="mockScreen">
+                <div class="scr">
+                  <div class="scr__status">
+                    <span class="scr__lock" id="scrLockLabel">LOCKED</span>
+                    <span class="scr__batt" aria-hidden="true">
+                      <span class="scr__batt-body"><span class="scr__batt-fill"></span></span>
+                      <span class="scr__batt-cap"></span>
+                      <span class="scr__batt-pct">82%</span>
+                    </span>
+                  </div>
+                  <div class="scr__main">
+                    <div class="scr__label">FOCUS</div>
+                    <div class="scr__time" id="mockTime">0:24:59</div>
+                    <div class="scr__bar"><span id="mockBar"></span></div>
+                  </div>
+                  <div class="scr__foot">
+                    <span class="scr__hint">HOLD OVERRIDE &times;25</span>
+                  </div>
+                </div>
+              </div>
+              <div class="device__latch" aria-hidden="true"></div>
+            </div>
+            <figcaption class="device__cap">1.47" touchscreen · servo latch · USB-C</figcaption>
+          </figure>
+        </div>
+      </div>
+      <div class="hero__glow" aria-hidden="true"></div>
+    </section>
+
+    <!-- ===== PROBLEM ===== -->
+    <section class="problem" aria-labelledby="problem-title">
+      <div class="wrap problem__inner reveal">
+        <h2 id="problem-title">Your phone always wins.</h2>
+        <p>
+          App blockers are one settings toggle from defeat. A drawer is one weak
+          moment away. Willpower loses to a device engineered to capture it. The only
+          thing that reliably works is putting the phone somewhere you genuinely
+          can't reach it — and then making that easy, honest, and safe.
+        </p>
+        <div class="problem__row">
+          <div class="problem__stat"><span class="num">1</span><span class="txt">toggle to defeat a software blocker</span></div>
+          <div class="problem__stat"><span class="num">0</span><span class="txt">notifications you can see through an opaque box</span></div>
+          <div class="problem__stat"><span class="num">25</span><span class="txt">deliberate presses for the emergency way out</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== PILLARS ===== -->
+    <section class="pillars" id="pillars" aria-labelledby="pillars-title">
+      <div class="wrap">
+        <div class="section-head reveal">
+          <p class="eyebrow eyebrow--muted">Why Phone Box</p>
+          <h2 id="pillars-title">Built like a product, not a phone jail.</h2>
+        </div>
+        <div class="cards">
+          <article class="card reveal">
+            <span class="card__icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" width="26" height="26">
+                <rect x="5" y="10.5" width="14" height="10" rx="2" stroke="currentColor" stroke-width="1.8"/>
+                <path d="M8 10.5V8a4 4 0 0 1 8 0v2.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                <circle cx="12" cy="15.2" r="1.5" fill="currentColor"/>
+              </svg>
+            </span>
+            <h3>Real enforcement, a sane escape hatch</h3>
+            <p>
+              A servo-driven latch holds the box physically shut until your timer
+              ends. Need out early? A <strong>tunable press-count override</strong>
+              (default 25) is your controlled way back in — not a bypass hole, not
+              a total dead end like kSafe.
+            </p>
+            <span class="card__tag">The hero feature</span>
+          </article>
+
+          <article class="card reveal">
+            <span class="card__icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" width="26" height="26">
+                <rect x="7" y="3" width="10" height="18" rx="2.4" stroke="currentColor" stroke-width="1.8"/>
+                <path d="M9.5 7.5h5M9.5 10.5h5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                <circle cx="12" cy="17.5" r="1.2" fill="currentColor"/>
+              </svg>
+            </span>
+            <h3>A touchscreen in a category of dials</h3>
+            <p>
+              Swipe to set hours, minutes and seconds. Watch a live countdown,
+              check the battery, tweak settings — all on a crisp 1.47" screen. It
+              looks a generation ahead of dumb-dial boxes.
+            </p>
+          </article>
+
+          <article class="card reveal">
+            <span class="card__icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" width="26" height="26">
+                <path d="M4 12a8 8 0 0 1 8-8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                <path d="M20 12a8 8 0 0 1-8 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                <path d="M12 4l2.5 2.5M12 20l-2.5-2.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M15 12l-4 2.3v-4.6L15 12Z" fill="currentColor"/>
+              </svg>
+            </span>
+            <h3>Programmable = no subscription, ever</h3>
+            <p>
+              Schedules, routines and focus streaks live in the firmware — yours
+              for one payment. No $99/yr like Opal, no $199 + $99/yr like GoAro.
+              Buy it once and keep it.
+            </p>
+          </article>
+
+          <article class="card reveal">
+            <span class="card__icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" width="26" height="26">
+                <rect x="4" y="6" width="16" height="12" rx="2.4" stroke="currentColor" stroke-width="1.8"/>
+                <path d="M4 10h16" stroke="currentColor" stroke-width="1.8"/>
+                <path d="M10 3.5v2.5M14 3.5v2.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+              </svg>
+            </span>
+            <h3>Opaque, rechargeable, honest build</h3>
+            <p>
+              An opaque enclosure kills the "I can still see my notifications"
+              problem transparent boxes have. USB-C charging, a rechargeable LiPo,
+              and a real battery gauge on screen. It reads as a device, not a gadget.
+            </p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== HOW IT WORKS ===== -->
+    <section class="how" id="how" aria-labelledby="how-title">
+      <div class="wrap">
+        <div class="section-head reveal">
+          <p class="eyebrow eyebrow--muted">How it works</p>
+          <h2 id="how-title">Four steps to a focused hour.</h2>
+        </div>
+        <ol class="steps">
+          <li class="step reveal">
+            <span class="step__num">1</span>
+            <h3>Set your timer</h3>
+            <p>Swipe up or down on the touchscreen to dial in hours, minutes and seconds — anywhere from a few minutes to 9 hours.</p>
+          </li>
+          <li class="step reveal">
+            <span class="step__num">2</span>
+            <h3>Drop the phone in</h3>
+            <p>Place your phone inside and close the opaque lid. Out of sight, out of reach, out of mind.</p>
+          </li>
+          <li class="step reveal">
+            <span class="step__num">3</span>
+            <h3>The box locks</h3>
+            <p>The servo drives the latch shut and the countdown begins. The box will not open on its own until time is up.</p>
+          </li>
+          <li class="step reveal">
+            <span class="step__num">4</span>
+            <h3>Unlock when done</h3>
+            <p>When the timer expires the latch releases automatically. In a real emergency, the press-count override lets you out early.</p>
+          </li>
+        </ol>
+      </div>
+    </section>
+
+    <!-- ===== ADJUST / MAKE IT YOURS ===== -->
+    <section class="adjust" id="adjust" aria-labelledby="adjust-title">
+      <div class="wrap">
+        <div class="section-head reveal">
+          <p class="eyebrow eyebrow--muted">Make it yours</p>
+          <h2 id="adjust-title">You decide how strict it is.</h2>
+          <p class="section-sub">Phone Box bends to how <em>you</em> focus. Dial these in right on the touchscreen &mdash; your settings are saved on the device and survive a power-off. No app required, no subscription.</p>
+        </div>
+        <div class="adjust__grid">
+          <article class="setting reveal">
+            <div class="setting__head">
+              <h3>Emergency override</h3>
+              <span class="setting__value">10&ndash;100 presses</span>
+            </div>
+            <p>Set how hard it is to bail out early. Make it a light 10-press nudge or a serious 100-press commitment. Default is 25.</p>
+            <div class="setting__track" aria-hidden="true"><span class="setting__fill" style="--w:22%"></span><span class="setting__thumb" style="--x:22%"></span></div>
+            <div class="setting__scale" aria-hidden="true"><span>10</span><span>Default 25</span><span>100</span></div>
+          </article>
+
+          <article class="setting reveal">
+            <div class="setting__head">
+              <h3>Focus length</h3>
+              <span class="setting__value">Up to 9 hours</span>
+            </div>
+            <p>Swipe to set hours, minutes and seconds &mdash; a quick 20-minute sprint or a full 9-hour deep-work day.</p>
+            <div class="setting__track" aria-hidden="true"><span class="setting__fill" style="--w:60%"></span><span class="setting__thumb" style="--x:60%"></span></div>
+            <div class="setting__scale" aria-hidden="true"><span>0:00:05</span><span>9:00:00</span></div>
+          </article>
+
+          <article class="setting reveal">
+            <div class="setting__head">
+              <h3>Screen sleep</h3>
+              <span class="setting__value">On battery</span>
+            </div>
+            <p>Choose how quickly the display sleeps to stretch battery life while the countdown keeps running.</p>
+            <div class="setting__pills" role="group" aria-label="Screen sleep options in seconds">
+              <span class="pill">10s</span><span class="pill pill--on">20s</span><span class="pill">30s</span><span class="pill">60s</span>
+            </div>
+          </article>
+
+          <article class="setting reveal">
+            <div class="setting__head">
+              <h3>Brightness</h3>
+              <span class="setting__value">10&ndash;100%</span>
+            </div>
+            <p>Set the backlight to taste. Phone Box also brightens on USB power and dims on battery on its own.</p>
+            <div class="setting__pills" role="group" aria-label="Brightness options in percent">
+              <span class="pill">10%</span><span class="pill">30%</span><span class="pill pill--on">50%</span><span class="pill">70%</span><span class="pill">100%</span>
+            </div>
+          </article>
+
+          <article class="setting reveal">
+            <div class="setting__head">
+              <h3>Schedules &amp; streaks</h3>
+              <span class="setting__value">Built in</span>
+            </div>
+            <p>Recurring focus routines and on-device streaks live in the firmware &mdash; the programmable layer rivals charge yearly for, yours for one payment.</p>
+            <div class="setting__pills" role="group" aria-label="Programmable features">
+              <span class="pill pill--on">Routines</span><span class="pill pill--on">Streaks</span><span class="pill pill--on">Focus stats</span>
+            </div>
+          </article>
+
+          <article class="setting reveal">
+            <div class="setting__head">
+              <h3>It remembers</h3>
+              <span class="setting__value">Saved on device</span>
+            </div>
+            <p>Every preference is written to on-board memory, so your setup is exactly how you left it after a recharge or reboot. Set it once.</p>
+            <div class="setting__pills" role="group" aria-label="Persistence">
+              <span class="pill pill--on">Persistent</span><span class="pill pill--on">No account</span><span class="pill pill--on">Offline</span>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== COMPARISON ===== -->
+    <section class="compare" id="compare" aria-labelledby="compare-title">
+      <div class="wrap">
+        <div class="section-head reveal">
+          <p class="eyebrow eyebrow--muted">The honest comparison</p>
+          <h2 id="compare-title">Where Phone Box fits.</h2>
+          <p class="section-sub">Between the cheap dumb box and the expensive subscription box — the gap nobody else fills well.</p>
+        </div>
+        <div class="table-scroll reveal" role="region" aria-label="Feature comparison, scrollable" tabindex="0">
+          <table class="cmp">
+            <caption class="visually-hidden">Comparison of Phone Box against kSafe, generic Amazon boxes, Brick, Opal, and GoAro</caption>
+            <thead>
+              <tr>
+                <th scope="col" class="cmp__feature">Feature</th>
+                <th scope="col" class="cmp__us">Phone Box</th>
+                <th scope="col">kSafe</th>
+                <th scope="col">Amazon boxes</th>
+                <th scope="col">Brick</th>
+                <th scope="col">Opal</th>
+                <th scope="col">GoAro</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">Locks the phone physically away</th>
+                <td class="cmp__us"><span class="yes">Yes</span></td>
+                <td><span class="yes">Yes</span></td>
+                <td><span class="mid">Partial</span></td>
+                <td><span class="no">No</span></td>
+                <td><span class="no">No</span></td>
+                <td><span class="yes">Yes</span></td>
+              </tr>
+              <tr>
+                <th scope="row">Touchscreen interface</th>
+                <td class="cmp__us"><span class="yes">Yes</span></td>
+                <td><span class="no">Dial</span></td>
+                <td><span class="no">Dial</span></td>
+                <td><span class="mid">App</span></td>
+                <td><span class="mid">App</span></td>
+                <td><span class="mid">App</span></td>
+              </tr>
+              <tr>
+                <th scope="row">Tunable emergency override</th>
+                <td class="cmp__us"><span class="yes">Yes</span></td>
+                <td><span class="no">None</span></td>
+                <td><span class="mid">Holes</span></td>
+                <td><span class="no">No</span></td>
+                <td><span class="mid">Toggle</span></td>
+                <td><span class="mid">App</span></td>
+              </tr>
+              <tr>
+                <th scope="row">No subscription</th>
+                <td class="cmp__us"><span class="yes">Yes</span></td>
+                <td><span class="yes">Yes</span></td>
+                <td><span class="yes">Yes</span></td>
+                <td><span class="yes">Yes</span></td>
+                <td><span class="no">No</span></td>
+                <td><span class="no">No</span></td>
+              </tr>
+              <tr>
+                <th scope="row">Rechargeable &amp; opaque</th>
+                <td class="cmp__us"><span class="yes">Yes</span></td>
+                <td><span class="no">Clear</span></td>
+                <td><span class="mid">Varies</span></td>
+                <td><span class="mid">n/a</span></td>
+                <td><span class="mid">n/a</span></td>
+                <td><span class="yes">Yes</span></td>
+              </tr>
+              <tr>
+                <th scope="row">Price model</th>
+                <td class="cmp__us"><span class="price-cell">$99 once</span></td>
+                <td>$40–60 once</td>
+                <td>$20–40 once</td>
+                <td>$59 once</td>
+                <td>~$99/yr</td>
+                <td>$199 +$99/yr</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="compare__note reveal">Being honest: a commodity box can be cheaper, and Brick fits in a pocket. Phone Box wins on enforcement, UX, and total cost over time.</p>
+      </div>
+    </section>
+
+    <!-- ===== PRICING ===== -->
+    <section class="pricing" id="pricing" aria-labelledby="pricing-title">
+      <div class="wrap">
+        <div class="section-head reveal">
+          <p class="eyebrow eyebrow--muted">Pricing</p>
+          <h2 id="pricing-title">Pay once. Focus for years.</h2>
+        </div>
+        <div class="pricing__grid">
+          <div class="price-card price-card--hero reveal">
+            <div class="price-card__badge">Founding pre-order</div>
+            <div class="price-card__amounts">
+              <span class="price-card__now">$79</span>
+              <span class="price-card__was" aria-label="Regular price 99 dollars">$99</span>
+            </div>
+            <p class="price-card__sub">One-time. <strong>No subscription. Ever.</strong></p>
+            <ul class="price-card__list">
+              <li>Founding-batch price, locked in</li>
+              <li>Touchscreen, servo latch, tunable override</li>
+              <li>Rechargeable LiPo &amp; USB-C</li>
+              <li>On-device focus stats &amp; streaks</li>
+              <li>Free firmware updates</li>
+            </ul>
+            <a class="btn btn--primary btn--lg btn--block" href="#waitlist">Reserve my Phone Box</a>
+            <p class="price-card__fine">Pre-order / waitlist — not yet shipping. No charge until units are confirmed.</p>
+          </div>
+
+          <div class="price-card price-card--compare reveal">
+            <h3>The real cost over time</h3>
+            <p class="price-card__lead">A one-time purchase is the whole wedge. Here's the first-year math:</p>
+            <ul class="cost-bars">
+              <li>
+                <div class="cost-bars__row"><span>Phone Box</span><span class="cost-bars__val">$99 once</span></div>
+                <div class="cost-bars__track"><span class="cost-bars__fill cost-bars__fill--us" style="--w:33%"></span></div>
+              </li>
+              <li>
+                <div class="cost-bars__row"><span>Opal</span><span class="cost-bars__val">~$99 / yr, forever</span></div>
+                <div class="cost-bars__track"><span class="cost-bars__fill" style="--w:33%"></span></div>
+              </li>
+              <li>
+                <div class="cost-bars__row"><span>GoAro</span><span class="cost-bars__val">~$298 first year, +$99/yr</span></div>
+                <div class="cost-bars__track"><span class="cost-bars__fill" style="--w:100%"></span></div>
+              </li>
+            </ul>
+            <p class="price-card__fine">Competitor pricing per public listings, July 2026. Opal and GoAro recur annually; Phone Box does not.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== FAQ ===== -->
+    <section class="faq" id="faq" aria-labelledby="faq-title">
+      <div class="wrap faq__inner">
+        <div class="section-head reveal">
+          <p class="eyebrow eyebrow--muted">Straight answers</p>
+          <h2 id="faq-title">Questions you're already asking.</h2>
+        </div>
+        <div class="accordion reveal">
+          <div class="acc__item">
+            <h3>
+              <button type="button" class="acc__btn" aria-expanded="false" aria-controls="a1" id="q1">
+                <span>Why not the $25 Amazon box?</span>
+                <span class="acc__chev" aria-hidden="true"></span>
+              </button>
+            </h3>
+            <div class="acc__panel" id="a1" role="region" aria-labelledby="q1" hidden>
+              <p>Those boxes are usually transparent, feel disposable, and either have no override or an override so weak (access holes, prying) that it defeats the purpose. Phone Box is opaque, rechargeable, has a real touchscreen interface, and gives you a controlled, tunable way out for genuine emergencies.</p>
+            </div>
+          </div>
+
+          <div class="acc__item">
+            <h3>
+              <button type="button" class="acc__btn" aria-expanded="false" aria-controls="a2" id="q2">
+                <span>Why not just a free app?</span>
+                <span class="acc__chev" aria-hidden="true"></span>
+              </button>
+            </h3>
+            <div class="acc__panel" id="a2" role="region" aria-labelledby="q2" hidden>
+              <p>A software blocker is one settings toggle away from defeat, and the phone stays in your hand the whole time. Phone Box physically holds the phone until the timer ends — there's no toggle, because there's no software layer to switch off.</p>
+            </div>
+          </div>
+
+          <div class="acc__item">
+            <h3>
+              <button type="button" class="acc__btn" aria-expanded="false" aria-controls="a3" id="q3">
+                <span>Why not just use willpower?</span>
+                <span class="acc__chev" aria-hidden="true"></span>
+              </button>
+            </h3>
+            <div class="acc__panel" id="a3" role="region" aria-labelledby="q3" hidden>
+              <p>Precommitment beats willpower — that's the premise the entire category is built on, backed by behavioral research from Princeton, Harvard, Stanford and Yale. You decide once, up front, when you're thinking clearly; the box holds you to it when the urge hits.</p>
+            </div>
+          </div>
+
+          <div class="acc__item">
+            <h3>
+              <button type="button" class="acc__btn" aria-expanded="false" aria-controls="a4" id="q4">
+                <span>What if I have an emergency?</span>
+                <span class="acc__chev" aria-hidden="true"></span>
+              </button>
+            </h3>
+            <div class="acc__panel" id="a4" role="region" aria-labelledby="q4" hidden>
+              <p>Press the override button a set number of times (25 by default, adjustable from 10 to 100 in settings) and the latch releases early. It's deliberate enough that you won't do it on a whim, but always available when you truly need it — the sane middle path between kSafe's no-way-out and a cheap box's easy bypass.</p>
+            </div>
+          </div>
+
+          <div class="acc__item">
+            <h3>
+              <button type="button" class="acc__btn" aria-expanded="false" aria-controls="a5" id="q5">
+                <span>Is there a companion app?</span>
+                <span class="acc__chev" aria-hidden="true"></span>
+              </button>
+            </h3>
+            <div class="acc__panel" id="a5" role="region" aria-labelledby="q5" hidden>
+              <p>An optional Bluetooth app is on the roadmap for live status, focus stats, clock sync, and an "important call" alert-through. It's optional and one-time — no subscription — and it will <strong>never</strong> auto-unlock the box. The physical override stays the only emergency exit.</p>
+            </div>
+          </div>
+
+          <div class="acc__item">
+            <h3>
+              <button type="button" class="acc__btn" aria-expanded="false" aria-controls="a6" id="q6">
+                <span>When does it ship?</span>
+                <span class="acc__chev" aria-hidden="true"></span>
+              </button>
+            </h3>
+            <div class="acc__panel" id="a6" role="region" aria-labelledby="q6" hidden>
+              <p>Phone Box is at pre-order / waitlist stage — it isn't in stock yet. Join the waitlist to lock in the $79 founding price and we'll email you the moment a batch is confirmed. You won't be charged until then.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== WAITLIST CTA ===== -->
+    <section class="waitlist" id="waitlist" aria-labelledby="waitlist-title">
+      <div class="wrap waitlist__inner reveal">
+        <h2 id="waitlist-title">Reserve your Phone Box.</h2>
+        <p class="waitlist__lead">Founding price <strong>$79</strong> (normally $99), one-time. No subscription, no charge today — just first dibs when the first batch ships.</p>
+        <form class="waitlist__form" id="waitlistForm" novalidate>
+          <div class="field">
+            <label class="visually-hidden" for="email">Email address</label>
+            <input type="email" id="email" name="email" inputmode="email" autocomplete="email"
+              placeholder="you@example.com" required aria-describedby="formMsg" />
+            <button class="btn btn--primary btn--lg" type="submit">Join the waitlist</button>
+          </div>
+          <p class="form-msg" id="formMsg" role="status" aria-live="polite"></p>
+        </form>
+        <div class="waitlist__thanks" id="waitlistThanks" hidden>
+          <span class="waitlist__check" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="26" height="26" fill="none"><path d="M5 12.5l4.5 4.5L19 7.5" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </span>
+          <h3>You're on the list.</h3>
+          <p>Thanks — your founding price of <strong>$79</strong> is reserved. Watch your inbox for the batch announcement.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ===== FOOTER ===== -->
+  <footer class="footer">
+    <div class="wrap footer__inner">
+      <div class="footer__brand">
+        <span class="brand__name">Phone&nbsp;Box</span>
+        <p>The smart focus lockbox. Pay once, focus for years.</p>
+      </div>
+      <nav class="footer__links" aria-label="Footer">
+        <a href="#pillars">Features</a>
+        <a href="#how">How it works</a>
+        <a href="#adjust">Make it yours</a>
+        <a href="#compare">Compare</a>
+        <a href="#pricing">Pricing</a>
+        <a href="#faq">FAQ</a>
+        <a href="#waitlist">Waitlist</a>
+      </nav>
+      <p class="footer__legal">© 2026 Phone Box. Pre-order concept — not yet shipping. Specifications subject to change.</p>
+    </div>
+  </footer>
+
+  <script src="js/script.js"></script>
+</body>
+</html>
