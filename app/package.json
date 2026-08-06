@@ -8,7 +8,8 @@
     "ios": "expo run:ios",
     "prebuild": "expo prebuild --clean",
     "test": "jest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "android": "expo run:android"
   },
   "dependencies": {
     "buffer": "^6.0.3",
@@ -36,5 +37,8 @@
       "/ios/",
       "/android/"
     ]
+  },
+  "allowScripts": {
+    "fsevents@2.3.3": true
   }
 }
