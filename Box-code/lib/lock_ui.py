@@ -542,7 +542,7 @@ class LockUI:
         group.append(ttl)
 
         self.set_rows_y = (70, 113, 156, 199, 242)
-        names = ("Override", "Auto-open", "Sleep", "Bright", "Remote unlock")
+        names = ("Override", "Auto-open", "Sleep", "Bright", "Unlock")
         self.set_vals = []
         for i, name in enumerate(names):
             y = self.set_rows_y[i]
@@ -575,7 +575,7 @@ class LockUI:
         return -1
 
     # ----- per-setting detail page ([-]/[+] buttons or swipe up/down) -----
-    _SET_NAMES = ("Override", "Auto-open", "Sleep", "Bright", "Remote unlock")
+    _SET_NAMES = ("Override", "Auto-open", "Sleep", "Bright", "Unlock")
 
     def _fmt_setting(self, idx, s):
         if idx == 0:
