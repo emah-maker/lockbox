@@ -90,5 +90,12 @@ class Settings:
         self.save()
 
     def toggle_remote_unlock(self):
+        # "R Unlock" on the box's own Settings screen, "Remote unlock" in the
+        # phone app -- same field (allow_remote_unlock), same NVM byte. ON
+        # lets the app's Open/Close controls actually release the box early
+        # (BLE command "unlock", gated in lock_controller.apply_ble_command);
+        # OFF makes the box ignore that command and only alert-through
+        # (screen notification) on an incoming call, same as always. Off by
+        # default: see BLE_ALLOW_REMOTE_UNLOCK in lock_config.py for why.
         self.allow_remote_unlock = not self.allow_remote_unlock
         self.save()
