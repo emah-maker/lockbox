@@ -1,6 +1,6 @@
 // Unit tests for the pure stats helpers. Run with `npm test` (jest-expo).
 import { aggregate, formatDuration, completionRate, SessionRecord } from './stats';
-import { parseStatus, parseStats } from '../ble/protocol';
+import { parseStatus, parseHistoryEntries } from '../ble/protocol';
 
 describe('aggregate', () => {
   const recs: SessionRecord[] = [
@@ -31,7 +31,7 @@ describe('aggregate', () => {
   });
 
   it('empty history is all zeros', () => {
-    expect(aggregate([])).toEqual({ avail: 1, n: 0, foc: 0, done: 0, str: 0, lng: 0 });
+    expect(aggregate([])).toEqual({ n: 0, foc: 0, done: 0, str: 0, lng: 0 });
   });
 });
 
@@ -45,8 +45,8 @@ describe('formatDuration', () => {
 
 describe('completionRate', () => {
   it('is 0 with no sessions and rounds otherwise', () => {
-    expect(completionRate({ avail: 1, n: 0, foc: 0, done: 0, str: 0, lng: 0 })).toBe(0);
-    expect(completionRate({ avail: 1, n: 3, foc: 0, done: 2, str: 0, lng: 0 })).toBe(67);
+    expect(completionRate({ n: 0, foc: 0, done: 0, str: 0, lng: 0 })).toBe(0);
+    expect(completionRate({ n: 3, foc: 0, done: 2, str: 0, lng: 0 })).toBe(67);
   });
 });
 
@@ -57,8 +57,14 @@ describe('protocol parsers', () => {
     expect(s?.rem).toBe(1234);
   });
 
-  it('returns a zeroed stats object when the box has no SD card', () => {
-    expect(parseStats('{"avail":0}')).toEqual({ avail: 0, n: 0, foc: 0, done: 0, str: 0, lng: 0 });
+  it('parses a batch of history entries drained from the box', () => {
+    const entries = parseHistoryEntries('[{"p":300,"a":300,"c":1,"t":1700000000}]');
+    expect(entries).toEqual([{ p: 300, a: 300, c: 1, t: 1700000000 }]);
+  });
+
+  it('treats a missing/garbled history payload as empty', () => {
+    expect(parseHistoryEntries('not json')).toEqual([]);
+    expect(parseHistoryEntries('{}')).toEqual([]);
   });
 
   it('rejects garbled json', () => {

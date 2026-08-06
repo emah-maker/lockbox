@@ -9,7 +9,7 @@ export const SERVICE_UUID = '6b9a7e00-4c2a-4f8e-9b21-9d7a5e3c0001';
 
 export const CHAR = {
   status: '6b9a7e00-4c2a-4f8e-9b21-9d7a5e3c0002', // READ | NOTIFY  (box -> app)
-  stats: '6b9a7e00-4c2a-4f8e-9b21-9d7a5e3c0003', // READ | NOTIFY  (box -> app)
+  history: '6b9a7e00-4c2a-4f8e-9b21-9d7a5e3c0003', // READ | NOTIFY (box -> app)
   command: '6b9a7e00-4c2a-4f8e-9b21-9d7a5e3c0004', // WRITE        (app -> box)
   settings: '6b9a7e00-4c2a-4f8e-9b21-9d7a5e3c0005', // READ | WRITE (round-trip)
   timeSync: '6b9a7e00-4c2a-4f8e-9b21-9d7a5e3c0006', // WRITE       (epoch seconds)
@@ -27,13 +27,15 @@ export interface Status {
   fw: string;
 }
 
-export interface Stats {
-  avail: 0 | 1; // 0 = no SD card on the box
-  n: number; // sessions
-  foc: number; // total focus seconds
-  done: number; // completed sessions
-  str: number; // current streak (consecutive completed)
-  lng: number; // longest session seconds
+// A session the box finished while no phone was connected to see it live
+// (see Box-code/lib/lock_log.py). The box holds these in RAM only -- no SD
+// card, no NVM -- and clears its queue as soon as it has handed them to the
+// app over the `history` characteristic, so the app is the durable copy.
+export interface HistoryEntry {
+  p: number; // planned seconds
+  a: number; // actual seconds
+  c: 0 | 1; // 1 = completed naturally, 0 = ended early (override/remote unlock)
+  t: number; // wall-clock epoch seconds when it ended, or -1 if never time-synced
 }
 
 export interface Settings {
@@ -41,6 +43,7 @@ export interface Settings {
   auto: 0 | 1; // auto-open
   sleep: number; // screen-sleep seconds
   bright: number; // backlight percent
+  unlk: 0 | 1; // remote unlock from the phone -- off by default; opt in from Settings
 }
 
 // ----- parsers (defensive: the radio can hand us partial/garbled JSON) -----
@@ -60,20 +63,20 @@ export function parseStatus(json: string): Status | null {
   }
 }
 
-export function parseStats(json: string): Stats | null {
+export function parseHistoryEntries(json: string): HistoryEntry[] {
   try {
     const d = JSON.parse(json);
-    if (!d.avail) return { avail: 0, n: 0, foc: 0, done: 0, str: 0, lng: 0 };
-    return {
-      avail: 1,
-      n: Number(d.n) || 0,
-      foc: Number(d.foc) || 0,
-      done: Number(d.done) || 0,
-      str: Number(d.str) || 0,
-      lng: Number(d.lng) || 0,
-    };
+    if (!Array.isArray(d)) return [];
+    return d
+      .filter((e) => e && typeof e === 'object')
+      .map((e) => ({
+        p: Number(e.p) || 0,
+        a: Number(e.a) || 0,
+        c: e.c ? 1 : 0,
+        t: e.t == null ? -1 : Number(e.t),
+      }));
   } catch {
-    return null;
+    return [];
   }
 }
 
@@ -85,6 +88,7 @@ export function parseSettings(json: string): Settings | null {
       auto: d.auto ? 1 : 0,
       sleep: Number(d.sleep) || 0,
       bright: Number(d.bright) || 0,
+      unlk: d.unlk ? 1 : 0,
     };
   } catch {
     return null;
@@ -94,7 +98,7 @@ export function parseSettings(json: string): Settings | null {
 // ----- app -> box encoders -----
 export const cmdStart = (seconds: number) => `start:${Math.max(0, Math.floor(seconds))}`;
 export const cmdLock = () => 'lock';
-export const cmdUnlock = () => 'unlock'; // honored only if the box enables remote unlock
+export const cmdUnlock = () => 'unlock'; // ignored if the box's remote-unlock setting is off
 export const encodeSettings = (s: Settings) => JSON.stringify(s);
 export const encodeTime = (epochSeconds: number) => String(Math.floor(epochSeconds));
 

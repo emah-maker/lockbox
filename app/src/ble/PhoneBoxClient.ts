@@ -1,6 +1,6 @@
 // PhoneBoxClient.ts -- the app's BLE service layer over react-native-ble-plx.
-// Scan by service UUID -> connect -> subscribe to status/stats notifications ->
-// read/write the characteristics defined in protocol.ts. One box, one
+// Scan by service UUID -> connect -> subscribe to status/history notifications
+// -> read/write the characteristics defined in protocol.ts. One box, one
 // connection; auto-reconnect is left to the caller (see useStore).
 import { BleManager, Device, Subscription, State } from 'react-native-ble-plx';
 import { Buffer } from 'buffer';
@@ -8,10 +8,10 @@ import {
   SERVICE_UUID,
   CHAR,
   parseStatus,
-  parseStats,
+  parseHistoryEntries,
   parseSettings,
   Status,
-  Stats,
+  HistoryEntry,
   Settings,
   cmdStart,
   cmdLock,
@@ -26,7 +26,10 @@ const fromB64 = (s: string | null) => (s ? Buffer.from(s, 'base64').toString('ut
 
 export interface ClientCallbacks {
   onStatus?: (s: Status) => void;
-  onStats?: (s: Stats) => void;
+  // Sessions the box finished while no phone was connected -- see
+  // Box-code/lib/lock_log.py. Fires at most once per connection since the
+  // box clears its queue as soon as it pushes this notify.
+  onHistory?: (entries: HistoryEntry[]) => void;
   onDisconnect?: () => void;
 }
 
@@ -75,6 +78,16 @@ export class PhoneBoxClient {
 
   async connect(device: Device, cb: ClientCallbacks): Promise<void> {
     const d = await device.connect();
+    await this.afterConnect(d, cb);
+  }
+
+  /** Connect straight to a remembered device id (no scan) -- the autoconnect path. */
+  async connectById(deviceId: string, cb: ClientCallbacks, timeoutMs = 6000): Promise<void> {
+    const d = await this.manager.connectToDevice(deviceId, { timeout: timeoutMs });
+    await this.afterConnect(d, cb);
+  }
+
+  private async afterConnect(d: Device, cb: ClientCallbacks): Promise<void> {
     await d.discoverAllServicesAndCharacteristics();
     this.device = d;
 
@@ -94,17 +107,22 @@ export class PhoneBoxClient {
         }),
       );
     }
-    if (cb.onStats) {
+    if (cb.onHistory) {
       this.subs.push(
-        d.monitorCharacteristicForService(SERVICE_UUID, CHAR.stats, (err, c) => {
+        d.monitorCharacteristicForService(SERVICE_UUID, CHAR.history, (err, c) => {
           if (err || !c) return;
-          const s = parseStats(fromB64(c.value));
-          if (s) cb.onStats!(s);
+          const entries = parseHistoryEntries(fromB64(c.value));
+          if (entries.length) cb.onHistory!(entries);
         }),
       );
     }
     // push the current wall clock so the box can date future history/schedules
     await this.syncTime();
+  }
+
+  /** The connected device's id, for remembering "the box" across app launches. */
+  get deviceId(): string | null {
+    return this.device?.id ?? null;
   }
 
   private async write(charUUID: string, value: string) {

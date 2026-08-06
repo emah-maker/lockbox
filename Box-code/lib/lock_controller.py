@@ -9,6 +9,7 @@ from lock_config import (
 from lock_battery import Battery
 from lock_servo import Servo
 from lock_settings import Settings
+from lock_log import SessionLog
 
 COMPLETED = "completed"
 OVERRIDDEN = "overridden"
@@ -37,6 +38,7 @@ class LockController:
         self.battery = Battery(i2c)
         self.servo = Servo()
         self.settings = Settings()
+        self.log = SessionLog()
         self._editing = False
         self._edit_idx = 0
         self._servo_relax_at = None
@@ -113,6 +115,13 @@ class LockController:
             self.set_view("control")
 
     def go_done(self, now, outcome=COMPLETED):
+        # Only a countdown that actually ran is a session -- go_done can also
+        # be reached from "closed" (override/remote-unlock before LOCK was
+        # ever pressed), which has no elapsed time worth logging.
+        if self.state == "running":
+            actual_s = max(0.0, now - (self.deadline - self.set_seconds))
+            self.log.record(self.set_seconds, actual_s, outcome == COMPLETED,
+                             self.wall_time(now))
         self._clear_override()
         self.state = "done"
         self.done_start = now
@@ -223,14 +232,19 @@ class LockController:
         return '{{"st":"{}","rem":{},"set":{},"bat":{},"fw":"1.0"}}'.format(
             self.state, rem, int(self.set_seconds), self._battery_pct(now))
 
+    def ble_history_json(self):
+        return self.log.to_json()
+
     def ble_settings_json(self):
         st = self.settings
-        return '{{"ovr":{},"auto":{},"sleep":{},"bright":{}}}'.format(
+        return '{{"ovr":{},"auto":{},"sleep":{},"bright":{},"unlk":{}}}'.format(
             st.override_presses, 1 if st.auto_open else 0, st.sleep_s,
-            st.bright_pct)
+            st.bright_pct, 1 if st.allow_remote_unlock else 0)
 
-    def apply_ble_command(self, cmd, now, allow_unlock):
-        # opcodes: "start:<seconds>", "lock", "unlock" (unlock gated by policy)
+    def apply_ble_command(self, cmd, now):
+        # opcodes: "start:<seconds>", "lock", "unlock" (unlock gated by
+        # self.settings.allow_remote_unlock, toggled from the app's Settings
+        # screen -- see apply_ble_settings_json / lock_ble._drain_inbound)
         op = cmd.split(":", 1)
         name = op[0]
         if name == "start":
@@ -247,8 +261,9 @@ class LockController:
             if self.state in ("idle", "done"):
                 self.go_closed(now)
         elif name == "unlock":
-            # a new remote early-release path: OFF by default; alert-through only
-            if allow_unlock and self.state in ("running", "closed"):
+            # a remote early-release path: ON by default (see lock_config.
+            # BLE_ALLOW_REMOTE_UNLOCK), toggleable off in Settings
+            if self.settings.allow_remote_unlock and self.state in ("running", "closed"):
                 self.go_done(now, OVERRIDDEN)
 
     def apply_ble_settings_json(self, text):
@@ -266,6 +281,8 @@ class LockController:
             st.sleep_s = int(d["sleep"])
         if "bright" in d:
             st.bright_pct = max(0, min(100, int(d["bright"])))
+        if "unlk" in d:
+            st.allow_remote_unlock = bool(d["unlk"])
         st.save()
         if self.view == "settings":
             self.ui.update_settings(st)

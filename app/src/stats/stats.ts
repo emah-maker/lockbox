@@ -1,13 +1,20 @@
 // stats.ts -- pure focus-stat helpers (no RN/BLE deps, so they are unit-testable
-// under plain node/jest). The box computes the aggregates on-device (see
-// Box-code/lib/lock_log.py compute_stats); these mirror that shape for display
-// and for the day the app pulls the full session history over BLE.
-import type { Stats } from '../ble/protocol';
-
+// under plain node/jest). The box keeps no long-term aggregate of its own (see
+// Box-code/lib/lock_log.py -- a small RAM-only queue, not a stats store): the
+// app is the durable copy, so these aggregates are computed here, client-side,
+// from the local session log (sessionHistory.ts) instead of read over BLE.
 export interface SessionRecord {
   plannedS: number;
   actualS: number;
   outcome: 'completed' | 'overridden';
+}
+
+export interface Stats {
+  n: number; // sessions
+  foc: number; // total focus seconds
+  done: number; // completed sessions
+  str: number; // current streak (consecutive completed, most recent first)
+  lng: number; // longest session seconds
 }
 
 /** Aggregate raw session records the same way the firmware does. Newest-last
@@ -31,7 +38,7 @@ export function aggregate(records: SessionRecord[]): Stats {
       streakOpen = false;
     }
   }
-  return { avail: 1, n, foc, done, str, lng };
+  return { n, foc, done, str, lng };
 }
 
 /** Whole-minute-rounded "Xh Ym" / "Ym" duration, matching the box's _fmt_dur. */

@@ -541,8 +541,8 @@ class LockUI:
         ttl.anchored_position = (W // 2, 26)
         group.append(ttl)
 
-        self.set_rows_y = (80, 130, 180, 230)
-        names = ("Override", "Auto-open", "Sleep", "Bright")
+        self.set_rows_y = (70, 113, 156, 199, 242)
+        names = ("Override", "Auto-open", "Sleep", "Bright", "Remote unlock")
         self.set_vals = []
         for i, name in enumerate(names):
             y = self.set_rows_y[i]
@@ -566,6 +566,7 @@ class LockUI:
         self.set_vals[1].text = "ON" if s.auto_open else "OFF"
         self.set_vals[2].text = "{}s".format(s.sleep_s)
         self.set_vals[3].text = "{}%".format(s.bright_pct)
+        self.set_vals[4].text = "ON" if s.allow_remote_unlock else "OFF"
 
     def settings_row_at(self, y):
         for i, ry in enumerate(self.set_rows_y):
@@ -574,7 +575,7 @@ class LockUI:
         return -1
 
     # ----- per-setting detail page ([-]/[+] buttons or swipe up/down) -----
-    _SET_NAMES = ("Override", "Auto-open", "Sleep", "Bright")
+    _SET_NAMES = ("Override", "Auto-open", "Sleep", "Bright", "Remote unlock")
 
     def _fmt_setting(self, idx, s):
         if idx == 0:
@@ -583,7 +584,9 @@ class LockUI:
             return "ON" if s.auto_open else "OFF"
         if idx == 2:
             return "{}s".format(s.sleep_s)
-        return "{}%".format(s.bright_pct)
+        if idx == 3:
+            return "{}%".format(s.bright_pct)
+        return "ON" if s.allow_remote_unlock else "OFF"
 
     def _build_setting_detail(self, W, H):
         group = displayio.Group()

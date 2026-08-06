@@ -14,8 +14,10 @@
 #    interaction, so the documented run-loop ordering is preserved.
 #  * State-machine reuse. Inbound commands map onto existing controller
 #    transitions (go_running / go_closed / release). No new lock mechanism.
-#  * Focus contract. A remote unlock is gated OFF by default and rate-limited;
-#    the physical press-count override stays the true emergency path. Calls
+#  * Rate-limited remote unlock. On by default: the phone that would send it
+#    is normally the one locked inside the box, so it can't be reached to
+#    cheat with anyway. The physical press-count override remains the
+#    always-available emergency path regardless of this setting. Calls
 #    default to alert-through (screen notification), never auto-open.
 #
 # Payload formats are shared verbatim with app/src/ble/protocol.ts -- keep them
@@ -35,8 +37,8 @@ except ImportError:
 
 from lock_config import (
     BLE_ENABLED, BLE_NAME, BLE_ADV_INTERVAL, BLE_ADV_WHEN_LOCKED,
-    BLE_CMD_MIN_INTERVAL, BLE_ALLOW_REMOTE_UNLOCK, BLE_CALL_ALERT_S,
-    BLE_SERVICE_UUID, BLE_UUID_STATUS, BLE_UUID_COMMAND,
+    BLE_CMD_MIN_INTERVAL, BLE_CALL_ALERT_S,
+    BLE_SERVICE_UUID, BLE_UUID_STATUS, BLE_UUID_HISTORY, BLE_UUID_COMMAND,
     BLE_UUID_SETTINGS, BLE_UUID_TIME, BLE_UUID_ALERT,
 )
 
@@ -52,6 +54,9 @@ def _build_service_cls():
         # box -> app
         status = StringCharacteristic(
             uuid=VendorUUID(BLE_UUID_STATUS),
+            properties=Characteristic.READ | Characteristic.NOTIFY)
+        history = StringCharacteristic(
+            uuid=VendorUUID(BLE_UUID_HISTORY),
             properties=Characteristic.READ | Characteristic.NOTIFY)
         # app -> box (settings is round-trip)
         command = StringCharacteristic(
@@ -83,6 +88,7 @@ class PhoneBoxBLE:
         self._last_alert = ""
         self._last_time = ""
         self._last_settings = ""
+        self._last_history = ""
         if not (BLE_ENABLED and _BLE_IMPORTED):
             return
         try:
@@ -141,6 +147,14 @@ class PhoneBoxBLE:
         if not self._last_settings:
             self._svc.settings = ctrl.ble_settings_json()
             self._last_settings = self._svc.settings
+        if ctrl.log.has_pending:
+            text = ctrl.ble_history_json()
+            if text != self._last_history:
+                self._svc.history = text
+                self._last_history = text
+                # Handed off to the app (see PhoneBoxClient.onHistory); the app
+                # is now the durable copy, so the box's queue can be dropped.
+                ctrl.log.clear()
 
     def _drain_inbound(self, ctrl, now):
         cmd = self._svc.command
@@ -148,7 +162,7 @@ class PhoneBoxBLE:
             self._last_command = cmd
             if now - self._last_cmd_at >= BLE_CMD_MIN_INTERVAL:
                 self._last_cmd_at = now
-                ctrl.apply_ble_command(cmd, now, BLE_ALLOW_REMOTE_UNLOCK)
+                ctrl.apply_ble_command(cmd, now)
 
         alert = self._svc.alert
         if alert and alert != self._last_alert:

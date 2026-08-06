@@ -5,11 +5,14 @@
 import microcontroller
 
 from lock_config import (
-    OVERRIDE_PRESSES, INACTIVITY_S, BL_LEVEL,
+    OVERRIDE_PRESSES, INACTIVITY_S, BL_LEVEL, BLE_ALLOW_REMOTE_UNLOCK,
     OVR_MIN, OVR_MAX, OVR_STEP, SLEEP_OPTIONS, BRIGHT_OPTIONS,
 )
 
-_MAGIC = 0x5D        # bump when the NVM layout changes (forces defaults once)
+_MAGIC = 0x5E        # bump when the NVM layout changes (forces defaults once);
+                     # bumped to add the allow_remote_unlock byte so a box
+                     # flashed before this feature doesn't read a stray
+                     # erased byte in that slot as a real saved value
 _BASE = 8            # NVM offset for settings (byte 0 = brownout counter)
 
 
@@ -28,6 +31,13 @@ class Settings:
         self.auto_open = True
         self.sleep_s = INACTIVITY_S
         self.bright_pct = int(BL_LEVEL * 100)
+        # Remote unlock from the phone app -- ON by default (see
+        # BLE_ALLOW_REMOTE_UNLOCK). Gating this off buys no real anti-cheat
+        # during normal use: the phone that would send "unlock" is the same
+        # phone sitting locked inside the box, unreachable until it's opened.
+        # The Settings screen can still turn it off for a shared/partner-lock
+        # box, where a second device really could open it early.
+        self.allow_remote_unlock = BLE_ALLOW_REMOTE_UNLOCK
         self._load()
 
     def _load(self):
@@ -38,6 +48,7 @@ class Settings:
                 self.auto_open = bool(nvm[_BASE + 2])
                 self.sleep_s = nvm[_BASE + 3]
                 self.bright_pct = nvm[_BASE + 4]
+                self.allow_remote_unlock = bool(nvm[_BASE + 5])
         except Exception:
             pass
 
@@ -51,6 +62,7 @@ class Settings:
             nvm[_BASE + 2] = 1 if self.auto_open else 0
             nvm[_BASE + 3] = max(0, min(255, int(self.sleep_s)))
             nvm[_BASE + 4] = max(0, min(100, int(self.bright_pct)))
+            nvm[_BASE + 5] = 1 if self.allow_remote_unlock else 0
         except Exception:
             pass
 
@@ -74,4 +86,10 @@ class Settings:
             self.sleep_s = _step_in(SLEEP_OPTIONS, self.sleep_s, direction)
         elif idx == 3:
             self.bright_pct = _step_in(BRIGHT_OPTIONS, self.bright_pct, direction)
+        elif idx == 4:
+            self.allow_remote_unlock = direction > 0
+        self.save()
+
+    def toggle_remote_unlock(self):
+        self.allow_remote_unlock = not self.allow_remote_unlock
         self.save()
