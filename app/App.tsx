@@ -1,11 +1,12 @@
 // App.tsx -- entry point. Navigation is a trivial hand-rolled tab switcher (no
-// react-navigation dependency) since three flat screens don't need a router:
-// Dashboard, Calendar, Settings.
+// react-navigation dependency) since four flat screens don't need a router:
+// Dashboard, Stats, Calendar, Settings.
 import React, { useEffect, useState } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import DashboardScreen from './src/screens/DashboardScreen';
+import StatsScreen from './src/screens/StatsScreen';
 import CalendarScreen from './src/screens/CalendarScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
 import { useStore } from './src/store/useStore';
@@ -13,13 +14,21 @@ import { useSettingsStore } from './src/store/useSettingsStore';
 import { useTheme } from './src/theme/useTheme';
 import { isCallObserverAvailable } from './modules/call-observer';
 
-type Tab = 'dashboard' | 'calendar' | 'settings';
+type Tab = 'dashboard' | 'stats' | 'calendar' | 'settings';
 
 const TABS: { key: Tab; label: string }[] = [
   { key: 'dashboard', label: 'Focus' },
+  { key: 'stats', label: 'Stats' },
   { key: 'calendar', label: 'Calendar' },
   { key: 'settings', label: 'Settings' },
 ];
+
+const SCREENS: Record<Tab, React.ComponentType> = {
+  dashboard: DashboardScreen,
+  stats: StatsScreen,
+  calendar: CalendarScreen,
+  settings: SettingsScreen,
+};
 
 export default function App() {
   const [tab, setTab] = useState<Tab>('dashboard');
@@ -34,7 +43,7 @@ export default function App() {
     init();
   }, []);
 
-  const Screen = tab === 'dashboard' ? DashboardScreen : tab === 'calendar' ? CalendarScreen : SettingsScreen;
+  const Screen = SCREENS[tab];
 
   return (
     <SafeAreaProvider>
