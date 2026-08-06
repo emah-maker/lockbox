@@ -91,11 +91,18 @@ BLE_ADV_INTERVAL = 0.2             # seconds between advertising packets
 # Advertise only when the screen is awake OR the box is locked, to bound the
 # radio's current draw against the brownout budget (servo peaks share VBAT).
 BLE_ADV_WHEN_LOCKED = True
-# Rate-limit inbound BLE commands that change the latch (new remote path). The
-# physical press-count override stays the true emergency path; a remote unlock
-# defaults OFF -- see BLE_ALLOW_REMOTE_UNLOCK.
+# Rate-limit inbound BLE commands that change the latch (new remote path).
+# Remote unlock defaults OFF and stays an explicit opt-in (see
+# BLE_ALLOW_REMOTE_UNLOCK, the seed default for Settings.allow_remote_unlock,
+# which the app's Settings screen can flip on). The app that would send the
+# unlock is a *companion* device -- a second phone or tablet paired to the
+# box, not the phone locked inside it, which is unreachable until the box
+# opens. That means the anti-cheat case is real: defaulting this on would
+# make "tap Open on the other device" a standing one-tap escape hatch from
+# day one, defeating the reason the box exists. Physical override stays the
+# always-available emergency path either way.
 BLE_CMD_MIN_INTERVAL = 1.0         # seconds between accepted commands
-BLE_ALLOW_REMOTE_UNLOCK = False    # keep the focus contract: alert-through, not auto-open
+BLE_ALLOW_REMOTE_UNLOCK = False
 # How long an incoming-call notification stays on screen (auto-dismiss).
 BLE_CALL_ALERT_S = 20.0
 
@@ -103,6 +110,11 @@ BLE_CALL_ALERT_S = 20.0
 # MUST match the app side (app/src/ble/protocol.ts). Keep them in lockstep.
 BLE_SERVICE_UUID = "6b9a7e00-4c2a-4f8e-9b21-9d7a5e3c0001"
 BLE_UUID_STATUS = "6b9a7e00-4c2a-4f8e-9b21-9d7a5e3c0002"   # READ | NOTIFY
+# History: a small RAM-only queue of sessions finished since the app last
+# connected (see lock_log.py). No SD card and no NVM writes -- the app is the
+# durable store (app/src/stats/sessionHistory.ts); this just bridges the gap
+# for sessions that finished while no phone was around to see them live.
+BLE_UUID_HISTORY = "6b9a7e00-4c2a-4f8e-9b21-9d7a5e3c0003"  # READ | NOTIFY
 BLE_UUID_COMMAND = "6b9a7e00-4c2a-4f8e-9b21-9d7a5e3c0004"  # WRITE
 BLE_UUID_SETTINGS = "6b9a7e00-4c2a-4f8e-9b21-9d7a5e3c0005" # READ | WRITE
 BLE_UUID_TIME = "6b9a7e00-4c2a-4f8e-9b21-9d7a5e3c0006"     # WRITE (epoch seconds)
