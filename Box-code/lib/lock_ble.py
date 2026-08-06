@@ -14,11 +14,13 @@
 #    interaction, so the documented run-loop ordering is preserved.
 #  * State-machine reuse. Inbound commands map onto existing controller
 #    transitions (go_running / go_closed / release). No new lock mechanism.
-#  * Rate-limited remote unlock. On by default: the phone that would send it
-#    is normally the one locked inside the box, so it can't be reached to
-#    cheat with anyway. The physical press-count override remains the
-#    always-available emergency path regardless of this setting. Calls
-#    default to alert-through (screen notification), never auto-open.
+#  * Rate-limited remote unlock. Off by default (see lock_config.py
+#    BLE_ALLOW_REMOTE_UNLOCK) and opt-in from the app's Settings screen --
+#    the phone that would send it is a companion device, not the one locked
+#    inside the box, so leaving this on would make cheating one tap away.
+#    The physical press-count override remains the always-available
+#    emergency path regardless of this setting. Calls default to
+#    alert-through (screen notification), never auto-open.
 #
 # Payload formats are shared verbatim with app/src/ble/protocol.ts -- keep them
 # in lockstep with the UUIDs in lock_config.py.

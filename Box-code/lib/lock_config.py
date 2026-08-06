@@ -92,15 +92,17 @@ BLE_ADV_INTERVAL = 0.2             # seconds between advertising packets
 # radio's current draw against the brownout budget (servo peaks share VBAT).
 BLE_ADV_WHEN_LOCKED = True
 # Rate-limit inbound BLE commands that change the latch (new remote path).
-# Remote unlock defaults ON: the "anti-cheat" case for gating it off doesn't
-# actually hold during normal use -- the phone that would send the unlock is
-# the same phone locked inside the box, so it is physically out of reach
-# until the box is opened anyway. The toggle stays available (see
+# Remote unlock defaults OFF and stays an explicit opt-in (see
 # BLE_ALLOW_REMOTE_UNLOCK, the seed default for Settings.allow_remote_unlock,
-# which the app's Settings screen can flip off) for setups where a *second*
-# device could otherwise open someone else's box early.
+# which the app's Settings screen can flip on). The app that would send the
+# unlock is a *companion* device -- a second phone or tablet paired to the
+# box, not the phone locked inside it, which is unreachable until the box
+# opens. That means the anti-cheat case is real: defaulting this on would
+# make "tap Open on the other device" a standing one-tap escape hatch from
+# day one, defeating the reason the box exists. Physical override stays the
+# always-available emergency path either way.
 BLE_CMD_MIN_INTERVAL = 1.0         # seconds between accepted commands
-BLE_ALLOW_REMOTE_UNLOCK = True
+BLE_ALLOW_REMOTE_UNLOCK = False
 # How long an incoming-call notification stays on screen (auto-dismiss).
 BLE_CALL_ALERT_S = 20.0
 

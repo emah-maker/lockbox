@@ -31,12 +31,11 @@ class Settings:
         self.auto_open = True
         self.sleep_s = INACTIVITY_S
         self.bright_pct = int(BL_LEVEL * 100)
-        # Remote unlock from the phone app -- ON by default (see
-        # BLE_ALLOW_REMOTE_UNLOCK). Gating this off buys no real anti-cheat
-        # during normal use: the phone that would send "unlock" is the same
-        # phone sitting locked inside the box, unreachable until it's opened.
-        # The Settings screen can still turn it off for a shared/partner-lock
-        # box, where a second device really could open it early.
+        # Remote unlock from the phone app -- OFF by default (see
+        # BLE_ALLOW_REMOTE_UNLOCK). The phone that would send "unlock" is a
+        # companion device (a second phone/tablet), not the one locked inside
+        # the box, so this is a real one-tap escape hatch if left on. The
+        # Settings screen can turn it on for setups that want that trade-off.
         self.allow_remote_unlock = BLE_ALLOW_REMOTE_UNLOCK
         self._load()
 
