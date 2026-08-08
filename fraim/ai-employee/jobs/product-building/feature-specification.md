@@ -10,7 +10,7 @@
 Create clear product specs that define the why, what, and user experience before code is written.
 
 ## Outcome
-- **Reviewable deliverable**: A .docx document at `docs/feature-specs/{issue_number}-{slug}.docx` sharing the markdown spec's base filename, with requirements, acceptance criteria, user stories, high-fidelity mocks (embedded or linked), compliance analysis, and competitive landscape
+- **Reviewable deliverable**: A markdown spec at `docs/feature-specs/{issue_number}-{slug}.md`, with requirements, acceptance criteria, user stories, high-fidelity mocks (embedded or linked), compliance analysis, and competitive landscape.
 - **High-Fidelity Mocks**: Interactive HTML/CSS mocks in `docs/feature-specs/mocks/` for all UI changes.
 - **Compliance Analysis**: Explicit regulatory requirements when applicable.
 - **Competitive Analysis**: Proof that the feature matches or improves on credible alternatives.

@@ -25,8 +25,15 @@ type Conn = 'idle' | 'scanning' | 'connecting' | 'connected' | 'error';
 
 const AUTO_CONNECT_KEY = 'autoConnect';
 const LAST_DEVICE_KEY = 'lastDeviceId';
+const PENDING_TOPIC_KEY = 'pendingTopicTag';
 const RECONNECT_DELAY_MS = 4000;
 const CONNECT_BY_ID_TIMEOUT_MS = 6000;
+const PENDING_TOPIC_SLACK_MS = 5000; // tolerance past a session's end for the tag to still count
+
+interface PendingTopicTag {
+  topic: string;
+  at: number; // epoch ms when the user tagged the in-progress session
+}
 
 interface AppState {
   initialized: boolean;
@@ -36,6 +43,11 @@ interface AppState {
   lastAlert: string | null;
   autoConnect: boolean;
   sessions: LoggedSession[];
+  currentTopic: string | null; // topic tagged for the box's in-progress session, if any
+  // Whether the native CXCallObserver module is actually linked into this build
+  // (false in Expo Go, Android, or if the module failed to link) -- surfaced so
+  // the "alert box on incoming calls" toggle doesn't silently do nothing.
+  callDetectionAvailable: boolean;
 
   init: () => Promise<void>;
   connect: () => Promise<void>;
@@ -45,6 +57,7 @@ interface AppState {
   openBox: () => Promise<void>;
   setAutoConnect: (on: boolean) => void;
   pushBoxSettings: (patch: Partial<Settings>) => Promise<void>;
+  tagCurrentSession: (topic: string) => void;
 }
 
 const client = new PhoneBoxClient();
@@ -84,21 +97,43 @@ export const useStore = create<AppState>((set, get) => {
   // deliberately no separate "watch the status transition live" path: the
   // box would report the same session again here within about a second,
   // which would double-count it.
+  // A topic tagged via tagCurrentSession() while a session is running is
+  // matched here to whichever incoming history entry's time window contains
+  // the tag's timestamp -- the box has no keyboard/topic input of its own
+  // (touchscreen swipe timer only) and keeps no long-term session store (see
+  // Box-code/lib/lock_log.py's 2026-07-24 SD-card removal), so topic tagging
+  // is entirely app-side and only ever needs to survive to this hand-off.
   const handleHistory = (entries: HistoryEntry[]) => {
     if (!entries.length) return;
-    const logged: LoggedSession[] = entries.map((e) => ({
-      // e.t is a wall-clock epoch second, or -1 if the box's clock was never
-      // synced (no phone had connected yet); fall back to "now" so the
-      // session still shows up somewhere on the calendar.
-      startedAt: (e.t >= 0 ? e.t * 1000 : Date.now()) - e.a * 1000,
-      plannedS: e.p,
-      actualS: e.a,
-      outcome: e.c ? 'completed' : 'overridden',
-    }));
-    appendSessions(logged).then((sessions) => set({ sessions }));
+    getJSON<PendingTopicTag | null>(PENDING_TOPIC_KEY, null).then((pending) => {
+      let consumed = false;
+      const logged: LoggedSession[] = entries.map((e) => {
+        // e.t is a wall-clock epoch second, or -1 if the box's clock was never
+        // synced (no phone had connected yet); fall back to "now" so the
+        // session still shows up somewhere on the calendar.
+        const startedAt = (e.t >= 0 ? e.t * 1000 : Date.now()) - e.a * 1000;
+        const endedAt = startedAt + e.a * 1000;
+        let topic: string | undefined;
+        if (pending && !consumed && pending.at >= startedAt && pending.at <= endedAt + PENDING_TOPIC_SLACK_MS) {
+          topic = pending.topic;
+          consumed = true;
+        }
+        return { startedAt, plannedS: e.p, actualS: e.a, outcome: e.c ? 'completed' : 'overridden', topic };
+      });
+      if (consumed) {
+        setJSON<PendingTopicTag | null>(PENDING_TOPIC_KEY, null);
+        set({ currentTopic: null });
+      }
+      appendSessions(logged).then((sessions) => set({ sessions }));
+    });
   };
 
-  const handleStatus = (status: Status) => set({ status });
+  const handleStatus = (status: Status) =>
+    set((state) => ({
+      status,
+      // A fresh run needs a fresh tag; clear the label from whatever finished before.
+      currentTopic: status.st === 'running' && state.status?.st !== 'running' ? null : state.currentTopic,
+    }));
 
   const afterConnected = async () => {
     set({ conn: 'connected' });
@@ -120,6 +155,8 @@ export const useStore = create<AppState>((set, get) => {
     lastAlert: null,
     autoConnect: true,
     sessions: [],
+    currentTopic: null,
+    callDetectionAvailable: monitor.available,
 
     init: async () => {
       const [autoConnect, sessions] = await Promise.all([
@@ -204,6 +241,15 @@ export const useStore = create<AppState>((set, get) => {
       if (!client.connected) return;
       const next = useSettingsStore.getState().boxSettings;
       await client.writeSettings(next);
+    },
+
+    // Optimistic, like pushBoxSettings: shows the tag immediately and is
+    // reconciled onto the actual session once the box reports it finished
+    // (see handleHistory above). Safe to call again before that -- it just
+    // overwrites the pending tag with the newer timestamp/topic.
+    tagCurrentSession: (topic) => {
+      set({ currentTopic: topic });
+      setJSON<PendingTopicTag>(PENDING_TOPIC_KEY, { topic, at: Date.now() });
     },
   };
 });

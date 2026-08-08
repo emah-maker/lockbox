@@ -6,13 +6,13 @@ import microcontroller
 
 from lock_config import (
     OVERRIDE_PRESSES, INACTIVITY_S, BL_LEVEL, BLE_ALLOW_REMOTE_UNLOCK,
-    OVR_MIN, OVR_MAX, OVR_STEP, SLEEP_OPTIONS, BRIGHT_OPTIONS,
+    BLE_UNLOCK_ON_CALL, OVR_MIN, OVR_MAX, OVR_STEP, SLEEP_OPTIONS, BRIGHT_OPTIONS,
 )
 
-_MAGIC = 0x5E        # bump when the NVM layout changes (forces defaults once);
-                     # bumped to add the allow_remote_unlock byte so a box
-                     # flashed before this feature doesn't read a stray
-                     # erased byte in that slot as a real saved value
+_MAGIC = 0x5F        # bump when the NVM layout changes (forces defaults once);
+                     # bumped to add the unlock_on_call byte so a box flashed
+                     # before this feature doesn't read a stray erased byte in
+                     # that slot as a real saved value
 _BASE = 8            # NVM offset for settings (byte 0 = brownout counter)
 
 
@@ -37,6 +37,12 @@ class Settings:
         # the box, so this is a real one-tap escape hatch if left on. The
         # Settings screen can turn it on for setups that want that trade-off.
         self.allow_remote_unlock = BLE_ALLOW_REMOTE_UNLOCK
+        # Unlock when called -- OFF by default (see BLE_UNLOCK_ON_CALL). A
+        # separate opt-in from allow_remote_unlock: this one is triggered by an
+        # incoming call rather than a deliberate tap on a companion device, so
+        # conflating the two fields would let one opt-in silently enable both
+        # early-release paths.
+        self.unlock_on_call = BLE_UNLOCK_ON_CALL
         self._load()
 
     def _load(self):
@@ -48,6 +54,7 @@ class Settings:
                 self.sleep_s = nvm[_BASE + 3]
                 self.bright_pct = nvm[_BASE + 4]
                 self.allow_remote_unlock = bool(nvm[_BASE + 5])
+                self.unlock_on_call = bool(nvm[_BASE + 6])
         except Exception:
             pass
 
@@ -62,6 +69,7 @@ class Settings:
             nvm[_BASE + 3] = max(0, min(255, int(self.sleep_s)))
             nvm[_BASE + 4] = max(0, min(100, int(self.bright_pct)))
             nvm[_BASE + 5] = 1 if self.allow_remote_unlock else 0
+            nvm[_BASE + 6] = 1 if self.unlock_on_call else 0
         except Exception:
             pass
 
@@ -87,6 +95,8 @@ class Settings:
             self.bright_pct = _step_in(BRIGHT_OPTIONS, self.bright_pct, direction)
         elif idx == 4:
             self.allow_remote_unlock = direction > 0
+        elif idx == 5:
+            self.unlock_on_call = direction > 0
         self.save()
 
     def toggle_remote_unlock(self):

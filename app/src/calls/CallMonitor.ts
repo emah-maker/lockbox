@@ -1,8 +1,12 @@
 // CallMonitor.ts -- ties incoming-call detection to the box's alert-through.
 //
 // When a call rings while the box is LOCKED and the user has call-alerts on, we
-// tell the box (over BLE) to light up its screen. The box never unlocks -- this
-// is alert-through, preserving the focus contract.
+// tell the box (over BLE) to light up its screen. By default the box only
+// alerts (screen notification, latch stays shut); if the user has opted in to
+// "Unlock box when called" (Settings -> boxSettings.ucal), the box releases the
+// lock instead -- that decision is made firmware-side (lock_controller.
+// notify_call), not here, so this file's job is unchanged: just deliver the
+// alert write.
 //
 // iOS limitation (honest): CXCallObserver cannot tell us WHO is calling, so the
 // MVP alerts on ANY incoming call ("Tier 1"). Per-contact greenlisting ("Tier

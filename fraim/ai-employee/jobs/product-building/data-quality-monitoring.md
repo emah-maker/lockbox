@@ -10,7 +10,7 @@
 Define schema contract validations, implement data quality alerting, and establish a quality monitoring framework that catches data issues before they reach analytics consumers or product surfaces.
 
 ## Outcome
-- **Reviewable deliverable**: A .docx document at `docs/rfcs/{issue_number}-{slug}-data-quality-monitoring.docx`, paired with markdown RFC `docs/rfcs/{issue_number}-{slug}-data-quality-monitoring.md`, with Quality Contracts, Alert Rules, and Validation Plan
+- **Reviewable deliverable**: A markdown RFC at `docs/rfcs/{issue_number}-{slug}-data-quality-monitoring.md`, with Quality Contracts, Alert Rules, and Validation Plan.
 - **Quality Contracts**: Schema contract with column-level expectations (null rate, value range, format, referential integrity) for each monitored table.
 - **Alert Rules**: Alerting configuration for each quality dimension with severity and notification routing.
 - **Validation Plan**: Test suite definition for automated quality checks in the CI/CD pipeline.

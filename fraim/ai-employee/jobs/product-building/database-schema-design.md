@@ -10,7 +10,7 @@
 Design a production-grade database schema that is normalized for data integrity, indexed for query performance, and documented with a migration plan — so the schema is correct from the start rather than requiring painful rewrites after data accumulates.
 
 ## Outcome
-- **Reviewable deliverable**: A .docx document at `docs/rfcs/{issue_number}-{slug}-database-schema-design.docx`, paired with markdown RFC `docs/rfcs/{issue_number}-{slug}-database-schema-design.md`, with ERD, Normalization Assessment, and Migration Plan
+- **Reviewable deliverable**: A markdown RFC at `docs/rfcs/{issue_number}-{slug}-database-schema-design.md`, with ERD, Normalization Assessment, and Migration Plan.
 - **ERD**: Entity-relationship diagram (textual notation acceptable) with all tables, columns, types, and relationships.
 - **Normalization Assessment**: Confirmation of target normal form and any deliberate denormalization decisions.
 - **Migration Plan**: Ordered migration steps with rollback procedure.

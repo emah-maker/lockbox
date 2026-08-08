@@ -13,6 +13,7 @@
   "dependencies": {
     "@react-native-async-storage/async-storage": "^1.23.1",
     "buffer": "^6.0.3",
+    "call-observer": "file:./modules/call-observer",
     "expo": "~52.0.0",
     "expo-dev-client": "~5.0.0",
     "expo-status-bar": "~2.0.0",
@@ -32,6 +33,9 @@
   },
   "jest": {
     "preset": "jest-expo",
+    "setupFiles": [
+      "<rootDir>/jest.setup.js"
+    ],
     "testPathIgnorePatterns": [
       "/node_modules/",
       "/ios/",

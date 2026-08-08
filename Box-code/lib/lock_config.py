@@ -105,6 +105,17 @@ BLE_CMD_MIN_INTERVAL = 1.0         # seconds between accepted commands
 BLE_ALLOW_REMOTE_UNLOCK = False
 # How long an incoming-call notification stays on screen (auto-dismiss).
 BLE_CALL_ALERT_S = 20.0
+# Flash rate for the incoming-call overlay (color toggles per second, doubled
+# like ANIM_HZ's convention) -- an important call should be hard to miss, not
+# a static banner that blends into an already-lit screen.
+CALL_ALERT_BLINK_HZ = 3
+# "Unlock when called": defaults OFF, same anti-cheat rationale as
+# BLE_ALLOW_REMOTE_UNLOCK above, but a distinct opt-in -- this one fires from
+# an incoming call (any call; iOS CXCallObserver gives no caller identity),
+# not a deliberate phone-side tap, so leaving it on is a standing unlock
+# trigger that needs no companion-device action at all once armed. Default
+# behavior on a call stays alert-through (screen notification, latch shut).
+BLE_UNLOCK_ON_CALL = False
 
 # 128-bit vendor UUIDs for the custom PhoneBox service + characteristics. These
 # MUST match the app side (app/src/ble/protocol.ts). Keep them in lockstep.

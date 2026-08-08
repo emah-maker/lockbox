@@ -62,3 +62,13 @@ export const ACCENT_LABELS: Record<AccentKey, string> = {
 export function resolveTheme(mode: ThemeMode, accent: AccentKey): ThemeColors {
   return { ...MODES[mode], ...ACCENTS[accent] };
 }
+
+/** Blends a hex color toward the given alpha via RN's 8-digit hex alpha
+ * support, e.g. for a meter's unfilled track (a lighter step of the fill's
+ * own color) or a heatmap cell's intensity. */
+export function withAlpha(hex: string, alpha: number): string {
+  const a = Math.round(Math.max(0, Math.min(1, alpha)) * 255)
+    .toString(16)
+    .padStart(2, '0');
+  return `${hex}${a}`;
+}

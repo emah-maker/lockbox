@@ -10,7 +10,7 @@
 Turn an approved feature spec into a concrete, implementable design before code is written.
 
 ## Outcome
-- **Reviewable deliverable**: A .docx document at `docs/rfcs/{issue_number}-{slug}-technical-design.docx`, paired with markdown RFC `docs/rfcs/{issue_number}-{slug}-technical-design.md`, with Architecture Overview, Implementation Strategy, Validation Plan, Risk Assessment, and Spike Findings (if applicable)
+- **Reviewable deliverable**: A markdown RFC at `docs/rfcs/{issue_number}-{slug}-technical-design.md`, with Architecture Overview, Implementation Strategy, Validation Plan, Risk Assessment, and Spike Findings (if applicable).
 - **Validation Plan**: A clear plan for how implementation will be tested.
 - **Spike Findings**: A documented proof-of-concept only when uncertainty is real.
 - **Feedback Resolution**: Confirmation that prior feedback was addressed.

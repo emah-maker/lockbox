@@ -156,7 +156,8 @@ export class PhoneBoxClient {
     return this.write(CHAR.timeSync, encodeTime(Date.now() / 1000));
   }
 
-  /** Tell the box an important call is ringing -> it lights up its screen. */
+  /** Tell the box an important call is ringing -> it alerts (or, if the box's
+   * "unlock when called" setting is on, unlocks) -- see lock_controller.notify_call. */
   alertCall(label: string) {
     this.alertNonce = (this.alertNonce + 1) % 100000;
     return this.write(CHAR.alert, encodeAlert(this.alertNonce, label));

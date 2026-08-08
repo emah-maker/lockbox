@@ -13,8 +13,9 @@ Take a high-level goal end to end: understand the delegation path, create the ri
 - A clear delegation path or a documented clarity escalation when the path cannot be understood safely
 - A dependency-aware execution graph recorded before any sub-agent work begins
 - Verified outputs from every sub-agent, with iteration history per job
-- An execution trace: which personas ran, which jobs, how many iterations, what corrections were issued
-- A `DRAFT - Requires Human Approval` synthesis artifact with a prioritized review checklist
+- A recorded manager verdict on each sub-agent's own review surface, so the review lives where the work is
+- One evidence file at `docs/evidence/{anchor}-fully-delegate-evidence.md`: who delegated to whom, what each sub-agent produced (with links to each sub-agent's evidence file and pull request), iteration history, risk areas, and the human approval checklist
+- One review surface for the human: a pull request for repository-backed work, or the deliverable set in the thread when no issue tracker is configured
 - Reusable learnings captured for future hardening
 
 ## Steps

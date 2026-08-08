@@ -40,6 +40,7 @@ FRAIM provides specialized guides for different user contexts and organizational
 - **[GuideToFRAIMForEnterpriseTeams.md](GuideToFRAIMForEnterpriseTeams.md)** - Enterprise development teams and established product organizations
 - **[GuideToFRAIMForConsultants.md](GuideToFRAIMForConsultants.md)** - Independent consultants and consulting firms
 - **[GuideToFRAIMForAgencies.md](GuideToFRAIMForAgencies.md)** - Marketing agencies and creative service providers
+- **[GuideToFRAIMForRecruiters.md](GuideToFRAIMForRecruiters.md)** - Recruiters and talent acquisition teams
 
 **When to use specialized guides:**
 - If you're unsure which FRAIM jobs to use for your context

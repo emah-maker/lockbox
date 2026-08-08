@@ -4,7 +4,7 @@ from lock_config import (
     SWAP_XY, INVERT_X, INVERT_Y, CLOCK_FPS, SERVO_HOLD_S, OVERRIDE_PRESSES,
     OVERRIDE_TIMEOUT, DONE_ANIM_S, MIN_STEP, RELEASE_FRAMES,
     SERVO_LOCK_ANGLE, SERVO_UNLOCK_ANGLE, fmt_hms,
-    OVR_MIN, OVR_MAX, BLE_CALL_ALERT_S,
+    OVR_MIN, OVR_MAX, BLE_CALL_ALERT_S, CALL_ALERT_BLINK_HZ,
 )
 from lock_battery import Battery
 from lock_servo import Servo
@@ -47,6 +47,9 @@ class LockController:
         self._override_at = 0.0
         # BLE companion state
         self._call_alert_until = None    # monotonic deadline for the call overlay
+        self._call_alert_started = 0.0   # monotonic start, for the flash phase
+        self._call_anim_on = None        # forces the first flash frame to draw
+        self._call_event = False         # set by notify_call; consumed by code.py to wake the screen
         self._wall_epoch0 = None         # epoch pushed by the phone (time_sync)
         self._wall_mono0 = None          # monotonic at the moment of that push
         self.go_idle()
@@ -188,10 +191,18 @@ class LockController:
                 self.servo.relax()
                 self._servo_relax_at = None
 
-        # auto-dismiss an incoming-call notification after its timeout
-        if self._call_alert_until is not None and now >= self._call_alert_until:
-            self._call_alert_until = None
-            self.ui.hide_call_alert()
+        # incoming-call notification: flash while showing, auto-dismiss after
+        # its timeout. Insistent by design -- a static banner is easy to miss.
+        if self._call_alert_until is not None:
+            if now >= self._call_alert_until:
+                self._call_alert_until = None
+                self._call_anim_on = None
+                self.ui.hide_call_alert()
+            else:
+                on = int((now - self._call_alert_started) * CALL_ALERT_BLINK_HZ * 2) % 2 == 0
+                if on != self._call_anim_on:   # only redraw when the flash flips
+                    self._call_anim_on = on
+                    self.ui.animate_call_alert(on)
         return just_done
 
     def _remaining_total(self, now):
@@ -237,9 +248,10 @@ class LockController:
 
     def ble_settings_json(self):
         st = self.settings
-        return '{{"ovr":{},"auto":{},"sleep":{},"bright":{},"unlk":{}}}'.format(
+        return '{{"ovr":{},"auto":{},"sleep":{},"bright":{},"unlk":{},"ucal":{}}}'.format(
             st.override_presses, 1 if st.auto_open else 0, st.sleep_s,
-            st.bright_pct, 1 if st.allow_remote_unlock else 0)
+            st.bright_pct, 1 if st.allow_remote_unlock else 0,
+            1 if st.unlock_on_call else 0)
 
     def apply_ble_command(self, cmd, now):
         # opcodes: "start:<seconds>", "lock", "unlock" (unlock gated by
@@ -283,6 +295,8 @@ class LockController:
             st.bright_pct = max(0, min(100, int(d["bright"])))
         if "unlk" in d:
             st.allow_remote_unlock = bool(d["unlk"])
+        if "ucal" in d:
+            st.unlock_on_call = bool(d["ucal"])
         st.save()
         if self.view == "settings":
             self.ui.update_settings(st)
@@ -298,12 +312,38 @@ class LockController:
         return self._wall_epoch0 + (now - self._wall_mono0)
 
     def notify_call(self, label, now):
-        # important-call alert-through: only meaningful while the box is locked;
-        # shows an on-screen notification, never opens the latch.
+        # Incoming-call handling: only meaningful while the box is locked. Default
+        # is alert-through (on-screen notification, latch stays shut). If the
+        # opt-in "unlock when called" setting is on, release the lock instead --
+        # see Settings.unlock_on_call for why this is a separate, off-by-default
+        # setting from allow_remote_unlock.
+        # Either branch must set _call_event so code.py wakes the backlight --
+        # a call that arrives while the screen is asleep must still be seen.
         if self.state not in ("running", "closed"):
             return
-        self._call_alert_until = now + BLE_CALL_ALERT_S
-        self.ui.show_call_alert(label)
+        self._call_event = True
+        if self.settings.unlock_on_call:
+            self.go_done(now, OVERRIDDEN)
+        else:
+            self._call_alert_until = now + BLE_CALL_ALERT_S
+            self._call_alert_started = now
+            self._call_anim_on = None    # forces the first flash frame to draw
+            self.ui.show_call_alert(label)
+
+    def consume_call_event(self):
+        """True at most once per incoming call -- code.py wakes the backlight
+        on it, since notify_call's UI update (overlay or unlock animation) is
+        otherwise invisible on a sleeping screen."""
+        v = self._call_event
+        self._call_event = False
+        return v
+
+    @property
+    def call_alert_active(self):
+        """True while the incoming-call overlay is showing -- code.py checks
+        this to hold the backlight on for the full alert, not just the initial
+        wake, so an important call can't go dark mid-notification."""
+        return self._call_alert_until is not None
 
     def reset_gesture(self):
         """Drop any in-progress touch (used when waking the screen)."""

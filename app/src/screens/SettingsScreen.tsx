@@ -1,8 +1,8 @@
 // SettingsScreen.tsx -- app behaviors + box behaviors + appearance. The box
 // behaviors (override presses / auto-open / sleep / brightness / remote
-// unlock) round-trip over BLE via useStore.pushBoxSettings, mirrored locally
-// in useSettingsStore.boxSettings so this screen has something to show even
-// before a connection is made.
+// unlock / unlock when called) round-trip over BLE via
+// useStore.pushBoxSettings, mirrored locally in useSettingsStore.boxSettings
+// so this screen has something to show even before a connection is made.
 import React from 'react';
 import { View, Text, StyleSheet, Switch, Pressable, ScrollView } from 'react-native';
 import { useStore } from '../store/useStore';
@@ -41,9 +41,17 @@ export default function SettingsScreen() {
     return next;
   };
 
+  const connColor = conn === 'connected' ? c.accent : conn === 'error' ? c.danger : c.textDim;
+
   return (
     <ScrollView style={{ backgroundColor: c.bg }} contentContainerStyle={styles.container}>
-      <Text style={[styles.h1, { color: c.text }]}>Settings</Text>
+      <View style={styles.headerRow}>
+        <Text style={[styles.h1, { color: c.text, marginBottom: 0 }]}>Settings</Text>
+        <View style={styles.connBadge}>
+          <View style={[styles.connDot, { backgroundColor: connColor }]} />
+          <Text style={[styles.connText, { color: c.textDim }]}>{conn}</Text>
+        </View>
+      </View>
 
       <Section title="App behaviors" color={c}>
         <Row label="Auto-connect to box" color={c}>
@@ -83,6 +91,12 @@ export default function SettingsScreen() {
           <Switch
             value={!!boxSettings.unlk}
             onValueChange={(v) => pushBoxSettings({ unlk: v ? 1 : 0 })}
+          />
+        </Row>
+        <Row label="Unlock box when called" color={c}>
+          <Switch
+            value={!!boxSettings.ucal}
+            onValueChange={(v) => pushBoxSettings({ ucal: v ? 1 : 0 })}
           />
         </Row>
       </Section>
@@ -206,6 +220,10 @@ function Chip({
 
 const styles = StyleSheet.create({
   container: { padding: 20, paddingTop: 50, gap: 16 },
+  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
+  connBadge: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  connDot: { width: 8, height: 8, borderRadius: 4 },
+  connText: { fontSize: 13, fontWeight: '600' },
   h1: { fontSize: 28, fontWeight: '700', marginBottom: 4 },
   h2: { fontSize: 16, fontWeight: '700' },
   subtitle: { fontSize: 12, marginTop: 2 },

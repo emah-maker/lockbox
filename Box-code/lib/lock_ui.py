@@ -497,10 +497,16 @@ class LockUI:
     def _build_call_alert(self, W, H):
         group = displayio.Group()
         self.call_group = group
-        group.append(_bg_tile(W, H, C_BG))
-        group.append(Rect(0, 0, W, H, fill=None, outline=C_AMBER, stroke=6))
+        # Flashing background + border (see animate_call_alert) -- kept as
+        # live refs so the alarm colors can be toggled every frame without
+        # rebuilding the scene. Alternates red/amber; text stays white so it
+        # reads over either color.
+        self.call_bg = _bg_tile(W, H, C_RED)
+        group.append(self.call_bg)
+        self.call_border = Rect(0, 0, W, H, fill=None, outline=C_AMBER, stroke=10)
+        group.append(self.call_border)
 
-        bell = label.Label(terminalio.FONT, text="((  ))", color=C_AMBER, scale=2)
+        bell = label.Label(terminalio.FONT, text="((  ))", color=C_WHITE, scale=2)
         bell.anchor_point = (0.5, 0.5)
         bell.anchored_position = (W // 2, 70)
         group.append(bell)
@@ -511,21 +517,33 @@ class LockUI:
         ttl.anchored_position = (W // 2, 130)
         group.append(ttl)
 
-        self.call_who = label.Label(terminalio.FONT, text="", color=C_GREEN,
+        self.call_who = label.Label(terminalio.FONT, text="", color=C_WHITE,
                                     scale=3)
         self.call_who.anchor_point = (0.5, 0.5)
         self.call_who.anchored_position = (W // 2, 190)
         group.append(self.call_who)
 
         hint = label.Label(terminalio.FONT, text="box stays locked",
-                           color=C_GREY)
+                           color=C_WHITE)
         hint.anchor_point = (0.5, 0.5)
         hint.anchored_position = (W // 2, 260)
         group.append(hint)
 
     def show_call_alert(self, who):
         self.call_who.text = (who or "Call")[:16]
+        self.call_bg.pixel_shader[0] = C_RED
+        self.call_border.outline = C_AMBER
         self.display.root_group = self.call_group
+
+    def animate_call_alert(self, on):
+        # Swap which color is background vs. border each flash tick -- a
+        # full-screen alternating alarm flash, not just a blinking accent.
+        if on:
+            self.call_bg.pixel_shader[0] = C_RED
+            self.call_border.outline = C_AMBER
+        else:
+            self.call_bg.pixel_shader[0] = C_AMBER
+            self.call_border.outline = C_RED
 
     def hide_call_alert(self):
         self.show_view(self.view)      # restore whatever view was active
@@ -541,8 +559,8 @@ class LockUI:
         ttl.anchored_position = (W // 2, 26)
         group.append(ttl)
 
-        self.set_rows_y = (70, 113, 156, 199, 242)
-        names = ("Override", "Auto-open", "Sleep", "Bright", "R Unlock")
+        self.set_rows_y = (70, 110, 150, 190, 230, 270)
+        names = ("Override", "Auto-open", "Sleep", "Bright", "R Unlock", "C Unlock")
         self.set_vals = []
         for i, name in enumerate(names):
             y = self.set_rows_y[i]
@@ -567,15 +585,19 @@ class LockUI:
         self.set_vals[2].text = "{}s".format(s.sleep_s)
         self.set_vals[3].text = "{}%".format(s.bright_pct)
         self.set_vals[4].text = "ON" if s.allow_remote_unlock else "OFF"
+        self.set_vals[5].text = "ON" if s.unlock_on_call else "OFF"
 
     def settings_row_at(self, y):
+        # Tolerance must stay under half the row pitch (40px, was 43px for 5
+        # rows) or adjacent rows' hit zones overlap and a tap resolves to
+        # whichever row is earlier in set_rows_y.
         for i, ry in enumerate(self.set_rows_y):
-            if abs(y - ry) <= 22:
+            if abs(y - ry) <= 19:
                 return i
         return -1
 
     # ----- per-setting detail page ([-]/[+] buttons or swipe up/down) -----
-    _SET_NAMES = ("Override", "Auto-open", "Sleep", "Bright", "R Unlock")
+    _SET_NAMES = ("Override", "Auto-open", "Sleep", "Bright", "R Unlock", "C Unlock")
 
     def _fmt_setting(self, idx, s):
         if idx == 0:
@@ -586,7 +608,9 @@ class LockUI:
             return "{}s".format(s.sleep_s)
         if idx == 3:
             return "{}%".format(s.bright_pct)
-        return "ON" if s.allow_remote_unlock else "OFF"
+        if idx == 4:
+            return "ON" if s.allow_remote_unlock else "OFF"
+        return "ON" if s.unlock_on_call else "OFF"
 
     def _build_setting_detail(self, W, H):
         group = displayio.Group()

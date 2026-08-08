@@ -6,7 +6,9 @@
 # FRAIM Skill: draft-thank-you-campaign
 
 ## Skill Input
-- Resolved issue dataset where issues include `Reported by: <email>`
+- Candidate issue dataset where each issue includes:
+  - `Reported by: <email>` in the issue body
+  - GitHub `stateReason`
 - Product name: `{{proxy.config.customer-communication.productName | REQUIRE | "Do not draft thank-you notes until the configured product name is known."}}`
 - Product URL: `{{proxy.config.customer-communication.productUrl | REQUIRE | "Do not draft thank-you notes until the configured product URL is known."}}`
 - Sender display name: `{{proxy.config.customer-communication.senderDisplayName | REQUIRE | "Do not draft thank-you notes until the configured sender display name is known."}}`
@@ -15,6 +17,7 @@
 ## Skill Output
 - `campaign.json` with `contentMode: "per-recipient-content"` and one recipient entry per customer email
 - one reviewed HTML file per recipient generated from the same campaign JSON
+- `metadata.source.excludedIssues` records every candidate issue excluded because its GitHub `stateReason` was not `COMPLETED`
 
 ---
 

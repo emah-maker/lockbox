@@ -10,7 +10,7 @@
 Design a production-grade data pipeline using Medallion Architecture (Bronze/Silver/Gold layers) that moves data from source systems to analytics-ready tables with documented quality contracts and SLA guarantees.
 
 ## Outcome
-- **Reviewable deliverable**: A .docx document at `docs/rfcs/{issue_number}-{slug}-data-pipeline-design.docx`, paired with markdown RFC `docs/rfcs/{issue_number}-{slug}-data-pipeline-design.md`, with Medallion Architecture design, Quality Contracts, and SLA Table
+- **Reviewable deliverable**: A markdown RFC at `docs/rfcs/{issue_number}-{slug}-data-pipeline-design.md`, with Medallion Architecture design, Quality Contracts, and SLA Table.
 - **Medallion Architecture**: Bronze (raw ingest), Silver (cleansed/conformed), Gold (analytics-ready) layers defined.
 - **Quality Contracts**: Schema validation, null rate thresholds, and PII detection gates per layer.
 - **SLA Table**: Freshness SLA, latency target, and error budget per pipeline.

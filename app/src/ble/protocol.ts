@@ -44,6 +44,9 @@ export interface Settings {
   sleep: number; // screen-sleep seconds
   bright: number; // backlight percent
   unlk: 0 | 1; // remote unlock from the phone -- off by default; opt in from Settings
+  ucal: 0 | 1; // unlock when called -- off by default; opt in from Settings. Distinct
+  // from `unlk`: this fires from an incoming call (alert path), not a deliberate
+  // Open/Close tap on the app.
 }
 
 // ----- parsers (defensive: the radio can hand us partial/garbled JSON) -----
@@ -89,6 +92,7 @@ export function parseSettings(json: string): Settings | null {
       sleep: Number(d.sleep) || 0,
       bright: Number(d.bright) || 0,
       unlk: d.unlk ? 1 : 0,
+      ucal: d.ucal ? 1 : 0,
     };
   } catch {
     return null;

@@ -6,14 +6,37 @@ import { View, Text, StyleSheet, Switch, Pressable, ScrollView } from 'react-nat
 import { useStore } from '../store/useStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useTheme } from '../theme/useTheme';
+import { withAlpha } from '../theme/theme';
 import { aggregate, formatDuration, completionRate } from '../stats/stats';
+import { TOPIC_KEYS, TOPIC_LABELS, topicColor, topicTextColor, TopicKey } from '../stats/topics';
+import type { Status } from '../ble/protocol';
+
+/** Fraction of the configured lock duration elapsed so far, for the running
+ * -session progress meter. 0 when `set` is unknown (0). */
+function elapsedFraction(status: Status): number {
+  if (status.set <= 0) return 0;
+  return Math.max(0, Math.min(1, (status.set - status.rem) / status.set));
+}
 
 export default function DashboardScreen() {
-  const { conn, error, status, sessions, lastAlert, connect, disconnect, closeBox, openBox } =
-    useStore();
+  const {
+    conn,
+    error,
+    status,
+    sessions,
+    lastAlert,
+    currentTopic,
+    callDetectionAvailable,
+    connect,
+    disconnect,
+    closeBox,
+    openBox,
+    tagCurrentSession,
+  } = useStore();
   const callAlertsEnabled = useSettingsStore((st) => st.callAlertsEnabled);
   const setCallAlertsEnabled = useSettingsStore((st) => st.setCallAlertsEnabled);
   const remoteUnlockOn = useSettingsStore((st) => !!st.boxSettings.unlk);
+  const themeMode = useSettingsStore((st) => st.themeMode);
   const theme = useTheme();
   const s = styles(theme);
 
@@ -45,7 +68,20 @@ export default function DashboardScreen() {
           <Text style={s.label}>Box status</Text>
           <Text style={s.value}>{status.st.toUpperCase()}</Text>
           {status.st === 'running' && (
-            <Text style={s.sub}>{formatDuration(status.rem)} left</Text>
+            <>
+              <Text style={s.sub}>{formatDuration(status.rem)} left</Text>
+              <View style={[s.meterTrack, { backgroundColor: withAlpha(theme.accent, 0.2) }]}>
+                <View
+                  style={[
+                    s.meterFill,
+                    {
+                      backgroundColor: theme.accent,
+                      width: `${Math.round(elapsedFraction(status) * 100)}%`,
+                    },
+                  ]}
+                />
+              </View>
+            </>
           )}
           <Text style={s.sub}>Battery {status.bat < 0 ? '—' : `${status.bat}%`}</Text>
 
@@ -73,6 +109,37 @@ export default function DashboardScreen() {
             <Text style={s.sub}>
               Remote unlock is off in Settings -- Open won't release the box until you turn it on.
             </Text>
+          )}
+
+          {status.st === 'running' && (
+            <View style={{ marginTop: 8 }}>
+              <Text style={s.label}>
+                {currentTopic && currentTopic in TOPIC_LABELS
+                  ? `Tagged: ${TOPIC_LABELS[currentTopic as TopicKey]}`
+                  : 'What are you focusing on?'}
+              </Text>
+              <View style={s.topicChipRow}>
+                {TOPIC_KEYS.map((key) => {
+                  const active = currentTopic === key;
+                  const color = topicColor(key, themeMode);
+                  return (
+                    <Pressable
+                      key={key}
+                      style={[
+                        s.topicChip,
+                        { borderColor: color },
+                        active && { backgroundColor: color },
+                      ]}
+                      onPress={() => tagCurrentSession(key)}
+                    >
+                      <Text style={[s.topicChipText, { color: active ? topicTextColor(key, themeMode) : theme.text }]}>
+                        {TOPIC_LABELS[key]}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
           )}
         </View>
       )}
@@ -103,6 +170,12 @@ export default function DashboardScreen() {
         <Text style={s.sub}>
           When locked, an incoming call lights up the box screen (it never unlocks).
         </Text>
+        {callAlertsEnabled && !callDetectionAvailable ? (
+          <Text style={[s.sub, { color: theme.danger }]}>
+            Call detection isn't available in this build -- it needs a dev-client build
+            (npx expo prebuild + run:ios), not Expo Go, so calls won't be seen yet.
+          </Text>
+        ) : null}
         {lastAlert ? <Text style={s.sub}>Last alert sent: {lastAlert}</Text> : null}
       </View>
     </ScrollView>
@@ -133,4 +206,9 @@ const styles = (t: ReturnType<typeof useTheme>) =>
     },
     controlBtnDisabled: { opacity: 0.35 },
     controlBtnText: { color: t.accentText, fontWeight: '700' },
+    meterTrack: { height: 8, borderRadius: 4, overflow: 'hidden', marginTop: 2 },
+    meterFill: { height: '100%', borderRadius: 4 },
+    topicChipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 },
+    topicChip: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 16, borderWidth: 1.5 },
+    topicChipText: { fontSize: 13, fontWeight: '600' },
   });

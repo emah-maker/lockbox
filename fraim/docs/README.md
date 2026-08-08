@@ -8,6 +8,7 @@ This directory contains the synced user-facing FRAIM guides.
 - `USER-GUIDE.md`: core concepts, job selection, customization, and command reference
 - `TROUBLESHOOTING.md`: setup, sync, MCP, and discovery problems
 - `GuideToFRAIMForFounders.md`: founder-stage job map from idea validation through customer discovery
+- `GuideToFRAIMForRecruiters.md`: recruiting job map from role intake through candidate sourcing, pipeline management, interviews, offers, and onboarding
 
 ## FRAIM In One Minute
 
@@ -28,6 +29,7 @@ If you still see old references to "workflows" in older discussions or historica
 2. Active FRAIM user: keep `USER-GUIDE.md` as the main reference
 3. Something is broken: open `TROUBLESHOOTING.md`
 4. Founder or early-stage product work: read `GuideToFRAIMForFounders.md`
+5. Recruiting and talent acquisition work: read `GuideToFRAIMForRecruiters.md`
 
 ## Best First Prompts
 

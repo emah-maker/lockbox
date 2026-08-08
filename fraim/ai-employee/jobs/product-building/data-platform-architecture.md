@@ -10,7 +10,7 @@
 Design the end-to-end data platform architecture — from source connectors through the warehouse to analytics and ML consumers — that can scale from seed stage to Series B without a full rebuild.
 
 ## Outcome
-- **Reviewable deliverable**: A .docx document at `docs/rfcs/{issue_number}-{slug}-data-platform-architecture.docx`, paired with markdown RFC `docs/rfcs/{issue_number}-{slug}-data-platform-architecture.md`, with Source Connector Map, Warehouse Recommendation, and Architecture Diagram
+- **Reviewable deliverable**: A markdown RFC at `docs/rfcs/{issue_number}-{slug}-data-platform-architecture.md`, with Source Connector Map, Warehouse Recommendation, and Architecture Diagram.
 - **Source Connector Map**: All source systems with recommended connector technology and change detection method.
 - **Warehouse Recommendation**: Selected warehouse technology with justification and cost estimate.
 - **Architecture Diagram**: Textual architecture spec (layers, data flow, technology per layer).

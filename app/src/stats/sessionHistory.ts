@@ -13,6 +13,7 @@ const MAX_RECORDS = 2000; // keep unbounded growth in check; ~a session/hour is 
 
 export interface LoggedSession extends SessionRecord {
   startedAt: number; // epoch ms, local device clock at session start
+  topic?: string; // optional per-session focus category, see stats/topics.ts
 }
 
 export async function loadSessions(): Promise<LoggedSession[]> {

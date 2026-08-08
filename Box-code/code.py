@@ -98,8 +98,11 @@ while True:
 
     if backlight.is_on:
         ctrl.process(points, now)
-        # sleep the screen after inactivity -- but never while USB-powered
-        if not usb and now - last_activity > ctrl.settings.sleep_s:
+        # sleep the screen after inactivity -- but never while USB-powered,
+        # and never mid-alert (an incoming-call flash cut short by the sleep
+        # timeout would defeat the point of making it hard to miss).
+        if (not usb and not ctrl.call_alert_active
+                and now - last_activity > ctrl.settings.sleep_s):
             backlight.off()
             ctrl.reset_gesture()
 
@@ -128,6 +131,13 @@ while True:
     # so radio work can never delay touch sampling or reorder a servo move. It is
     # non-blocking and self-disables if the CP build lacks adafruit_ble.
     ble.service(ctrl, now, backlight.is_on)
+
+    # An incoming call redraws the screen (alert overlay, or the unlock
+    # animation if "unlock when called" is on) -- wake the backlight so that
+    # redraw is actually visible instead of landing on a dark screen.
+    if ctrl.consume_call_event():
+        backlight.on()
+        last_activity = now
 
     # poll fast enough while asleep that a button press is caught to wake it
     time.sleep(0.02 if backlight.is_on else 0.1)

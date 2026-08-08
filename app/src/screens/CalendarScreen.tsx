@@ -4,9 +4,12 @@
 import React, { useMemo, useState } from 'react';
 import { View, Text, StyleSheet, Pressable, ScrollView } from 'react-native';
 import { useStore } from '../store/useStore';
+import { useSettingsStore } from '../store/useSettingsStore';
 import { useTheme } from '../theme/useTheme';
+import { withAlpha } from '../theme/theme';
 import { formatDuration } from '../stats/stats';
 import { dayKey, groupByDay, LoggedSession } from '../stats/sessionHistory';
+import { dominantTopic, topicColor, TOPIC_LABELS, TopicKey } from '../stats/topics';
 
 const WEEKDAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 
@@ -28,6 +31,7 @@ function buildGrid(monthStart: Date): (Date | null)[] {
 
 export default function CalendarScreen() {
   const c = useTheme();
+  const themeMode = useSettingsStore((s) => s.themeMode);
   const sessions = useStore((s) => s.sessions);
   const [cursor, setCursor] = useState(startOfMonth(new Date()));
   const [selectedKey, setSelectedKey] = useState<string>(dayKey(Date.now()));
@@ -84,6 +88,7 @@ export default function CalendarScreen() {
           const intensity = focusS > 0 ? 0.25 + 0.75 * Math.min(1, focusS / maxFocus) : 0;
           const selected = key === selectedKey;
           const isToday = key === todayKey;
+          const dominant = dominantTopic(daySessions, themeMode);
           return (
             <Pressable key={i} style={styles.cell} onPress={() => setSelectedKey(key)}>
               <View
@@ -98,6 +103,7 @@ export default function CalendarScreen() {
                   {date.getDate()}
                 </Text>
               </View>
+              {dominant && <View style={[styles.topicDot, { backgroundColor: dominant.color }]} />}
             </Pressable>
           );
         })}
@@ -114,41 +120,43 @@ export default function CalendarScreen() {
         {selectedSessions.length === 0 ? (
           <Text style={[styles.empty, { color: c.textDim }]}>No focus sessions logged this day.</Text>
         ) : (
-          selectedSessions.map((s, i) => (
-            <View key={i} style={styles.sessionRow}>
-              <Text style={[styles.sessionTime, { color: c.textDim }]}>
-                {new Date(s.startedAt).toLocaleTimeString(undefined, {
-                  hour: 'numeric',
-                  minute: '2-digit',
-                })}
-              </Text>
-              <Text style={[styles.sessionDuration, { color: c.text }]}>
-                {formatDuration(s.actualS)}
-              </Text>
-              <Text
-                style={[
-                  styles.sessionOutcome,
-                  { color: s.outcome === 'completed' ? c.accent : c.warn },
-                ]}
-              >
-                {s.outcome === 'completed' ? 'Completed' : 'Ended early'}
-              </Text>
-            </View>
-          ))
+          selectedSessions.map((s, i) => {
+            const topicKey = s.topic as TopicKey | undefined;
+            const known = topicKey && topicKey in TOPIC_LABELS;
+            return (
+              <View key={i} style={styles.sessionRow}>
+                <Text style={[styles.sessionTime, { color: c.textDim }]}>
+                  {new Date(s.startedAt).toLocaleTimeString(undefined, {
+                    hour: 'numeric',
+                    minute: '2-digit',
+                  })}
+                </Text>
+                <Text style={[styles.sessionDuration, { color: c.text }]}>
+                  {formatDuration(s.actualS)}
+                </Text>
+                <View style={styles.sessionTopic}>
+                  {known && (
+                    <>
+                      <View style={[styles.topicDotInline, { backgroundColor: topicColor(topicKey!, themeMode) }]} />
+                      <Text style={[styles.sessionTopicLabel, { color: c.textDim }]}>{TOPIC_LABELS[topicKey!]}</Text>
+                    </>
+                  )}
+                </View>
+                <Text
+                  style={[
+                    styles.sessionOutcome,
+                    { color: s.outcome === 'completed' ? c.accent : c.warn },
+                  ]}
+                >
+                  {s.outcome === 'completed' ? 'Completed' : 'Ended early'}
+                </Text>
+              </View>
+            );
+          })
         )}
       </View>
     </ScrollView>
   );
-}
-
-// Blends a hex accent color toward the given alpha over a dark/light-neutral
-// backdrop by mixing with the accent itself at reduced opacity via RN's
-// 8-digit hex alpha support (Aug 06 RN/Expo target -- widely supported).
-function withAlpha(hex: string, alpha: number): string {
-  const a = Math.round(Math.max(0, Math.min(1, alpha)) * 255)
-    .toString(16)
-    .padStart(2, '0');
-  return `${hex}${a}`;
 }
 
 const styles = StyleSheet.create({
@@ -170,6 +178,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   dayNum: { fontSize: 13, fontWeight: '600' },
+  topicDot: { width: 5, height: 5, borderRadius: 2.5, marginTop: 3 },
   card: { borderRadius: 14, padding: 16 },
   empty: { fontSize: 14 },
   sessionRow: {
@@ -180,5 +189,8 @@ const styles = StyleSheet.create({
   },
   sessionTime: { fontSize: 13, width: 80 },
   sessionDuration: { fontSize: 14, fontWeight: '600', flex: 1, textAlign: 'center' },
+  sessionTopic: { flexDirection: 'row', alignItems: 'center', gap: 5, width: 80 },
+  topicDotInline: { width: 8, height: 8, borderRadius: 4 },
+  sessionTopicLabel: { fontSize: 12 },
   sessionOutcome: { fontSize: 12, width: 90, textAlign: 'right' },
 });

@@ -13,13 +13,12 @@ Help a manager evolve their AI employee in plain language without forcing them t
 - An approved employee-evolution brief covering:
   - what is not working today
   - what the employee should do differently
-  - why the chosen intervention is the minimum effective change.
-- New or updated artifacts at explicit target paths such as:
-  - `fraim/personalized-employee/jobs/...`
-  - `fraim/personalized-employee/skills/...`
-  - `fraim/personalized-employee/rules/...`
-  - `fraim/personalized-employee/templates/...`
-  - `fraim/personalized-employee/scripts/...`
+  - why the chosen intervention is the minimum effective change
+  - the level the change is saved at, and for a shared level, every manager-specific value that was removed or parameterized to make it safe to share.
+- New or updated artifacts at explicit target paths, under the level the manager chose:
+  - manager level (the default): `~/.fraim/personalized-employee/{jobs,skills,rules,templates,scripts}/...`
+  - project level: `fraim/personalized-employee/{jobs,skills,rules,templates,scripts}/...`
+  - company level: published through the configured organization backend
   - `fraim/config.json`
 - A validation summary confirming:
   - the change matches the manager's plain-language intent

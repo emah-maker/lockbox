@@ -10,7 +10,7 @@
 Write developer documentation — API references, integration guides, architecture overviews, or onboarding guides — that reduces time-to-first-success for developers and cuts support burden by making answers findable before questions are asked.
 
 ## Outcome
-- **Reviewable deliverable**: A .docx document at `docs/rfcs/{issue_number}-{slug}-developer-documentation.docx`, paired with markdown documentation artifact `docs/rfcs/{issue_number}-{slug}-developer-documentation.md`, with comprehensive developer documentation including overview, audience-specific guides, code examples, API references, integration instructions, and troubleshooting
+- **Reviewable deliverable**: A markdown documentation artifact at `docs/rfcs/{issue_number}-{slug}-developer-documentation.md`, with comprehensive developer documentation including overview, audience-specific guides, code examples, API references, integration instructions, and troubleshooting.
 - **Doc Plan**: Scope, audience, and structure agreed before writing.
 - **Draft Docs**: Complete documentation matching the agreed plan.
 - **Review**: Technical accuracy verified against source code or system behavior.
