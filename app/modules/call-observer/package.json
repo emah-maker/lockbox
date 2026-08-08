@@ -4,7 +4,6 @@
   "description": "Native iOS call-state observer (CXCallObserver) for the PhoneBox companion app",
   "main": "index.ts",
   "types": "index.ts",
-  "private": true,
   "license": "UNLICENSED",
   "author": "Phone Box",
   "homepage": "https://docs.expo.dev/modules/",
