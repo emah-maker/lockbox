@@ -1,6 +1,7 @@
 {
   "platforms": ["apple"],
   "apple": {
-    "modules": ["CallObserverModule"]
+    "modules": ["CallObserverModule"],
+    "podspecPath": "CallObserver.podspec"
   }
 }
