@@ -32,6 +32,11 @@
     "jest-expo": "~52.0.0",
     "typescript": "~5.3.3"
   },
+  "expo": {
+    "autolinking": {
+      "nativeModulesDir": "./modules"
+    }
+  },
   "jest": {
     "preset": "jest-expo",
     "setupFiles": [
