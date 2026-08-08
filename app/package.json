@@ -8,7 +8,8 @@
     "ios": "expo run:ios",
     "prebuild": "expo prebuild --clean",
     "test": "jest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "android": "expo run:android"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "^1.23.1",
@@ -41,5 +42,8 @@
       "/ios/",
       "/android/"
     ]
+  },
+  "allowScripts": {
+    "fsevents@2.3.3": true
   }
 }

@@ -11,7 +11,9 @@
       "bundleIdentifier": "com.emahmaker.phonebox",
       "supportsTablet": false,
       "infoPlist": {
-        "UIBackgroundModes": ["bluetooth-central"],
+        "UIBackgroundModes": [
+          "bluetooth-central"
+        ],
         "NSBluetoothAlwaysUsageDescription": "Phone Box connects to your box over Bluetooth to show focus stats and light up the box when an important call comes in.",
         "NSBluetoothPeripheralUsageDescription": "Phone Box connects to your box over Bluetooth."
       }
@@ -22,10 +24,20 @@
         "react-native-ble-plx",
         {
           "isBackgroundEnabled": true,
-          "modes": ["central"],
+          "modes": [
+            "central"
+          ],
           "bluetoothAlwaysPermission": "Phone Box connects to your box over Bluetooth to show focus stats and alert it to important calls."
         }
       ]
-    ]
+    ],
+    "android": {
+      "permissions": [
+        "android.permission.BLUETOOTH",
+        "android.permission.BLUETOOTH_ADMIN",
+        "android.permission.BLUETOOTH_CONNECT"
+      ],
+      "package": "com.phonebox.app"
+    }
   }
 }
