@@ -10,8 +10,11 @@
 import ExpoModulesCore
 import CallKit
 
-public class CallObserverModule: Module, CXCallObserverDelegate {
+public class CallObserverModule: Module {
   private let callObserver = CXCallObserver()
+  // Keeps the delegate proxy alive for as long as the module is; CXCallObserver
+  // only holds a weak reference to its delegate.
+  private var delegateProxy: CallObserverDelegateProxy?
 
   public func definition() -> ModuleDefinition {
     Name("CallObserver")
@@ -19,7 +22,15 @@ public class CallObserverModule: Module, CXCallObserverDelegate {
     Events("onCall")
 
     OnCreate {
-      self.callObserver.setDelegate(self, queue: nil)
+      let proxy = CallObserverDelegateProxy { [weak self] state, call in
+        self?.sendEvent("onCall", [
+          "state": state,
+          "outgoing": call.isOutgoing,
+          "uuid": call.uuid.uuidString,
+        ])
+      }
+      self.delegateProxy = proxy
+      self.callObserver.setDelegate(proxy, queue: nil)
     }
 
     // CXCallObserver is available on all supported iOS versions; kept as a
@@ -28,8 +39,20 @@ public class CallObserverModule: Module, CXCallObserverDelegate {
       return true
     }
   }
+}
 
-  public func callObserver(_ callObserver: CXCallObserver, callChanged call: CXCall) {
+// CXCallObserverDelegate extends NSObjectProtocol, which Expo's `Module` base
+// class can't verifiably conform to across the module boundary (Swift error:
+// "cannot declare conformance to 'NSObjectProtocol'; should inherit 'NSObject'
+// instead"). So the delegate lives on this plain NSObject proxy instead.
+private class CallObserverDelegateProxy: NSObject, CXCallObserverDelegate {
+  private let onChange: (String, CXCall) -> Void
+
+  init(onChange: @escaping (String, CXCall) -> Void) {
+    self.onChange = onChange
+  }
+
+  func callObserver(_ callObserver: CXCallObserver, callChanged call: CXCall) {
     let state: String
     if call.hasEnded {
       state = "ended"
@@ -40,10 +63,6 @@ public class CallObserverModule: Module, CXCallObserverDelegate {
     } else {
       state = "dialing"
     }
-    sendEvent("onCall", [
-      "state": state,
-      "outgoing": call.isOutgoing,
-      "uuid": call.uuid.uuidString,
-    ])
+    onChange(state, call)
   }
 }
