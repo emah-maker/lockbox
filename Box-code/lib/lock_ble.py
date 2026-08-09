@@ -104,6 +104,12 @@ class PhoneBoxBLE:
             # unsupported build / radio busy: disable quietly, timer unaffected
             self.enabled = False
 
+    @property
+    def connected(self):
+        """True while a phone is actively connected -- surfaced on-screen as
+        the control/clock views' corner dot (see LockUI.update_corner_ble)."""
+        return bool(self.enabled and self._radio is not None and self._radio.connected)
+
     # ----- advertising policy -----
     def _want_advertise(self, ctrl, awake):
         if not self.enabled or self._radio.connected:
@@ -146,9 +152,10 @@ class PhoneBoxBLE:
             return
         self._last_push = now
         self._svc.status = ctrl.ble_status_json(now)
-        if not self._last_settings:
-            self._svc.settings = ctrl.ble_settings_json()
-            self._last_settings = self._svc.settings
+        settings_json = ctrl.ble_settings_json()
+        if settings_json != self._last_settings:
+            self._svc.settings = settings_json
+            self._last_settings = settings_json
         if ctrl.log.has_pending:
             text = ctrl.ble_history_json()
             if text != self._last_history:

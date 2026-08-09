@@ -53,6 +53,7 @@ class LockController:
         self._call_event = False         # set by notify_call; consumed by code.py to wake the screen
         self._wall_epoch0 = None         # epoch pushed by the phone (time_sync)
         self._wall_mono0 = None          # monotonic at the moment of that push
+        self._ble_connected = False      # drives the control/clock corner dot
         self.go_idle()
 
     # ----- view switching -----
@@ -65,7 +66,7 @@ class LockController:
         if view == "clock":
             self._refresh_clock_view(self._now)
         elif view == "battery":
-            self._refresh_battery_view(self._now)
+            self._refresh_battery(self._now)
         elif view == "settings":
             self.ui.update_settings(self.settings)
 
@@ -180,8 +181,12 @@ class LockController:
         # the gesture ends. This keeps swipes snappy in the analog style.
         if self.view == "clock" and not self._was_down:
             self._refresh_clock_view(now)
-        elif self.view == "battery":
-            self._refresh_battery_view(now)
+
+        # Battery is read at most once per second regardless of the active
+        # view -- the control/clock corner glyph needs it live everywhere,
+        # and the dedicated battery view (when active) reuses the same read
+        # instead of hitting the shared I2C bus twice a second.
+        self._refresh_battery(now)
 
         if self._override and (now - self._override_at) > OVERRIDE_TIMEOUT:
             self._clear_override()
@@ -213,11 +218,21 @@ class LockController:
             return 0.0, self.set_seconds
         return self.set_seconds, self.set_seconds
 
-    def _refresh_battery_view(self, now):
+    def _refresh_battery(self, now):
         bkey = int(now)                 # update about once per second
         if bkey != self._last_bkey:
             self._last_bkey = bkey
-            self.ui.update_battery_view(self.battery.read(now))
+            r = self.battery.read(now)
+            self.ui.update_corner_battery(r)
+            if self.view == "battery":
+                self.ui.update_battery_view(r)
+
+    def set_ble_connected(self, connected):
+        """Called once per loop from code.py -- updates the on-screen corner
+        dot only when the connection state actually flips."""
+        if connected != self._ble_connected:
+            self._ble_connected = connected
+            self.ui.update_corner_ble(connected)
 
     def _refresh_clock_view(self, now):
         rem, tot = self._remaining_total(now)

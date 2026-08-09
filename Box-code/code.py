@@ -131,6 +131,7 @@ while True:
     # so radio work can never delay touch sampling or reorder a servo move. It is
     # non-blocking and self-disables if the CP build lacks adafruit_ble.
     ble.service(ctrl, now, backlight.is_on)
+    ctrl.set_ble_connected(ble.connected)
 
     # An incoming call redraws the screen (alert overlay, or the unlock
     # animation if "unlock when called" is on) -- wake the backlight so that

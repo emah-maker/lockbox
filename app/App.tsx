@@ -5,6 +5,7 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
+import { Feather } from '@expo/vector-icons';
 import DashboardScreen from './src/screens/DashboardScreen';
 import StatsScreen from './src/screens/StatsScreen';
 import CalendarScreen from './src/screens/CalendarScreen';
@@ -16,11 +17,11 @@ import { isCallObserverAvailable } from './modules/call-observer';
 
 type Tab = 'dashboard' | 'stats' | 'calendar' | 'settings';
 
-const TABS: { key: Tab; label: string }[] = [
-  { key: 'dashboard', label: 'Focus' },
-  { key: 'stats', label: 'Stats' },
-  { key: 'calendar', label: 'Calendar' },
-  { key: 'settings', label: 'Settings' },
+const TABS: { key: Tab; label: string; icon: React.ComponentProps<typeof Feather>['name'] }[] = [
+  { key: 'dashboard', label: 'Focus', icon: 'target' },
+  { key: 'stats', label: 'Stats', icon: 'bar-chart-2' },
+  { key: 'calendar', label: 'Calendar', icon: 'calendar' },
+  { key: 'settings', label: 'Settings', icon: 'settings' },
 ];
 
 const SCREENS: Record<Tab, React.ComponentType> = {
@@ -54,9 +55,11 @@ export default function App() {
           <View style={styles.tabBar}>
             {TABS.map((t) => {
               const active = t.key === tab;
+              const color = active ? theme.accent : theme.textDim;
               return (
                 <Pressable key={t.key} style={styles.tabBtn} onPress={() => setTab(t.key)}>
-                  <Text style={{ color: active ? theme.accent : theme.textDim, fontWeight: active ? '700' : '500' }}>
+                  <Feather name={t.icon} size={20} color={color} />
+                  <Text style={{ color, fontWeight: active ? '700' : '500', marginTop: 2, fontSize: 12 }}>
                     {t.label}
                   </Text>
                 </Pressable>

@@ -37,6 +37,12 @@ class LockUI:
         self._surface_widgets = []     # (obj, attr) tracking the "surface" color
         self._fg_widgets = []          # (obj, attr) tracking the "fg" (readable-on-bg) color
         self._dim_widgets = []         # (obj, attr) tracking the "dim" (secondary) color
+        # corner status glyphs (one pair per view that has them -- control +
+        # the 3 clock styles) so battery/BLE state is glanceable without
+        # swiping to the dedicated battery view. See update_corner_battery /
+        # update_corner_ble.
+        self._corner_ble_dots = []
+        self._corner_bat_labels = []
         self._mode_idx = DEFAULT_MODE_IDX
         self._accent_idx = DEFAULT_ACCENT_IDX
         self._fg_color = C_WHITE
@@ -91,6 +97,33 @@ class LockUI:
         self.gtip_pal[0] = fg
         self.button.fill = accent
 
+    # ----- corner status glyphs: BLE dot (left) + battery text (right) -----
+    def _add_corner_indicators(self, group, W, y):
+        dot = Circle(14, y, 4, fill=C_GREY)
+        group.append(dot)
+        self._corner_ble_dots.append(dot)
+        lbl = label.Label(terminalio.FONT, text="--", color=C_GREY)
+        lbl.anchor_point = (1.0, 0.5)
+        lbl.anchored_position = (W - 10, y)
+        group.append(lbl)
+        self._dim_widgets.append((lbl, 'color'))
+        self._corner_bat_labels.append(lbl)
+
+    def update_corner_battery(self, r):
+        if not r.available:
+            txt = "--"
+        elif r.charging:
+            txt = "CHG"
+        else:
+            txt = "{}%".format(max(0, min(100, r.percent)))
+        for lbl in self._corner_bat_labels:
+            lbl.text = txt
+
+    def update_corner_ble(self, connected):
+        color = C_GREEN if connected else C_GREY
+        for dot in self._corner_ble_dots:
+            dot.fill = color
+
     # =================== control view ===================
     def _build_control(self, W, H):
         group = displayio.Group()
@@ -118,6 +151,8 @@ class LockUI:
         self.status_lbl.anchor_point = (0.5, 0.5)
         self.status_lbl.anchored_position = (W // 2, self.STATUS_Y + self.STATUS_H // 2)
         group.append(self.status_lbl)
+
+        self._add_corner_indicators(group, W, y=55)
 
         self.title = label.Label(terminalio.FONT, text="LOCK TIMER", color=C_GREY)
         self.title.anchor_point = (0.5, 0.5)
@@ -210,6 +245,7 @@ class LockUI:
         ttl.anchored_position = (W // 2, 26)
         group.append(ttl)
         self._dim_widgets.append((ttl, 'color'))
+        self._add_corner_indicators(group, W, y=26)
 
         self.ring_cx = W // 2
         self.ring_cy = 148
@@ -276,6 +312,7 @@ class LockUI:
         ttl.anchored_position = (W // 2, 26)
         group.append(ttl)
         self._dim_widgets.append((ttl, 'color'))
+        self._add_corner_indicators(group, W, y=26)
 
         fh = 70
         _dig_bg = RoundRect(12, 150 - fh // 2, W - 24, fh, 8,
@@ -312,6 +349,7 @@ class LockUI:
         ttl.anchored_position = (W // 2, 26)
         group.append(ttl)
         self._dim_widgets.append((ttl, 'color'))
+        self._add_corner_indicators(group, W, y=26)
 
         # A 270-degree arch (open at the bottom) built from overlapping dots so
         # the band is thick and each segment can be recoloured cheaply to show
