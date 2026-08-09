@@ -137,3 +137,33 @@ OVR_MAX = 100
 OVR_STEP = 10
 SLEEP_OPTIONS = (10, 20, 30, 60)      # screen-sleep seconds (on battery)
 BRIGHT_OPTIONS = (10, 30, 50, 70, 100)    # backlight percent (min 10)
+
+# ----- Companion-app theme sync -----
+# Mirrors app/src/theme/theme.ts. MODE_COLORS index = THEME_MODES order
+# (dark, light); ACCENT_COLORS index = ACCENT_KEYS order (mint, coral, amber,
+# sky, violet). Mode swaps background/surface/text everywhere on the box.
+# Accent recolors ONLY two elements that never carry lock-status meaning (the
+# LOCK/OPEN button fill, the analog clock's second hand) -- the red/amber/
+# green STATE colors above (locked=red, closed=amber, unlocked=green) are
+# fixed regardless of mode or accent, so status stays readable at a glance no
+# matter which theme is picked. See lock_ui.LockUI.set_theme.
+MODE_COLORS = (
+    (C_BG, C_SURFACE, C_WHITE, C_GREY),                       # dark (default)
+    (fix(0xF5F6F8), fix(0xFFFFFF), fix(0x111318), fix(0x5B6167)),  # light
+)
+DEFAULT_MODE_IDX = 0
+
+ACCENT_COLORS = (
+    fix(0x22C55E),  # mint (default)
+    fix(0xEF5350),  # coral
+    fix(0xF2B84B),  # amber
+    fix(0x38BDF8),  # sky
+    fix(0xA78BFA),  # violet
+)
+DEFAULT_ACCENT_IDX = 0
+
+# Text drawn directly on an accent fill (the LOCK/OPEN button label) needs a
+# fixed dark color, not the mode's fg/dim -- all 5 accents above are light
+# enough that a single near-black reads fine on every one, same as the app's
+# per-accent `accentText` values, which are all near-black too.
+C_ON_ACCENT = fix(0x101010)

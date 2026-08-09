@@ -38,6 +38,7 @@ class LockController:
         self.battery = Battery(i2c)
         self.servo = Servo()
         self.settings = Settings()
+        self.ui.set_theme(self.settings.theme_mode, self.settings.accent_idx)
         self.log = SessionLog()
         self._editing = False
         self._edit_idx = 0
@@ -248,10 +249,10 @@ class LockController:
 
     def ble_settings_json(self):
         st = self.settings
-        return '{{"ovr":{},"auto":{},"sleep":{},"bright":{},"unlk":{},"ucal":{}}}'.format(
+        return '{{"ovr":{},"auto":{},"sleep":{},"bright":{},"unlk":{},"ucal":{},"thm":{},"acc":{}}}'.format(
             st.override_presses, 1 if st.auto_open else 0, st.sleep_s,
             st.bright_pct, 1 if st.allow_remote_unlock else 0,
-            1 if st.unlock_on_call else 0)
+            1 if st.unlock_on_call else 0, st.theme_mode, st.accent_idx)
 
     def apply_ble_command(self, cmd, now):
         # opcodes: "start:<seconds>", "lock", "unlock" (unlock gated by
@@ -297,6 +298,12 @@ class LockController:
             st.allow_remote_unlock = bool(d["unlk"])
         if "ucal" in d:
             st.unlock_on_call = bool(d["ucal"])
+        if "thm" in d:
+            st.theme_mode = max(0, min(1, int(d["thm"])))
+        if "acc" in d:
+            st.accent_idx = max(0, min(4, int(d["acc"])))
+        if "thm" in d or "acc" in d:
+            self.ui.set_theme(st.theme_mode, st.accent_idx)
         st.save()
         if self.view == "settings":
             self.ui.update_settings(st)

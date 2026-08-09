@@ -7,12 +7,13 @@ import microcontroller
 from lock_config import (
     OVERRIDE_PRESSES, INACTIVITY_S, BL_LEVEL, BLE_ALLOW_REMOTE_UNLOCK,
     BLE_UNLOCK_ON_CALL, OVR_MIN, OVR_MAX, OVR_STEP, SLEEP_OPTIONS, BRIGHT_OPTIONS,
+    DEFAULT_MODE_IDX, DEFAULT_ACCENT_IDX, ACCENT_COLORS,
 )
 
-_MAGIC = 0x5F        # bump when the NVM layout changes (forces defaults once);
-                     # bumped to add the unlock_on_call byte so a box flashed
-                     # before this feature doesn't read a stray erased byte in
-                     # that slot as a real saved value
+_MAGIC = 0x60        # bump when the NVM layout changes (forces defaults once);
+                     # bumped to add the theme_mode + accent_idx bytes (app
+                     # theme sync) so a box flashed before this feature
+                     # doesn't read stray erased bytes in those slots
 _BASE = 8            # NVM offset for settings (byte 0 = brownout counter)
 
 
@@ -43,6 +44,12 @@ class Settings:
         # conflating the two fields would let one opt-in silently enable both
         # early-release paths.
         self.unlock_on_call = BLE_UNLOCK_ON_CALL
+        # Theme sync from the app's Settings > Appearance (see
+        # app/src/theme/theme.ts THEME_MODES / ACCENT_KEYS for the index
+        # order this mirrors) -- pushed down over the `settings` BLE
+        # characteristic, applied via LockUI.set_theme.
+        self.theme_mode = DEFAULT_MODE_IDX
+        self.accent_idx = DEFAULT_ACCENT_IDX
         self._load()
 
     def _load(self):
@@ -55,6 +62,8 @@ class Settings:
                 self.bright_pct = nvm[_BASE + 4]
                 self.allow_remote_unlock = bool(nvm[_BASE + 5])
                 self.unlock_on_call = bool(nvm[_BASE + 6])
+                self.theme_mode = nvm[_BASE + 7]
+                self.accent_idx = nvm[_BASE + 8]
         except Exception:
             pass
 
@@ -70,6 +79,8 @@ class Settings:
             nvm[_BASE + 4] = max(0, min(100, int(self.bright_pct)))
             nvm[_BASE + 5] = 1 if self.allow_remote_unlock else 0
             nvm[_BASE + 6] = 1 if self.unlock_on_call else 0
+            nvm[_BASE + 7] = max(0, min(1, int(self.theme_mode)))
+            nvm[_BASE + 8] = max(0, min(len(ACCENT_COLORS) - 1, int(self.accent_idx)))
         except Exception:
             pass
 

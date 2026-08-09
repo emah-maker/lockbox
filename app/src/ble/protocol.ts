@@ -47,6 +47,13 @@ export interface Settings {
   ucal: 0 | 1; // unlock when called -- off by default; opt in from Settings. Distinct
   // from `unlk`: this fires from an incoming call (alert path), not a deliberate
   // Open/Close tap on the app.
+  thm: 0 | 1; // theme mode -- index into theme.ts THEME_MODES (0=dark, 1=light).
+  // Phone is authoritative here (see useStore.afterConnected): unlike the other
+  // fields, the box's echoed value is never read back into the app's own theme.
+  acc: number; // accent -- index into theme.ts ACCENT_KEYS (0=mint..4=violet).
+  // The box only applies this to two decorative elements (see
+  // Box-code/lib/lock_ui.py set_theme); it never recolors lock/closed/unlocked
+  // status indicators.
 }
 
 // ----- parsers (defensive: the radio can hand us partial/garbled JSON) -----
@@ -93,6 +100,8 @@ export function parseSettings(json: string): Settings | null {
       bright: Number(d.bright) || 0,
       unlk: d.unlk ? 1 : 0,
       ucal: d.ucal ? 1 : 0,
+      thm: Number(d.thm) === 1 ? 1 : 0,
+      acc: Math.max(0, Math.min(4, Number(d.acc) || 0)),
     };
   } catch {
     return null;

@@ -3,7 +3,7 @@
 // stays the default landing tab.
 import React, { useMemo } from 'react';
 import { View, Text, StyleSheet, Switch, Pressable, ScrollView } from 'react-native';
-import { useStore } from '../store/useStore';
+import { useStore, CONN_LABELS } from '../store/useStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useTheme } from '../theme/useTheme';
 import { withAlpha } from '../theme/theme';
@@ -56,8 +56,8 @@ export default function DashboardScreen() {
 
       <View style={s.card}>
         <Text style={s.label}>Connection</Text>
-        <Text style={s.value}>{conn}</Text>
-        {error ? <Text style={s.error}>{error}</Text> : null}
+        <Text style={s.value}>{CONN_LABELS[conn]}</Text>
+        {error && conn !== 'error' ? <Text style={s.error}>{error}</Text> : null}
         <Pressable style={s.btn} onPress={connected ? disconnect : connect}>
           <Text style={s.btnText}>{connected ? 'Disconnect' : 'Connect'}</Text>
         </Pressable>

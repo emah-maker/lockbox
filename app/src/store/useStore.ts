@@ -20,8 +20,17 @@ import type { Status, HistoryEntry, BoxState, Settings } from '../ble/protocol';
 import { getJSON, setJSON } from '../storage/storage';
 import { loadSessions, appendSessions, LoggedSession } from '../stats/sessionHistory';
 import { useSettingsStore } from './useSettingsStore';
+import { THEME_MODES, ACCENT_KEYS } from '../theme/theme';
 
 type Conn = 'idle' | 'scanning' | 'connecting' | 'connected' | 'error';
+
+export const CONN_LABELS: Record<Conn, string> = {
+  idle: 'Idle',
+  scanning: 'Scanning',
+  connecting: 'Connecting',
+  connected: 'Connected',
+  error: 'Not Connected',
+};
 
 const AUTO_CONNECT_KEY = 'autoConnect';
 const LAST_DEVICE_KEY = 'lastDeviceId';
@@ -144,6 +153,19 @@ export const useStore = create<AppState>((set, get) => {
       if (s) useSettingsStore.getState().setBoxSettings(s);
     } catch {
       // box didn't answer the settings read; the mirror keeps its last value
+    }
+    // Theme is authoritative on the phone (useSettingsStore.themeMode/accent),
+    // not the box -- push it down on every connect so the box converges even
+    // if the phone's theme changed while disconnected (the Settings screen's
+    // pushBoxSettings call only fires on the next in-app theme change).
+    try {
+      const { themeMode, accent } = useSettingsStore.getState();
+      await get().pushBoxSettings({
+        thm: THEME_MODES.indexOf(themeMode) as 0 | 1,
+        acc: ACCENT_KEYS.indexOf(accent),
+      });
+    } catch {
+      // box didn't accept the theme write; it'll retry on the next connect
     }
   };
 

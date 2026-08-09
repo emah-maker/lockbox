@@ -5,7 +5,7 @@
 // so this screen has something to show even before a connection is made.
 import React from 'react';
 import { View, Text, StyleSheet, Switch, Pressable, ScrollView } from 'react-native';
-import { useStore } from '../store/useStore';
+import { useStore, CONN_LABELS } from '../store/useStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useTheme } from '../theme/useTheme';
 import { THEME_MODES, ACCENT_KEYS, ACCENT_LABELS, ThemeMode, AccentKey } from '../theme/theme';
@@ -49,7 +49,7 @@ export default function SettingsScreen() {
         <Text style={[styles.h1, { color: c.text, marginBottom: 0 }]}>Settings</Text>
         <View style={styles.connBadge}>
           <View style={[styles.connDot, { backgroundColor: connColor }]} />
-          <Text style={[styles.connText, { color: c.textDim }]}>{conn}</Text>
+          <Text style={[styles.connText, { color: c.textDim }]}>{CONN_LABELS[conn]}</Text>
         </View>
       </View>
 
@@ -101,11 +101,23 @@ export default function SettingsScreen() {
         </Row>
       </Section>
 
-      <Section title="Appearance" color={c}>
+      <Section
+        title="Appearance"
+        subtitle="Also sets the box's theme -- see Box behaviors above for connection state"
+        color={c}
+      >
         <Text style={[styles.label, { color: c.textDim, marginBottom: 8 }]}>Theme</Text>
         <View style={styles.chipRow}>
           {THEME_MODES.map((m: ThemeMode) => (
-            <Chip key={m} active={themeMode === m} onPress={() => setThemeMode(m)} color={c}>
+            <Chip
+              key={m}
+              active={themeMode === m}
+              onPress={() => {
+                setThemeMode(m);
+                pushBoxSettings({ thm: THEME_MODES.indexOf(m) as 0 | 1 });
+              }}
+              color={c}
+            >
               {m === 'dark' ? 'Dark' : 'Light'}
             </Chip>
           ))}
@@ -115,7 +127,15 @@ export default function SettingsScreen() {
         </Text>
         <View style={styles.chipRow}>
           {ACCENT_KEYS.map((a: AccentKey) => (
-            <Chip key={a} active={accent === a} onPress={() => setAccent(a)} color={c}>
+            <Chip
+              key={a}
+              active={accent === a}
+              onPress={() => {
+                setAccent(a);
+                pushBoxSettings({ acc: ACCENT_KEYS.indexOf(a) });
+              }}
+              color={c}
+            >
               {ACCENT_LABELS[a]}
             </Chip>
           ))}

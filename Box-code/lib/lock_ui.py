@@ -10,7 +10,8 @@ from adafruit_display_shapes.rect import Rect
 from adafruit_display_shapes.circle import Circle
 
 from lock_config import (
-    C_BG, C_SURFACE, C_WHITE, C_BLACK, C_GREY, C_GREEN, C_RED, C_AMBER, fmt_hms,
+    C_BG, C_SURFACE, C_WHITE, C_BLACK, C_GREY, C_GREEN, C_RED, C_AMBER, C_ON_ACCENT,
+    MODE_COLORS, ACCENT_COLORS, DEFAULT_MODE_IDX, DEFAULT_ACCENT_IDX, fmt_hms,
 )
 
 
@@ -26,6 +27,20 @@ class LockUI:
         self.display = display
         self.W = W = display.width
         self.H = H = display.height
+
+        # ----- theme-tracking registries, populated by the _build_* calls
+        # below (see set_theme). Bucketed by role, not by widget type, so
+        # set_theme can walk them uniformly; the call_alert overlay is
+        # deliberately never registered here -- an incoming-call alarm stays
+        # full-intensity red/amber regardless of the chosen theme.
+        self._bg_tiles = []            # TileGrid backgrounds (.pixel_shader[0])
+        self._surface_widgets = []     # (obj, attr) tracking the "surface" color
+        self._fg_widgets = []          # (obj, attr) tracking the "fg" (readable-on-bg) color
+        self._dim_widgets = []         # (obj, attr) tracking the "dim" (secondary) color
+        self._mode_idx = DEFAULT_MODE_IDX
+        self._accent_idx = DEFAULT_ACCENT_IDX
+        self._fg_color = C_WHITE
+        self._accent_color = C_GREEN
 
         self._build_control(W, H)
 
@@ -45,19 +60,54 @@ class LockUI:
         self.view = "control"
         display.root_group = self.control_group
 
+        # apply the compiled-in default theme now that every widget above has
+        # registered itself; LockController re-applies the persisted theme
+        # (if different) right after this once Settings() has loaded.
+        self.set_theme(DEFAULT_MODE_IDX, DEFAULT_ACCENT_IDX)
+
+    # =================== theme ===================
+    def set_theme(self, mode_idx, accent_idx):
+        mode_idx = 0 if mode_idx not in (0, 1) else mode_idx
+        accent_idx = max(0, min(len(ACCENT_COLORS) - 1, accent_idx))
+        self._mode_idx = mode_idx
+        self._accent_idx = accent_idx
+        bg, surface, fg, dim = MODE_COLORS[mode_idx]
+        accent = ACCENT_COLORS[accent_idx]
+        self._fg_color = fg
+        self._accent_color = accent
+
+        for tile in self._bg_tiles:
+            tile.pixel_shader[0] = bg
+        for obj, attr in self._surface_widgets:
+            setattr(obj, attr, surface)
+        for obj, attr in self._fg_widgets:
+            setattr(obj, attr, fg)
+        for obj, attr in self._dim_widgets:
+            setattr(obj, attr, dim)
+
+        # indexed-palette widgets (bitmaps), not plain .fill/.color attrs
+        self.hand_pal[1] = fg
+        self.hand_pal[2] = accent
+        self.gtip_pal[0] = fg
+        self.button.fill = accent
+
     # =================== control view ===================
     def _build_control(self, W, H):
         group = displayio.Group()
         self.control_group = group
 
-        group.append(_bg_tile(W, H, C_BG))
+        _tile = _bg_tile(W, H, C_BG)
+        group.append(_tile)
+        self._bg_tiles.append(_tile)
 
-        # flashing border for the done animation
+        # flashing border for the done animation -- part of the fixed
+        # "success" state language (see set_theme docstring), not themed
         self.border = Rect(0, 0, W, H, fill=None, outline=C_GREEN, stroke=5)
         self.border.hidden = True
         group.append(self.border)
 
-        # status bar (on/off indicator)
+        # status bar (on/off indicator) -- fill is set per-state by
+        # set_status (LOCKED/CLOSED/UNLOCKED), never themed
         self.STATUS_Y = 8
         self.STATUS_H = 38
         self.status_bar = RoundRect(8, self.STATUS_Y, W - 16, self.STATUS_H, 8,
@@ -73,6 +123,7 @@ class LockUI:
         self.title.anchor_point = (0.5, 0.5)
         self.title.anchored_position = (W // 2, 64)
         group.append(self.title)
+        self._dim_widgets.append((self.title, 'color'))
 
         self.clock = label.Label(terminalio.FONT, text="0:00:00", color=C_WHITE,
                                  scale=3)
@@ -89,12 +140,14 @@ class LockUI:
             g.anchor_point = (0.5, 0.5)
             g.anchored_position = (gx, 186)
             group.append(g)
+            self._dim_widgets.append((g, 'color'))
 
         self.hint = label.Label(terminalio.FONT, text="swipe up/down on H M S",
                                 color=C_GREY)
         self.hint.anchor_point = (0.5, 0.5)
         self.hint.anchored_position = (W // 2, 212)
         group.append(self.hint)
+        self._dim_widgets.append((self.hint, 'color'))
 
         # always-visible navigation hint
         self.nav_hint = label.Label(terminalio.FONT, text="<- styles   battery ->",
@@ -102,8 +155,9 @@ class LockUI:
         self.nav_hint.anchor_point = (0.5, 0.5)
         self.nav_hint.anchored_position = (W // 2, 230)
         group.append(self.nav_hint)
+        self._dim_widgets.append((self.nav_hint, 'color'))
 
-        # big animated message for the done state
+        # big animated message for the done state -- fixed "success" color
         self.big_msg = label.Label(terminalio.FONT, text="UNLOCKED", color=C_GREEN,
                                    scale=2)
         self.big_msg.anchor_point = (0.5, 0.5)
@@ -111,7 +165,10 @@ class LockUI:
         self.big_msg.hidden = True
         group.append(self.big_msg)
 
-        # start/stop button
+        # start/stop button -- fill follows the app's accent (see set_theme);
+        # it never carries lock-status meaning (always the "primary action"
+        # color regardless of state), which is why it's the one live element
+        # accent is allowed to touch
         self.BTN_W = 130
         self.BTN_H = 56
         self.BTN_X = (W - self.BTN_W) // 2
@@ -119,7 +176,8 @@ class LockUI:
         self.button = RoundRect(self.BTN_X, self.BTN_Y, self.BTN_W, self.BTN_H, 12,
                                 fill=C_GREEN, outline=C_WHITE, stroke=2)
         group.append(self.button)
-        self.btn_label = label.Label(terminalio.FONT, text="LOCK", color=C_WHITE,
+        self._fg_widgets.append((self.button, 'outline'))
+        self.btn_label = label.Label(terminalio.FONT, text="LOCK", color=C_ON_ACCENT,
                                      scale=2)
         self.btn_label.anchor_point = (0.5, 0.5)
         self.btn_label.anchored_position = (W // 2, self.BTN_Y + self.BTN_H // 2)
@@ -132,27 +190,35 @@ class LockUI:
         h1.anchor_point = (0.5, 0.5)
         h1.anchored_position = (W // 2, 298)
         group.append(h1)
+        self._dim_widgets.append((h1, 'color'))
         h2 = label.Label(terminalio.FONT, text="up/down = style", color=C_GREY)
         h2.anchor_point = (0.5, 0.5)
         h2.anchored_position = (W // 2, 314)
         group.append(h2)
+        self._dim_widgets.append((h2, 'color'))
 
     # ----- style 1: analog clock (dark face, mint hands) -----
     def _build_clock_analog(self, W, H):
         group = displayio.Group()
         self.clock_groups.append(group)
-        group.append(_bg_tile(W, H, C_BG))
+        _tile = _bg_tile(W, H, C_BG)
+        group.append(_tile)
+        self._bg_tiles.append(_tile)
 
         ttl = label.Label(terminalio.FONT, text="ANALOG", color=C_GREY, scale=2)
         ttl.anchor_point = (0.5, 0.5)
         ttl.anchored_position = (W // 2, 26)
         group.append(ttl)
+        self._dim_widgets.append((ttl, 'color'))
 
         self.ring_cx = W // 2
         self.ring_cy = 148
         self.ring_r = 74
-        group.append(Circle(self.ring_cx, self.ring_cy, self.ring_r,
-                            fill=C_SURFACE, outline=C_WHITE, stroke=3))
+        _ring_bg = Circle(self.ring_cx, self.ring_cy, self.ring_r,
+                          fill=C_SURFACE, outline=C_WHITE, stroke=3)
+        group.append(_ring_bg)
+        self._surface_widgets.append((_ring_bg, 'fill'))
+        self._fg_widgets.append((_ring_bg, 'outline'))
 
         # hour tick marks (bigger dots at 12 / 3 / 6 / 9)
         for i in range(12):
@@ -161,7 +227,9 @@ class LockUI:
             tx = self.ring_cx + int(tr * math.sin(theta))
             ty = self.ring_cy - int(tr * math.cos(theta))
             rad = 3 if i % 3 == 0 else 1
-            group.append(Circle(tx, ty, rad, fill=C_WHITE))
+            _tick = Circle(tx, ty, rad, fill=C_WHITE)
+            group.append(_tick)
+            self._fg_widgets.append((_tick, 'fill'))
 
         # hands drawn into a persistent bitmap (no per-frame allocation)
         d = 2 * self.ring_r + 1
@@ -171,12 +239,14 @@ class LockUI:
         self.hand_pal = displayio.Palette(3)
         self.hand_pal[0] = 0x000000
         self.hand_pal.make_transparent(0)
-        self.hand_pal[1] = C_WHITE
-        self.hand_pal[2] = C_GREEN
+        self.hand_pal[1] = C_WHITE          # hour/minute hands -- re-themed in set_theme
+        self.hand_pal[2] = C_GREEN          # second hand -- follows accent, see set_theme
         group.append(displayio.TileGrid(
             self.hand_bmp, pixel_shader=self.hand_pal,
             x=self.ring_cx - self.ring_r, y=self.ring_cy - self.ring_r))
-        group.append(Circle(self.ring_cx, self.ring_cy, 4, fill=C_WHITE))
+        _ctr_dot = Circle(self.ring_cx, self.ring_cy, 4, fill=C_WHITE)
+        group.append(_ctr_dot)
+        self._fg_widgets.append((_ctr_dot, 'fill'))
 
         self.an_time = label.Label(terminalio.FONT, text="0:00:00",
                                    color=C_WHITE, scale=2)
@@ -188,6 +258,7 @@ class LockUI:
         self.an_state.anchor_point = (0.5, 0.5)
         self.an_state.anchored_position = (W // 2, 274)
         group.append(self.an_state)
+        self._dim_widgets.append((self.an_state, 'color'))
 
         self._clock_hints(group, W)
         self._set_hands(0)
@@ -196,16 +267,22 @@ class LockUI:
     def _build_clock_digital(self, W, H):
         group = displayio.Group()
         self.clock_groups.append(group)
-        group.append(_bg_tile(W, H, C_BG))
+        _tile = _bg_tile(W, H, C_BG)
+        group.append(_tile)
+        self._bg_tiles.append(_tile)
 
         ttl = label.Label(terminalio.FONT, text="DIGITAL", color=C_GREY, scale=2)
         ttl.anchor_point = (0.5, 0.5)
         ttl.anchored_position = (W // 2, 26)
         group.append(ttl)
+        self._dim_widgets.append((ttl, 'color'))
 
         fh = 70
-        group.append(RoundRect(12, 150 - fh // 2, W - 24, fh, 8,
-                               fill=C_SURFACE, outline=C_GREY, stroke=2))
+        _dig_bg = RoundRect(12, 150 - fh // 2, W - 24, fh, 8,
+                            fill=C_SURFACE, outline=C_GREY, stroke=2)
+        group.append(_dig_bg)
+        self._surface_widgets.append((_dig_bg, 'fill'))
+        self._dim_widgets.append((_dig_bg, 'outline'))
 
         self.dig_time = label.Label(terminalio.FONT, text="0:00:00",
                                     color=C_WHITE, scale=3)
@@ -218,6 +295,7 @@ class LockUI:
         self.dig_state.anchor_point = (0.5, 0.5)
         self.dig_state.anchored_position = (W // 2, 224)
         group.append(self.dig_state)
+        self._dim_widgets.append((self.dig_state, 'color'))
 
         self._clock_hints(group, W)
 
@@ -225,16 +303,21 @@ class LockUI:
     def _build_clock_ring(self, W, H):
         group = displayio.Group()
         self.clock_groups.append(group)
-        group.append(_bg_tile(W, H, C_BG))
+        _tile = _bg_tile(W, H, C_BG)
+        group.append(_tile)
+        self._bg_tiles.append(_tile)
 
         ttl = label.Label(terminalio.FONT, text="GAUGE", color=C_GREY, scale=2)
         ttl.anchor_point = (0.5, 0.5)
         ttl.anchored_position = (W // 2, 26)
         group.append(ttl)
+        self._dim_widgets.append((ttl, 'color'))
 
         # A 270-degree arch (open at the bottom) built from overlapping dots so
         # the band is thick and each segment can be recoloured cheaply to show
-        # elapsed (amber) vs remaining (green).
+        # elapsed (amber) vs remaining (green). This amber/green pairing is a
+        # local progress indicator, not the app-lock/closed/unlocked status
+        # language, so it's left out of theming like the other STATE colors.
         self.gauge_cx = W // 2
         self.gauge_cy = 158
         self.gauge_r = 72
@@ -254,9 +337,9 @@ class LockUI:
         # leading tip that glides to the exact elapsed angle (smooth motion)
         self.gtip_size = 12
         gtip_bmp = displayio.Bitmap(self.gtip_size, self.gtip_size, 1)
-        gtip_pal = displayio.Palette(1)
-        gtip_pal[0] = C_WHITE
-        self.gauge_tip = displayio.TileGrid(gtip_bmp, pixel_shader=gtip_pal)
+        self.gtip_pal = displayio.Palette(1)
+        self.gtip_pal[0] = C_WHITE
+        self.gauge_tip = displayio.TileGrid(gtip_bmp, pixel_shader=self.gtip_pal)
         group.append(self.gauge_tip)
 
         self.rg_time = label.Label(terminalio.FONT, text="0:00:00",
@@ -269,6 +352,7 @@ class LockUI:
         self.rg_state.anchor_point = (0.5, 0.5)
         self.rg_state.anchored_position = (W // 2, 250)
         group.append(self.rg_state)
+        self._dim_widgets.append((self.rg_state, 'color'))
 
         self._clock_hints(group, W)
         self._set_gauge(0.0)
@@ -346,41 +430,48 @@ class LockUI:
         if style == "analog":
             self.an_time.text = txt
             self._set_hands(remaining)
-            self.an_time.color = active or C_WHITE
+            self.an_time.color = active or self._fg_color
             self.an_state.text = statetext
         elif style == "digital":
             self.dig_time.text = txt
-            self.dig_time.color = active or C_WHITE
+            self.dig_time.color = active or self._fg_color
             self.dig_state.text = statetext
         else:  # arch gauge
             self.rg_time.text = txt
             frac = 0.0 if total <= 0 else 1.0 - (remaining / total)
             self._set_gauge(frac)
-            self.rg_time.color = active or C_WHITE
+            self.rg_time.color = active or self._fg_color
             self.rg_state.text = statetext
 
     # =================== battery view ===================
     def _build_battery(self, W, H):
         group = displayio.Group()
         self.battery_group = group
-        group.append(_bg_tile(W, H, C_BG))
+        _tile = _bg_tile(W, H, C_BG)
+        group.append(_tile)
+        self._bg_tiles.append(_tile)
 
         ttl = label.Label(terminalio.FONT, text="BATTERY", color=C_GREY, scale=2)
         ttl.anchor_point = (0.5, 0.5)
         ttl.anchored_position = (W // 2, 26)
         group.append(ttl)
+        self._dim_widgets.append((ttl, 'color'))
 
         # battery icon: body outline + terminal nub, with a variable fill bar
         self.bat_x = 36
         self.bat_y = 70
         self.bat_w = W - 72
         self.bat_h = 60
-        group.append(RoundRect(self.bat_x, self.bat_y, self.bat_w, self.bat_h, 6,
-                               outline=C_WHITE, stroke=3))
+        _bat_outline = RoundRect(self.bat_x, self.bat_y, self.bat_w, self.bat_h, 6,
+                                 outline=C_WHITE, stroke=3)
+        group.append(_bat_outline)
+        self._fg_widgets.append((_bat_outline, 'outline'))
         nub_h = 24
-        group.append(Rect(self.bat_x + self.bat_w,
-                          self.bat_y + (self.bat_h - nub_h) // 2, 6, nub_h,
-                          fill=C_WHITE))
+        _bat_nub = Rect(self.bat_x + self.bat_w,
+                       self.bat_y + (self.bat_h - nub_h) // 2, 6, nub_h,
+                       fill=C_WHITE)
+        group.append(_bat_nub)
+        self._fg_widgets.append((_bat_nub, 'fill'))
 
         # fill lives in its own group so it can be redrawn at a new width
         self.bat_pad = 6
@@ -396,12 +487,14 @@ class LockUI:
         self.bat_pct.anchor_point = (0.5, 0.5)
         self.bat_pct.anchored_position = (W // 2, self.bat_y + self.bat_h + 44)
         group.append(self.bat_pct)
+        self._fg_widgets.append((self.bat_pct, 'color'))
 
         self.bat_volts = label.Label(terminalio.FONT, text="-.-- V", color=C_GREY,
                                      scale=2)
         self.bat_volts.anchor_point = (0.5, 0.5)
         self.bat_volts.anchored_position = (W // 2, self.bat_y + self.bat_h + 84)
         group.append(self.bat_volts)
+        self._dim_widgets.append((self.bat_volts, 'color'))
 
         self.bat_chg = label.Label(terminalio.FONT, text="", color=C_AMBER, scale=2)
         self.bat_chg.anchor_point = (0.5, 0.5)
@@ -412,17 +505,20 @@ class LockUI:
         self.bat_watts.anchor_point = (0.5, 0.5)
         self.bat_watts.anchored_position = (W // 2, self.bat_y + self.bat_h + 150)
         group.append(self.bat_watts)
+        self._dim_widgets.append((self.bat_watts, 'color'))
 
         self.bat_diag = label.Label(terminalio.FONT, text="", color=C_GREY)
         self.bat_diag.anchor_point = (0.5, 0.5)
         self.bat_diag.anchored_position = (W // 2, self.bat_y + self.bat_h + 174)
         group.append(self.bat_diag)
+        self._dim_widgets.append((self.bat_diag, 'color'))
 
         hint = label.Label(terminalio.FONT, text="<- timer    settings ->",
                            color=C_GREY)
         hint.anchor_point = (0.5, 0.5)
         hint.anchored_position = (W // 2, 316)
         group.append(hint)
+        self._dim_widgets.append((hint, 'color'))
 
     def update_battery_view(self, r):
         if not r.available:
@@ -463,7 +559,9 @@ class LockUI:
     def _build_override(self, W, H):
         group = displayio.Group()
         self.override_group = group
-        group.append(_bg_tile(W, H, C_BG))
+        _tile = _bg_tile(W, H, C_BG)
+        group.append(_tile)
+        self._bg_tiles.append(_tile)
 
         ttl = label.Label(terminalio.FONT, text="OVERRIDE", color=C_AMBER, scale=2)
         ttl.anchor_point = (0.5, 0.5)
@@ -475,12 +573,14 @@ class LockUI:
         self.ov_count.anchor_point = (0.5, 0.5)
         self.ov_count.anchored_position = (W // 2, 160)
         group.append(self.ov_count)
+        self._fg_widgets.append((self.ov_count, 'color'))
 
         hint = label.Label(terminalio.FONT, text="keep pressing to unlock",
                            color=C_GREY)
         hint.anchor_point = (0.5, 0.5)
         hint.anchored_position = (W // 2, 240)
         group.append(hint)
+        self._dim_widgets.append((hint, 'color'))
 
     def show_override(self, count, total):
         self.ov_count.text = "{}/{}".format(count, total)
@@ -494,6 +594,8 @@ class LockUI:
     # Driven over BLE by the companion app: while the box is locked, a
     # greenlisted/important call makes the box "alert-through" (screen lights up
     # with the caller) without opening the latch. Auto-dismisses on a timer.
+    # Deliberately NOT themed (no registry entries here) -- an incoming-call
+    # alarm should stay maximally visible regardless of the chosen mode/accent.
     def _build_call_alert(self, W, H):
         group = displayio.Group()
         self.call_group = group
@@ -552,12 +654,15 @@ class LockUI:
     def _build_settings(self, W, H):
         group = displayio.Group()
         self.settings_group = group
-        group.append(_bg_tile(W, H, C_BG))
+        _tile = _bg_tile(W, H, C_BG)
+        group.append(_tile)
+        self._bg_tiles.append(_tile)
 
         ttl = label.Label(terminalio.FONT, text="SETTINGS", color=C_GREY, scale=2)
         ttl.anchor_point = (0.5, 0.5)
         ttl.anchored_position = (W // 2, 26)
         group.append(ttl)
+        self._dim_widgets.append((ttl, 'color'))
 
         self.set_rows_y = (70, 110, 150, 190, 230, 270)
         names = ("Override", "Auto-open", "Sleep", "Bright", "R Unlock", "C Unlock")
@@ -568,6 +673,7 @@ class LockUI:
             nlbl.anchor_point = (0.0, 0.5)
             nlbl.anchored_position = (14, y)
             group.append(nlbl)
+            self._fg_widgets.append((nlbl, 'color'))
             vlbl = label.Label(terminalio.FONT, text="", color=C_AMBER, scale=2)
             vlbl.anchor_point = (1.0, 0.5)
             vlbl.anchored_position = (W - 14, y)
@@ -578,6 +684,7 @@ class LockUI:
         h1.anchor_point = (0.5, 0.5)
         h1.anchored_position = (W // 2, 300)
         group.append(h1)
+        self._dim_widgets.append((h1, 'color'))
 
     def update_settings(self, s):
         self.set_vals[0].text = str(s.override_presses)
@@ -615,44 +722,57 @@ class LockUI:
     def _build_setting_detail(self, W, H):
         group = displayio.Group()
         self.setting_detail_group = group
-        group.append(_bg_tile(W, H, C_BG))
+        _tile = _bg_tile(W, H, C_BG)
+        group.append(_tile)
+        self._bg_tiles.append(_tile)
         self.sd_name = label.Label(terminalio.FONT, text="", color=C_GREY, scale=2)
         self.sd_name.anchor_point = (0.5, 0.5)
         self.sd_name.anchored_position = (W // 2, 60)
         group.append(self.sd_name)
+        self._dim_widgets.append((self.sd_name, 'color'))
         self.sd_value = label.Label(terminalio.FONT, text="", color=C_AMBER,
                                     scale=4)
         self.sd_value.anchor_point = (0.5, 0.5)
         self.sd_value.anchored_position = (W // 2, 130)
         group.append(self.sd_value)
 
-        # on-screen [-] and [+] buttons
+        # on-screen [-] and [+] buttons -- the red/green fill pair is a fixed
+        # decrease/increase convention (like the lock-status colors), not
+        # accent: recoloring just the "+" side risks landing on an accent hue
+        # close to the "-" side's red and making the two buttons look alike.
         self.sd_btn_w = 56
         self.sd_btn_h = 56
         self.sd_btn_y = 196
         self.sd_minus_x = 18
         self.sd_plus_x = W - 18 - self.sd_btn_w
-        group.append(RoundRect(self.sd_minus_x, self.sd_btn_y, self.sd_btn_w,
-                               self.sd_btn_h, 10, fill=C_RED, outline=C_WHITE,
-                               stroke=2))
+        _sd_minus = RoundRect(self.sd_minus_x, self.sd_btn_y, self.sd_btn_w,
+                              self.sd_btn_h, 10, fill=C_RED, outline=C_WHITE,
+                              stroke=2)
+        group.append(_sd_minus)
+        self._fg_widgets.append((_sd_minus, 'outline'))
         ml = label.Label(terminalio.FONT, text="-", color=C_WHITE, scale=3)
         ml.anchor_point = (0.5, 0.5)
         ml.anchored_position = (self.sd_minus_x + self.sd_btn_w // 2,
                                 self.sd_btn_y + self.sd_btn_h // 2)
         group.append(ml)
-        group.append(RoundRect(self.sd_plus_x, self.sd_btn_y, self.sd_btn_w,
-                               self.sd_btn_h, 10, fill=C_GREEN, outline=C_WHITE,
-                               stroke=2))
+        self._fg_widgets.append((ml, 'color'))
+        _sd_plus = RoundRect(self.sd_plus_x, self.sd_btn_y, self.sd_btn_w,
+                             self.sd_btn_h, 10, fill=C_GREEN, outline=C_WHITE,
+                             stroke=2)
+        group.append(_sd_plus)
+        self._fg_widgets.append((_sd_plus, 'outline'))
         pl = label.Label(terminalio.FONT, text="+", color=C_WHITE, scale=3)
         pl.anchor_point = (0.5, 0.5)
         pl.anchored_position = (self.sd_plus_x + self.sd_btn_w // 2,
                                 self.sd_btn_y + self.sd_btn_h // 2)
         group.append(pl)
+        self._fg_widgets.append((pl, 'color'))
 
         h2 = label.Label(terminalio.FONT, text="swipe left = back", color=C_GREY)
         h2.anchor_point = (0.5, 0.5)
         h2.anchored_position = (W // 2, 300)
         group.append(h2)
+        self._dim_widgets.append((h2, 'color'))
 
     def show_setting_detail(self, idx, s):
         self.sd_name.text = self._SET_NAMES[idx]
@@ -705,18 +825,18 @@ class LockUI:
 
     def show_idle(self, secs):
         self.clock.hidden = False
-        self.clock.color = C_WHITE
+        self.clock.color = self._fg_color
         self.set_clock(secs)
         self.big_msg.hidden = True
         self.border.hidden = True
         self._idle_widgets(True)
         self.set_status("UNLOCKED", C_GREEN)
-        self.set_button("LOCK", C_GREEN)
+        self.set_button("LOCK", self._accent_color)
         self._show_button(True)
 
     def show_running(self):
         self.clock.hidden = False
-        self.clock.color = C_WHITE
+        self.clock.color = self._fg_color
         self.big_msg.hidden = True
         self.border.hidden = True
         self._idle_widgets(False)
@@ -726,12 +846,12 @@ class LockUI:
     def show_closed(self):
         # lid closed but not yet timed: pick a time, then tap LOCK to start
         self.clock.hidden = False
-        self.clock.color = C_WHITE
+        self.clock.color = self._fg_color
         self.big_msg.hidden = True
         self.border.hidden = True
         self._idle_widgets(True)          # show H/M/S guides so time is selectable
         self.set_status("CLOSED", C_AMBER)
-        self.set_button("LOCK", C_GREEN)
+        self.set_button("LOCK", self._accent_color)
         self._show_button(True)
 
     def show_done(self, auto_open=True):
@@ -741,7 +861,7 @@ class LockUI:
         if auto_open:
             self._show_button(False)           # no button; auto-dismisses after 2s
         else:
-            self.set_button("OPEN", C_GREEN)   # manual open: tap to release servo
+            self.set_button("OPEN", self._accent_color)   # manual open: tap to release servo
             self._show_button(True)
 
     def animate_done(self, on):
