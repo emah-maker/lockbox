@@ -131,6 +131,21 @@ BLE_UUID_SETTINGS = "6b9a7e00-4c2a-4f8e-9b21-9d7a5e3c0005" # READ | WRITE
 BLE_UUID_TIME = "6b9a7e00-4c2a-4f8e-9b21-9d7a5e3c0006"     # WRITE (epoch seconds)
 BLE_UUID_ALERT = "6b9a7e00-4c2a-4f8e-9b21-9d7a5e3c0007"    # WRITE (call label)
 
+# ----- Session log (Box-code/lib/lock_log.py) -----
+# Cap on the box's own on-device queue of sessions finished while no phone
+# was connected -- see lock_log.py's header. Raised from 40 (kept the box
+# from growing memory without limit, but wasn't sized for a multi-day phone
+# force-quit) to 200 per
+# docs/rfcs/ios-call-greenlist-and-force-quit-logging-technical-design.md
+# §3.2. At 9 bytes/entry (see lock_log.py's _ENTRY_SIZE) that's ~1.8KB of
+# NVM -- NOT YET CONFIRMED against this board's actual
+# len(microcontroller.nvm) at the CircuitPython REPL (that RFC's §7 spike
+# #3); lock_log.py's _save() degrades gracefully (persists only as many of
+# the oldest entries as actually fit) if this board's NVM region turns out
+# to be smaller than this implies, but the cap itself should be re-checked
+# on real hardware before shipping.
+LOG_MAX_PENDING = 200
+
 # ----- Settings screen option ranges (values persisted in NVM) -----
 OVR_MIN = 10                 # override presses: min / max / step
 OVR_MAX = 100

@@ -25,17 +25,41 @@ export async function appendSession(session: LoggedSession): Promise<LoggedSessi
   return appendSessions([session]);
 }
 
-/** Append a batch (e.g. a drained box history queue) in one read/write. */
+/** Append a batch (e.g. a drained box history queue) in one read/write.
+ * De-duped against what's already stored by (startedAt, plannedS): the box
+ * resends an un-acked `history` batch verbatim on its next connection (see
+ * Box-code/lib/lock_log.py's SessionLog.ack and
+ * docs/rfcs/ios-call-greenlist-and-force-quit-logging-technical-design.md
+ * §3.2) -- if the app already durably stored that batch but the box never
+ * heard the ack (e.g. a disconnect right after), the resend would otherwise
+ * double-count every session in it. */
 export async function appendSessions(sessions: LoggedSession[]): Promise<LoggedSession[]> {
   if (!sessions.length) return loadSessions();
   const existing = await loadSessions();
-  const next = [...existing, ...sessions].slice(-MAX_RECORDS);
+  const seen = new Set(existing.map((s) => `${s.startedAt}:${s.plannedS}`));
+  const fresh = sessions.filter((s) => {
+    const key = `${s.startedAt}:${s.plannedS}`;
+    if (seen.has(key)) return false;
+    seen.add(key); // also guards against duplicates within this same batch
+    return true;
+  });
+  if (!fresh.length) return existing;
+  const next = [...existing, ...fresh].slice(-MAX_RECORDS);
   await setJSON(KEY, next);
   return next;
 }
 
 export async function clearSessions(): Promise<void> {
   await setJSON<LoggedSession[]>(KEY, []);
+}
+
+/** Replace the full local session set (e.g. after a cross-device Firestore
+ * merge -- see sync/firestoreSync.ts). Unlike appendSessions, this is a full
+ * overwrite, not an append. Returns the stored list. */
+export async function replaceSessions(sessions: LoggedSession[]): Promise<LoggedSession[]> {
+  const next = sessions.slice(-MAX_RECORDS);
+  await setJSON(KEY, next);
+  return next;
 }
 
 /** Local-timezone Y-M-D key so a session groups under the day it happened for the user. */

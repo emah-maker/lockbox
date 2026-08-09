@@ -20,6 +20,11 @@ import type { Status, HistoryEntry, BoxState, Settings } from '../ble/protocol';
 import { getJSON, setJSON } from '../storage/storage';
 import { loadSessions, appendSessions, LoggedSession } from '../stats/sessionHistory';
 import { useSettingsStore } from './useSettingsStore';
+// Remote sync (docs/rfcs/google-signin-cross-device-sync-architecture.md §4.3)
+// is wired from outside this store -- see sync/sessionsSyncBridge.ts, which
+// subscribes to this store's `sessions` state rather than being called from
+// here, so this file stays exactly as documented: the only thing that
+// actually talks to the box over BLE, with zero awareness of auth/network.
 
 type Conn = 'idle' | 'scanning' | 'connecting' | 'connected' | 'error';
 
@@ -132,7 +137,17 @@ export const useStore = create<AppState>((set, get) => {
         setJSON<PendingTopicTag | null>(PENDING_TOPIC_KEY, null);
         set({ currentTopic: null });
       }
-      appendSessions(logged).then((sessions) => set({ sessions }));
+      appendSessions(logged).then((sessions) => {
+        set({ sessions });
+        // Ack the batch by entry count once it's durably in AsyncStorage --
+        // see Box-code/lib/lock_log.py's SessionLog.ack and
+        // docs/rfcs/ios-call-greenlist-and-force-quit-logging-technical-design.md
+        // §3.2: the box only drops its own pending queue once it hears this
+        // back, so a dropped write here (e.g. disconnected right after this
+        // notify) just means the box resends the same batch next connection
+        // -- safe because appendSessions dedupes by (startedAt, plannedS).
+        client.ackHistory(entries.length).catch(() => {});
+      });
     });
   };
 

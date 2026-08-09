@@ -2,7 +2,7 @@
 // Scan by service UUID -> connect -> subscribe to status/history notifications
 // -> read/write the characteristics defined in protocol.ts. One box, one
 // connection; auto-reconnect is left to the caller (see useStore).
-import { BleManager, Device, Subscription, State } from 'react-native-ble-plx';
+import { BleManager, BleRestoredState, Device, Subscription, State } from 'react-native-ble-plx';
 import { Buffer } from 'buffer';
 import {
   SERVICE_UUID,
@@ -19,6 +19,7 @@ import {
   encodeSettings,
   encodeTime,
   encodeAlert,
+  cmdHistoryAck,
 } from './protocol';
 
 const b64 = (s: string) => Buffer.from(s, 'utf8').toString('base64');
@@ -34,7 +35,30 @@ export interface ClientCallbacks {
 }
 
 export class PhoneBoxClient {
-  private manager = new BleManager();
+  // restoreStateIdentifier/restoreStateFunction opt this BleManager into iOS
+  // CoreBluetooth state restoration (see
+  // docs/rfcs/ios-background-wake-and-call-notification-architecture.md §3.2,
+  // §5.1): when the OS cold-launches the app for a qualifying BLE event after
+  // a system-initiated termination, it hands the *same* identifier's central
+  // manager back its connecting/connected peripherals. We don't need to do
+  // anything with the restored peripherals ourselves here -- connectById()'s
+  // call to manager.connectToDevice() on the same remembered device id
+  // (see useStore.ts) reattaches to whatever CoreBluetooth just handed back;
+  // connecting to an already-connected/connecting CBPeripheral is a no-op at
+  // the OS level that still resolves normally. This callback mainly needs to
+  // exist at all -- BleManager only restores state when both
+  // restoreStateIdentifier and restoreStateFunction are provided together.
+  private manager = new BleManager({
+    restoreStateIdentifier: 'phonebox-central',
+    restoreStateFunction: (restoredState: BleRestoredState | null) => {
+      if (restoredState?.connectedPeripherals?.length) {
+        console.log(
+          '[PhoneBoxClient] BLE state restored:',
+          restoredState.connectedPeripherals.map((p) => p.id),
+        );
+      }
+    },
+  });
   private device: Device | null = null;
   private subs: Subscription[] = [];
   private alertNonce = 0;
@@ -161,6 +185,16 @@ export class PhoneBoxClient {
   alertCall(label: string) {
     this.alertNonce = (this.alertNonce + 1) % 100000;
     return this.write(CHAR.alert, encodeAlert(this.alertNonce, label));
+  }
+
+  /** Ack a drained `history` batch (by entry count) once it's durably stored
+   * locally -- see protocol.ts's cmdHistoryAck and
+   * Box-code/lib/lock_log.py's SessionLog.ack for why the box waits for this
+   * before clearing its own pending queue. Call from onHistory's consumer
+   * only after the batch has actually been persisted (see useStore.ts's
+   * handleHistory), not just received. */
+  ackHistory(seq: number) {
+    return this.write(CHAR.command, cmdHistoryAck(seq));
   }
 
   get connected() {

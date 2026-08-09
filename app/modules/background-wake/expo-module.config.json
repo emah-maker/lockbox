@@ -1,0 +1,8 @@
+{
+  "platforms": ["apple"],
+  "apple": {
+    "modules": ["BackgroundWakeModule"],
+    "appDelegateSubscribers": ["BackgroundWakeAppDelegateSubscriber"],
+    "podspecPath": "BackgroundWake.podspec"
+  }
+}

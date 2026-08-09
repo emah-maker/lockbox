@@ -24,6 +24,15 @@
 #
 # Payload formats are shared verbatim with app/src/ble/protocol.ts -- keep them
 # in lockstep with the UUIDs in lock_config.py.
+#
+# `history` push/ack (docs/rfcs/ios-call-greenlist-and-force-quit-logging-technical-design.md
+# §3.2): a BLE notify has no delivery guarantee, so _push_outbound no longer
+# clears ctrl.log as soon as it writes the characteristic -- it calls
+# ctrl.log.mark_sent() instead, and the queue is only cleared once the app
+# acks via the `command` characteristic's "historyAck:<seq>" opcode (see
+# LockController.apply_ble_command -> lock_log.SessionLog.ack). A fresh
+# connection always forces a resend of whatever is still pending, in case the
+# previous connection dropped before the app ever saw the original notify.
 import time
 
 try:
@@ -90,7 +99,10 @@ class PhoneBoxBLE:
         self._last_alert = ""
         self._last_time = ""
         self._last_settings = ""
-        self._last_history = ""
+        self._last_history = None  # None (not "") so the very first push
+                                    # after boot always writes, same as after
+                                    # a reconnect -- see _on_connected below.
+        self._was_connected = False
         if not (BLE_ENABLED and _BLE_IMPORTED):
             return
         try:
@@ -136,7 +148,11 @@ class PhoneBoxBLE:
         if not self.enabled:
             return
         try:
-            if self._radio.connected:
+            connected = self._radio.connected
+            if connected and not self._was_connected:
+                self._on_connected()
+            self._was_connected = connected
+            if connected:
                 self._set_advertising(False)
                 self._drain_inbound(ctrl, now)
                 self._push_outbound(ctrl, now)
@@ -145,6 +161,16 @@ class PhoneBoxBLE:
         except Exception:
             # never let a radio hiccup break the run loop
             pass
+
+    def _on_connected(self):
+        # A brand-new connection may be the *first* chance the app has had to
+        # see history the box already tried (and failed) to hand off on a
+        # previous, dropped connection -- ctrl.log itself hasn't forgotten
+        # anything unacked (see SessionLog.ack), but this object's own
+        # last-sent cache would otherwise suppress a resend of unchanged
+        # content. Resetting it forces _push_outbound to write the `history`
+        # characteristic again on this connection regardless.
+        self._last_history = None
 
     def _push_outbound(self, ctrl, now):
         # refresh readable/notify characteristics about once per second
@@ -161,9 +187,14 @@ class PhoneBoxBLE:
             if text != self._last_history:
                 self._svc.history = text
                 self._last_history = text
-                # Handed off to the app (see PhoneBoxClient.onHistory); the app
-                # is now the durable copy, so the box's queue can be dropped.
-                ctrl.log.clear()
+                # Cleared only once the app acks this exact batch (see
+                # LockController.apply_ble_command "historyAck" ->
+                # lock_log.SessionLog.ack) -- a notify has no delivery
+                # guarantee, so clearing here unconditionally (the previous
+                # behavior) could lose the box's only copy if the app missed
+                # it. mark_sent() remembers how many entries this batch
+                # covers so a later ack can be validated against it.
+                ctrl.log.mark_sent()
 
     def _drain_inbound(self, ctrl, now):
         cmd = self._svc.command

@@ -170,7 +170,7 @@ class LockController:
         elif self.state == "done":
             if self.settings.auto_open and now - self.done_start >= DONE_ANIM_S:
                 self.go_idle()             # auto-dismiss the unlock animation
-            else:
+            elif not self._was_down:       # skip the blink redraw while a finger is down
                 on = int((now - self.done_start) * ANIM_HZ * 2) % 2 == 0
                 if on != self._anim_on:    # only redraw when the blink flips
                     self._anim_on = on
@@ -204,7 +204,7 @@ class LockController:
                 self._call_alert_until = None
                 self._call_anim_on = None
                 self.ui.hide_call_alert()
-            else:
+            elif not self._was_down:       # skip the flash redraw while a finger is down
                 on = int((now - self._call_alert_started) * CALL_ALERT_BLINK_HZ * 2) % 2 == 0
                 if on != self._call_anim_on:   # only redraw when the flash flips
                     self._call_anim_on = on
@@ -272,7 +272,11 @@ class LockController:
     def apply_ble_command(self, cmd, now):
         # opcodes: "start:<seconds>", "lock", "unlock" (unlock gated by
         # self.settings.allow_remote_unlock, toggled from the app's Settings
-        # screen -- see apply_ble_settings_json / lock_ble._drain_inbound)
+        # screen -- see apply_ble_settings_json / lock_ble._drain_inbound),
+        # "historyAck:<seq>" (app has durably stored a drained `history`
+        # batch -- see lock_log.SessionLog.ack and
+        # docs/rfcs/ios-call-greenlist-and-force-quit-logging-technical-design.md
+        # §3.2; reuses this characteristic instead of adding a new BLE UUID)
         op = cmd.split(":", 1)
         name = op[0]
         if name == "start":
@@ -293,6 +297,13 @@ class LockController:
             # BLE_ALLOW_REMOTE_UNLOCK), toggleable off in Settings
             if self.settings.allow_remote_unlock and self.state in ("running", "closed"):
                 self.go_done(now, OVERRIDDEN)
+        elif name == "historyAck":
+            if len(op) == 2:
+                try:
+                    seq = int(op[1])
+                except ValueError:
+                    return
+                self.log.ack(seq)
 
     def apply_ble_settings_json(self, text):
         try:

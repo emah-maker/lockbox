@@ -4,9 +4,10 @@
 // useStore.pushBoxSettings, mirrored locally in useSettingsStore.boxSettings
 // so this screen has something to show even before a connection is made.
 import React from 'react';
-import { View, Text, StyleSheet, Switch, Pressable, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, Switch, Pressable, ScrollView, ActivityIndicator, Alert } from 'react-native';
 import { useStore, CONN_LABELS } from '../store/useStore';
 import { useSettingsStore } from '../store/useSettingsStore';
+import { useAuthStore } from '../auth/useAuthStore';
 import { useTheme } from '../theme/useTheme';
 import { THEME_MODES, ACCENT_KEYS, ACCENT_LABELS, ThemeMode, AccentKey } from '../theme/theme';
 
@@ -58,6 +59,8 @@ export default function SettingsScreen() {
           <Switch value={autoConnect} onValueChange={setAutoConnect} />
         </Row>
       </Section>
+
+      <AccountSection color={c} />
 
       <Section title="Box behaviors" subtitle={conn !== 'connected' ? 'Showing last-known values -- connect to change live' : undefined} color={c}>
         <Row label="Auto-open when done" color={c}>
@@ -142,6 +145,157 @@ export default function SettingsScreen() {
         </View>
       </Section>
     </ScrollView>
+  );
+}
+
+// Account section (design doc §6): optional, additive -- never a gate. Reads
+// straight off useAuthStore's `user` (display-safe fields only: uid, email,
+// displayName, photoURL) for on-screen display; nothing here is ever passed
+// to console.*/analytics (design doc §5 checklist items 3-4).
+function AccountSection({ color }: { color: ReturnType<typeof useTheme> }) {
+  const user = useAuthStore((s) => s.user);
+  const syncing = useAuthStore((s) => s.syncing);
+  const syncError = useAuthStore((s) => s.syncError);
+  const lastSyncedAt = useAuthStore((s) => s.lastSyncedAt);
+  const signIn = useAuthStore((s) => s.signIn);
+  const signOut = useAuthStore((s) => s.signOut);
+  const deleteAccount = useAuthStore((s) => s.deleteAccount);
+  const syncNow = useAuthStore((s) => s.syncNow);
+
+  const [busy, setBusy] = React.useState(false);
+  const [deleteError, setDeleteError] = React.useState<string | null>(null);
+
+  const handleSignIn = async () => {
+    setBusy(true);
+    try {
+      await signIn();
+    } catch {
+      // useAuthStore.signIn/googleAuth already swallow/surface errors without
+      // logging the underlying credential -- a failed/cancelled sign-in just
+      // leaves the user signed out, nothing further to do here.
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleSignOut = async () => {
+    setBusy(true);
+    try {
+      await signOut();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleDeleteAccount = () => {
+    Alert.alert(
+      'Delete account?',
+      'This permanently deletes your account and removes your synced settings and device list from the cloud. Local stats on this phone, and the box itself, are unaffected. This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete account',
+          style: 'destructive',
+          onPress: async () => {
+            setBusy(true);
+            setDeleteError(null);
+            try {
+              await deleteAccount();
+            } catch {
+              // Generic message only -- never interpolate the underlying error
+              // (design doc §5 checklist item 3: no token/PII in any surfaced
+              // string). Most likely cause: the re-authentication step was
+              // cancelled: safe to just let the user retry.
+              setDeleteError('Could not delete account. Please try again.');
+            } finally {
+              setBusy(false);
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  return (
+    <Section title="Account" color={color}>
+      {user ? (
+        <>
+          <Row label={user.displayName ?? user.email ?? 'Signed in'} color={color}>
+            <Text style={[styles.subtitle, { color: color.textDim }]}>
+              {lastSyncedAt ? `Synced ${formatRelative(lastSyncedAt)}` : 'Not synced yet'}
+            </Text>
+          </Row>
+          {user.displayName && user.email ? (
+            <Text style={[styles.subtitle, { color: color.textDim }]}>{user.email}</Text>
+          ) : null}
+          {syncError ? <Text style={[styles.subtitle, { color: color.danger }]}>{syncError}</Text> : null}
+          {deleteError ? <Text style={[styles.subtitle, { color: color.danger }]}>{deleteError}</Text> : null}
+          <View style={styles.chipRow}>
+            <Button label={syncing ? 'Syncing...' : 'Sync now'} onPress={syncNow} disabled={syncing || busy} color={color} />
+            <Button label="Sign out" onPress={handleSignOut} disabled={busy} color={color} variant="outline" />
+          </View>
+          <Pressable onPress={handleDeleteAccount} disabled={busy} style={{ marginTop: 12 }}>
+            <Text style={[styles.subtitle, { color: color.danger }]}>Delete account</Text>
+          </Pressable>
+        </>
+      ) : (
+        <>
+          <Text style={[styles.subtitle, { color: color.textDim, marginBottom: 8 }]}>
+            Back up your stats and settings, and sync them to another phone. Optional -- the box works
+            fully without this.
+          </Text>
+          {syncError ? <Text style={[styles.subtitle, { color: color.danger }]}>{syncError}</Text> : null}
+          <Button label="Sign in with Google" onPress={handleSignIn} disabled={busy} color={color} />
+        </>
+      )}
+    </Section>
+  );
+}
+
+/** "5m ago" / "3h ago" / "2d ago" -- the small non-blocking sync caption §6.3 asks for. */
+function formatRelative(epochMs: number): string {
+  const diffMs = Date.now() - epochMs;
+  const mins = Math.max(0, Math.round(diffMs / 60000));
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.round(hours / 24);
+  return `${days}d ago`;
+}
+
+function Button({
+  label,
+  onPress,
+  disabled,
+  color,
+  variant = 'filled',
+}: {
+  label: string;
+  onPress: () => void;
+  disabled?: boolean;
+  color: ReturnType<typeof useTheme>;
+  variant?: 'filled' | 'outline';
+}) {
+  const filled = variant === 'filled';
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      style={[
+        styles.button,
+        filled
+          ? { backgroundColor: color.accent, borderColor: color.accent }
+          : { backgroundColor: 'transparent', borderColor: color.textDim },
+        disabled ? { opacity: 0.5 } : null,
+      ]}
+    >
+      {disabled ? (
+        <ActivityIndicator size="small" color={filled ? color.accentText : color.text} />
+      ) : (
+        <Text style={{ color: filled ? color.accentText : color.text, fontWeight: '600' }}>{label}</Text>
+      )}
+    </Pressable>
   );
 }
 
@@ -262,4 +416,13 @@ const styles = StyleSheet.create({
   stepValue: { minWidth: 48, textAlign: 'center', fontSize: 15, fontWeight: '600' },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   chip: { paddingVertical: 8, paddingHorizontal: 14, borderRadius: 20, borderWidth: 1.5 },
+  button: {
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 110,
+  },
 });

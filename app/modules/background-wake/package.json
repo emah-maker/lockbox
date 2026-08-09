@@ -1,0 +1,14 @@
+{
+  "name": "background-wake",
+  "version": "1.0.0",
+  "description": "iOS background-wake foundation (CoreBluetooth restoration launch-reason detection) for the PhoneBox companion app",
+  "main": "index.ts",
+  "types": "index.ts",
+  "license": "UNLICENSED",
+  "author": "Phone Box",
+  "homepage": "https://docs.expo.dev/modules/",
+  "peerDependencies": {
+    "expo": "*",
+    "react-native": "*"
+  }
+}

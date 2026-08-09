@@ -1,0 +1,49 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    match /users/{uid} {
+      allow read, update: if isOwner(uid);
+      allow create: if isOwner(uid)
+                    && request.resource.data.keys().hasOnly(['email', 'displayName', 'photoURL', 'createdAt', 'updatedAt'])
+                    && request.resource.data.createdAt == request.time;
+      allow delete: if isOwner(uid); // part of the account-deletion path, §5
+
+      match /sessions/{sessionId} {
+        allow read: if isOwner(uid);
+        // Create-only: session history is an immutable, append-only event log.
+        allow create: if isOwner(uid)
+                      && request.resource.data.keys().hasOnly(['startedAt', 'plannedS', 'actualS', 'outcome', 'topic'])
+                      && request.resource.data.outcome in ['completed', 'overridden']
+                      && request.resource.data.startedAt is int
+                      && request.resource.data.plannedS is int
+                      && request.resource.data.actualS is int;
+        allow update, delete: if false; // integrity: never edited or erased by a client, even the owner
+      }
+
+      match /settings/app {
+        allow read, write: if isOwner(uid)
+                            && request.resource.data.keys().hasOnly(
+                                 ['themeMode', 'accent', 'callAlertsEnabled', 'advancedStatsEnabled', 'updatedAt']);
+      }
+
+      match /devices/{deviceId} {
+        allow read, write: if isOwner(uid);
+      }
+    }
+
+    // Deny-by-default: anything not explicitly matched above -- any other top-level
+    // collection, any other user's uid path, any unauthenticated request -- is denied.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

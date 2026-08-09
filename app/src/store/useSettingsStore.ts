@@ -14,6 +14,18 @@ import type { Settings } from '../ble/protocol';
 // first successful connection.
 const DEFAULT_BOX_SETTINGS: Settings = { ovr: 25, auto: 1, sleep: 20, bright: 50, unlk: 0, ucal: 0, thm: 0, acc: 0 };
 
+// The four account-syncable fields, per
+// docs/rfcs/google-signin-cross-device-sync-architecture.md §3.1/§4.2 --
+// cross-device last-write-wins settings, distinct from boxSettings (the
+// per-physical-box BLE mirror, which is never account state -- see §3.1's
+// "deliberate scoping decision").
+export interface SyncableSettings {
+  themeMode: ThemeMode;
+  accent: AccentKey;
+  callAlertsEnabled: boolean;
+  advancedStatsEnabled: boolean;
+}
+
 interface SettingsState {
   hydrated: boolean;
   themeMode: ThemeMode;
@@ -21,6 +33,10 @@ interface SettingsState {
   callAlertsEnabled: boolean;
   advancedStatsEnabled: boolean;
   boxSettings: Settings;
+  // Epoch ms of the last local change to any of the four SyncableSettings
+  // fields -- compared against Firestore's settings/app.updatedAt for the
+  // two-way last-write-wins merge (sync/firestoreSync.ts).
+  settingsUpdatedAt: number;
 
   hydrate: () => Promise<void>;
   setThemeMode: (mode: ThemeMode) => void;
@@ -28,6 +44,11 @@ interface SettingsState {
   setCallAlertsEnabled: (on: boolean) => void;
   setAdvancedStatsEnabled: (on: boolean) => void;
   setBoxSettings: (patch: Partial<Settings>) => void;
+  /** Applied when a remote Firestore settings/app doc is newer than the
+   * local copy (LWW pull) -- does not itself trigger a remote push.
+   * `updatedAt` is the remote doc's own timestamp, preserved as-is so a
+   * later comparison against another device's copy stays correct. */
+  applyRemoteSettings: (remote: SyncableSettings, updatedAt: number) => void;
 }
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({
@@ -37,42 +58,64 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   callAlertsEnabled: true,
   advancedStatsEnabled: false,
   boxSettings: DEFAULT_BOX_SETTINGS,
+  settingsUpdatedAt: 0,
 
   hydrate: async () => {
     if (get().hydrated) return;
-    const [themeMode, accent, callAlertsEnabled, advancedStatsEnabled, boxSettings] = await Promise.all([
-      getJSON<ThemeMode>('themeMode', 'dark'),
-      getJSON<AccentKey>('accent', 'mint'),
-      getJSON<boolean>('callAlertsEnabled', true),
-      getJSON<boolean>('advancedStatsEnabled', false),
-      getJSON<Settings>('boxSettings', DEFAULT_BOX_SETTINGS),
-    ]);
-    set({ hydrated: true, themeMode, accent, callAlertsEnabled, advancedStatsEnabled, boxSettings });
+    const [themeMode, accent, callAlertsEnabled, advancedStatsEnabled, boxSettings, settingsUpdatedAt] =
+      await Promise.all([
+        getJSON<ThemeMode>('themeMode', 'dark'),
+        getJSON<AccentKey>('accent', 'mint'),
+        getJSON<boolean>('callAlertsEnabled', true),
+        getJSON<boolean>('advancedStatsEnabled', false),
+        getJSON<Settings>('boxSettings', DEFAULT_BOX_SETTINGS),
+        getJSON<number>('settingsUpdatedAt', 0),
+      ]);
+    set({ hydrated: true, themeMode, accent, callAlertsEnabled, advancedStatsEnabled, boxSettings, settingsUpdatedAt });
   },
 
   setThemeMode: (mode) => {
-    set({ themeMode: mode });
+    const settingsUpdatedAt = Date.now();
+    set({ themeMode: mode, settingsUpdatedAt });
     setJSON('themeMode', mode);
+    setJSON('settingsUpdatedAt', settingsUpdatedAt);
   },
 
   setAccent: (accent) => {
-    set({ accent });
+    const settingsUpdatedAt = Date.now();
+    set({ accent, settingsUpdatedAt });
     setJSON('accent', accent);
+    setJSON('settingsUpdatedAt', settingsUpdatedAt);
   },
 
   setCallAlertsEnabled: (on) => {
-    set({ callAlertsEnabled: on });
+    const settingsUpdatedAt = Date.now();
+    set({ callAlertsEnabled: on, settingsUpdatedAt });
     setJSON('callAlertsEnabled', on);
+    setJSON('settingsUpdatedAt', settingsUpdatedAt);
   },
 
   setAdvancedStatsEnabled: (on) => {
-    set({ advancedStatsEnabled: on });
+    const settingsUpdatedAt = Date.now();
+    set({ advancedStatsEnabled: on, settingsUpdatedAt });
     setJSON('advancedStatsEnabled', on);
+    setJSON('settingsUpdatedAt', settingsUpdatedAt);
   },
 
   setBoxSettings: (patch) => {
+    // Deliberately not part of settingsUpdatedAt/sync -- boxSettings is the
+    // per-physical-box BLE mirror, not account-level state (§3.1).
     const next = { ...get().boxSettings, ...patch };
     set({ boxSettings: next });
     setJSON('boxSettings', next);
+  },
+
+  applyRemoteSettings: (remote, updatedAt) => {
+    set({ ...remote, settingsUpdatedAt: updatedAt });
+    setJSON('themeMode', remote.themeMode);
+    setJSON('accent', remote.accent);
+    setJSON('callAlertsEnabled', remote.callAlertsEnabled);
+    setJSON('advancedStatsEnabled', remote.advancedStatsEnabled);
+    setJSON('settingsUpdatedAt', updatedAt);
   },
 }));

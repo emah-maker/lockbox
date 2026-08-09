@@ -118,3 +118,18 @@ export const encodeTime = (epochSeconds: number) => String(Math.floor(epochSecon
 // An "important call" alert. The nonce forces a distinct write each time so the
 // box re-fires the on-screen notification even for the same caller.
 export const encodeAlert = (nonce: number, label: string) => `${nonce}|${label}`;
+
+// Acks a `history` batch once the app has durably persisted it (see
+// useStore.ts's handleHistory -> sessionHistory.appendSessions). Reuses the
+// existing `command` characteristic (no new BLE UUID) -- see
+// docs/rfcs/ios-call-greenlist-and-force-quit-logging-technical-design.md
+// §3.2 for why the box needs this at all: it now only clears its own pending
+// queue (Box-code/lib/lock_log.py SessionLog) once it hears this back,
+// instead of on every notify, which had no delivery guarantee. `seq` is just
+// the number of entries in the batch being acked -- the box's queue is
+// strictly FIFO/append-only and `history` always serializes the *entire*
+// current pending set (never a delta), so "how many entries were in the
+// batch I just received" is an unambiguous stand-in for a sequence number:
+// SessionLog.ack() clears exactly that many from the front, leaving anything
+// recorded after the send untouched.
+export const cmdHistoryAck = (seq: number) => `historyAck:${Math.max(0, Math.floor(seq))}`;
