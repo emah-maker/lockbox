@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import { useTheme } from '../theme/useTheme';
 import { withAlpha } from '../theme/theme';
+import { AnimatedPressable } from '../ui/AnimatedPressable';
 
 export function Button({
   label,
@@ -31,7 +32,7 @@ export function Button({
 }) {
   const filled = variant === 'filled';
   return (
-    <Pressable
+    <AnimatedPressable
       onPress={onPress}
       disabled={disabled}
       style={[
@@ -47,7 +48,7 @@ export function Button({
       ) : (
         <Text style={{ color: filled ? color.accentText : color.text, fontWeight: '600' }}>{label}</Text>
       )}
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 

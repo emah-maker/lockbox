@@ -11,8 +11,8 @@ import { useAuthStore } from '../auth/useAuthStore';
 import { useTheme } from '../theme/useTheme';
 import { THEME_MODES, ACCENT_KEYS, ACCENT_LABELS, ThemeMode, AccentKey } from '../theme/theme';
 import { CustomLabelsSection } from './CustomLabelsSection';
-import { FocusGoalSection } from './FocusGoalSection';
 import { Button, Section, SliderRow } from './SettingsPrimitives';
+import { AnimatedPressable } from '../ui/AnimatedPressable';
 
 // Mirrors Box-code/lib/lock_config.py -- keep these ranges in lockstep with
 // OVR_MIN/OVR_MAX/OVR_STEP/SLEEP_OPTIONS/BRIGHT_OPTIONS on the firmware side.
@@ -143,7 +143,6 @@ export default function SettingsScreen() {
         </View>
       </Section>
 
-      <FocusGoalSection color={c} />
       <CustomLabelsSection color={c} />
     </ScrollView>
   );
@@ -326,7 +325,7 @@ function Chip({
   children: React.ReactNode;
 }) {
   return (
-    <Pressable
+    <AnimatedPressable
       onPress={onPress}
       style={[
         styles.chip,
@@ -337,7 +336,7 @@ function Chip({
       ]}
     >
       <Text style={{ color: active ? color.accentText : color.text, fontWeight: '600' }}>{children}</Text>
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 

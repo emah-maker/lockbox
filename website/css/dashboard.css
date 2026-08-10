@@ -17,7 +17,7 @@
   background: rgba(255, 255, 255, 0.08); padding: 2px 6px; border-radius: 6px; font-size: 0.92em;
 }
 .dash__state--error { border-color: rgba(224, 16, 16, 0.4); }
-.dash__state--error h3 { color: var(--red); }
+.dash__state--error h3 { color: var(--locked); }
 #dashSignedOut .btn { margin-top: 18px; }
 #dashLoading p { color: var(--text-2); }
 
@@ -32,7 +32,7 @@
 }
 .dash__tile-label { color: var(--text-3); font-size: 12.5px; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; }
 .dash__tile-value {
-  font-family: var(--font-display); font-weight: 700; color: var(--green-2);
+  font-family: var(--font-display); font-weight: 700; color: var(--unlocked-2);
   font-size: clamp(1.3rem, 2.2vw, 1.7rem); margin-top: 6px;
 }
 
@@ -43,10 +43,15 @@
 /* ---------- Trend bars ---------- */
 .dash__trend { display: flex; align-items: flex-end; gap: 10px; height: 140px; }
 .dash__trend-day { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; gap: 8px; }
+.dash__trend-track { position: relative; width: 100%; max-width: 30px; flex: 1; }
+/* A full-height bar scaled with transform, not an animated `height` --
+   transform/opacity are the only properties that skip layout on change. */
 .dash__trend-bar {
-  width: 100%; max-width: 30px; min-height: 4px; border-radius: 5px 5px 3px 3px;
-  background: linear-gradient(180deg, var(--green-2), var(--green));
-  transition: height 0.4s var(--ease);
+  position: absolute; left: 0; right: 0; bottom: 0; height: 100%;
+  border-radius: 5px 5px 3px 3px;
+  background: linear-gradient(180deg, var(--unlocked-2), var(--unlocked));
+  transform-origin: bottom; transform: scaleY(var(--h, 0.04));
+  transition: transform 0.4s var(--ease);
 }
 .dash__trend-label { color: var(--text-3); font-size: 12px; font-weight: 600; }
 
@@ -68,8 +73,8 @@
 .dash__chip {
   display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: 999px; font-size: 12.5px; font-weight: 600;
 }
-.dash__outcome--completed { color: var(--green); }
-.dash__outcome--overridden { color: var(--amber); }
+.dash__outcome--completed { color: var(--unlocked); }
+.dash__outcome--overridden { color: var(--closed); }
 
 /* ---------- Fun facts ---------- */
 .dash__facts-card { margin-bottom: 18px; }
@@ -94,7 +99,7 @@
   font-size: 13px; color: var(--text-2); background: transparent; border: none; cursor: pointer; font-family: inherit;
 }
 .dash__cal-daynum:hover { background: rgba(255, 255, 255, 0.06); }
-.dash__cal-cell--selected .dash__cal-daynum { border: 2px solid var(--green-2); color: var(--text); }
+.dash__cal-cell--selected .dash__cal-daynum { border: 2px solid var(--unlocked-2); color: var(--text); }
 .dash__cal-cell--today:not(.dash__cal-cell--selected) .dash__cal-daynum { border: 1px solid var(--text-3); }
 .dash__cal-cell--focus .dash__cal-daynum { color: #012a12; font-weight: 700; }
 .dash__cal-dot { width: 5px; height: 5px; border-radius: 50%; }

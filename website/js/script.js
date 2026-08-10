@@ -57,19 +57,15 @@
     return h + ":" + (m < 10 ? "0" + m : m) + ":" + (s < 10 ? "0" + s : s);
   }
 
+  // Mirrors Box-code/lib/lock_ui.py update_clock_view(): while state ==
+  // "running" the digital time and the LOCKED label are fixed coral-red
+  // (the firmware's own locked-state color), full stop -- there is no
+  // green/amber/red urgency gradient on the main clock, only on the
+  // separate battery and override-timeout bars.
   function paint() {
-    if (timeEl) {
-      timeEl.textContent = hms(remaining);
-      // Mirror the device: green normally, amber under 2 min, red under 30s.
-      timeEl.classList.remove("is-amber", "is-red");
-      if (remaining <= 30) { timeEl.classList.add("is-red"); }
-      else if (remaining <= 120) { timeEl.classList.add("is-amber"); }
-    }
+    if (timeEl) { timeEl.textContent = hms(remaining); }
     if (barEl) {
-      var pct = Math.round((remaining / TOTAL) * 100);
-      barEl.style.width = pct + "%";
-      barEl.style.background = remaining <= 30 ? "#e01010"
-        : remaining <= 120 ? "#ffaa00" : "#00c040";
+      barEl.style.setProperty("--fill", remaining / TOTAL);
     }
   }
 
@@ -84,6 +80,44 @@
       }
       paint();
     }, 1000);
+  }
+
+  /* ---------- Override press-demo: proves the mechanism, not just names it ---------- */
+  var ovrBtn = document.getElementById("overrideBtn");
+  var ovrTicks = document.getElementById("overrideTicks");
+  var ovrStatus = document.getElementById("overrideStatus");
+  if (ovrBtn && ovrTicks && ovrStatus) {
+    var OVR_TOTAL = 25;
+    var ovrCount = 0;
+    for (var i = 0; i < OVR_TOTAL; i++) {
+      var t = document.createElement("span");
+      t.className = "override-demo__tick";
+      ovrTicks.appendChild(t);
+    }
+    var ticks = ovrTicks.querySelectorAll(".override-demo__tick");
+    function ovrPaint() {
+      ticks.forEach(function (t, i) { t.classList.toggle("is-hit", i < ovrCount); });
+      if (ovrCount >= OVR_TOTAL) {
+        ovrStatus.textContent = "Released";
+        ovrStatus.classList.add("is-released");
+        ovrBtn.disabled = true;
+      } else {
+        ovrStatus.textContent = ovrCount + " / " + OVR_TOTAL;
+      }
+    }
+    ovrBtn.addEventListener("click", function () {
+      if (ovrCount >= OVR_TOTAL) { return; }
+      ovrCount += 1;
+      ovrPaint();
+      if (ovrCount >= OVR_TOTAL) {
+        setTimeout(function () {
+          ovrCount = 0;
+          ovrBtn.disabled = false;
+          ovrStatus.classList.remove("is-released");
+          ovrPaint();
+        }, 2200);
+      }
+    });
   }
 
   /* ---------- Waitlist form (client-side only, no backend) ---------- */

@@ -218,6 +218,44 @@ class LockUI:
         self.btn_label.anchored_position = (W // 2, self.BTN_Y + self.BTN_H // 2)
         group.append(self.btn_label)
 
+        # Press-feedback rings for the two direct-tap targets on this view
+        # (start/stop button, status bar) -- see on_touch_down/on_touch_up.
+        # A plain outline drawn OVER the widget, shown/hidden only, never
+        # touching the widget's own `.fill` -- that color is actively managed
+        # by set_status/set_button/show_* as the state machine transitions,
+        # and a ring that only toggles .hidden can never race with or clobber
+        # a legitimate state-color change on release.
+        self.button_press_ring = Rect(self.BTN_X - 3, self.BTN_Y - 3,
+                                      self.BTN_W + 6, self.BTN_H + 6,
+                                      fill=None, outline=C_WHITE, stroke=3)
+        self.button_press_ring.hidden = True
+        group.append(self.button_press_ring)
+        self.status_press_ring = RoundRect(6, self.STATUS_Y - 2, W - 12,
+                                           self.STATUS_H + 4, 9,
+                                           fill=None, outline=C_WHITE, stroke=3)
+        self.status_press_ring.hidden = True
+        group.append(self.status_press_ring)
+
+    # ----- instant touch-down/up feedback (control view only) -----
+    # Every tap/swipe on this device is resolved on RELEASE, in
+    # LockController._handle_release, so a finger landing on the LOCK button
+    # or status bar previously got zero visual acknowledgement until the
+    # whole gesture completed -- these two calls (wired from
+    # LockController.process, purely additively) are the fix. They only ever
+    # show/hide the rings above; they never decide what a gesture means, so
+    # they carry none of the risk of touching the actual gesture logic.
+    def on_touch_down(self, x, y):
+        if self.view != "control":
+            return
+        if self.in_button(x, y) and not self.button.hidden:
+            self.button_press_ring.hidden = False
+        elif self.in_status(x, y):
+            self.status_press_ring.hidden = False
+
+    def on_touch_up(self):
+        self.button_press_ring.hidden = True
+        self.status_press_ring.hidden = True
+
     # =================== clock view (multiple styles) ===================
     # Swipe up/down on the clock screen cycles these appearances.
     def _clock_hints(self, group, W):

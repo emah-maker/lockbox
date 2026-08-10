@@ -234,15 +234,20 @@ function renderTrend(trend) {
   for (const d of trend) {
     const col = document.createElement('div');
     col.className = 'dash__trend-day';
+    const track = document.createElement('div');
+    track.className = 'dash__trend-track';
     const bar = document.createElement('div');
     bar.className = 'dash__trend-bar';
     const h = Math.max(4, Math.round((d.focusS / max) * 100));
-    bar.style.height = `${h}%`;
+    // Scale a full-height bar instead of animating `height` -- see styles.css
+    // .dash__trend-bar comment for why (layout-thrash / craft-floor finding).
+    bar.style.setProperty('--h', h / 100);
     bar.title = formatDuration(d.focusS);
+    track.appendChild(bar);
     const label = document.createElement('div');
     label.className = 'dash__trend-label';
     label.textContent = d.label;
-    col.append(bar, label);
+    col.append(track, label);
     els.trend.appendChild(col);
   }
 }

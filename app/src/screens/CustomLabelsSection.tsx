@@ -6,11 +6,12 @@
 // same last-write-wins way as the rest of SyncableSettings (see
 // useSettingsStore.ts, sync/settingsSyncBridge.ts).
 import React from 'react';
-import { View, Text, StyleSheet, Pressable, TextInput, Alert } from 'react-native';
+import { View, Text, StyleSheet, Pressable, TextInput, Alert, LayoutAnimation } from 'react-native';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useTheme } from '../theme/useTheme';
 import { LABEL_SWATCHES } from '../stats/customLabels';
 import { Section, Button } from './SettingsPrimitives';
+import { AnimatedPressable } from '../ui/AnimatedPressable';
 
 export function CustomLabelsSection({ color }: { color: ReturnType<typeof useTheme> }) {
   const customLabels = useSettingsStore((s) => s.customLabels);
@@ -80,6 +81,11 @@ function CustomLabelRow({
   const [editing, setEditing] = React.useState(false);
   const [draft, setDraft] = React.useState(label.name);
 
+  const toggleEditing = (next: boolean) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setEditing(next);
+  };
+
   if (editing) {
     return (
       <View style={styles.labelRow}>
@@ -90,22 +96,22 @@ function CustomLabelRow({
           style={[styles.textInput, { flex: 1, color: color.text, borderColor: color.textDim }]}
           autoFocus
         />
-        <Pressable
+        <AnimatedPressable
           onPress={() => {
             if (draft.trim()) onRename(label.id, draft);
-            setEditing(false);
+            toggleEditing(false);
           }}
         >
           <Text style={{ color: color.accent, fontWeight: '600' }}>Save</Text>
-        </Pressable>
-        <Pressable
+        </AnimatedPressable>
+        <AnimatedPressable
           onPress={() => {
             setDraft(label.name);
-            setEditing(false);
+            toggleEditing(false);
           }}
         >
           <Text style={{ color: color.textDim }}>Cancel</Text>
-        </Pressable>
+        </AnimatedPressable>
       </View>
     );
   }
@@ -114,12 +120,12 @@ function CustomLabelRow({
     <View style={styles.labelRow}>
       <View style={[styles.swatch, { backgroundColor: label.color }]} />
       <Text style={[styles.label, { color: color.text, flex: 1 }]}>{label.name}</Text>
-      <Pressable onPress={() => setEditing(true)}>
+      <AnimatedPressable onPress={() => toggleEditing(true)}>
         <Text style={{ color: color.accent }}>Rename</Text>
-      </Pressable>
-      <Pressable onPress={() => onDelete(label.id, label.name)}>
+      </AnimatedPressable>
+      <AnimatedPressable onPress={() => onDelete(label.id, label.name)}>
         <Text style={{ color: color.danger }}>Delete</Text>
-      </Pressable>
+      </AnimatedPressable>
     </View>
   );
 }
@@ -136,7 +142,7 @@ function ColorSwatchRow({
   return (
     <View style={styles.chipRow}>
       {LABEL_SWATCHES.map((hex) => (
-        <Pressable
+        <AnimatedPressable
           key={hex}
           onPress={() => onSelect(hex)}
           style={[

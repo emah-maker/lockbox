@@ -5,13 +5,21 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Phone Box — The Smart Focus Lockbox</title>
   <meta name="description" content="Phone Box is the smart focus lockbox: true physical lockaway, a touchscreen countdown, a tunable emergency override, and no subscription — ever. One-time $99." />
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect x='4' y='2.5' width='16' height='19' rx='3' fill='%230a0d0c' stroke='%2300c040' stroke-width='1.8'/%3E%3Crect x='7.5' y='6' width='9' height='9' rx='1.4' fill='%2300c040'/%3E%3C/svg%3E" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect x='4' y='2.5' width='16' height='19' rx='3' fill='%230d1117' stroke='%23c9a876' stroke-width='1.8'/%3E%3Crect x='7.5' y='6' width='9' height='9' rx='1.4' fill='%23ef5350'/%3E%3C/svg%3E" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Big+Shoulders:wght@600;700;800&family=Overpass:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="css/styles.css" />
 </head>
 <body>
+  <!-- impeccable:direction
+  THESIS: Phone Box locks a phone away the way a bank vault time-lock keeps even a duress-holder out -- hardware precommitment, not a settings toggle.
+  OWN-WORLD: real firmware palette (slate #0D1117/#161B22), brass-plate chrome (rivets, mounting plates, engraved eyebrows), coral-red committed accent for override/locked state, mint reserved for unlocked/success; Big Shoulders + Overpass + JetBrains Mono.
+  STORY: visitor sees an honestly-depicted 3D-printed box on a brass mounting plate, proves the tunable override by pressing it themselves, leaves believing the lock is real and the price is truly one-time.
+  FIRST VIEWPORT: eyebrow plate, headline, lead + CTAs + points left; device on a riveted brass mounting plate right, countdown in coral (matches real locked-state color).
+  FORM: vault time-lock world, user-selected (no dice roll: image-gen/decision-page unavailable this session).
+  FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md.
+  -->
   <a class="skip-link" href="#main">Skip to content</a>
 
   <!-- ===== NAV ===== -->
@@ -66,32 +74,38 @@
         <!-- ===== DEVICE MOCKUP (pure CSS/SVG) ===== -->
         <div class="hero__device reveal">
           <figure class="device" role="img"
-            aria-label="Phone Box device: an opaque lockbox with a small portrait touchscreen showing a green countdown timer and a battery indicator.">
-            <div class="device__body">
-              <div class="device__lid"></div>
-              <div class="device__screen" id="mockScreen">
-                <div class="scr">
-                  <div class="scr__status">
-                    <span class="scr__lock" id="scrLockLabel">LOCKED</span>
-                    <span class="scr__batt" aria-hidden="true">
-                      <span class="scr__batt-body"><span class="scr__batt-fill"></span></span>
-                      <span class="scr__batt-cap"></span>
-                      <span class="scr__batt-pct">82%</span>
-                    </span>
-                  </div>
-                  <div class="scr__main">
-                    <div class="scr__label">FOCUS</div>
-                    <div class="scr__time" id="mockTime">0:24:59</div>
-                    <div class="scr__bar"><span id="mockBar"></span></div>
-                  </div>
-                  <div class="scr__foot">
-                    <span class="scr__hint">HOLD OVERRIDE &times;25</span>
+            aria-label="Phone Box device: an opaque 3D-printed lockbox with a small portrait touchscreen showing a red LOCKED countdown timer and a battery indicator, mounted for display on a brass plate.">
+            <div class="device__mount">
+              <span class="rivet-tl" aria-hidden="true"></span>
+              <span class="rivet-tr" aria-hidden="true"></span>
+              <span class="rivet-bl" aria-hidden="true"></span>
+              <span class="rivet-br" aria-hidden="true"></span>
+              <div class="device__body">
+                <div class="device__lid"></div>
+                <div class="device__screen" id="mockScreen">
+                  <div class="scr">
+                    <div class="scr__status">
+                      <span class="scr__lock" id="scrLockLabel">LOCKED</span>
+                      <span class="scr__batt" aria-hidden="true">
+                        <span class="scr__batt-body"><span class="scr__batt-fill"></span></span>
+                        <span class="scr__batt-cap"></span>
+                        <span class="scr__batt-pct">82%</span>
+                      </span>
+                    </div>
+                    <div class="scr__main">
+                      <div class="scr__label">FOCUS</div>
+                      <div class="scr__time" id="mockTime">0:24:59</div>
+                      <div class="scr__bar"><span id="mockBar"></span></div>
+                    </div>
+                    <div class="scr__foot">
+                      <span class="scr__hint">HOLD OVERRIDE &times;25</span>
+                    </div>
                   </div>
                 </div>
+                <div class="device__latch" aria-hidden="true"></div>
               </div>
-              <div class="device__latch" aria-hidden="true"></div>
             </div>
-            <figcaption class="device__cap">1.47" touchscreen · servo latch · USB-C</figcaption>
+            <figcaption class="device__cap">3D-printed enclosure · 1.47" touchscreen · servo latch · USB-C</figcaption>
           </figure>
         </div>
       </div>
@@ -243,6 +257,14 @@
             <p>Set how hard it is to bail out early. Make it a light 10-press nudge or a serious 100-press commitment. Default is 25.</p>
             <div class="setting__track" aria-hidden="true"><span class="setting__fill" style="--w:22%"></span><span class="setting__thumb" style="--x:22%"></span></div>
             <div class="setting__scale" aria-hidden="true"><span>10</span><span>Default 25</span><span>100</span></div>
+            <div class="override-demo">
+              <p class="section-sub" style="margin:0 0 12px;font-size:13.5px;text-align:left;">Try the default 25-press override right here:</p>
+              <div class="override-demo__row">
+                <button type="button" class="override-demo__btn" id="overrideBtn">Press to release</button>
+                <div class="override-demo__ticks" id="overrideTicks" aria-hidden="true"></div>
+                <span class="override-demo__status" id="overrideStatus">0 / 25</span>
+              </div>
+            </div>
           </article>
 
           <article class="setting reveal">

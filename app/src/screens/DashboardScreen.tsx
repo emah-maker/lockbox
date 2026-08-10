@@ -1,8 +1,8 @@
 // DashboardScreen.tsx -- the focus-stats dashboard + live box status + remote
 // open/close. Navigation lives in App.tsx as a trivial tab switcher; this
 // stays the default landing tab.
-import React, { useMemo, useState } from 'react';
-import { View, Text, StyleSheet, Switch, Pressable, ScrollView } from 'react-native';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Animated, View, Text, StyleSheet, Switch, ScrollView, LayoutAnimation, Platform, UIManager } from 'react-native';
 import { useStore, CONN_LABELS } from '../store/useStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useTheme } from '../theme/useTheme';
@@ -10,6 +10,14 @@ import { withAlpha } from '../theme/theme';
 import { aggregate, formatDuration, completionRate, clampLockSeconds, MAX_LOCK_HOURS } from '../stats/stats';
 import { allLabelChoices, resolveTopic } from '../stats/customLabels';
 import type { Status } from '../ble/protocol';
+import { AnimatedPressable } from '../ui/AnimatedPressable';
+
+// Android needs this opt-in for LayoutAnimation; iOS has it on unconditionally.
+// Safe to call at module scope -- it's idempotent and side-effect-free until
+// something actually calls LayoutAnimation.configureNext().
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 const MINUTE_STEP = 5;
 
@@ -67,6 +75,25 @@ export default function DashboardScreen() {
   // only copy, and the only place these aggregates can come from.
   const stats = useMemo(() => aggregate(sessions), [sessions]);
 
+  // Animates the running-session meter toward each BLE status tick instead of
+  // snapping -- width can't use the native driver, but a single bar's layout
+  // recalculation per tick is cheap, unlike animating layout on a big DOM tree.
+  const meterAnim = useRef(new Animated.Value(status ? elapsedFraction(status) : 0)).current;
+  useEffect(() => {
+    if (!status) return;
+    Animated.timing(meterAnim, {
+      toValue: elapsedFraction(status),
+      duration: 400,
+      useNativeDriver: false,
+    }).start();
+  }, [status?.rem, status?.set]);
+
+  // The topic-tagging chip row appears/disappears with the running state;
+  // animate that shape change instead of a hard pop.
+  useEffect(() => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+  }, [status?.st === 'running']);
+
   const connected = conn === 'connected';
   const canClose = connected && (status?.st === 'idle' || status?.st === 'done');
   const canOpen = connected && (status?.st === 'running' || status?.st === 'closed');
@@ -79,9 +106,9 @@ export default function DashboardScreen() {
         <Text style={s.label}>Connection</Text>
         <Text style={s.value}>{CONN_LABELS[conn]}</Text>
         {error && conn !== 'error' ? <Text style={s.error}>{error}</Text> : null}
-        <Pressable style={s.btn} onPress={connected ? disconnect : connect}>
+        <AnimatedPressable style={s.btn} onPress={connected ? disconnect : connect}>
           <Text style={s.btnText}>{connected ? 'Disconnect' : 'Connect'}</Text>
-        </Pressable>
+        </AnimatedPressable>
       </View>
 
       {status && (
@@ -92,12 +119,12 @@ export default function DashboardScreen() {
             <>
               <Text style={s.sub}>{formatDuration(status.rem)} left</Text>
               <View style={[s.meterTrack, { backgroundColor: withAlpha(theme.accent, 0.2) }]}>
-                <View
+                <Animated.View
                   style={[
                     s.meterFill,
                     {
                       backgroundColor: theme.accent,
-                      width: `${Math.round(elapsedFraction(status) * 100)}%`,
+                      width: meterAnim.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] }),
                     },
                   ]}
                 />
@@ -107,14 +134,14 @@ export default function DashboardScreen() {
           <Text style={s.sub}>Battery {status.bat < 0 ? '—' : `${status.bat}%`}</Text>
 
           <View style={s.controlRow}>
-            <Pressable
+            <AnimatedPressable
               style={[s.controlBtn, !canClose && s.controlBtnDisabled]}
               disabled={!canClose}
               onPress={closeBox}
             >
               <Text style={s.controlBtnText}>Close</Text>
-            </Pressable>
-            <Pressable
+            </AnimatedPressable>
+            <AnimatedPressable
               style={[
                 s.controlBtn,
                 { backgroundColor: theme.danger },
@@ -124,7 +151,7 @@ export default function DashboardScreen() {
               onPress={openBox}
             >
               <Text style={s.controlBtnText}>Open</Text>
-            </Pressable>
+            </AnimatedPressable>
           </View>
           {canOpen && !remoteUnlockOn && (
             <Text style={s.sub}>
@@ -152,7 +179,7 @@ export default function DashboardScreen() {
                   s={s}
                 />
               </View>
-              <Pressable
+              <AnimatedPressable
                 style={[s.controlBtn, s.lockForBtn, pickSeconds <= 0 && s.controlBtnDisabled]}
                 disabled={pickSeconds <= 0}
                 onPress={() => startLock(pickSeconds)}
@@ -160,7 +187,7 @@ export default function DashboardScreen() {
                 <Text style={s.controlBtnText}>
                   Lock for {pickHours}:{String(pickMinutes).padStart(2, '0')}
                 </Text>
-              </Pressable>
+              </AnimatedPressable>
             </View>
           )}
 
@@ -175,7 +202,7 @@ export default function DashboardScreen() {
                 {allLabelChoices(customLabels, themeMode).map((choice) => {
                   const active = currentTopic === choice.id;
                   return (
-                    <Pressable
+                    <AnimatedPressable
                       key={choice.id}
                       style={[
                         s.topicChip,
@@ -187,7 +214,7 @@ export default function DashboardScreen() {
                       <Text style={[s.topicChipText, { color: active ? choice.textColor : theme.text }]}>
                         {choice.label}
                       </Text>
-                    </Pressable>
+                    </AnimatedPressable>
                   );
                 })}
               </View>
@@ -253,21 +280,21 @@ function DurationStepper({
 }) {
   return (
     <View style={s.stepper}>
-      <Pressable
+      <AnimatedPressable
         style={[s.stepBtn, { borderColor: theme.textDim }, disabled && s.controlBtnDisabled]}
         disabled={disabled}
         onPress={onMinus}
       >
         <Text style={{ color: theme.text, fontSize: 18 }}>-</Text>
-      </Pressable>
+      </AnimatedPressable>
       <Text style={s.stepValue}>{value}</Text>
-      <Pressable
+      <AnimatedPressable
         style={[s.stepBtn, { borderColor: theme.textDim }, disabled && s.controlBtnDisabled]}
         disabled={disabled}
         onPress={onPlus}
       >
         <Text style={{ color: theme.text, fontSize: 18 }}>+</Text>
-      </Pressable>
+      </AnimatedPressable>
     </View>
   );
 }

@@ -2,7 +2,7 @@
 // react-navigation dependency) since four flat screens don't need a router:
 // Dashboard, Stats, Calendar, Settings.
 import React, { useEffect, useState } from 'react';
-import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, LayoutAnimation } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
@@ -18,6 +18,7 @@ import { getLaunchReason, onBackgroundWake } from './modules/background-wake';
 import { useAuthStore } from './src/auth/useAuthStore';
 import { startSettingsSyncBridge } from './src/sync/settingsSyncBridge';
 import { startSessionsSyncBridge } from './src/sync/sessionsSyncBridge';
+import { AnimatedPressable } from './src/ui/AnimatedPressable';
 
 type Tab = 'dashboard' | 'stats' | 'calendar' | 'settings';
 
@@ -84,6 +85,11 @@ export default function App() {
 
   const Screen = SCREENS[tab];
 
+  const selectTab = (next: Tab) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setTab(next);
+  };
+
   return (
     <SafeAreaProvider>
       <StatusBar style={themeMode === 'dark' ? 'light' : 'dark'} />
@@ -95,12 +101,12 @@ export default function App() {
               const active = t.key === tab;
               const color = active ? theme.accent : theme.textDim;
               return (
-                <Pressable key={t.key} style={styles.tabBtn} onPress={() => setTab(t.key)}>
+                <AnimatedPressable key={t.key} style={styles.tabBtn} onPress={() => selectTab(t.key)}>
                   <Feather name={t.icon} size={20} color={color} />
                   <Text style={{ color, fontWeight: active ? '700' : '500', marginTop: 2, fontSize: 12 }}>
                     {t.label}
                   </Text>
-                </Pressable>
+                </AnimatedPressable>
               );
             })}
           </View>

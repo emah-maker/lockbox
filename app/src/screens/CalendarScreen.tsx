@@ -2,7 +2,7 @@
 // via useStore.sessions). Each day with focus time gets a dot; tapping a day
 // lists that day's sessions below the grid.
 import React, { useMemo, useState } from 'react';
-import { View, Text, StyleSheet, Pressable, ScrollView, Modal } from 'react-native';
+import { View, Text, StyleSheet, Pressable, ScrollView, Modal, LayoutAnimation } from 'react-native';
 import { useStore } from '../store/useStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useTheme } from '../theme/useTheme';
@@ -10,6 +10,7 @@ import { withAlpha } from '../theme/theme';
 import { formatDuration } from '../stats/stats';
 import { dayKey, groupByDay, LoggedSession } from '../stats/sessionHistory';
 import { dominantTopicWithCustom, resolveTopic, allLabelChoices, ResolvedTopic } from '../stats/customLabels';
+import { AnimatedPressable } from '../ui/AnimatedPressable';
 
 const WEEKDAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 
@@ -59,19 +60,27 @@ export default function CalendarScreen() {
       <Text style={[styles.h1, { color: c.text }]}>Focus Calendar</Text>
 
       <View style={styles.monthHeader}>
-        <Pressable
-          onPress={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1))}
+        <AnimatedPressable
+          style={styles.navBtn}
+          onPress={() => {
+            LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+            setCursor(new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1));
+          }}
         >
           <Text style={[styles.nav, { color: c.accent }]}>{'<'}</Text>
-        </Pressable>
+        </AnimatedPressable>
         <Text style={[styles.monthLabel, { color: c.text }]}>
           {cursor.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}
         </Text>
-        <Pressable
-          onPress={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1))}
+        <AnimatedPressable
+          style={styles.navBtn}
+          onPress={() => {
+            LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+            setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1));
+          }}
         >
           <Text style={[styles.nav, { color: c.accent }]}>{'>'}</Text>
-        </Pressable>
+        </AnimatedPressable>
       </View>
 
       <View style={styles.weekRow}>
@@ -93,7 +102,14 @@ export default function CalendarScreen() {
           const isToday = key === todayKey;
           const dominant = dominantTopicWithCustom(daySessions, customLabels, themeMode);
           return (
-            <Pressable key={i} style={styles.cell} onPress={() => setSelectedKey(key)}>
+            <AnimatedPressable
+              key={i}
+              style={styles.cell}
+              onPress={() => {
+                LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                setSelectedKey(key);
+              }}
+            >
               <View
                 style={[
                   styles.dayCircle,
@@ -107,7 +123,7 @@ export default function CalendarScreen() {
                 </Text>
               </View>
               {dominant && <View style={[styles.topicDot, { backgroundColor: dominant.color }]} />}
-            </Pressable>
+            </AnimatedPressable>
           );
         })}
       </View>
@@ -136,7 +152,7 @@ export default function CalendarScreen() {
                 <Text style={[styles.sessionDuration, { color: c.text }]}>
                   {formatDuration(s.actualS)}
                 </Text>
-                <Pressable style={styles.sessionTopic} onPress={() => setTaggingSession(s)}>
+                <AnimatedPressable style={styles.sessionTopic} onPress={() => setTaggingSession(s)}>
                   {resolved ? (
                     <>
                       <View style={[styles.topicDotInline, { backgroundColor: resolved.color }]} />
@@ -145,7 +161,7 @@ export default function CalendarScreen() {
                   ) : (
                     <Text style={[styles.sessionTopicLabel, { color: c.accent }]}>Tag</Text>
                   )}
-                </Pressable>
+                </AnimatedPressable>
                 <Text
                   style={[
                     styles.sessionOutcome,
@@ -209,7 +225,7 @@ function LabelPickerModal({
           <Text style={[modalStyles.title, { color: color.text }]}>Tag this session</Text>
           <ScrollView style={modalStyles.list}>
             {choices.map((choice) => (
-              <Pressable
+              <AnimatedPressable
                 key={choice.id}
                 style={modalStyles.row}
                 onPress={() => onPick(choice.id)}
@@ -217,13 +233,13 @@ function LabelPickerModal({
                 <View style={[modalStyles.dot, { backgroundColor: choice.color }]} />
                 <Text style={[modalStyles.rowLabel, { color: color.text }]}>{choice.label}</Text>
                 {current === choice.id && <Text style={{ color: color.accent }}>✓</Text>}
-              </Pressable>
+              </AnimatedPressable>
             ))}
           </ScrollView>
           {onClear && (
-            <Pressable style={modalStyles.row} onPress={onClear}>
+            <AnimatedPressable style={modalStyles.row} onPress={onClear}>
               <Text style={[modalStyles.rowLabel, { color: color.danger }]}>Clear tag</Text>
-            </Pressable>
+            </AnimatedPressable>
           )}
         </Pressable>
       </Pressable>
@@ -247,7 +263,8 @@ const styles = StyleSheet.create({
   h2: { fontSize: 16, fontWeight: '700', marginBottom: 8 },
   monthHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   monthLabel: { fontSize: 17, fontWeight: '600' },
-  nav: { fontSize: 22, fontWeight: '700', paddingHorizontal: 12 },
+  navBtn: { paddingHorizontal: 12, paddingVertical: 4 },
+  nav: { fontSize: 22, fontWeight: '700' },
   weekRow: { flexDirection: 'row' },
   weekday: { flex: 1, textAlign: 'center', fontSize: 12 },
   grid: { flexDirection: 'row', flexWrap: 'wrap' },

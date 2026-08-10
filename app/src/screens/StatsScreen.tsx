@@ -8,8 +8,8 @@
 // focus-time trend (stats/trend.ts) and a breakdown by the topic tags the user
 // applied from the Focus tab (stats/topics.ts). Both are no-ops on an untagged
 // history -- they just show a hint instead of an empty chart.
-import React, { useMemo } from 'react';
-import { View, Text, StyleSheet, ScrollView, Switch } from 'react-native';
+import React, { useMemo, useEffect, useRef } from 'react';
+import { Animated, View, Text, StyleSheet, ScrollView, Switch, LayoutAnimation } from 'react-native';
 import { useStore } from '../store/useStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useTheme } from '../theme/useTheme';
@@ -29,6 +29,11 @@ export default function StatsScreen() {
   const advancedStatsEnabled = useSettingsStore((s) => s.advancedStatsEnabled);
   const setAdvancedStatsEnabled = useSettingsStore((s) => s.setAdvancedStatsEnabled);
   const customLabels = useSettingsStore((s) => s.customLabels);
+
+  const toggleAdvancedStats = (v: boolean) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setAdvancedStatsEnabled(v);
+  };
 
   const stats = useMemo(() => aggregate(sessions), [sessions]);
   const comparisons = useMemo(() => topComparisons(stats.foc).slice(0, TOP_N), [stats.foc]);
@@ -78,7 +83,7 @@ export default function StatsScreen() {
       <View style={[styles.card, { backgroundColor: c.surface }]}>
         <View style={styles.switchRow}>
           <Text style={[styles.h2, { color: c.text, marginBottom: 0 }]}>Advanced stats</Text>
-          <Switch value={advancedStatsEnabled} onValueChange={setAdvancedStatsEnabled} />
+          <Switch value={advancedStatsEnabled} onValueChange={toggleAdvancedStats} />
         </View>
         <Text style={[styles.sub, { color: c.textDim }]}>
           Trend over the last week, plus a breakdown by what you tagged each session as
@@ -96,7 +101,7 @@ export default function StatsScreen() {
                 return (
                   <View key={d.key} style={styles.trendCol}>
                     <View style={[styles.trendTrack, { height: TREND_BAR_MAX_H, backgroundColor: withAlpha(c.accent, 0.12) }]}>
-                      <View style={[styles.trendBar, { height: h, backgroundColor: c.accent }]} />
+                      <AnimatedFill axis="height" toValue={h} style={styles.trendBar} color={c.accent} />
                     </View>
                     <Text style={[styles.trendLabel, { color: c.textDim }]}>{d.label}</Text>
                   </View>
@@ -121,11 +126,11 @@ export default function StatsScreen() {
                     </Text>
                   </View>
                   <View style={[styles.topicTrack, { backgroundColor: withAlpha(t.color, 0.15) }]}>
-                    <View
-                      style={[
-                        styles.topicFill,
-                        { width: `${Math.max(4, Math.round((t.focusS / topicMax) * 100))}%`, backgroundColor: t.color },
-                      ]}
+                    <AnimatedFill
+                      axis="width"
+                      toValue={Math.max(4, Math.round((t.focusS / topicMax) * 100))}
+                      style={styles.topicFill}
+                      color={t.color}
                     />
                   </View>
                 </View>
@@ -145,6 +150,34 @@ function MiniStat({ label, value, color }: { label: string; value: string; color
       <Text style={[styles.miniLabel, { color: color.textDim }]}>{label}</Text>
     </View>
   );
+}
+
+/** Animates a bar chart fill toward each new value instead of snapping --
+ * `height` (trend bars, absolute px within a fixed-height track) and `width`
+ * (topic bars, a percentage of track width) both need JS-driven Animated
+ * (neither supports the native driver), which is the normal, cheap way to
+ * animate a single bar's layout in RN -- unlike animating layout across a
+ * whole web page, there's no larger reflow chain here to worry about. */
+function AnimatedFill({
+  axis,
+  toValue,
+  style,
+  color,
+}: {
+  axis: 'height' | 'width';
+  toValue: number;
+  style: any;
+  color: string;
+}) {
+  const anim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.timing(anim, { toValue, duration: 500, useNativeDriver: false }).start();
+  }, [toValue]);
+  const sizeStyle =
+    axis === 'width'
+      ? { width: anim.interpolate({ inputRange: [0, 100], outputRange: ['0%', '100%'] }) }
+      : { height: anim };
+  return <Animated.View style={[style, sizeStyle, { backgroundColor: color }]} />;
 }
 
 const styles = StyleSheet.create({

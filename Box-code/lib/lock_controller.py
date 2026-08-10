@@ -434,6 +434,7 @@ class LockController:
             pt = self._map(points[0])
             if not self._was_down:
                 self._start = pt
+                self.ui.on_touch_down(*pt)   # cosmetic only -- see LockUI.on_touch_down
             self._last = pt
             self._was_down = True
             if self._editing:
@@ -446,6 +447,7 @@ class LockController:
             if self._miss >= RELEASE_FRAMES:
                 if self._start and self._last:
                     self._handle_release()
+                self.ui.on_touch_up()        # cosmetic only -- see LockUI.on_touch_up
                 self._start = None
                 self._last = None
                 self._was_down = False
