@@ -153,6 +153,17 @@ OVR_STEP = 10
 SLEEP_OPTIONS = (10, 20, 30, 60)      # screen-sleep seconds (on battery)
 BRIGHT_OPTIONS = (10, 30, 50, 70, 100)    # backlight percent (min 10)
 
+# ----- Settings detail page: [-]/[+] and swipe press-and-hold auto-repeat -----
+# A tap (or the start of a swipe) always applies one step immediately (on
+# touch-down / threshold-crossing, not release) so the control feels
+# responsive; holding past HOLD_REPEAT_DELAY starts auto-repeat so a long
+# traversal (e.g. Override 10->100, 9 steps) doesn't need 9 separate taps.
+# Each repeat's wait shrinks by HOLD_REPEAT_RAMP, floored at HOLD_REPEAT_MIN.
+HOLD_REPEAT_DELAY = 0.4       # seconds held before auto-repeat kicks in
+HOLD_REPEAT_START = 0.35      # seconds between the first few repeats
+HOLD_REPEAT_MIN = 0.08        # fastest repeat interval once ramped up
+HOLD_REPEAT_RAMP = 0.85       # interval *= this factor after each repeat
+
 # ----- Companion-app theme sync -----
 # Mirrors app/src/theme/theme.ts. MODE_COLORS index = THEME_MODES order
 # (dark, light); ACCENT_COLORS index = ACCENT_KEYS order (mint, coral, amber,

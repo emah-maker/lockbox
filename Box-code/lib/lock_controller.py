@@ -5,6 +5,7 @@ from lock_config import (
     OVERRIDE_TIMEOUT, DONE_ANIM_S, MIN_STEP, RELEASE_FRAMES,
     SERVO_LOCK_ANGLE, SERVO_UNLOCK_ANGLE, fmt_hms,
     OVR_MIN, OVR_MAX, BLE_CALL_ALERT_S, CALL_ALERT_BLINK_HZ,
+    HOLD_REPEAT_DELAY, HOLD_REPEAT_START, HOLD_REPEAT_MIN, HOLD_REPEAT_RAMP,
 )
 from lock_battery import Battery
 from lock_servo import Servo
@@ -46,6 +47,10 @@ class LockController:
         self._servo_locked = False
         self._override = 0
         self._override_at = 0.0
+        # settings detail-page [-]/[+] and swipe press-and-hold auto-repeat
+        self._hold_dir = 0
+        self._hold_next_at = 0.0
+        self._hold_interval = 0.0
         # BLE companion state
         self._call_alert_until = None    # monotonic deadline for the call overlay
         self._call_alert_started = 0.0   # monotonic start, for the flash phase
@@ -60,6 +65,7 @@ class LockController:
     def set_view(self, view):
         self.view = view
         self._editing = False
+        self._hold_dir = 0             # a view switch can't happen mid-hold, but be safe
         self._last_fkey = None        # force a clock-view refresh
         self._last_bkey = None        # force a battery-view refresh
         self.ui.show_view(view)
@@ -188,8 +194,12 @@ class LockController:
         # instead of hitting the shared I2C bus twice a second.
         self._refresh_battery(now)
 
-        if self._override and (now - self._override_at) > OVERRIDE_TIMEOUT:
-            self._clear_override()
+        if self._override:
+            remaining = OVERRIDE_TIMEOUT - (now - self._override_at)
+            if remaining <= 0:
+                self._clear_override()
+            else:
+                self.ui.update_override_timeout(remaining, OVERRIDE_TIMEOUT)
 
         if self._servo_relax_at is not None:
             self.servo.reassert()          # keep a clean 50Hz through the move
@@ -406,6 +416,8 @@ class LockController:
             self.go_done(self._now, OVERRIDDEN)  # unlock -> done; sensor ignored until RESET
         else:
             self.ui.show_override(self._override, target)
+            # each press resets the timeout, so the countdown bar restarts full
+            self.ui.update_override_timeout(OVERRIDE_TIMEOUT, OVERRIDE_TIMEOUT)
 
     def _clear_override(self):
         # reset the counter and drop the on-screen overlay if it is showing
@@ -424,6 +436,8 @@ class LockController:
                 self._start = pt
             self._last = pt
             self._was_down = True
+            if self._editing:
+                self._update_hold(now)
         elif self._was_down:
             # The AXS5106L occasionally drops a frame mid-touch; require a few
             # consecutive empty reads before treating it as a real release so
@@ -435,25 +449,59 @@ class LockController:
                 self._start = None
                 self._last = None
                 self._was_down = False
+                self._hold_dir = 0
         return self._was_down
+
+    def _drag_direction(self):
+        """Which adjust direction (if any) the current touch corresponds to
+        on the settings detail page: over [+]/[-] by position, or a sustained
+        vertical drag past SWIPE_MIN_PX measured from the ORIGINAL press
+        point, so holding the drag still counts even once the finger stops
+        moving further away."""
+        x, y = self._last
+        if self.ui.in_setting_plus(x, y):
+            return 1
+        if self.ui.in_setting_minus(x, y):
+            return -1
+        dx = x - self._start[0]
+        dy = y - self._start[1]
+        if abs(dy) >= SWIPE_MIN_PX and abs(dy) > abs(dx):
+            return 1 if dy < 0 else -1
+        return 0
+
+    def _update_hold(self, now):
+        """Detail page [-]/[+] and swipe hold-to-repeat: a tap (or the instant
+        a swipe crosses its threshold) applies one step immediately; holding
+        past HOLD_REPEAT_DELAY starts auto-repeat, ramping faster over time.
+        Moving off the button / back under the swipe threshold cancels the
+        repeat -- release-time handling in _handle_release only needs to deal
+        with the horizontal "swipe left/right = back" exit gesture."""
+        direction = self._drag_direction()
+        if direction != self._hold_dir:
+            self._hold_dir = direction
+            if direction != 0:
+                self.settings.adjust(self._edit_idx, direction)
+                self.ui.update_setting_detail(self._edit_idx, self.settings)
+                self._hold_next_at = now + HOLD_REPEAT_DELAY
+                self._hold_interval = HOLD_REPEAT_START
+        elif direction != 0 and now >= self._hold_next_at:
+            self.settings.adjust(self._edit_idx, direction)
+            self.ui.update_setting_detail(self._edit_idx, self.settings)
+            self._hold_interval = max(HOLD_REPEAT_MIN,
+                                       self._hold_interval * HOLD_REPEAT_RAMP)
+            self._hold_next_at = now + self._hold_interval
 
     def _handle_release(self):
         dx = self._last[0] - self._start[0]
         dy = self._last[1] - self._start[1]
 
-        # Per-setting detail page: swipe up/down changes it; swipe left/right exits.
+        # Per-setting detail page: a tap or hold on [-]/[+], or a held swipe,
+        # was already applied live in _update_hold as the finger went down
+        # and stayed down -- so nothing further to do here except the
+        # horizontal "swipe left/right = back" exit gesture.
         if self._editing:
-            tap = abs(dx) < SWIPE_MIN_PX and abs(dy) < SWIPE_MIN_PX
-            if tap and self.ui.in_setting_plus(*self._start):
-                self.settings.adjust(self._edit_idx, 1)
-                self.ui.update_setting_detail(self._edit_idx, self.settings)
-            elif tap and self.ui.in_setting_minus(*self._start):
-                self.settings.adjust(self._edit_idx, -1)
-                self.ui.update_setting_detail(self._edit_idx, self.settings)
-            elif abs(dy) >= SWIPE_MIN_PX and abs(dy) > abs(dx):
-                self.settings.adjust(self._edit_idx, 1 if dy < 0 else -1)
-                self.ui.update_setting_detail(self._edit_idx, self.settings)
-            elif abs(dx) >= SWIPE_MIN_PX and abs(dx) > abs(dy):
+            self._hold_dir = 0
+            if abs(dx) >= SWIPE_MIN_PX and abs(dx) > abs(dy):
                 self._editing = False
                 self.ui.show_view("settings")
                 self.ui.update_settings(self.settings)
@@ -478,7 +526,11 @@ class LockController:
                 self._refresh_clock_view(self._now)
             return
 
-        # Settings list: tap a row to open its detail page.
+        # Settings list: tap a row to open its detail page. Auto-open is the
+        # one row that toggles in place on the list itself (no detail page
+        # needed for a single boolean); R Unlock / C Unlock are also booleans
+        # but go through the detail page like the numeric rows, adjusted via
+        # Settings.adjust(idx, direction>0/<0) same as a swipe up/down.
         if self.view == "settings":
             if abs(dx) < SWIPE_MIN_PX and abs(dy) < SWIPE_MIN_PX:
                 row = self.ui.settings_row_at(self._start[1])

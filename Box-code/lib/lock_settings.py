@@ -92,7 +92,8 @@ class Settings:
         self.auto_open = not self.auto_open
         self.save()
 
-    # ----- called by the settings UI: swipe up/down / +/- on a detail page -----
+    # ----- called by the settings UI: swipe up/down / +/- (with hold-to-
+    # repeat) on a detail page -----
     def adjust(self, idx, direction):
         # swipe up/down: direction +1 = up/increase, -1 = down/decrease (clamped)
         if idx == 0:

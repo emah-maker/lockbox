@@ -4,13 +4,15 @@
 // useStore.pushBoxSettings, mirrored locally in useSettingsStore.boxSettings
 // so this screen has something to show even before a connection is made.
 import React from 'react';
-import { View, Text, StyleSheet, Switch, Pressable, ScrollView, ActivityIndicator, Alert, TextInput } from 'react-native';
+import { View, Text, StyleSheet, Switch, Pressable, ScrollView, Alert } from 'react-native';
 import { useStore, CONN_LABELS } from '../store/useStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useAuthStore } from '../auth/useAuthStore';
 import { useTheme } from '../theme/useTheme';
 import { THEME_MODES, ACCENT_KEYS, ACCENT_LABELS, ThemeMode, AccentKey } from '../theme/theme';
-import { LABEL_SWATCHES } from '../stats/customLabels';
+import { CustomLabelsSection } from './CustomLabelsSection';
+import { FocusGoalSection } from './FocusGoalSection';
+import { Button, Section, SliderRow } from './SettingsPrimitives';
 
 // Mirrors Box-code/lib/lock_config.py -- keep these ranges in lockstep with
 // OVR_MIN/OVR_MAX/OVR_STEP/SLEEP_OPTIONS/BRIGHT_OPTIONS on the firmware side.
@@ -32,16 +34,6 @@ export default function SettingsScreen() {
   const setThemeMode = useSettingsStore((s) => s.setThemeMode);
   const accent = useSettingsStore((s) => s.accent);
   const setAccent = useSettingsStore((s) => s.setAccent);
-
-  const stepOverride = (dir: 1 | -1) => {
-    const next = Math.max(OVR_MIN, Math.min(OVR_MAX, boxSettings.ovr + dir * OVR_STEP));
-    pushBoxSettings({ ovr: next });
-  };
-  const cycleOption = (options: number[], current: number, dir: 1 | -1) => {
-    const i = options.indexOf(current);
-    const next = options[Math.max(0, Math.min(options.length - 1, (i < 0 ? 0 : i) + dir))];
-    return next;
-  };
 
   const connColor = conn === 'connected' ? c.accent : conn === 'error' ? c.danger : c.textDim;
 
@@ -70,25 +62,30 @@ export default function SettingsScreen() {
             onValueChange={(v) => pushBoxSettings({ auto: v ? 1 : 0 })}
           />
         </Row>
-        <StepperRow
+        <SliderRow
           label="Override presses"
-          value={String(boxSettings.ovr)}
-          onMinus={() => stepOverride(-1)}
-          onPlus={() => stepOverride(1)}
+          value={boxSettings.ovr}
+          min={OVR_MIN}
+          max={OVR_MAX}
+          step={OVR_STEP}
+          onChange={(v) => pushBoxSettings({ ovr: v })}
+          caption={(v) => `${v} presses to force-unlock`}
           color={c}
         />
-        <StepperRow
+        <PickerGroup
           label="Screen sleep"
-          value={`${boxSettings.sleep}s`}
-          onMinus={() => pushBoxSettings({ sleep: cycleOption(SLEEP_OPTIONS, boxSettings.sleep, -1) })}
-          onPlus={() => pushBoxSettings({ sleep: cycleOption(SLEEP_OPTIONS, boxSettings.sleep, 1) })}
+          options={SLEEP_OPTIONS}
+          value={boxSettings.sleep}
+          format={(v) => `${v}s`}
+          onSelect={(v) => pushBoxSettings({ sleep: v })}
           color={c}
         />
-        <StepperRow
+        <PickerGroup
           label="Brightness"
-          value={`${boxSettings.bright}%`}
-          onMinus={() => pushBoxSettings({ bright: cycleOption(BRIGHT_OPTIONS, boxSettings.bright, -1) })}
-          onPlus={() => pushBoxSettings({ bright: cycleOption(BRIGHT_OPTIONS, boxSettings.bright, 1) })}
+          options={BRIGHT_OPTIONS}
+          value={boxSettings.bright}
+          format={(v) => `${v}%`}
+          onSelect={(v) => pushBoxSettings({ bright: v })}
           color={c}
         />
         <Row label="Allow open/close from this phone" color={c}>
@@ -146,6 +143,7 @@ export default function SettingsScreen() {
         </View>
       </Section>
 
+      <FocusGoalSection color={c} />
       <CustomLabelsSection color={c} />
     </ScrollView>
   );
@@ -255,149 +253,6 @@ function AccountSection({ color }: { color: ReturnType<typeof useTheme> }) {
   );
 }
 
-// Custom labels coexist with the six built-in topics (stats/topics.ts) --
-// this section only ever creates/renames/deletes entries in
-// useSettingsStore.customLabels, which syncs cross-device the same
-// last-write-wins way as the rest of SyncableSettings (see
-// useSettingsStore.ts, sync/settingsSyncBridge.ts).
-function CustomLabelsSection({ color }: { color: ReturnType<typeof useTheme> }) {
-  const customLabels = useSettingsStore((s) => s.customLabels);
-  const addCustomLabel = useSettingsStore((s) => s.addCustomLabel);
-  const renameCustomLabel = useSettingsStore((s) => s.renameCustomLabel);
-  const removeCustomLabel = useSettingsStore((s) => s.removeCustomLabel);
-
-  const [newName, setNewName] = React.useState('');
-  const [newColor, setNewColor] = React.useState<string | null>(null);
-  const [error, setError] = React.useState<string | null>(null);
-
-  const handleCreate = () => {
-    if (!newColor) {
-      setError('Pick a color first.');
-      return;
-    }
-    try {
-      addCustomLabel(newName, newColor);
-      setNewName('');
-      setNewColor(null);
-      setError(null);
-    } catch (e: any) {
-      setError(e?.message ?? 'Could not create that label.');
-    }
-  };
-
-  const handleDelete = (id: string, name: string) => {
-    Alert.alert('Delete label?', `"${name}" will be removed. Past sessions tagged with it keep their history, just without this label's color/name.`, [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete', style: 'destructive', onPress: () => removeCustomLabel(id) },
-    ]);
-  };
-
-  return (
-    <Section title="Custom labels" subtitle="Add your own focus categories, alongside the built-in ones" color={color}>
-      {customLabels.map((label) => (
-        <CustomLabelRow key={label.id} label={label} color={color} onRename={renameCustomLabel} onDelete={handleDelete} />
-      ))}
-
-      <View style={{ gap: 8 }}>
-        <TextInput
-          value={newName}
-          onChangeText={setNewName}
-          placeholder="New label name"
-          placeholderTextColor={color.textDim}
-          style={[styles.textInput, { color: color.text, borderColor: color.textDim }]}
-        />
-        <ColorSwatchRow selected={newColor} onSelect={setNewColor} color={color} />
-        {error ? <Text style={[styles.subtitle, { color: color.danger }]}>{error}</Text> : null}
-        <Button label="Add label" onPress={handleCreate} disabled={!newName.trim() || !newColor} color={color} />
-      </View>
-    </Section>
-  );
-}
-
-function CustomLabelRow({
-  label,
-  color,
-  onRename,
-  onDelete,
-}: {
-  label: { id: string; name: string; color: string };
-  color: ReturnType<typeof useTheme>;
-  onRename: (id: string, name: string) => void;
-  onDelete: (id: string, name: string) => void;
-}) {
-  const [editing, setEditing] = React.useState(false);
-  const [draft, setDraft] = React.useState(label.name);
-
-  if (editing) {
-    return (
-      <View style={styles.labelRow}>
-        <View style={[styles.swatch, { backgroundColor: label.color }]} />
-        <TextInput
-          value={draft}
-          onChangeText={setDraft}
-          style={[styles.textInput, { flex: 1, color: color.text, borderColor: color.textDim }]}
-          autoFocus
-        />
-        <Pressable
-          onPress={() => {
-            if (draft.trim()) onRename(label.id, draft);
-            setEditing(false);
-          }}
-        >
-          <Text style={{ color: color.accent, fontWeight: '600' }}>Save</Text>
-        </Pressable>
-        <Pressable
-          onPress={() => {
-            setDraft(label.name);
-            setEditing(false);
-          }}
-        >
-          <Text style={{ color: color.textDim }}>Cancel</Text>
-        </Pressable>
-      </View>
-    );
-  }
-
-  return (
-    <View style={styles.labelRow}>
-      <View style={[styles.swatch, { backgroundColor: label.color }]} />
-      <Text style={[styles.label, { color: color.text, flex: 1 }]}>{label.name}</Text>
-      <Pressable onPress={() => setEditing(true)}>
-        <Text style={{ color: color.accent }}>Rename</Text>
-      </Pressable>
-      <Pressable onPress={() => onDelete(label.id, label.name)}>
-        <Text style={{ color: color.danger }}>Delete</Text>
-      </Pressable>
-    </View>
-  );
-}
-
-function ColorSwatchRow({
-  selected,
-  onSelect,
-  color,
-}: {
-  selected: string | null;
-  onSelect: (color: string) => void;
-  color: ReturnType<typeof useTheme>;
-}) {
-  return (
-    <View style={styles.chipRow}>
-      {LABEL_SWATCHES.map((hex) => (
-        <Pressable
-          key={hex}
-          onPress={() => onSelect(hex)}
-          style={[
-            styles.swatch,
-            { backgroundColor: hex },
-            selected === hex && { borderColor: color.text, borderWidth: 3 },
-          ]}
-        />
-      ))}
-    </View>
-  );
-}
-
 /** "5m ago" / "3h ago" / "2d ago" -- the small non-blocking sync caption §6.3 asks for. */
 function formatRelative(epochMs: number): string {
   const diffMs = Date.now() - epochMs;
@@ -408,61 +263,6 @@ function formatRelative(epochMs: number): string {
   if (hours < 24) return `${hours}h ago`;
   const days = Math.round(hours / 24);
   return `${days}d ago`;
-}
-
-function Button({
-  label,
-  onPress,
-  disabled,
-  color,
-  variant = 'filled',
-}: {
-  label: string;
-  onPress: () => void;
-  disabled?: boolean;
-  color: ReturnType<typeof useTheme>;
-  variant?: 'filled' | 'outline';
-}) {
-  const filled = variant === 'filled';
-  return (
-    <Pressable
-      onPress={onPress}
-      disabled={disabled}
-      style={[
-        styles.button,
-        filled
-          ? { backgroundColor: color.accent, borderColor: color.accent }
-          : { backgroundColor: 'transparent', borderColor: color.textDim },
-        disabled ? { opacity: 0.5 } : null,
-      ]}
-    >
-      {disabled ? (
-        <ActivityIndicator size="small" color={filled ? color.accentText : color.text} />
-      ) : (
-        <Text style={{ color: filled ? color.accentText : color.text, fontWeight: '600' }}>{label}</Text>
-      )}
-    </Pressable>
-  );
-}
-
-function Section({
-  title,
-  subtitle,
-  color,
-  children,
-}: {
-  title: string;
-  subtitle?: string;
-  color: ReturnType<typeof useTheme>;
-  children: React.ReactNode;
-}) {
-  return (
-    <View style={[styles.card, { backgroundColor: color.surface }]}>
-      <Text style={[styles.h2, { color: color.text }]}>{title}</Text>
-      {subtitle ? <Text style={[styles.subtitle, { color: color.textDim }]}>{subtitle}</Text> : null}
-      <View style={{ gap: 12, marginTop: 8 }}>{children}</View>
-    </View>
-  );
 }
 
 function Row({
@@ -482,30 +282,33 @@ function Row({
   );
 }
 
-function StepperRow({
+// A row of Chips for a small fixed set of options (e.g. Sleep/Brightness) --
+// every valid value is visible and one tap direct-sets it, unlike the old
+// +/- stepper which hid the option list behind repeated presses.
+function PickerGroup({
   label,
+  options,
   value,
-  onMinus,
-  onPlus,
+  format,
+  onSelect,
   color,
 }: {
   label: string;
-  value: string;
-  onMinus: () => void;
-  onPlus: () => void;
+  options: number[];
+  value: number;
+  format: (v: number) => string;
+  onSelect: (v: number) => void;
   color: ReturnType<typeof useTheme>;
 }) {
   return (
-    <View style={styles.row}>
-      <Text style={[styles.label, { color: color.text }]}>{label}</Text>
-      <View style={styles.stepper}>
-        <Pressable style={[styles.stepBtn, { borderColor: color.textDim }]} onPress={onMinus}>
-          <Text style={{ color: color.text, fontSize: 18 }}>-</Text>
-        </Pressable>
-        <Text style={[styles.stepValue, { color: color.text }]}>{value}</Text>
-        <Pressable style={[styles.stepBtn, { borderColor: color.textDim }]} onPress={onPlus}>
-          <Text style={{ color: color.text, fontSize: 18 }}>+</Text>
-        </Pressable>
+    <View>
+      <Text style={[styles.label, { color: color.textDim, marginBottom: 8 }]}>{label}</Text>
+      <View style={styles.chipRow}>
+        {options.map((opt) => (
+          <Chip key={opt} active={value === opt} onPress={() => onSelect(opt)} color={color}>
+            {format(opt)}
+          </Chip>
+        ))}
       </View>
     </View>
   );
@@ -545,39 +348,9 @@ const styles = StyleSheet.create({
   connDot: { width: 8, height: 8, borderRadius: 4 },
   connText: { fontSize: 13, fontWeight: '600' },
   h1: { fontSize: 28, fontWeight: '700', marginBottom: 4 },
-  h2: { fontSize: 16, fontWeight: '700' },
   subtitle: { fontSize: 12, marginTop: 2 },
-  card: { borderRadius: 14, padding: 16 },
   row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   label: { fontSize: 15, flexShrink: 1, paddingRight: 12 },
-  stepper: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  stepBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  stepValue: { minWidth: 48, textAlign: 'center', fontSize: 15, fontWeight: '600' },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   chip: { paddingVertical: 8, paddingHorizontal: 14, borderRadius: 20, borderWidth: 1.5 },
-  labelRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  swatch: { width: 28, height: 28, borderRadius: 14, borderWidth: 2, borderColor: 'transparent' },
-  textInput: {
-    borderWidth: 1,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 15,
-  },
-  button: {
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 10,
-    borderWidth: 1.5,
-    alignItems: 'center',
-    justifyContent: 'center',
-    minWidth: 110,
-  },
 });

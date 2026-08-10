@@ -616,13 +616,54 @@ class LockUI:
         hint = label.Label(terminalio.FONT, text="keep pressing to unlock",
                            color=C_GREY)
         hint.anchor_point = (0.5, 0.5)
-        hint.anchored_position = (W // 2, 240)
+        hint.anchored_position = (W // 2, 210)
         group.append(hint)
         self._dim_widgets.append((hint, 'color'))
+
+        # ----- auto-reset countdown bar -----
+        # A missed press previously reset the counter silently at
+        # OVERRIDE_TIMEOUT with no on-screen warning; this bar depletes in
+        # real time (driven by update_override_timeout each frame) and
+        # changes color as the deadline nears, same idiom as the battery bar.
+        self.ov_bar_x = W // 2 - 70
+        self.ov_bar_y = 240
+        self.ov_bar_w = 140
+        self.ov_bar_h = 14
+        _ov_bar_bg = Rect(self.ov_bar_x, self.ov_bar_y, self.ov_bar_w,
+                          self.ov_bar_h, fill=None, outline=C_GREY, stroke=2)
+        group.append(_ov_bar_bg)
+        self._dim_widgets.append((_ov_bar_bg, 'outline'))
+        self.ov_bar_fill_group = displayio.Group()
+        group.append(self.ov_bar_fill_group)
+
+        hint2 = label.Label(terminalio.FONT, text="resets if you stop",
+                            color=C_GREY)
+        hint2.anchor_point = (0.5, 0.5)
+        hint2.anchored_position = (W // 2, 270)
+        group.append(hint2)
+        self._dim_widgets.append((hint2, 'color'))
 
     def show_override(self, count, total):
         self.ov_count.text = "{}/{}".format(count, total)
         self.display.root_group = self.override_group
+
+    def update_override_timeout(self, remaining, total):
+        # remaining/total -> a depleting bar, green -> amber -> red as the
+        # silent counter-reset gets close.
+        frac = max(0.0, min(1.0, remaining / total)) if total else 0.0
+        while len(self.ov_bar_fill_group):
+            self.ov_bar_fill_group.pop()
+        w = max(0, int((self.ov_bar_w - 4) * frac))
+        if w > 0:
+            if frac > 0.5:
+                col = C_GREEN
+            elif frac > 0.2:
+                col = C_AMBER
+            else:
+                col = C_RED
+            self.ov_bar_fill_group.append(
+                Rect(self.ov_bar_x + 2, self.ov_bar_y + 2, w, self.ov_bar_h - 4,
+                     fill=col))
 
     def hide_override(self):
         # restore whatever top-level view was active before the overlay
@@ -743,6 +784,20 @@ class LockUI:
 
     # ----- per-setting detail page ([-]/[+] buttons or swipe up/down) -----
     _SET_NAMES = ("Override", "Auto-open", "Sleep", "Bright", "R Unlock", "C Unlock")
+    # Plain-language explanation of what each row's number/state means in real
+    # terms -- a bare "25" or "30s" isn't self-explanatory, especially for
+    # Override, which used to just show a count with no context for what it
+    # counts toward. Shown only on the detail page (not the 6-row list, which
+    # has no vertical room to spare -- see settings_row_at's comment on the
+    # tight 40px row pitch).
+    _SET_DESCRIPTIONS = (
+        "presses to force-unlock",
+        "auto-open when timer ends",
+        "screen sleep timeout (sec)",
+        "screen brightness (%)",
+        "app can unlock box early",
+        "unlock box on incoming call",
+    )
 
     def _fmt_setting(self, idx, s):
         if idx == 0:
@@ -774,10 +829,21 @@ class LockUI:
         self.sd_value.anchored_position = (W // 2, 130)
         group.append(self.sd_value)
 
+        # Plain-language meaning of the number/state above (see
+        # _SET_DESCRIPTIONS) -- sits in the gap between the big value and the
+        # [-]/[+] buttons so "25" reads as "25 presses to force-unlock".
+        self.sd_desc = label.Label(terminalio.FONT, text="", color=C_GREY)
+        self.sd_desc.anchor_point = (0.5, 0.5)
+        self.sd_desc.anchored_position = (W // 2, 164)
+        group.append(self.sd_desc)
+        self._dim_widgets.append((self.sd_desc, 'color'))
+
         # on-screen [-] and [+] buttons -- the red/green fill pair is a fixed
         # decrease/increase convention (like the lock-status colors), not
         # accent: recoloring just the "+" side risks landing on an accent hue
         # close to the "-" side's red and making the two buttons look alike.
+        # Holding either (or holding a swipe) auto-repeats -- see
+        # LockController._update_hold / HOLD_REPEAT_* in lock_config.py.
         self.sd_btn_w = 56
         self.sd_btn_h = 56
         self.sd_btn_y = 196
@@ -815,6 +881,7 @@ class LockUI:
     def show_setting_detail(self, idx, s):
         self.sd_name.text = self._SET_NAMES[idx]
         self.sd_value.text = self._fmt_setting(idx, s)
+        self.sd_desc.text = self._SET_DESCRIPTIONS[idx]
         self.display.root_group = self.setting_detail_group
 
     def update_setting_detail(self, idx, s):
