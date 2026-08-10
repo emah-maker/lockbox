@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dashboard — Phone Box</title>
+  <meta name="description" content="Sign in to see the focus session history your Phone Box app has synced -- streaks, time by label, and your last sessions." />
+  <meta name="robots" content="noindex" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect x='4' y='2.5' width='16' height='19' rx='3' fill='%230a0d0c' stroke='%2300c040' stroke-width='1.8'/%3E%3Crect x='7.5' y='6' width='9' height='9' rx='1.4' fill='%2300c040'/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/styles.css" />
+  <link rel="stylesheet" href="css/dashboard.css" />
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="nav" id="top">
+    <div class="wrap nav__inner">
+      <a class="brand" href="index.html" aria-label="Phone Box home">
+        <span class="brand__mark" aria-hidden="true">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" role="img" aria-hidden="true">
+            <rect x="4" y="2.5" width="16" height="19" rx="3" stroke="currentColor" stroke-width="1.8"/>
+            <rect x="7.5" y="6" width="9" height="9" rx="1.4" fill="currentColor" opacity="0.85"/>
+            <circle cx="12" cy="18.4" r="1.3" fill="currentColor"/>
+          </svg>
+        </span>
+        <span class="brand__name">Phone&nbsp;Box</span>
+      </a>
+      <nav class="nav__links" aria-label="Primary">
+        <a href="index.html">Home</a>
+      </nav>
+      <button id="signOutBtn" class="btn btn--sm btn--ghost" type="button" hidden>Sign out</button>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="dash">
+      <div class="wrap">
+        <div class="dash__head">
+          <p class="eyebrow"><span class="dot"></span>Your focus data</p>
+          <h1>Dashboard</h1>
+          <p class="section-sub">
+            Sign in with the same Google account you use in the Phone Box app to see your
+            synced focus session history here too.
+          </p>
+        </div>
+
+        <div id="dashNotConfigured" class="card dash__state" hidden>
+          <h3>Dashboard isn't connected yet</h3>
+          <p>
+            This page needs a Firebase project configured in
+            <code>website/js/firebaseConfig.js</code> before sign-in will work. Fill in the
+            same project's web config the app uses (Firebase console → Project settings →
+            Your apps → Web app), then reload.
+          </p>
+        </div>
+
+        <div id="dashSignedOut" class="card dash__state" hidden>
+          <h3>See your progress here too</h3>
+          <p>Sign in with Google to pull in the session history your Phone Box app has synced.</p>
+          <button id="signInBtn" class="btn btn--primary" type="button">
+            <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+              <path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.9c1.7-1.57 2.7-3.87 2.7-6.62z"/>
+              <path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.9-2.26c-.8.55-1.85.87-3.06.87-2.35 0-4.34-1.58-5.05-3.71H.9v2.33A9 9 0 0 0 9 18z"/>
+              <path fill="#FBBC05" d="M3.95 10.72a5.4 5.4 0 0 1 0-3.44V4.95H.9a9 9 0 0 0 0 8.1l3.05-2.33z"/>
+              <path fill="#EA4335" d="M9 3.58c1.32 0 2.5.46 3.44 1.35l2.57-2.57A8.6 8.6 0 0 0 9 0 9 9 0 0 0 .9 4.95l3.05 2.33C4.66 5.16 6.65 3.58 9 3.58z"/>
+            </svg>
+            Sign in with Google
+          </button>
+        </div>
+
+        <div id="dashLoading" class="dash__state" hidden>
+          <p>Loading your sessions…</p>
+        </div>
+
+        <div id="dashError" class="card dash__state dash__state--error" hidden>
+          <h3>Couldn't load your data</h3>
+          <p id="dashErrorMsg"></p>
+        </div>
+
+        <div id="dashContent" hidden>
+          <div class="dash__summary" id="dashSummary"></div>
+          <p id="dashEmptyHint" class="dash__hint" hidden>
+            No sessions yet. Once your Phone Box app finishes a focus session while signed in,
+            it'll show up here.
+          </p>
+
+          <div class="card dash__panel dash__facts-card" id="dashFactsCard" hidden>
+            <h3>Fun facts</h3>
+            <div class="dash__facts" id="dashFacts"></div>
+          </div>
+
+          <div class="dash__grid">
+            <div class="card dash__panel">
+              <h3>Last 7 days</h3>
+              <div class="dash__trend" id="dashTrend"></div>
+            </div>
+            <div class="card dash__panel">
+              <h3>By focus label</h3>
+              <div class="dash__breakdown" id="dashBreakdown"></div>
+            </div>
+          </div>
+
+          <div class="card dash__panel">
+            <div class="dash__cal-head">
+              <h3>Focus calendar</h3>
+              <div class="dash__cal-nav">
+                <button id="dashCalPrev" class="dash__cal-navbtn" type="button" aria-label="Previous month">&lt;</button>
+                <span id="dashCalMonthLabel" class="dash__cal-month"></span>
+                <button id="dashCalNext" class="dash__cal-navbtn" type="button" aria-label="Next month">&gt;</button>
+              </div>
+            </div>
+            <div class="dash__cal-weekdays" aria-hidden="true">
+              <span>S</span><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span>
+            </div>
+            <div class="dash__cal-grid" id="dashCalGrid"></div>
+            <div class="dash__cal-day">
+              <h4 id="dashCalDayTitle"></h4>
+              <ul class="dash__cal-daylist" id="dashCalDayList"></ul>
+            </div>
+          </div>
+
+          <div class="card dash__panel">
+            <h3>Recent sessions</h3>
+            <div class="table-scroll">
+              <table class="dash__table">
+                <thead>
+                  <tr><th>Date</th><th>Label</th><th>Planned</th><th>Actual</th><th>Outcome</th></tr>
+                </thead>
+                <tbody id="dashSessionsBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script type="module" src="js/dashboard.js"></script>
+</body>
+</html>

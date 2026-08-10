@@ -1,0 +1,114 @@
+/* ============================================================
+   dashboard.css -- focus-tracking dashboard page (dashboard.html).
+   Extends styles.css's tokens/components (--card, --border-soft, .card,
+   .btn, .table-scroll, .eyebrow, .section-sub) rather than redefining them.
+   ============================================================ */
+
+.dash { padding-top: clamp(40px, 6vw, 72px); }
+.dash__head { max-width: 640px; margin-bottom: clamp(28px, 4vw, 44px); }
+.dash__head h1 { font-size: clamp(2rem, 4vw, 2.8rem); margin-top: 10px; }
+.dash__head .section-sub { margin-top: 14px; }
+
+.dash__state { padding: 30px 26px; }
+.dash__state h3 { font-size: 1.2rem; margin-bottom: 10px; }
+.dash__state p { color: var(--text-2); font-size: 15px; max-width: 60ch; }
+.dash__state code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  background: rgba(255, 255, 255, 0.08); padding: 2px 6px; border-radius: 6px; font-size: 0.92em;
+}
+.dash__state--error { border-color: rgba(224, 16, 16, 0.4); }
+.dash__state--error h3 { color: var(--red); }
+#dashSignedOut .btn { margin-top: 18px; }
+#dashLoading p { color: var(--text-2); }
+
+.dash__hint { color: var(--text-2); font-size: 14.5px; margin: -6px 0 28px; }
+
+/* ---------- Summary tiles ---------- */
+.dash__summary { display: grid; grid-template-columns: repeat(5, 1fr); gap: 16px; margin-bottom: 28px; }
+.dash__tile {
+  background: linear-gradient(180deg, var(--card), var(--card-2));
+  border: 1px solid var(--border-soft); border-radius: var(--radius-sm);
+  padding: 18px 18px 16px;
+}
+.dash__tile-label { color: var(--text-3); font-size: 12.5px; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; }
+.dash__tile-value {
+  font-family: var(--font-display); font-weight: 700; color: var(--green-2);
+  font-size: clamp(1.3rem, 2.2vw, 1.7rem); margin-top: 6px;
+}
+
+/* ---------- Two-panel grid ---------- */
+.dash__grid { display: grid; grid-template-columns: 1.2fr 1fr; gap: 18px; margin-bottom: 18px; align-items: stretch; }
+.dash__panel h3 { font-size: 1.05rem; margin-bottom: 18px; }
+
+/* ---------- Trend bars ---------- */
+.dash__trend { display: flex; align-items: flex-end; gap: 10px; height: 140px; }
+.dash__trend-day { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; gap: 8px; }
+.dash__trend-bar {
+  width: 100%; max-width: 30px; min-height: 4px; border-radius: 5px 5px 3px 3px;
+  background: linear-gradient(180deg, var(--green-2), var(--green));
+  transition: height 0.4s var(--ease);
+}
+.dash__trend-label { color: var(--text-3); font-size: 12px; font-weight: 600; }
+
+/* ---------- Label breakdown ---------- */
+.dash__breakdown { display: flex; flex-direction: column; gap: 12px; }
+.dash__breakdown-row { display: grid; grid-template-columns: 14px 1fr auto; align-items: center; gap: 10px; }
+.dash__breakdown-swatch { width: 12px; height: 12px; border-radius: 50%; }
+.dash__breakdown-meta { display: flex; justify-content: space-between; gap: 10px; font-size: 14px; }
+.dash__breakdown-name { color: var(--text); }
+.dash__breakdown-value { color: var(--text-2); white-space: nowrap; }
+.dash__breakdown-track { grid-column: 1 / -1; height: 6px; border-radius: 4px; background: rgba(255, 255, 255, 0.06); overflow: hidden; }
+.dash__breakdown-fill { height: 100%; border-radius: 4px; }
+
+/* ---------- Sessions table ---------- */
+.dash__table { width: 100%; border-collapse: collapse; min-width: 560px; }
+.dash__table th, .dash__table td { text-align: left; padding: 11px 16px; font-size: 14.5px; border-bottom: 1px solid var(--border-soft); }
+.dash__table th { color: var(--text-3); font-size: 12.5px; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; }
+.dash__table tbody tr:last-child td { border-bottom: none; }
+.dash__chip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: 999px; font-size: 12.5px; font-weight: 600;
+}
+.dash__outcome--completed { color: var(--green); }
+.dash__outcome--overridden { color: var(--amber); }
+
+/* ---------- Fun facts ---------- */
+.dash__facts-card { margin-bottom: 18px; }
+.dash__facts { display: flex; flex-direction: column; gap: 6px; }
+.dash__facts p { font-size: 15px; color: var(--text); padding: 3px 0; }
+.dash__facts-empty { color: var(--text-2); font-size: 14.5px; }
+
+/* ---------- Calendar ---------- */
+.dash__cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+.dash__cal-nav { display: flex; align-items: center; gap: 12px; }
+.dash__cal-navbtn {
+  background: rgba(255, 255, 255, 0.06); border: 1px solid var(--border-soft); color: var(--text);
+  width: 30px; height: 30px; border-radius: 8px; cursor: pointer; font-size: 15px; line-height: 1;
+}
+.dash__cal-navbtn:hover { background: rgba(255, 255, 255, 0.12); }
+.dash__cal-month { font-weight: 600; color: var(--text); min-width: 140px; text-align: center; }
+.dash__cal-weekdays, .dash__cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); }
+.dash__cal-weekdays span { text-align: center; color: var(--text-3); font-size: 12px; padding-bottom: 8px; }
+.dash__cal-cell { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 3px 0 10px; }
+.dash__cal-daynum {
+  width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  font-size: 13px; color: var(--text-2); background: transparent; border: none; cursor: pointer; font-family: inherit;
+}
+.dash__cal-daynum:hover { background: rgba(255, 255, 255, 0.06); }
+.dash__cal-cell--selected .dash__cal-daynum { border: 2px solid var(--green-2); color: var(--text); }
+.dash__cal-cell--today:not(.dash__cal-cell--selected) .dash__cal-daynum { border: 1px solid var(--text-3); }
+.dash__cal-cell--focus .dash__cal-daynum { color: #012a12; font-weight: 700; }
+.dash__cal-dot { width: 5px; height: 5px; border-radius: 50%; }
+.dash__cal-day { margin-top: 14px; border-top: 1px solid var(--border-soft); padding-top: 14px; }
+.dash__cal-day h4 { font-size: 14px; color: var(--text); margin-bottom: 8px; }
+.dash__cal-daylist { display: flex; flex-direction: column; gap: 8px; }
+.dash__cal-daylist li {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  font-size: 13.5px; color: var(--text-2); padding: 2px 0;
+}
+.dash__cal-daylist .dash__cal-dot { flex: none; }
+.dash__cal-empty { color: var(--text-2); font-size: 14px; }
+
+@media (max-width: 860px) {
+  .dash__summary { grid-template-columns: repeat(2, 1fr); }
+  .dash__grid { grid-template-columns: 1fr; }
+}
