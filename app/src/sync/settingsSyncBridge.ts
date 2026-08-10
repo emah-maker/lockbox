@@ -10,6 +10,7 @@
 import { useSettingsStore } from '../store/useSettingsStore';
 import { getFirebaseAuth } from '../auth/firebase';
 import { pushSettingsPatch } from './firestoreSync';
+import type { CustomLabel } from '../stats/customLabels';
 
 let started = false;
 
@@ -18,6 +19,7 @@ interface Snapshot {
   accent: string;
   callAlertsEnabled: boolean;
   advancedStatsEnabled: boolean;
+  customLabels: CustomLabel[];
 }
 
 function snapshot(state: ReturnType<typeof useSettingsStore.getState>): Snapshot {
@@ -26,6 +28,7 @@ function snapshot(state: ReturnType<typeof useSettingsStore.getState>): Snapshot
     accent: state.accent,
     callAlertsEnabled: state.callAlertsEnabled,
     advancedStatsEnabled: state.advancedStatsEnabled,
+    customLabels: state.customLabels,
   };
 }
 
@@ -34,7 +37,12 @@ function equal(a: Snapshot, b: Snapshot): boolean {
     a.themeMode === b.themeMode &&
     a.accent === b.accent &&
     a.callAlertsEnabled === b.callAlertsEnabled &&
-    a.advancedStatsEnabled === b.advancedStatsEnabled
+    a.advancedStatsEnabled === b.advancedStatsEnabled &&
+    // customLabels is replaced with a new array on every CRUD op (see
+    // useSettingsStore's addCustomLabel/renameCustomLabel/removeCustomLabel),
+    // so a reference check alone would miss nothing here -- JSON compare is
+    // just belt-and-suspenders against a future caller that mutates in place.
+    JSON.stringify(a.customLabels) === JSON.stringify(b.customLabels)
   );
 }
 

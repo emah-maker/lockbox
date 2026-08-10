@@ -2,14 +2,14 @@
 // via useStore.sessions). Each day with focus time gets a dot; tapping a day
 // lists that day's sessions below the grid.
 import React, { useMemo, useState } from 'react';
-import { View, Text, StyleSheet, Pressable, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, Pressable, ScrollView, Modal } from 'react-native';
 import { useStore } from '../store/useStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useTheme } from '../theme/useTheme';
 import { withAlpha } from '../theme/theme';
 import { formatDuration } from '../stats/stats';
 import { dayKey, groupByDay, LoggedSession } from '../stats/sessionHistory';
-import { dominantTopic, topicColor, TOPIC_LABELS, TopicKey } from '../stats/topics';
+import { dominantTopicWithCustom, resolveTopic, allLabelChoices, ResolvedTopic } from '../stats/customLabels';
 
 const WEEKDAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 
@@ -32,9 +32,12 @@ function buildGrid(monthStart: Date): (Date | null)[] {
 export default function CalendarScreen() {
   const c = useTheme();
   const themeMode = useSettingsStore((s) => s.themeMode);
+  const customLabels = useSettingsStore((s) => s.customLabels);
   const sessions = useStore((s) => s.sessions);
+  const retagSession = useStore((s) => s.retagSession);
   const [cursor, setCursor] = useState(startOfMonth(new Date()));
   const [selectedKey, setSelectedKey] = useState<string>(dayKey(Date.now()));
+  const [taggingSession, setTaggingSession] = useState<LoggedSession | null>(null);
 
   const byDay = useMemo(() => groupByDay(sessions), [sessions]);
   const grid = useMemo(() => buildGrid(cursor), [cursor]);
@@ -88,7 +91,7 @@ export default function CalendarScreen() {
           const intensity = focusS > 0 ? 0.25 + 0.75 * Math.min(1, focusS / maxFocus) : 0;
           const selected = key === selectedKey;
           const isToday = key === todayKey;
-          const dominant = dominantTopic(daySessions, themeMode);
+          const dominant = dominantTopicWithCustom(daySessions, customLabels, themeMode);
           return (
             <Pressable key={i} style={styles.cell} onPress={() => setSelectedKey(key)}>
               <View
@@ -121,8 +124,7 @@ export default function CalendarScreen() {
           <Text style={[styles.empty, { color: c.textDim }]}>No focus sessions logged this day.</Text>
         ) : (
           selectedSessions.map((s, i) => {
-            const topicKey = s.topic as TopicKey | undefined;
-            const known = topicKey && topicKey in TOPIC_LABELS;
+            const resolved = resolveTopic(s.topic, customLabels, themeMode);
             return (
               <View key={i} style={styles.sessionRow}>
                 <Text style={[styles.sessionTime, { color: c.textDim }]}>
@@ -134,14 +136,16 @@ export default function CalendarScreen() {
                 <Text style={[styles.sessionDuration, { color: c.text }]}>
                   {formatDuration(s.actualS)}
                 </Text>
-                <View style={styles.sessionTopic}>
-                  {known && (
+                <Pressable style={styles.sessionTopic} onPress={() => setTaggingSession(s)}>
+                  {resolved ? (
                     <>
-                      <View style={[styles.topicDotInline, { backgroundColor: topicColor(topicKey!, themeMode) }]} />
-                      <Text style={[styles.sessionTopicLabel, { color: c.textDim }]}>{TOPIC_LABELS[topicKey!]}</Text>
+                      <View style={[styles.topicDotInline, { backgroundColor: resolved.color }]} />
+                      <Text style={[styles.sessionTopicLabel, { color: c.textDim }]}>{resolved.label}</Text>
                     </>
+                  ) : (
+                    <Text style={[styles.sessionTopicLabel, { color: c.accent }]}>Tag</Text>
                   )}
-                </View>
+                </Pressable>
                 <Text
                   style={[
                     styles.sessionOutcome,
@@ -155,9 +159,87 @@ export default function CalendarScreen() {
           })
         )}
       </View>
+
+      <LabelPickerModal
+        visible={taggingSession !== null}
+        choices={allLabelChoices(customLabels, themeMode)}
+        current={taggingSession ? resolveTopic(taggingSession.topic, customLabels, themeMode)?.id : undefined}
+        color={c}
+        onClose={() => setTaggingSession(null)}
+        onPick={(id) => {
+          if (taggingSession) retagSession(taggingSession, id);
+          setTaggingSession(null);
+        }}
+        onClear={
+          taggingSession?.topic
+            ? () => {
+                retagSession(taggingSession, undefined);
+                setTaggingSession(null);
+              }
+            : undefined
+        }
+      />
     </ScrollView>
   );
 }
+
+/** Retag/untag picker for one past session -- lists every built-in topic and
+ * custom label (allLabelChoices) plus a "Clear tag" option. */
+function LabelPickerModal({
+  visible,
+  choices,
+  current,
+  color,
+  onPick,
+  onClear,
+  onClose,
+}: {
+  visible: boolean;
+  choices: ResolvedTopic[];
+  current: string | undefined;
+  color: ReturnType<typeof useTheme>;
+  onPick: (id: string) => void;
+  onClear?: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable style={modalStyles.backdrop} onPress={onClose}>
+        <Pressable style={[modalStyles.sheet, { backgroundColor: color.surface }]} onPress={() => {}}>
+          <Text style={[modalStyles.title, { color: color.text }]}>Tag this session</Text>
+          <ScrollView style={modalStyles.list}>
+            {choices.map((choice) => (
+              <Pressable
+                key={choice.id}
+                style={modalStyles.row}
+                onPress={() => onPick(choice.id)}
+              >
+                <View style={[modalStyles.dot, { backgroundColor: choice.color }]} />
+                <Text style={[modalStyles.rowLabel, { color: color.text }]}>{choice.label}</Text>
+                {current === choice.id && <Text style={{ color: color.accent }}>✓</Text>}
+              </Pressable>
+            ))}
+          </ScrollView>
+          {onClear && (
+            <Pressable style={modalStyles.row} onPress={onClear}>
+              <Text style={[modalStyles.rowLabel, { color: color.danger }]}>Clear tag</Text>
+            </Pressable>
+          )}
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+const modalStyles = StyleSheet.create({
+  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  sheet: { borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 20, maxHeight: '70%' },
+  title: { fontSize: 16, fontWeight: '700', marginBottom: 12 },
+  list: { marginBottom: 4 },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10 },
+  dot: { width: 12, height: 12, borderRadius: 6 },
+  rowLabel: { fontSize: 15, flex: 1 },
+});
 
 const styles = StyleSheet.create({
   container: { padding: 20, paddingTop: 50, gap: 16 },

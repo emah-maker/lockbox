@@ -8,7 +8,7 @@ import { useSettingsStore } from '../store/useSettingsStore';
 import { useTheme } from '../theme/useTheme';
 import { withAlpha } from '../theme/theme';
 import { aggregate, formatDuration, completionRate } from '../stats/stats';
-import { TOPIC_KEYS, TOPIC_LABELS, topicColor, topicTextColor, TopicKey } from '../stats/topics';
+import { allLabelChoices, resolveTopic } from '../stats/customLabels';
 import type { Status } from '../ble/protocol';
 
 /** Fraction of the configured lock duration elapsed so far, for the running
@@ -37,6 +37,7 @@ export default function DashboardScreen() {
   const setCallAlertsEnabled = useSettingsStore((st) => st.setCallAlertsEnabled);
   const remoteUnlockOn = useSettingsStore((st) => !!st.boxSettings.unlk);
   const themeMode = useSettingsStore((st) => st.themeMode);
+  const customLabels = useSettingsStore((st) => st.customLabels);
   const theme = useTheme();
   const s = styles(theme);
 
@@ -114,26 +115,25 @@ export default function DashboardScreen() {
           {status.st === 'running' && (
             <View style={{ marginTop: 8 }}>
               <Text style={s.label}>
-                {currentTopic && currentTopic in TOPIC_LABELS
-                  ? `Tagged: ${TOPIC_LABELS[currentTopic as TopicKey]}`
+                {currentTopic
+                  ? `Tagged: ${resolveTopic(currentTopic, customLabels, themeMode)?.label ?? currentTopic}`
                   : 'What are you focusing on?'}
               </Text>
               <View style={s.topicChipRow}>
-                {TOPIC_KEYS.map((key) => {
-                  const active = currentTopic === key;
-                  const color = topicColor(key, themeMode);
+                {allLabelChoices(customLabels, themeMode).map((choice) => {
+                  const active = currentTopic === choice.id;
                   return (
                     <Pressable
-                      key={key}
+                      key={choice.id}
                       style={[
                         s.topicChip,
-                        { borderColor: color },
-                        active && { backgroundColor: color },
+                        { borderColor: choice.color },
+                        active && { backgroundColor: choice.color },
                       ]}
-                      onPress={() => tagCurrentSession(key)}
+                      onPress={() => tagCurrentSession(choice.id)}
                     >
-                      <Text style={[s.topicChipText, { color: active ? topicTextColor(key, themeMode) : theme.text }]}>
-                        {TOPIC_LABELS[key]}
+                      <Text style={[s.topicChipText, { color: active ? choice.textColor : theme.text }]}>
+                        {choice.label}
                       </Text>
                     </Pressable>
                   );

@@ -8,22 +8,26 @@ import { create } from 'zustand';
 import { getJSON, setJSON } from '../storage/storage';
 import { ThemeMode, AccentKey } from '../theme/theme';
 import type { Settings } from '../ble/protocol';
+import { CustomLabel, createCustomLabel, renameCustomLabel as renameCustomLabelIn, deleteCustomLabel as deleteCustomLabelIn } from '../stats/customLabels';
 
 // Mirrors the firmware's own defaults (Box-code/lib/lock_config.py /
 // lock_settings.py) so the Settings screen shows sane values before the
 // first successful connection.
 const DEFAULT_BOX_SETTINGS: Settings = { ovr: 25, auto: 1, sleep: 20, bright: 50, unlk: 0, ucal: 0, thm: 0, acc: 0 };
 
-// The four account-syncable fields, per
+// The account-syncable fields, per
 // docs/rfcs/google-signin-cross-device-sync-architecture.md §3.1/§4.2 --
 // cross-device last-write-wins settings, distinct from boxSettings (the
 // per-physical-box BLE mirror, which is never account state -- see §3.1's
-// "deliberate scoping decision").
+// "deliberate scoping decision"). customLabels joined this set so a user's
+// custom focus-label catalog follows them to a new device the same way
+// their theme/accent/toggles already do.
 export interface SyncableSettings {
   themeMode: ThemeMode;
   accent: AccentKey;
   callAlertsEnabled: boolean;
   advancedStatsEnabled: boolean;
+  customLabels: CustomLabel[];
 }
 
 interface SettingsState {
@@ -32,8 +36,9 @@ interface SettingsState {
   accent: AccentKey;
   callAlertsEnabled: boolean;
   advancedStatsEnabled: boolean;
+  customLabels: CustomLabel[];
   boxSettings: Settings;
-  // Epoch ms of the last local change to any of the four SyncableSettings
+  // Epoch ms of the last local change to any of the SyncableSettings
   // fields -- compared against Firestore's settings/app.updatedAt for the
   // two-way last-write-wins merge (sync/firestoreSync.ts).
   settingsUpdatedAt: number;
@@ -44,6 +49,9 @@ interface SettingsState {
   setCallAlertsEnabled: (on: boolean) => void;
   setAdvancedStatsEnabled: (on: boolean) => void;
   setBoxSettings: (patch: Partial<Settings>) => void;
+  addCustomLabel: (name: string, color: string) => void;
+  renameCustomLabel: (id: string, name: string) => void;
+  removeCustomLabel: (id: string) => void;
   /** Applied when a remote Firestore settings/app doc is newer than the
    * local copy (LWW pull) -- does not itself trigger a remote push.
    * `updatedAt` is the remote doc's own timestamp, preserved as-is so a
@@ -57,21 +65,32 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   accent: 'mint',
   callAlertsEnabled: true,
   advancedStatsEnabled: false,
+  customLabels: [],
   boxSettings: DEFAULT_BOX_SETTINGS,
   settingsUpdatedAt: 0,
 
   hydrate: async () => {
     if (get().hydrated) return;
-    const [themeMode, accent, callAlertsEnabled, advancedStatsEnabled, boxSettings, settingsUpdatedAt] =
+    const [themeMode, accent, callAlertsEnabled, advancedStatsEnabled, customLabels, boxSettings, settingsUpdatedAt] =
       await Promise.all([
         getJSON<ThemeMode>('themeMode', 'dark'),
         getJSON<AccentKey>('accent', 'mint'),
         getJSON<boolean>('callAlertsEnabled', true),
         getJSON<boolean>('advancedStatsEnabled', false),
+        getJSON<CustomLabel[]>('customLabels', []),
         getJSON<Settings>('boxSettings', DEFAULT_BOX_SETTINGS),
         getJSON<number>('settingsUpdatedAt', 0),
       ]);
-    set({ hydrated: true, themeMode, accent, callAlertsEnabled, advancedStatsEnabled, boxSettings, settingsUpdatedAt });
+    set({
+      hydrated: true,
+      themeMode,
+      accent,
+      callAlertsEnabled,
+      advancedStatsEnabled,
+      customLabels,
+      boxSettings,
+      settingsUpdatedAt,
+    });
   },
 
   setThemeMode: (mode) => {
@@ -110,12 +129,37 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     setJSON('boxSettings', next);
   },
 
+  addCustomLabel: (name, color) => {
+    const customLabels = createCustomLabel(get().customLabels, name, color);
+    const settingsUpdatedAt = Date.now();
+    set({ customLabels, settingsUpdatedAt });
+    setJSON('customLabels', customLabels);
+    setJSON('settingsUpdatedAt', settingsUpdatedAt);
+  },
+
+  renameCustomLabel: (id, name) => {
+    const customLabels = renameCustomLabelIn(get().customLabels, id, name);
+    const settingsUpdatedAt = Date.now();
+    set({ customLabels, settingsUpdatedAt });
+    setJSON('customLabels', customLabels);
+    setJSON('settingsUpdatedAt', settingsUpdatedAt);
+  },
+
+  removeCustomLabel: (id) => {
+    const customLabels = deleteCustomLabelIn(get().customLabels, id);
+    const settingsUpdatedAt = Date.now();
+    set({ customLabels, settingsUpdatedAt });
+    setJSON('customLabels', customLabels);
+    setJSON('settingsUpdatedAt', settingsUpdatedAt);
+  },
+
   applyRemoteSettings: (remote, updatedAt) => {
     set({ ...remote, settingsUpdatedAt: updatedAt });
     setJSON('themeMode', remote.themeMode);
     setJSON('accent', remote.accent);
     setJSON('callAlertsEnabled', remote.callAlertsEnabled);
     setJSON('advancedStatsEnabled', remote.advancedStatsEnabled);
+    setJSON('customLabels', remote.customLabels);
     setJSON('settingsUpdatedAt', updatedAt);
   },
 }));

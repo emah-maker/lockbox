@@ -13,7 +13,13 @@ const MAX_RECORDS = 2000; // keep unbounded growth in check; ~a session/hour is 
 
 export interface LoggedSession extends SessionRecord {
   startedAt: number; // epoch ms, local device clock at session start
-  topic?: string; // optional per-session focus category, see stats/topics.ts
+  // Optional per-session focus category: either a built-in TopicKey
+  // (stats/topics.ts) or a custom label's id (stats/customLabels.ts).
+  // Stored as a plain string rather than a union so an old record tagged
+  // with a since-deleted custom label id still round-trips cleanly --
+  // resolveTopic() is what decides whether a given string is still
+  // renderable, not this type.
+  topic?: string;
 }
 
 export async function loadSessions(): Promise<LoggedSession[]> {
@@ -69,6 +75,34 @@ export function dayKey(epochMs: number): string {
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
+}
+
+/** Pure retag transform: returns `sessions` with the one entry matching
+ * `target` (identified by its startedAt+plannedS+actualS triple -- the
+ * finest-grained identity already implied by this file's own dedup/doc-id
+ * conventions) given a new topic. Split out from retagSession so it's
+ * unit-testable without touching storage. */
+export function applyTopicUpdate(
+  sessions: LoggedSession[],
+  target: Pick<LoggedSession, 'startedAt' | 'plannedS' | 'actualS'>,
+  topic: string | undefined,
+): LoggedSession[] {
+  return sessions.map((s) =>
+    s.startedAt === target.startedAt && s.plannedS === target.plannedS && s.actualS === target.actualS
+      ? { ...s, topic }
+      : s,
+  );
+}
+
+/** Retag (or clear the tag on) one past session and persist the full set.
+ * Uses replaceSessions rather than appendSessions -- this edits an existing
+ * record in place, it doesn't add a new one. */
+export async function retagSession(
+  sessions: LoggedSession[],
+  target: Pick<LoggedSession, 'startedAt' | 'plannedS' | 'actualS'>,
+  topic: string | undefined,
+): Promise<LoggedSession[]> {
+  return replaceSessions(applyTopicUpdate(sessions, target, topic));
 }
 
 export function groupByDay(sessions: LoggedSession[]): Map<string, LoggedSession[]> {

@@ -41,7 +41,13 @@ export function topicColor(key: TopicKey, mode: ThemeMode): string {
  * light-yellow/aqua-as-text problem -- everywhere else text stays a theme
  * ink token, never the series color). */
 export function topicTextColor(key: TopicKey, mode: ThemeMode): string {
-  const hex = TOPIC_HEX[key][mode];
+  return readableTextColor(TOPIC_HEX[key][mode]);
+}
+
+/** Same binary black/white contrast pick as topicTextColor, but for any hex
+ * fill -- shared with stats/customLabels.ts so a user-picked custom label
+ * color gets the same readable-text treatment as a built-in topic's. */
+export function readableTextColor(hex: string): string {
   const r = parseInt(hex.slice(1, 3), 16);
   const g = parseInt(hex.slice(3, 5), 16);
   const b = parseInt(hex.slice(5, 7), 16);

@@ -16,7 +16,7 @@ import { useTheme } from '../theme/useTheme';
 import { withAlpha } from '../theme/theme';
 import { aggregate, formatDuration, completionRate } from '../stats/stats';
 import { topComparisons, formatComparison } from '../stats/comparisons';
-import { topicBreakdown } from '../stats/topics';
+import { topicBreakdownWithCustom } from '../stats/customLabels';
 import { lastNDays } from '../stats/trend';
 
 const TOP_N = 5;
@@ -28,11 +28,15 @@ export default function StatsScreen() {
   const themeMode = useSettingsStore((s) => s.themeMode);
   const advancedStatsEnabled = useSettingsStore((s) => s.advancedStatsEnabled);
   const setAdvancedStatsEnabled = useSettingsStore((s) => s.setAdvancedStatsEnabled);
+  const customLabels = useSettingsStore((s) => s.customLabels);
 
   const stats = useMemo(() => aggregate(sessions), [sessions]);
   const comparisons = useMemo(() => topComparisons(stats.foc).slice(0, TOP_N), [stats.foc]);
   const trend = useMemo(() => lastNDays(sessions), [sessions]);
-  const topics = useMemo(() => topicBreakdown(sessions, themeMode), [sessions, themeMode]);
+  const topics = useMemo(
+    () => topicBreakdownWithCustom(sessions, customLabels, themeMode),
+    [sessions, customLabels, themeMode],
+  );
 
   const trendMax = Math.max(1, ...trend.map((d) => d.focusS));
   const topicMax = Math.max(1, ...topics.map((t) => t.focusS));

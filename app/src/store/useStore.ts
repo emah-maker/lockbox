@@ -18,7 +18,7 @@ import { PhoneBoxClient } from '../ble/PhoneBoxClient';
 import { CallMonitor } from '../calls/CallMonitor';
 import type { Status, HistoryEntry, BoxState, Settings } from '../ble/protocol';
 import { getJSON, setJSON } from '../storage/storage';
-import { loadSessions, appendSessions, LoggedSession } from '../stats/sessionHistory';
+import { loadSessions, appendSessions, retagSession, LoggedSession } from '../stats/sessionHistory';
 import { useSettingsStore } from './useSettingsStore';
 // Remote sync (docs/rfcs/google-signin-cross-device-sync-architecture.md §4.3)
 // is wired from outside this store -- see sync/sessionsSyncBridge.ts, which
@@ -71,6 +71,10 @@ interface AppState {
   setAutoConnect: (on: boolean) => void;
   pushBoxSettings: (patch: Partial<Settings>) => Promise<void>;
   tagCurrentSession: (topic: string) => void;
+  /** Retag (or clear the tag on) a past, already-logged session -- see
+   * CalendarScreen's per-day list. Identifies the session by the same
+   * startedAt+plannedS+actualS triple sessionHistory.ts uses internally. */
+  retagSession: (target: Pick<LoggedSession, 'startedAt' | 'plannedS' | 'actualS'>, topic: string | undefined) => Promise<void>;
 }
 
 const client = new PhoneBoxClient();
@@ -273,6 +277,11 @@ export const useStore = create<AppState>((set, get) => {
     tagCurrentSession: (topic) => {
       set({ currentTopic: topic });
       setJSON<PendingTopicTag>(PENDING_TOPIC_KEY, { topic, at: Date.now() });
+    },
+
+    retagSession: async (target, topic) => {
+      const sessions = await retagSession(get().sessions, target, topic);
+      set({ sessions });
     },
   };
 });
