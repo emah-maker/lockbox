@@ -1,6 +1,36 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(python *)",
+      "Bash(python3 *)",
+      "Bash(graphify export *)",
+      "Bash(rm -f graphify-out/.graphify_detect.json graphify-out/.graphify_extract.json graphify-out/.graphify_ast.json graphify-out/.graphify_semantic.json graphify-out/.graphify_analysis.json graphify-out/.graphify_community_preview.txt graphify-out/.graphify_labels_input.json)",
+      "Bash(rm -f graphify-out/.graphify_chunk_*.json)",
+      "Bash(rm -f graphify-out/.needs_update)",
+      "Bash(awk '/^## God Nodes/,/^## Suggested Questions/' graphify-out/GRAPH_REPORT.md)",
+      "Bash(awk '/^## Suggested Questions/,0' graphify-out/GRAPH_REPORT.md)",
+      "Bash(gh api *)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:api.github.com)",
+      "Read(//c/Users/emah/AppData/Local/Temp/claude/C--Users-emah-OneDrive---Northeastern-University-Summer-Projects-Phone-Box/78a0a03d-786d-4429-a4cd-1719fb5db95a/scratchpad/impeccable/**)",
+      "Read(//c/Users/emah/AppData/Local/Temp/claude/C--Users-emah-OneDrive---Northeastern-University-Summer-Projects-Phone-Box/78a0a03d-786d-4429-a4cd-1719fb5db95a/scratchpad/impeccable/.claude/skills/impeccable/**)",
+      "Read(//c/Users/emah/AppData/Local/Temp/claude/C--Users-emah-OneDrive---Northeastern-University-Summer-Projects-Phone-Box/78a0a03d-786d-4429-a4cd-1719fb5db95a/scratchpad/impeccable/scripts/**)",
+      "Bash(rm -rf /c/Users/emah/AppData/Local/Temp/claude/C--Users-emah-OneDrive---Northeastern-University-Summer-Projects-Phone-Box/78a0a03d-786d-4429-a4cd-1719fb5db95a/scratchpad/skills-emil)",
+      "Bash(git clone *)",
+      "Read(//c/Users/emah/AppData/Local/Temp/claude/C--Users-emah-OneDrive---Northeastern-University-Summer-Projects-Phone-Box/78a0a03d-786d-4429-a4cd-1719fb5db95a/scratchpad/skills-emil/**)",
+      "Skill(impeccable)",
+      "Bash(node *)",
+      "mcp__playwright__browser_navigate",
+      "Bash(curl -s http://localhost:8934/css/styles.css)",
+      "mcp__playwright__browser_resize",
+      "mcp__playwright__browser_take_screenshot",
+      "mcp__playwright__browser_evaluate",
+      "mcp__playwright__browser_click",
+      "mcp__playwright__browser_console_messages"
+    ]
+  },
+  "enableAllProjectMcpServers": true,
   "enabledMcpjsonServers": [
     "claude-flow"
-  ],
-  "enableAllProjectMcpServers": true
+  ]
 }

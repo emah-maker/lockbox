@@ -15,11 +15,7 @@ Help a manager evolve their AI employee in plain language without forcing them t
   - what the employee should do differently
   - why the chosen intervention is the minimum effective change
   - the level the change is saved at, and for a shared level, every manager-specific value that was removed or parameterized to make it safe to share.
-- New or updated artifacts at explicit target paths, under the level the manager chose:
-  - manager level (the default): `~/.fraim/personalized-employee/{jobs,skills,rules,templates,scripts}/...`
-  - project level: `fraim/personalized-employee/{jobs,skills,rules,templates,scripts}/...`
-  - company level: published through the configured organization backend
-  - `fraim/config.json`
+- New or updated artifacts at explicit target paths, under the level the manager chose. Each level has exactly one home and the format skill resolves it; this job never names a home itself, because a manager or org layer lives wherever `~/.fraim/config.json` says and only the unconfigured default sits under `~/.fraim`.
 - A validation summary confirming:
   - the change matches the manager's plain-language intent
   - all edits stayed inside approved destinations

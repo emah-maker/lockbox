@@ -271,6 +271,7 @@ users/{uid}/settings/app                     (doc, mutable, last-write-wins)
   accent: string
   callAlertsEnabled: boolean
   advancedStatsEnabled: boolean
+  customLabels: { id: string, name: string, color: string }[]  # user-managed focus labels, added 2026-08-10
   updatedAt: timestamp
 
 users/{uid}/devices/{deviceId}               (doc per physical box paired to this account)
@@ -284,7 +285,17 @@ of truth.** It is per-physical-box hardware config (`ovr`/`auto`/`sleep`/`bright
 `users/{uid}/devices/{deviceId}` stores it only as a **cache/backup** (so a new phone can show a
 plausible value before it ever connects), while the box's own `readSettings()` response on connect
 remains authoritative, exactly as `useStore.ts`'s `afterConnected()` already reconciles today. The
-truly cross-device, account-level preferences are the four fields in `settings/app`.
+truly cross-device, account-level preferences are the fields in `settings/app`.
+
+**Session `topic` is create-only, like the rest of the session doc.** Retagging a past session
+(Calendar day-list) only ever edits the local copy (`sessionHistory.ts`'s `retagSession`) — it is
+never pushed as a Firestore update, since `allow update: if false` forbids that for every client,
+including the owner (§3.2's integrity property). `syncSessions`'s merge therefore prefers the
+*local* `topic` over a same-id remote doc's (`sync/sessionMerge.ts`'s
+`mergeSessionsPreferLocalTopic`) so a retag at least survives repeated local syncs, but a retag
+made on one device does not appear on a second device signed into the same account. Closing that
+gap would need a mutable side-channel for `topic` (e.g. a separate per-session-id map that isn't
+subject to the create-only rule) and is deferred, not solved, by this design.
 
 ### 3.2 Security rules
 
@@ -323,7 +334,7 @@ service cloud.firestore {
       match /settings/app {
         allow read, write: if isOwner(uid)
                             && request.resource.data.keys().hasOnly(
-                                 ['themeMode', 'accent', 'callAlertsEnabled', 'advancedStatsEnabled', 'updatedAt']);
+                                 ['themeMode', 'accent', 'callAlertsEnabled', 'advancedStatsEnabled', 'customLabels', 'updatedAt']);
       }
 
       match /devices/{deviceId} {
@@ -382,7 +393,7 @@ wrong:
 | Data | Nature | Policy | Why |
 |---|---|---|---|
 | **Session history** | Append-only historical events; a given session either happened or didn't | **Additive union**, deduped by deterministic doc ID | Sessions aren't "current state" to overwrite — they're facts. Losing a real session (overwrite) or double-counting one (blind append) both corrupt stats/streaks. Union is the only lossless, correct merge. |
-| **App settings** (`themeMode`, `accent`, `callAlertsEnabled`, `advancedStatsEnabled`) | A single current-state document representing "what the user wants right now" | **Last-write-wins by `updatedAt`** | There is no meaningful way to "merge" two theme choices — whichever device the user touched most recently expresses their current intent. |
+| **App settings** (`themeMode`, `accent`, `callAlertsEnabled`, `advancedStatsEnabled`, `customLabels`) | A single current-state document representing "what the user wants right now" | **Last-write-wins by `updatedAt`** | There is no meaningful way to "merge" two theme choices — whichever device the user touched most recently expresses their current intent. `customLabels` rides the same LWW channel: if two devices independently add/rename/delete labels before syncing, the whole catalog from the more-recently-touched device wins, not a per-label merge. |
 
 Concretely, on every sign-in (first or Nth device):
 - **Sessions:** download `users/{uid}/sessions` ordered by `startedAt`, union with local

@@ -21,6 +21,7 @@ import { getDb, getFirebaseAuth } from '../auth/firebase';
 import { loadSessions, replaceSessions, type LoggedSession } from '../stats/sessionHistory';
 import { useSettingsStore, type SyncableSettings } from '../store/useSettingsStore';
 import { getJSON } from '../storage/storage';
+import { sessionDocId, mergeSessionsPreferLocalTopic } from './sessionMerge';
 
 const LAST_DEVICE_KEY = 'lastDeviceId'; // mirrors useStore.ts's own AsyncStorage key
 const BATCH_LIMIT = 500; // Firestore's per-batch write limit
@@ -54,10 +55,6 @@ function requireUid(uid: string): string {
 // most recently connected).
 async function currentDeviceId(): Promise<string> {
   return (await getJSON<string | null>(LAST_DEVICE_KEY, null)) ?? 'unknown-device';
-}
-
-function sessionDocId(deviceId: string, s: Pick<LoggedSession, 'startedAt' | 'actualS'>): string {
-  return `${deviceId}_${s.startedAt}_${s.actualS}`;
 }
 
 /**
@@ -97,30 +94,23 @@ async function syncSessions(uid: string): Promise<void> {
     getDocs(query(collection(db, 'users', uid, 'sessions'), orderBy('startedAt'))),
   ]);
 
-  const merged = new Map<string, LoggedSession>();
-  const remoteIds = new Set<string>();
-  remoteSnap.forEach((d) => {
-    remoteIds.add(d.id);
+  const remoteEntries = remoteSnap.docs.map((d) => {
     const data = d.data() as RemoteSession;
-    merged.set(d.id, {
-      startedAt: data.startedAt,
-      plannedS: data.plannedS,
-      actualS: data.actualS,
-      outcome: data.outcome,
-      topic: data.topic,
-    });
+    return {
+      id: d.id,
+      session: {
+        startedAt: data.startedAt,
+        plannedS: data.plannedS,
+        actualS: data.actualS,
+        outcome: data.outcome,
+        topic: data.topic,
+      },
+    };
   });
-
-  const toUpload: { id: string; session: LoggedSession }[] = [];
-  for (const s of localSessions) {
-    const id = sessionDocId(deviceId, s);
-    if (!merged.has(id)) merged.set(id, s);
-    if (!remoteIds.has(id)) toUpload.push({ id, session: s });
-  }
+  const { merged: mergedList, toUpload } = mergeSessionsPreferLocalTopic(localSessions, remoteEntries, deviceId);
 
   // Write the full reconciled set back to local storage (replace, not
   // append -- appendSessions would double-count sessions already present).
-  const mergedList = Array.from(merged.values()).sort((a, b) => a.startedAt - b.startedAt);
   await replaceSessions(mergedList);
 
   // Idempotent set() at each deterministic ID -- re-running after a crash or

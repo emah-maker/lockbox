@@ -7,7 +7,7 @@
 
 ## Skill Input
 - `proposals`: structured list of L1 proposals (new entries, updates, conflicts) per L1 file. NOTE: L2 candidacy is NOT an L1 concern - L2 is cross-user org-level synthesis owned by `organizational-learning-synthesis` and must never be flagged from a single user's data.
-- `targetScope`: for each proposal, whether approval should write to `global` or `repo`
+- `level`: for each proposal, which level approval should write to: `Manager` (this person, on every project) or `Project` (everyone working in this repository). `Org` is not written here; it is a promotion recommendation that `share-with-others` carries out.
 - `context`: `"end-of-day"` (writing pending sections to files) or `"start-of-day"` (presenting to user for approval)
 
 ## Skill Output
