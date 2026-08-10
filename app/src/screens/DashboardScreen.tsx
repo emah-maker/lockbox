@@ -1,15 +1,17 @@
 // DashboardScreen.tsx -- the focus-stats dashboard + live box status + remote
 // open/close. Navigation lives in App.tsx as a trivial tab switcher; this
 // stays the default landing tab.
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { View, Text, StyleSheet, Switch, Pressable, ScrollView } from 'react-native';
 import { useStore, CONN_LABELS } from '../store/useStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useTheme } from '../theme/useTheme';
 import { withAlpha } from '../theme/theme';
-import { aggregate, formatDuration, completionRate } from '../stats/stats';
+import { aggregate, formatDuration, completionRate, clampLockSeconds, MAX_LOCK_HOURS } from '../stats/stats';
 import { allLabelChoices, resolveTopic } from '../stats/customLabels';
 import type { Status } from '../ble/protocol';
+
+const MINUTE_STEP = 5;
 
 /** Fraction of the configured lock duration elapsed so far, for the running
  * -session progress meter. 0 when `set` is unknown (0). */
@@ -29,6 +31,7 @@ export default function DashboardScreen() {
     callDetectionAvailable,
     connect,
     disconnect,
+    startLock,
     closeBox,
     openBox,
     tagCurrentSession,
@@ -40,6 +43,23 @@ export default function DashboardScreen() {
   const customLabels = useSettingsStore((st) => st.customLabels);
   const theme = useTheme();
   const s = styles(theme);
+
+  // Duration picker for "Lock for H:MM" -- local to this screen, not persisted;
+  // startLock(seconds) both sets the box's duration and starts the countdown
+  // (Box-code/lib/lock_controller.apply_ble_command "start:<seconds>").
+  const [pickHours, setPickHours] = useState(0);
+  const [pickMinutes, setPickMinutes] = useState(25);
+  const pickSeconds = clampLockSeconds(pickHours, pickMinutes);
+
+  const stepPickHours = (dir: 1 | -1) => {
+    const next = Math.max(0, Math.min(MAX_LOCK_HOURS, pickHours + dir));
+    setPickHours(next);
+    if (next >= MAX_LOCK_HOURS) setPickMinutes(0); // 9:00 is the cap -- no extra minutes
+  };
+  const stepPickMinutes = (dir: 1 | -1) => {
+    if (pickHours >= MAX_LOCK_HOURS) return;
+    setPickMinutes((m) => Math.max(0, Math.min(55, m + dir * MINUTE_STEP)));
+  };
 
   // Computed here, not read over BLE: the box keeps no long-term stats of its
   // own (no SD card, no NVM -- see Box-code/lib/lock_log.py), so the app's
@@ -112,6 +132,38 @@ export default function DashboardScreen() {
             </Text>
           )}
 
+          {canClose && (
+            <View style={s.pickerBlock}>
+              <Text style={s.label}>Or lock for a set time</Text>
+              <View style={s.pickerRow}>
+                <DurationStepper
+                  value={`${pickHours}h`}
+                  onMinus={() => stepPickHours(-1)}
+                  onPlus={() => stepPickHours(1)}
+                  theme={theme}
+                  s={s}
+                />
+                <DurationStepper
+                  value={`${String(pickMinutes).padStart(2, '0')}m`}
+                  onMinus={() => stepPickMinutes(-1)}
+                  onPlus={() => stepPickMinutes(1)}
+                  disabled={pickHours >= MAX_LOCK_HOURS}
+                  theme={theme}
+                  s={s}
+                />
+              </View>
+              <Pressable
+                style={[s.controlBtn, s.lockForBtn, pickSeconds <= 0 && s.controlBtnDisabled]}
+                disabled={pickSeconds <= 0}
+                onPress={() => startLock(pickSeconds)}
+              >
+                <Text style={s.controlBtnText}>
+                  Lock for {pickHours}:{String(pickMinutes).padStart(2, '0')}
+                </Text>
+              </Pressable>
+            </View>
+          )}
+
           {status.st === 'running' && (
             <View style={{ marginTop: 8 }}>
               <Text style={s.label}>
@@ -182,6 +234,44 @@ export default function DashboardScreen() {
   );
 }
 
+// Local stepper matching SettingsScreen's StepperRow (-/+ buttons) convention,
+// sized for this screen's two-up hours/minutes row.
+function DurationStepper({
+  value,
+  onMinus,
+  onPlus,
+  disabled,
+  theme,
+  s,
+}: {
+  value: string;
+  onMinus: () => void;
+  onPlus: () => void;
+  disabled?: boolean;
+  theme: ReturnType<typeof useTheme>;
+  s: ReturnType<typeof styles>;
+}) {
+  return (
+    <View style={s.stepper}>
+      <Pressable
+        style={[s.stepBtn, { borderColor: theme.textDim }, disabled && s.controlBtnDisabled]}
+        disabled={disabled}
+        onPress={onMinus}
+      >
+        <Text style={{ color: theme.text, fontSize: 18 }}>-</Text>
+      </Pressable>
+      <Text style={s.stepValue}>{value}</Text>
+      <Pressable
+        style={[s.stepBtn, { borderColor: theme.textDim }, disabled && s.controlBtnDisabled]}
+        disabled={disabled}
+        onPress={onPlus}
+      >
+        <Text style={{ color: theme.text, fontSize: 18 }}>+</Text>
+      </Pressable>
+    </View>
+  );
+}
+
 const styles = (t: ReturnType<typeof useTheme>) =>
   StyleSheet.create({
     container: { padding: 20, gap: 16, backgroundColor: t.bg, paddingBottom: 60 },
@@ -206,6 +296,19 @@ const styles = (t: ReturnType<typeof useTheme>) =>
     },
     controlBtnDisabled: { opacity: 0.35 },
     controlBtnText: { color: t.accentText, fontWeight: '700' },
+    pickerBlock: { marginTop: 12 },
+    pickerRow: { flexDirection: 'row', gap: 16, marginTop: 6 },
+    lockForBtn: { marginTop: 10 },
+    stepper: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    stepBtn: {
+      width: 32,
+      height: 32,
+      borderRadius: 8,
+      borderWidth: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    stepValue: { minWidth: 40, textAlign: 'center', color: t.text, fontSize: 15, fontWeight: '600' },
     meterTrack: { height: 8, borderRadius: 4, overflow: 'hidden', marginTop: 2 },
     meterFill: { height: '100%', borderRadius: 4 },
     topicChipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 },

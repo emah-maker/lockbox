@@ -1,5 +1,5 @@
 // Unit tests for the pure stats helpers. Run with `npm test` (jest-expo).
-import { aggregate, formatDuration, completionRate, SessionRecord } from './stats';
+import { aggregate, formatDuration, completionRate, clampLockSeconds, MAX_LOCK_SECONDS, SessionRecord } from './stats';
 import { parseStatus, parseHistoryEntries } from '../ble/protocol';
 
 describe('aggregate', () => {
@@ -47,6 +47,23 @@ describe('completionRate', () => {
   it('is 0 with no sessions and rounds otherwise', () => {
     expect(completionRate({ n: 0, foc: 0, done: 0, str: 0, lng: 0 })).toBe(0);
     expect(completionRate({ n: 3, foc: 0, done: 2, str: 0, lng: 0 })).toBe(67);
+  });
+});
+
+describe('clampLockSeconds', () => {
+  it('combines hours and minutes into seconds', () => {
+    expect(clampLockSeconds(1, 30)).toBe(5400);
+    expect(clampLockSeconds(0, 5)).toBe(300);
+  });
+
+  it('caps at the box\'s 9-hour maximum', () => {
+    expect(clampLockSeconds(9, 30)).toBe(MAX_LOCK_SECONDS);
+    expect(clampLockSeconds(20, 0)).toBe(MAX_LOCK_SECONDS);
+  });
+
+  it('floors negative or fractional input at 0', () => {
+    expect(clampLockSeconds(-1, -5)).toBe(0);
+    expect(clampLockSeconds(0.9, 0.9)).toBe(0);
   });
 });
 
