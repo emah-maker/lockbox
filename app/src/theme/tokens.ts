@@ -17,3 +17,32 @@ export const spacing = {
   xl: 20,
   xxl: 24,
 } as const;
+
+// typeScale -- role-based text styles (fontSize/fontWeight/letterSpacing/lineHeight)
+// so tracking/leading follow Apple's size-specific rule instead of being left
+// unset: large display numbers and headings get tight leading and slightly
+// negative tracking (letters read too far apart at that size otherwise);
+// body/caption text gets relaxed leading and ~0 tracking. Spread the matching
+// role into an existing style object (`h1: { ...typeScale.title, color }`)
+// rather than replacing screens' own style keys.
+export const typeScale = {
+  display: { fontSize: 40, fontWeight: '800', letterSpacing: -0.5, lineHeight: 42 } as const,
+  title: { fontSize: 28, fontWeight: '700', letterSpacing: -0.3, lineHeight: 32 } as const,
+  sectionTitle: { fontSize: 16, fontWeight: '700', letterSpacing: -0.1, lineHeight: 20 } as const,
+  label: { fontSize: 13, fontWeight: '600', letterSpacing: 0, lineHeight: 17 } as const,
+  body: { fontSize: 14, fontWeight: '400', letterSpacing: 0, lineHeight: 20 } as const,
+  caption: { fontSize: 12, fontWeight: '600', letterSpacing: 0.1, lineHeight: 15 } as const,
+} as const;
+
+// elevation -- shared shadow so card-like surfaces read with a little depth
+// instead of a flat fill. Mirrors the shadow values already used on the
+// slider thumb in SettingsPrimitives.tsx.
+export const elevation = {
+  card: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.18,
+    shadowRadius: 6,
+    elevation: 2,
+  } as const,
+} as const;

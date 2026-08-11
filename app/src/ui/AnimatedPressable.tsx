@@ -13,11 +13,17 @@
 // exactly the kind of thing that silently breaks and is hard to catch
 // without a simulator. This way `style`/`children`/every other prop behaves
 // identically to a plain Pressable -- only the press-scale is new.
+//
+// Uses a critically-damped spring rather than a linear timing: a spring
+// always animates from its current value, so a fast re-press (press-out
+// before press-in settles) redirects smoothly instead of jumping -- the
+// interruptibility that a fixed-duration timing can't give.
 import React, { useRef } from 'react';
 import { Animated, Pressable, PressableProps, StyleProp, ViewStyle } from 'react-native';
+import { useReducedMotion } from './useReducedMotion';
 
 const PRESS_SCALE = 0.96;
-const DURATION = 90;
+const SPRING = { stiffness: 300, damping: 30, mass: 1, useNativeDriver: true } as const;
 
 const AnimatedPressableBase = Animated.createAnimatedComponent(Pressable);
 
@@ -38,9 +44,14 @@ export function AnimatedPressable({
   scaleTo?: number;
 }) {
   const scale = useRef(new Animated.Value(1)).current;
+  const reducedMotion = useReducedMotion();
 
   const animateTo = (toValue: number) => {
-    Animated.timing(scale, { toValue, duration: DURATION, useNativeDriver: true }).start();
+    if (reducedMotion) {
+      Animated.timing(scale, { toValue, duration: 0, useNativeDriver: true }).start();
+      return;
+    }
+    Animated.spring(scale, { toValue, ...SPRING }).start();
   };
 
   return (

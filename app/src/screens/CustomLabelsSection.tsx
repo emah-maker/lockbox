@@ -6,12 +6,13 @@
 // same last-write-wins way as the rest of SyncableSettings (see
 // useSettingsStore.ts, sync/settingsSyncBridge.ts).
 import React from 'react';
-import { View, Text, StyleSheet, Pressable, TextInput, Alert, LayoutAnimation } from 'react-native';
+import { View, Text, StyleSheet, TextInput, Alert, LayoutAnimation } from 'react-native';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useTheme } from '../theme/useTheme';
 import { LABEL_SWATCHES } from '../stats/customLabels';
 import { Section, Button } from './SettingsPrimitives';
 import { AnimatedPressable } from '../ui/AnimatedPressable';
+import { typeScale } from '../theme/tokens';
 
 export function CustomLabelsSection({ color }: { color: ReturnType<typeof useTheme> }) {
   const customLabels = useSettingsStore((s) => s.customLabels);
@@ -102,7 +103,7 @@ function CustomLabelRow({
             toggleEditing(false);
           }}
         >
-          <Text style={{ color: color.accent, fontWeight: '600' }}>Save</Text>
+          <Text style={[styles.rowAction, { color: color.accent, fontWeight: '600' }]}>Save</Text>
         </AnimatedPressable>
         <AnimatedPressable
           onPress={() => {
@@ -110,7 +111,7 @@ function CustomLabelRow({
             toggleEditing(false);
           }}
         >
-          <Text style={{ color: color.textDim }}>Cancel</Text>
+          <Text style={[styles.rowAction, { color: color.textDim }]}>Cancel</Text>
         </AnimatedPressable>
       </View>
     );
@@ -121,10 +122,10 @@ function CustomLabelRow({
       <View style={[styles.swatch, { backgroundColor: label.color }]} />
       <Text style={[styles.label, { color: color.text, flex: 1 }]}>{label.name}</Text>
       <AnimatedPressable onPress={() => toggleEditing(true)}>
-        <Text style={{ color: color.accent }}>Rename</Text>
+        <Text style={[styles.rowAction, { color: color.accent }]}>Rename</Text>
       </AnimatedPressable>
       <AnimatedPressable onPress={() => onDelete(label.id, label.name)}>
-        <Text style={{ color: color.danger }}>Delete</Text>
+        <Text style={[styles.rowAction, { color: color.danger }]}>Delete</Text>
       </AnimatedPressable>
     </View>
   );
@@ -157,8 +158,9 @@ function ColorSwatchRow({
 }
 
 const styles = StyleSheet.create({
-  subtitle: { fontSize: 12, marginTop: 2 },
-  label: { fontSize: 15, flexShrink: 1, paddingRight: 12 },
+  subtitle: { fontSize: 12, marginTop: 2, letterSpacing: typeScale.caption.letterSpacing, lineHeight: typeScale.caption.lineHeight },
+  label: { fontSize: 15, flexShrink: 1, paddingRight: 12, letterSpacing: typeScale.sectionTitle.letterSpacing, lineHeight: 20 },
+  rowAction: { letterSpacing: typeScale.body.letterSpacing, lineHeight: typeScale.body.lineHeight },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   labelRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   swatch: { width: 28, height: 28, borderRadius: 14, borderWidth: 2, borderColor: 'transparent' },
@@ -168,5 +170,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontSize: 15,
+    // lineHeight is left off deliberately -- on Android it mis-centers text
+    // inside a TextInput's padding box.
+    letterSpacing: typeScale.sectionTitle.letterSpacing,
   },
 });

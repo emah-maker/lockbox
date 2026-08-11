@@ -88,8 +88,10 @@
 .dash__cal-navbtn {
   background: rgba(255, 255, 255, 0.06); border: 1px solid var(--border-soft); color: var(--text);
   width: 30px; height: 30px; border-radius: 8px; cursor: pointer; font-size: 15px; line-height: 1;
+  transition: background 0.15s var(--ease-snap), transform 0.08s var(--ease-snap);
 }
 .dash__cal-navbtn:hover { background: rgba(255, 255, 255, 0.12); }
+.dash__cal-navbtn:active { transform: scale(0.96); }
 .dash__cal-month { font-weight: 600; color: var(--text); min-width: 140px; text-align: center; }
 .dash__cal-weekdays, .dash__cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); }
 .dash__cal-weekdays span { text-align: center; color: var(--text-3); font-size: 12px; padding-bottom: 8px; }
@@ -97,8 +99,10 @@
 .dash__cal-daynum {
   width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
   font-size: 13px; color: var(--text-2); background: transparent; border: none; cursor: pointer; font-family: inherit;
+  transition: background 0.15s var(--ease-snap), transform 0.08s var(--ease-snap);
 }
 .dash__cal-daynum:hover { background: rgba(255, 255, 255, 0.06); }
+.dash__cal-daynum:active { transform: scale(0.96); }
 .dash__cal-cell--selected .dash__cal-daynum { border: 2px solid var(--unlocked-2); color: var(--text); }
 .dash__cal-cell--today:not(.dash__cal-cell--selected) .dash__cal-daynum { border: 1px solid var(--text-3); }
 .dash__cal-cell--focus .dash__cal-daynum { color: #012a12; font-weight: 700; }

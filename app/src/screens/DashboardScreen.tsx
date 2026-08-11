@@ -11,6 +11,27 @@ import { aggregate, formatDuration, completionRate, clampLockSeconds, MAX_LOCK_H
 import { allLabelChoices, resolveTopic } from '../stats/customLabels';
 import type { Status } from '../ble/protocol';
 import { AnimatedPressable } from '../ui/AnimatedPressable';
+import { useReducedMotion } from '../ui/useReducedMotion';
+import { typeScale, elevation } from '../theme/tokens';
+
+const DISABLED_OPACITY = 0.35;
+
+/** Fades a button's opacity between enabled/disabled instead of an instant
+ * cut, so losing/gaining availability (e.g. Close vs. Open as box state
+ * changes) reads as a state transition rather than a jump. */
+function useDisabledFade(disabled: boolean) {
+  const reducedMotion = useReducedMotion();
+  const opacity = useRef(new Animated.Value(disabled ? DISABLED_OPACITY : 1)).current;
+  useEffect(() => {
+    const toValue = disabled ? DISABLED_OPACITY : 1;
+    if (reducedMotion) {
+      opacity.setValue(toValue);
+      return;
+    }
+    Animated.timing(opacity, { toValue, duration: 150, useNativeDriver: true }).start();
+  }, [disabled, reducedMotion]);
+  return opacity;
+}
 
 // Android needs this opt-in for LayoutAnimation; iOS has it on unconditionally.
 // Safe to call at module scope -- it's idempotent and side-effect-free until
@@ -97,6 +118,9 @@ export default function DashboardScreen() {
   const connected = conn === 'connected';
   const canClose = connected && (status?.st === 'idle' || status?.st === 'done');
   const canOpen = connected && (status?.st === 'running' || status?.st === 'closed');
+  const closeFade = useDisabledFade(!canClose);
+  const openFade = useDisabledFade(!canOpen);
+  const lockFade = useDisabledFade(pickSeconds <= 0);
 
   return (
     <ScrollView contentContainerStyle={s.container}>
@@ -135,7 +159,7 @@ export default function DashboardScreen() {
 
           <View style={s.controlRow}>
             <AnimatedPressable
-              style={[s.controlBtn, !canClose && s.controlBtnDisabled]}
+              style={[s.controlBtn, { opacity: closeFade }]}
               disabled={!canClose}
               onPress={closeBox}
             >
@@ -145,7 +169,7 @@ export default function DashboardScreen() {
               style={[
                 s.controlBtn,
                 { backgroundColor: theme.danger },
-                !canOpen && s.controlBtnDisabled,
+                { opacity: openFade },
               ]}
               disabled={!canOpen}
               onPress={openBox}
@@ -180,7 +204,7 @@ export default function DashboardScreen() {
                 />
               </View>
               <AnimatedPressable
-                style={[s.controlBtn, s.lockForBtn, pickSeconds <= 0 && s.controlBtnDisabled]}
+                style={[s.controlBtn, s.lockForBtn, { opacity: lockFade }]}
                 disabled={pickSeconds <= 0}
                 onPress={() => startLock(pickSeconds)}
               >
@@ -278,10 +302,11 @@ function DurationStepper({
   theme: ReturnType<typeof useTheme>;
   s: ReturnType<typeof styles>;
 }) {
+  const fade = useDisabledFade(!!disabled);
   return (
     <View style={s.stepper}>
       <AnimatedPressable
-        style={[s.stepBtn, { borderColor: theme.textDim }, disabled && s.controlBtnDisabled]}
+        style={[s.stepBtn, { borderColor: theme.textDim, opacity: fade }]}
         disabled={disabled}
         onPress={onMinus}
       >
@@ -289,7 +314,7 @@ function DurationStepper({
       </AnimatedPressable>
       <Text style={s.stepValue}>{value}</Text>
       <AnimatedPressable
-        style={[s.stepBtn, { borderColor: theme.textDim }, disabled && s.controlBtnDisabled]}
+        style={[s.stepBtn, { borderColor: theme.textDim, opacity: fade }]}
         disabled={disabled}
         onPress={onPlus}
       >
@@ -302,12 +327,12 @@ function DurationStepper({
 const styles = (t: ReturnType<typeof useTheme>) =>
   StyleSheet.create({
     container: { padding: 20, gap: 16, backgroundColor: t.bg, paddingBottom: 60 },
-    h1: { color: t.text, fontSize: 28, fontWeight: '700', marginTop: 40 },
-    card: { backgroundColor: t.surface, borderRadius: 14, padding: 16, gap: 6 },
-    label: { color: t.textDim, fontSize: 13 },
+    h1: { color: t.text, ...typeScale.title, marginTop: 40 },
+    card: { backgroundColor: t.surface, borderRadius: 14, padding: 16, gap: 6, ...elevation.card },
+    label: { color: t.textDim, ...typeScale.label },
     value: { color: t.text, fontSize: 22, fontWeight: '600' },
-    big: { color: t.accent, fontSize: 40, fontWeight: '800' },
-    sub: { color: t.textDim, fontSize: 14 },
+    big: { color: t.accent, ...typeScale.display },
+    sub: { color: t.textDim, ...typeScale.body },
     row: { color: t.text, fontSize: 16, marginTop: 2 },
     error: { color: t.danger, fontSize: 13 },
     btn: { backgroundColor: t.accent, borderRadius: 10, padding: 12, alignItems: 'center', marginTop: 8 },
@@ -321,7 +346,6 @@ const styles = (t: ReturnType<typeof useTheme>) =>
       padding: 12,
       alignItems: 'center',
     },
-    controlBtnDisabled: { opacity: 0.35 },
     controlBtnText: { color: t.accentText, fontWeight: '700' },
     pickerBlock: { marginTop: 12 },
     pickerRow: { flexDirection: 'row', gap: 16, marginTop: 6 },
@@ -340,5 +364,5 @@ const styles = (t: ReturnType<typeof useTheme>) =>
     meterFill: { height: '100%', borderRadius: 4 },
     topicChipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 },
     topicChip: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 16, borderWidth: 1.5 },
-    topicChipText: { fontSize: 13, fontWeight: '600' },
+    topicChipText: { ...typeScale.label },
   });

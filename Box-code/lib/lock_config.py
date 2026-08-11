@@ -33,6 +33,7 @@ def fix(c):
 # which used to be stark white cards).
 C_BG = fix(0x0D1117)
 C_SURFACE = fix(0x161B22)   # slightly-raised card fill (e.g. the digital clock)
+C_SURFACE_HILITE = fix(0x2B3340)  # a lighter step of C_SURFACE -- a static "catching light" top edge on a card, since this display has no alpha blending for a real material effect
 C_WHITE = fix(0xF0F3F6)
 C_BLACK = fix(0x000000)
 C_GREY = fix(0x7D8590)

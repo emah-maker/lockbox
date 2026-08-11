@@ -452,7 +452,17 @@ section { padding: clamp(56px, 9vw, 104px) 0; }
 .acc__chev::after { right: 0; transform: rotate(-45deg); }
 .acc__btn[aria-expanded="true"] .acc__chev::before { transform: rotate(-45deg); }
 .acc__btn[aria-expanded="true"] .acc__chev::after { transform: rotate(45deg); }
-.acc__panel { padding: 0 22px 22px; }
+/* Height-agnostic open/close: the 0fr -> 1fr grid row does the measuring the
+   browser would otherwise need JS for. `visibility` is transitioned alongside
+   it so collapsed copy leaves the a11y tree and tab order without display:none
+   killing the transition. The explicit minmax(0, ...) floor matters: a bare
+   0fr still floors the track at the answer's padding, leaving a 22px gap. */
+.acc__panel {
+  display: grid; grid-template-rows: minmax(0, 0fr); visibility: hidden;
+  transition: grid-template-rows 0.32s var(--ease), visibility 0.32s var(--ease);
+}
+.acc__panel.is-open { grid-template-rows: minmax(0, 1fr); visibility: visible; }
+.acc__panel > * { overflow: hidden; min-height: 0; padding: 0 22px 22px; }
 .acc__panel p { color: var(--text-2); font-size: 15px; }
 .acc__panel strong { color: var(--text); }
 
@@ -481,7 +491,16 @@ section { padding: clamp(56px, 9vw, 104px) 0; }
 .form-msg { min-height: 20px; margin-top: 14px; font-size: 14.5px; font-weight: 600; }
 .form-msg.is-ok { color: var(--unlocked); }
 .form-msg.is-err { color: var(--locked-2); }
-.waitlist__thanks { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+/* Form -> thanks hand-off. Same 16px offset and --ease-snap as .reveal below,
+   mirrored: the form lifts away, the confirmation settles in behind it. */
+.waitlist__form { transition: opacity 0.3s var(--ease-snap), transform 0.3s var(--ease-snap); }
+.waitlist__form.is-leaving { opacity: 0; transform: translateY(-16px); pointer-events: none; }
+.waitlist__thanks {
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  opacity: 0; transform: translateY(16px);
+  transition: opacity 0.3s var(--ease-snap), transform 0.3s var(--ease-snap);
+}
+.waitlist__thanks.is-in { opacity: 1; transform: none; }
 .waitlist__check {
   display: grid; place-items: center; width: 52px; height: 52px; border-radius: 6px;
   color: #04210f; background: linear-gradient(180deg, var(--unlocked-2), var(--unlocked));

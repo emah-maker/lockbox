@@ -1,8 +1,8 @@
 // CalendarScreen.tsx -- month grid over the local session log (sessionHistory
 // via useStore.sessions). Each day with focus time gets a dot; tapping a day
 // lists that day's sessions below the grid.
-import React, { useMemo, useState } from 'react';
-import { View, Text, StyleSheet, Pressable, ScrollView, Modal, LayoutAnimation } from 'react-native';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { View, Text, StyleSheet, Pressable, ScrollView, Modal, LayoutAnimation, Animated } from 'react-native';
 import { useStore } from '../store/useStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useTheme } from '../theme/useTheme';
@@ -11,6 +11,8 @@ import { formatDuration } from '../stats/stats';
 import { dayKey, groupByDay, LoggedSession } from '../stats/sessionHistory';
 import { dominantTopicWithCustom, resolveTopic, allLabelChoices, ResolvedTopic } from '../stats/customLabels';
 import { AnimatedPressable } from '../ui/AnimatedPressable';
+import { useReducedMotion } from '../ui/useReducedMotion';
+import { typeScale, elevation } from '../theme/tokens';
 
 const WEEKDAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 
@@ -199,6 +201,14 @@ export default function CalendarScreen() {
   );
 }
 
+// Sheet presentation: the sheet springs up from SHEET_TRAVEL px below its
+// resting place and back down the same path on dismiss, so entry and exit
+// trace one motion instead of a cut. Damping 30 against stiffness 300 is just
+// under critical (2*sqrt(300) ~= 34.6), settling fast with no visible bounce.
+const SHEET_TRAVEL = 56;
+const BACKDROP_OPACITY = 0.4;
+const SHEET_SPRING = { stiffness: 300, damping: 30, mass: 1, useNativeDriver: true };
+
 /** Retag/untag picker for one past session -- lists every built-in topic and
  * custom label (allLabelChoices) plus a "Clear tag" option. */
 function LabelPickerModal({
@@ -218,9 +228,55 @@ function LabelPickerModal({
   onClear?: () => void;
   onClose: () => void;
 }) {
+  const reduceMotion = useReducedMotion();
+  // Stays mounted through the exit animation, then hides.
+  const [presented, setPresented] = useState(visible);
+  const backdropOpacity = useRef(new Animated.Value(0)).current;
+  const sheetY = useRef(new Animated.Value(SHEET_TRAVEL)).current;
+
+  useEffect(() => {
+    if (visible) {
+      setPresented(true);
+      if (reduceMotion) {
+        backdropOpacity.setValue(BACKDROP_OPACITY);
+        sheetY.setValue(0);
+        return;
+      }
+      Animated.parallel([
+        Animated.spring(backdropOpacity, { toValue: BACKDROP_OPACITY, ...SHEET_SPRING }),
+        Animated.spring(sheetY, { toValue: 0, ...SHEET_SPRING }),
+      ]).start();
+      return;
+    }
+    if (reduceMotion) {
+      backdropOpacity.setValue(0);
+      sheetY.setValue(SHEET_TRAVEL);
+      setPresented(false);
+      return;
+    }
+    Animated.parallel([
+      Animated.spring(sheetY, { toValue: SHEET_TRAVEL, ...SHEET_SPRING }),
+      Animated.spring(backdropOpacity, { toValue: 0, ...SHEET_SPRING }),
+    ]).start(({ finished }) => {
+      if (finished) setPresented(false);
+    });
+  }, [visible, reduceMotion, backdropOpacity, sheetY]);
+
+  const sheetOpacity = backdropOpacity.interpolate({
+    inputRange: [0, BACKDROP_OPACITY],
+    outputRange: [0, 1],
+    extrapolate: 'clamp',
+  });
+
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable style={modalStyles.backdrop} onPress={onClose}>
+    <Modal visible={presented} transparent animationType="none" onRequestClose={onClose}>
+      <Animated.View style={[modalStyles.scrim, { opacity: backdropOpacity }]}>
+        <Pressable style={modalStyles.scrimTouch} onPress={onClose} />
+      </Animated.View>
+      <Animated.View
+        pointerEvents="box-none"
+        style={[modalStyles.sheetLayer, { opacity: sheetOpacity, transform: [{ translateY: sheetY }] }]}
+      >
         <Pressable style={[modalStyles.sheet, { backgroundColor: color.surface }]} onPress={() => {}}>
           <Text style={[modalStyles.title, { color: color.text }]}>Tag this session</Text>
           <ScrollView style={modalStyles.list}>
@@ -242,31 +298,55 @@ function LabelPickerModal({
             </AnimatedPressable>
           )}
         </Pressable>
-      </Pressable>
+      </Animated.View>
     </Modal>
   );
 }
 
 const modalStyles = StyleSheet.create({
-  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-  sheet: { borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 20, maxHeight: '70%' },
-  title: { fontSize: 16, fontWeight: '700', marginBottom: 12 },
+  scrim: { ...StyleSheet.absoluteFillObject, backgroundColor: '#000' },
+  scrimTouch: { flex: 1 },
+  sheetLayer: { ...StyleSheet.absoluteFillObject, justifyContent: 'flex-end' },
+  sheet: {
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    padding: 20,
+    maxHeight: '70%',
+    ...elevation.card,
+  },
+  title: { ...typeScale.sectionTitle, marginBottom: 12 },
   list: { marginBottom: 4 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10 },
   dot: { width: 12, height: 12, borderRadius: 6 },
-  rowLabel: { fontSize: 15, flex: 1 },
+  rowLabel: {
+    fontSize: 15,
+    flex: 1,
+    letterSpacing: typeScale.body.letterSpacing,
+    lineHeight: typeScale.body.lineHeight,
+  },
 });
 
 const styles = StyleSheet.create({
   container: { padding: 20, paddingTop: 50, gap: 16 },
-  h1: { fontSize: 28, fontWeight: '700', marginBottom: 4 },
-  h2: { fontSize: 16, fontWeight: '700', marginBottom: 8 },
+  h1: { ...typeScale.title, marginBottom: 4 },
+  h2: { ...typeScale.sectionTitle, marginBottom: 8 },
   monthHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  monthLabel: { fontSize: 17, fontWeight: '600' },
+  monthLabel: {
+    fontSize: 17,
+    fontWeight: '600',
+    letterSpacing: typeScale.sectionTitle.letterSpacing,
+    lineHeight: typeScale.sectionTitle.lineHeight,
+  },
   navBtn: { paddingHorizontal: 12, paddingVertical: 4 },
   nav: { fontSize: 22, fontWeight: '700' },
   weekRow: { flexDirection: 'row' },
-  weekday: { flex: 1, textAlign: 'center', fontSize: 12 },
+  weekday: {
+    flex: 1,
+    textAlign: 'center',
+    fontSize: 12,
+    letterSpacing: typeScale.caption.letterSpacing,
+    lineHeight: typeScale.caption.lineHeight,
+  },
   grid: { flexDirection: 'row', flexWrap: 'wrap' },
   cell: { width: '14.2857%', aspectRatio: 1, alignItems: 'center', justifyContent: 'center' },
   dayCircle: {
@@ -276,20 +356,42 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  dayNum: { fontSize: 13, fontWeight: '600' },
+  dayNum: { ...typeScale.label },
   topicDot: { width: 5, height: 5, borderRadius: 2.5, marginTop: 3 },
-  card: { borderRadius: 14, padding: 16 },
-  empty: { fontSize: 14 },
+  card: { borderRadius: 14, padding: 16, ...elevation.card },
+  empty: { ...typeScale.body },
   sessionRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingVertical: 6,
   },
-  sessionTime: { fontSize: 13, width: 80 },
-  sessionDuration: { fontSize: 14, fontWeight: '600', flex: 1, textAlign: 'center' },
+  sessionTime: {
+    fontSize: 13,
+    width: 80,
+    letterSpacing: typeScale.label.letterSpacing,
+    lineHeight: typeScale.label.lineHeight,
+  },
+  sessionDuration: {
+    fontSize: 14,
+    fontWeight: '600',
+    flex: 1,
+    textAlign: 'center',
+    letterSpacing: typeScale.body.letterSpacing,
+    lineHeight: typeScale.body.lineHeight,
+  },
   sessionTopic: { flexDirection: 'row', alignItems: 'center', gap: 5, width: 80 },
   topicDotInline: { width: 8, height: 8, borderRadius: 4 },
-  sessionTopicLabel: { fontSize: 12 },
-  sessionOutcome: { fontSize: 12, width: 90, textAlign: 'right' },
+  sessionTopicLabel: {
+    fontSize: 12,
+    letterSpacing: typeScale.caption.letterSpacing,
+    lineHeight: typeScale.caption.lineHeight,
+  },
+  sessionOutcome: {
+    fontSize: 12,
+    width: 90,
+    textAlign: 'right',
+    letterSpacing: typeScale.caption.letterSpacing,
+    lineHeight: typeScale.caption.lineHeight,
+  },
 });

@@ -18,6 +18,7 @@ import { aggregate, formatDuration, completionRate } from '../stats/stats';
 import { topComparisons, formatComparison } from '../stats/comparisons';
 import { topicBreakdownWithCustom } from '../stats/customLabels';
 import { lastNDays } from '../stats/trend';
+import { typeScale, elevation } from '../theme/tokens';
 
 const TOP_N = 5;
 const TREND_BAR_MAX_H = 80;
@@ -182,27 +183,27 @@ function AnimatedFill({
 
 const styles = StyleSheet.create({
   container: { padding: 20, paddingTop: 50, gap: 16, paddingBottom: 60 },
-  h1: { fontSize: 28, fontWeight: '700', marginBottom: 4 },
-  h2: { fontSize: 16, fontWeight: '700', marginBottom: 8 },
-  card: { borderRadius: 14, padding: 16, gap: 6 },
-  label: { fontSize: 13 },
-  big: { fontSize: 40, fontWeight: '800' },
-  sub: { fontSize: 14 },
-  fact: { fontSize: 15, paddingVertical: 4 },
+  h1: { ...typeScale.title, marginBottom: 4 },
+  h2: { ...typeScale.sectionTitle, marginBottom: 8 },
+  card: { borderRadius: 14, padding: 16, gap: 6, ...elevation.card },
+  label: { fontSize: 13, letterSpacing: typeScale.label.letterSpacing, lineHeight: typeScale.label.lineHeight },
+  big: { ...typeScale.display },
+  sub: { ...typeScale.body },
+  fact: { fontSize: 15, paddingVertical: 4, letterSpacing: typeScale.body.letterSpacing, lineHeight: typeScale.body.lineHeight },
   switchRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   miniRow: { flexDirection: 'row', gap: 20, marginTop: 8 },
   miniStat: { alignItems: 'flex-start' },
-  miniValue: { fontSize: 18, fontWeight: '700' },
-  miniLabel: { fontSize: 12, marginTop: 2 },
+  miniValue: { fontSize: 18, fontWeight: '700', letterSpacing: typeScale.sectionTitle.letterSpacing, lineHeight: 22 },
+  miniLabel: { fontSize: 12, marginTop: 2, letterSpacing: typeScale.caption.letterSpacing, lineHeight: typeScale.caption.lineHeight },
   trendRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: 8 },
   trendCol: { alignItems: 'center', gap: 6, flex: 1 },
   trendTrack: { width: 18, borderRadius: 9, justifyContent: 'flex-end', overflow: 'hidden' },
   trendBar: { width: '100%', borderRadius: 9 },
-  trendLabel: { fontSize: 12, fontWeight: '600' },
+  trendLabel: { ...typeScale.caption },
   topicRow: { gap: 6, marginTop: 4 },
   topicHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
-  topicLabel: { fontSize: 14, fontWeight: '600' },
-  topicValue: { fontSize: 12 },
+  topicLabel: { fontSize: 14, fontWeight: '600', letterSpacing: typeScale.body.letterSpacing, lineHeight: typeScale.body.lineHeight },
+  topicValue: { fontSize: 12, letterSpacing: typeScale.caption.letterSpacing, lineHeight: typeScale.caption.lineHeight },
   topicTrack: { height: 10, borderRadius: 5, overflow: 'hidden' },
   topicFill: { height: '100%', borderRadius: 5 },
 });

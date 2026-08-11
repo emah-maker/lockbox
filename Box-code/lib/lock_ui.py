@@ -10,7 +10,7 @@ from adafruit_display_shapes.rect import Rect
 from adafruit_display_shapes.circle import Circle
 
 from lock_config import (
-    C_BG, C_SURFACE, C_WHITE, C_BLACK, C_GREY, C_GREEN, C_RED, C_AMBER, C_ON_ACCENT,
+    C_BG, C_SURFACE, C_SURFACE_HILITE, C_WHITE, C_BLACK, C_GREY, C_GREEN, C_RED, C_AMBER, C_ON_ACCENT,
     C_ALERT_RED, C_ALERT_AMBER,
     MODE_COLORS, ACCENT_COLORS, DEFAULT_MODE_IDX, DEFAULT_ACCENT_IDX, fmt_hms,
 )
@@ -359,6 +359,14 @@ class LockUI:
         group.append(_dig_bg)
         self._surface_widgets.append((_dig_bg, 'fill'))
         self._dim_widgets.append((_dig_bg, 'outline'))
+
+        # A static "catching light" top edge -- the one surface card in this
+        # UI that reads flat otherwise (the analog clock face already has a
+        # bright full-perimeter outline). Fixed, not theme-tracked, same as
+        # the call-alert overlay/status colors: a material cue, not a themed
+        # surface color, and built once here rather than per-frame.
+        _dig_hilite = Rect(14, 150 - fh // 2 + 2, W - 28, 2, fill=C_SURFACE_HILITE)
+        group.append(_dig_hilite)
 
         self.dig_time = label.Label(terminalio.FONT, text="0:00:00",
                                     color=C_WHITE, scale=3)
