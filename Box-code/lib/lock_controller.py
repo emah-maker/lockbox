@@ -4,7 +4,7 @@ from lock_config import (
     SWAP_XY, INVERT_X, INVERT_Y, CLOCK_FPS, SERVO_HOLD_S, OVERRIDE_PRESSES,
     OVERRIDE_TIMEOUT, DONE_ANIM_S, MIN_STEP, RELEASE_FRAMES,
     SERVO_LOCK_ANGLE, SERVO_UNLOCK_ANGLE, fmt_hms,
-    OVR_MIN, OVR_MAX, BLE_CALL_ALERT_S, CALL_ALERT_BLINK_HZ,
+    OVR_OPTIONS, BLE_CALL_ALERT_S, CALL_ALERT_BLINK_HZ,
     HOLD_REPEAT_DELAY, HOLD_REPEAT_START, HOLD_REPEAT_MIN, HOLD_REPEAT_RAMP,
 )
 from lock_battery import Battery
@@ -323,7 +323,12 @@ class LockController:
             return
         st = self.settings
         if "ovr" in d:
-            st.override_presses = max(OVR_MIN, min(OVR_MAX, int(d["ovr"])))
+            # Clamp to the staircase's endpoints rather than snapping to the
+            # nearest option -- a BLE write carries a value the app already
+            # picked from OVR_OPTIONS, so this only guards against an
+            # out-of-range/malformed payload, not normal in-range values that
+            # would otherwise land between two staircase steps.
+            st.override_presses = max(OVR_OPTIONS[0], min(OVR_OPTIONS[-1], int(d["ovr"])))
         if "auto" in d:
             st.auto_open = bool(d["auto"])
         if "sleep" in d:

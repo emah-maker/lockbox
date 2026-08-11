@@ -11,6 +11,7 @@ from adafruit_display_shapes.circle import Circle
 
 from lock_config import (
     C_BG, C_SURFACE, C_WHITE, C_BLACK, C_GREY, C_GREEN, C_RED, C_AMBER, C_ON_ACCENT,
+    C_ALERT_RED, C_ALERT_AMBER,
     MODE_COLORS, ACCENT_COLORS, DEFAULT_MODE_IDX, DEFAULT_ACCENT_IDX, fmt_hms,
 )
 
@@ -718,11 +719,13 @@ class LockUI:
         self.call_group = group
         # Flashing background + border (see animate_call_alert) -- kept as
         # live refs so the alarm colors can be toggled every frame without
-        # rebuilding the scene. Alternates red/amber; text stays white so it
+        # rebuilding the scene. Alternates a saturated alert red/amber (see
+        # C_ALERT_RED/C_ALERT_AMBER -- brighter than the calmer C_RED/C_AMBER
+        # used elsewhere) so it reads as urgent; text stays white so it
         # reads over either color.
-        self.call_bg = _bg_tile(W, H, C_RED)
+        self.call_bg = _bg_tile(W, H, C_ALERT_RED)
         group.append(self.call_bg)
-        self.call_border = Rect(0, 0, W, H, fill=None, outline=C_AMBER, stroke=10)
+        self.call_border = Rect(0, 0, W, H, fill=None, outline=C_ALERT_AMBER, stroke=10)
         group.append(self.call_border)
 
         bell = label.Label(terminalio.FONT, text="((  ))", color=C_WHITE, scale=2)
@@ -750,19 +753,19 @@ class LockUI:
 
     def show_call_alert(self, who):
         self.call_who.text = (who or "Call")[:16]
-        self.call_bg.pixel_shader[0] = C_RED
-        self.call_border.outline = C_AMBER
+        self.call_bg.pixel_shader[0] = C_ALERT_RED
+        self.call_border.outline = C_ALERT_AMBER
         self.display.root_group = self.call_group
 
     def animate_call_alert(self, on):
         # Swap which color is background vs. border each flash tick -- a
         # full-screen alternating alarm flash, not just a blinking accent.
         if on:
-            self.call_bg.pixel_shader[0] = C_RED
-            self.call_border.outline = C_AMBER
+            self.call_bg.pixel_shader[0] = C_ALERT_RED
+            self.call_border.outline = C_ALERT_AMBER
         else:
-            self.call_bg.pixel_shader[0] = C_AMBER
-            self.call_border.outline = C_RED
+            self.call_bg.pixel_shader[0] = C_ALERT_AMBER
+            self.call_border.outline = C_ALERT_RED
 
     def hide_call_alert(self):
         self.show_view(self.view)      # restore whatever view was active

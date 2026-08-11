@@ -6,7 +6,7 @@ import microcontroller
 
 from lock_config import (
     OVERRIDE_PRESSES, INACTIVITY_S, BL_LEVEL, BLE_ALLOW_REMOTE_UNLOCK,
-    BLE_UNLOCK_ON_CALL, OVR_MIN, OVR_MAX, OVR_STEP, SLEEP_OPTIONS, BRIGHT_OPTIONS,
+    BLE_UNLOCK_ON_CALL, OVR_OPTIONS, SLEEP_OPTIONS, BRIGHT_OPTIONS,
     DEFAULT_MODE_IDX, DEFAULT_ACCENT_IDX, ACCENT_COLORS,
 )
 
@@ -97,8 +97,7 @@ class Settings:
     def adjust(self, idx, direction):
         # swipe up/down: direction +1 = up/increase, -1 = down/decrease (clamped)
         if idx == 0:
-            v = self.override_presses + OVR_STEP * direction
-            self.override_presses = max(OVR_MIN, min(OVR_MAX, v))
+            self.override_presses = _step_in(OVR_OPTIONS, self.override_presses, direction)
         elif idx == 1:
             self.auto_open = direction > 0
         elif idx == 2:

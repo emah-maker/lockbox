@@ -78,16 +78,34 @@ const TRACK_HEIGHT = 6;
 // A draggable slider giving continuous direct-set control (drag or tap
 // anywhere on the track to jump straight to that value), built on RN core's
 // PanResponder -- app/package.json has no gesture-handler/reanimated, and
-// this doesn't need either. Values snap to `step` on a `min` anchor, matching
-// the firmware's own OVR_STEP-style option lists (Box-code/lib/lock_config.py).
-// Only commits (calls `onChange`) on release, so a drag produces one BLE
-// settings write via pushBoxSettings, not one per touch-move event.
+// this doesn't need either. Values snap either to a uniform `step` on a
+// `min` anchor, or -- when `options` is given instead of `min`/`max`/`step`
+// -- to the nearest value in that (ascending) array. The latter covers
+// non-uniform staircases like the firmware's OVR_OPTIONS
+// (Box-code/lib/lock_config.py), where a flat step can't express steps that
+// grow with the value. Only commits (calls `onChange`) on release, so a drag
+// produces one BLE settings write via pushBoxSettings, not one per
+// touch-move event.
+type SliderRowRangeProps = {
+  min: number;
+  max: number;
+  step: number;
+  options?: undefined;
+};
+type SliderRowOptionsProps = {
+  options: number[];
+  min?: undefined;
+  max?: undefined;
+  step?: undefined;
+};
+
 export function SliderRow({
   label,
   value,
   min,
   max,
   step,
+  options,
   format = (v: number) => String(v),
   caption,
   onChange,
@@ -95,14 +113,14 @@ export function SliderRow({
 }: {
   label: string;
   value: number;
-  min: number;
-  max: number;
-  step: number;
   format?: (v: number) => string;
   caption?: (v: number) => string;
   onChange: (v: number) => void;
   color: ReturnType<typeof useTheme>;
-}) {
+} & (SliderRowRangeProps | SliderRowOptionsProps)) {
+  const effMin = options ? options[0] : min;
+  const effMax = options ? options[options.length - 1] : max;
+
   const [trackWidth, setTrackWidth] = React.useState(0);
   const trackWidthRef = React.useRef(0);
   const [dragValue, setDragValue] = React.useState<number | null>(null);
@@ -112,15 +130,27 @@ export function SliderRow({
   onChangeRef.current = onChange;
 
   const snapValue = (v: number) => {
+    if (options) {
+      let nearest = options[0];
+      let bestDist = Math.abs(v - nearest);
+      for (const opt of options) {
+        const dist = Math.abs(v - opt);
+        if (dist < bestDist) {
+          nearest = opt;
+          bestDist = dist;
+        }
+      }
+      return nearest;
+    }
     const snapped = Math.round((v - min) / step) * step + min;
     return Math.min(max, Math.max(min, snapped));
   };
 
   const xToValue = (x: number) => {
     const w = trackWidthRef.current;
-    if (w <= 0) return min;
+    if (w <= 0) return effMin;
     const ratio = Math.min(1, Math.max(0, x / w));
-    return snapValue(min + ratio * (max - min));
+    return snapValue(effMin + ratio * (effMax - effMin));
   };
 
   const panResponder = React.useRef(
@@ -146,7 +176,7 @@ export function SliderRow({
   };
 
   const displayValue = dragValue ?? value;
-  const ratio = max === min ? 0 : (displayValue - min) / (max - min);
+  const ratio = effMax === effMin ? 0 : (displayValue - effMin) / (effMax - effMin);
   const thumbX = trackWidth > 0 ? ratio * trackWidth : 0;
 
   return (

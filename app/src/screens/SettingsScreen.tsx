@@ -4,7 +4,7 @@
 // useStore.pushBoxSettings, mirrored locally in useSettingsStore.boxSettings
 // so this screen has something to show even before a connection is made.
 import React from 'react';
-import { View, Text, StyleSheet, Switch, Pressable, ScrollView, Alert } from 'react-native';
+import { View, Text, StyleSheet, Switch, ScrollView, Alert } from 'react-native';
 import { useStore, CONN_LABELS } from '../store/useStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useAuthStore } from '../auth/useAuthStore';
@@ -13,12 +13,16 @@ import { THEME_MODES, ACCENT_KEYS, ACCENT_LABELS, ThemeMode, AccentKey } from '.
 import { CustomLabelsSection } from './CustomLabelsSection';
 import { Button, Section, SliderRow } from './SettingsPrimitives';
 import { AnimatedPressable } from '../ui/AnimatedPressable';
+import { typeScale } from '../theme/tokens';
 
 // Mirrors Box-code/lib/lock_config.py -- keep these ranges in lockstep with
-// OVR_MIN/OVR_MAX/OVR_STEP/SLEEP_OPTIONS/BRIGHT_OPTIONS on the firmware side.
-const OVR_MIN = 10;
-const OVR_MAX = 100;
-const OVR_STEP = 10;
+// OVR_OPTIONS/SLEEP_OPTIONS/BRIGHT_OPTIONS on the firmware side.
+const OVR_OPTIONS = [
+  5, 10, 15, 20, 25, 30, 35, 40, 45, 50, // step 5  (5-50)
+  60, 70, 80, 90, 100, // step 10 (50-100)
+  125, 150, // step 25 (100-150)
+  200, 250, // step 50 (150-250)
+];
 const SLEEP_OPTIONS = [10, 20, 30, 60];
 const BRIGHT_OPTIONS = [10, 30, 50, 70, 100];
 
@@ -65,9 +69,7 @@ export default function SettingsScreen() {
         <SliderRow
           label="Override presses"
           value={boxSettings.ovr}
-          min={OVR_MIN}
-          max={OVR_MAX}
-          step={OVR_STEP}
+          options={OVR_OPTIONS}
           onChange={(v) => pushBoxSettings({ ovr: v })}
           caption={(v) => `${v} presses to force-unlock`}
           color={c}
@@ -234,9 +236,9 @@ function AccountSection({ color }: { color: ReturnType<typeof useTheme> }) {
             <Button label={syncing ? 'Syncing...' : 'Sync now'} onPress={syncNow} disabled={syncing || busy} color={color} />
             <Button label="Sign out" onPress={handleSignOut} disabled={busy} color={color} variant="outline" />
           </View>
-          <Pressable onPress={handleDeleteAccount} disabled={busy} style={{ marginTop: 12 }}>
+          <AnimatedPressable onPress={handleDeleteAccount} disabled={busy} style={{ marginTop: 12 }}>
             <Text style={[styles.subtitle, { color: color.danger }]}>Delete account</Text>
-          </Pressable>
+          </AnimatedPressable>
         </>
       ) : (
         <>
@@ -345,11 +347,11 @@ const styles = StyleSheet.create({
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
   connBadge: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   connDot: { width: 8, height: 8, borderRadius: 4 },
-  connText: { fontSize: 13, fontWeight: '600' },
-  h1: { fontSize: 28, fontWeight: '700', marginBottom: 4 },
-  subtitle: { fontSize: 12, marginTop: 2 },
+  connText: { ...typeScale.label },
+  h1: { ...typeScale.title, marginBottom: 4 },
+  subtitle: { fontSize: 12, marginTop: 2, letterSpacing: typeScale.caption.letterSpacing, lineHeight: typeScale.caption.lineHeight },
   row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  label: { fontSize: 15, flexShrink: 1, paddingRight: 12 },
+  label: { fontSize: 15, flexShrink: 1, paddingRight: 12, letterSpacing: -0.1, lineHeight: 20 },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   chip: { paddingVertical: 8, paddingHorizontal: 14, borderRadius: 20, borderWidth: 1.5 },
 });

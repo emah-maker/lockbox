@@ -39,6 +39,12 @@ C_GREY = fix(0x7D8590)
 C_GREEN = fix(0x35D07F)
 C_RED = fix(0xEF5350)
 C_AMBER = fix(0xF2B84B)
+# Dedicated call-alert flash colors -- deliberately more saturated/brighter
+# than the calmer C_RED/C_AMBER above (which stay muted for normal UI use).
+# An incoming call needs to read as urgent, so the alert overlay uses these
+# instead of the theme's usual red/amber.
+C_ALERT_RED = fix(0xFF1744)
+C_ALERT_AMBER = fix(0xFFC400)
 
 
 def fmt_hms(secs):
@@ -107,8 +113,9 @@ BLE_ALLOW_REMOTE_UNLOCK = False
 BLE_CALL_ALERT_S = 20.0
 # Flash rate for the incoming-call overlay (color toggles per second, doubled
 # like ANIM_HZ's convention) -- an important call should be hard to miss, not
-# a static banner that blends into an already-lit screen.
-CALL_ALERT_BLINK_HZ = 3
+# a static banner that blends into an already-lit screen. Raised from 3 so
+# the alert reads as more urgent than the old, slower flash.
+CALL_ALERT_BLINK_HZ = 6
 # "Unlock when called": defaults OFF, same anti-cheat rationale as
 # BLE_ALLOW_REMOTE_UNLOCK above, but a distinct opt-in -- this one fires from
 # an incoming call (any call; iOS CXCallObserver gives no caller identity),
@@ -147,9 +154,18 @@ BLE_UUID_ALERT = "6b9a7e00-4c2a-4f8e-9b21-9d7a5e3c0007"    # WRITE (call label)
 LOG_MAX_PENDING = 200
 
 # ----- Settings screen option ranges (values persisted in NVM) -----
-OVR_MIN = 10                 # override presses: min / max / step
-OVR_MAX = 100
-OVR_STEP = 10
+# Non-uniform staircase: small steps (5) while the count is low, growing to
+# bigger steps (10, then 25, then 50) as the count gets bigger -- a flat step
+# across the whole range would make either the low end too coarse or the high
+# end tediously slow to reach. Ceiling of 250 stays well under the 1-byte NVM
+# budget (see lock_settings.Settings.save -- override_presses is stored in a
+# single nvm byte, max 255).
+OVR_OPTIONS = (
+    5, 10, 15, 20, 25, 30, 35, 40, 45, 50,    # step 5  (5-50)
+    60, 70, 80, 90, 100,                       # step 10 (50-100)
+    125, 150,                                  # step 25 (100-150)
+    200, 250,                                  # step 50 (150-250)
+)
 SLEEP_OPTIONS = (10, 20, 30, 60)      # screen-sleep seconds (on battery)
 BRIGHT_OPTIONS = (10, 30, 50, 70, 100)    # backlight percent (min 10)
 
