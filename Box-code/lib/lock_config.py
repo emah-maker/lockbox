@@ -11,6 +11,27 @@ RELEASE_FRAMES = 2            # consecutive empty touch reads before a "release"
 ANIM_HZ = 4                   # blink speed of the "done" animation
 DONE_ANIM_S = 2.0             # auto-dismiss the unlock animation after this (auto-open)
 CLOCK_FPS = 25                # clock-view refresh rate while counting down (smooth)
+# Duration for the state-indication color transition (status bar fill,
+# clock-view active-color flips -- see lock_ui.LockUI.step_color_transitions).
+# 200ms sits inside the motion-and-animation skill's "Dropdowns, cards, sheet
+# reveals | 150-250ms" band -- these are card-like state surfaces changing on
+# an occasional (a few times per session) event, not a rapidly-retriggered
+# control, so the standard-animation tier applies. displayio has no alpha, so
+# this eases the RGB channels of a single palette entry over several frames
+# instead of a cross-fade -- see the color-transition engine's docstring in
+# lock_ui.py for why that is a real, cheap technique on this display and not
+# an approximation of one.
+STATUS_TRANSITION_S = 0.2
+# Pixel-space spring for position-based motion (press-depth, success/override
+# "pop") -- see lock_motion.Spring. Chosen to feel like the companion app's
+# press spring (app/src/ui/AnimatedPressable.tsx: stiffness 300 / damping 30 /
+# mass 1) while settling in well under STATUS_TRANSITION_S's 200ms.
+SPRING_STIFFNESS = 300.0
+SPRING_DAMPING = 30.0
+SPRING_MASS = 1.0
+PRESS_DEPTH_PX = 3          # how far a pressed control sinks, in pixels
+DONE_POP_OFFSET_PX = 16     # how far the "UNLOCKED" message springs up from
+OVR_POP_OFFSET_PX = 8       # how far the override count bumps on each press
 CPU_FAST = 240_000_000       # screen on: responsive touch + stable servo PWM
 CPU_SLOW = 80_000_000        # screen asleep: battery saving
 INACTIVITY_S = 20             # turn the screen off after this many idle seconds
@@ -47,10 +68,39 @@ C_AMBER = fix(0xF2B84B)
 C_ALERT_RED = fix(0xFF1744)
 C_ALERT_AMBER = fix(0xFFC400)
 
+# ----- Corner-radius language (RoundRect radii, in px) -----
+# Named so the same "how round" decision reads the same way on every screen
+# instead of a bare 8/10/12 repeated with no shared meaning across call
+# sites (previously: lock_ui.py had the identical literal `8` on the status
+# bar and the digital-clock card, but `12` on the LOCK/OPEN button and `10`
+# on the settings [-]/[+] buttons, with nothing recording that those three
+# values were deliberate rather than drift). This is a box-local scale, not
+# shared with the app's own `app/src/theme/tokens.ts` radius scale (that
+# file is a separate surface's tokens, sm=8/md=14/lg=20/pill=999 -- similar
+# idea, not the same values, and not wired together).
+RADIUS_CARD = 8       # status bar, digital-clock card
+RADIUS_BTN_SM = 10    # small square controls (settings detail [-]/[+])
+RADIUS_BTN_LG = 12    # primary LOCK/OPEN button (larger element)
+
 
 def fmt_hms(secs):
     secs = max(0, int(secs))
     return "{:d}:{:02d}:{:02d}".format(secs // 3600, (secs % 3600) // 60, secs % 60)
+
+
+def lerp_color(c0, c1, t):
+    """Linear-blend two already-`fix()`ed 0xRRGGBB colors by t in [0, 1].
+    fix() is a per-channel bitwise complement (an affine map), so lerping the
+    fixed ints gives the exact same result as fixing a lerp of the originals --
+    no need to un-invert first. Cheap integer channel math, no allocation, safe
+    to call every frame (see LockUI's digital-clock "breathing" highlight)."""
+    t = 0.0 if t < 0.0 else (1.0 if t > 1.0 else t)
+    r0, g0, b0 = (c0 >> 16) & 0xFF, (c0 >> 8) & 0xFF, c0 & 0xFF
+    r1, g1, b1 = (c1 >> 16) & 0xFF, (c1 >> 8) & 0xFF, c1 & 0xFF
+    r = int(r0 + (r1 - r0) * t)
+    g = int(g0 + (g1 - g0) * t)
+    b = int(b0 + (b1 - b0) * t)
+    return (r << 16) | (g << 8) | b
 
 
 # ----- Battery (Adafruit MAX17048 fuel gauge, I2C @ 0x36 on the shared touch bus)
@@ -184,7 +234,7 @@ HOLD_REPEAT_RAMP = 0.85       # interval *= this factor after each repeat
 # ----- Companion-app theme sync -----
 # Mirrors app/src/theme/theme.ts. MODE_COLORS index = THEME_MODES order
 # (dark, light); ACCENT_COLORS index = ACCENT_KEYS order (mint, coral, amber,
-# sky, violet). Mode swaps background/surface/text everywhere on the box.
+# sky, violet, rose). Mode swaps background/surface/text everywhere on the box.
 # Accent recolors ONLY two elements that never carry lock-status meaning (the
 # LOCK/OPEN button fill, the analog clock's second hand) -- the red/amber/
 # green STATE colors above (locked=red, closed=amber, unlocked=green) are
@@ -202,11 +252,12 @@ ACCENT_COLORS = (
     fix(0xF2B84B),  # amber
     fix(0x38BDF8),  # sky
     fix(0xA78BFA),  # violet
+    fix(0xFB7185),  # rose
 )
 DEFAULT_ACCENT_IDX = 0
 
 # Text drawn directly on an accent fill (the LOCK/OPEN button label) needs a
-# fixed dark color, not the mode's fg/dim -- all 5 accents above are light
+# fixed dark color, not the mode's fg/dim -- all 6 accents above are light
 # enough that a single near-black reads fine on every one, same as the app's
 # per-accent `accentText` values, which are all near-black too.
 C_ON_ACCENT = fix(0x101010)

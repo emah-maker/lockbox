@@ -21,6 +21,15 @@
 #dashSignedOut .btn { margin-top: 18px; }
 #dashLoading p { color: var(--text-2); }
 
+/* State crossfade -- was an instant `hidden`-attribute swap between five
+   mutually-exclusive containers (dashboard.js showState()); now settles in
+   with the same opacity/translateY pattern as the waitlist form -> thanks
+   hand-off on index.html (styles.css .waitlist__thanks), reusing --ease-snap
+   rather than forking a new curve. Applied to all five state containers,
+   including #dashContent which carries no other .dash__state styling. */
+.dash__fade { opacity: 0; transform: translateY(10px); transition: opacity 0.28s var(--ease-snap), transform 0.28s var(--ease-snap); }
+.dash__fade.is-in { opacity: 1; transform: none; }
+
 .dash__hint { color: var(--text-2); font-size: 14.5px; margin: -6px 0 28px; }
 
 /* ---------- Summary tiles ---------- */
@@ -63,7 +72,11 @@
 .dash__breakdown-name { color: var(--text); }
 .dash__breakdown-value { color: var(--text-2); white-space: nowrap; }
 .dash__breakdown-track { grid-column: 1 / -1; height: 6px; border-radius: 4px; background: rgba(255, 255, 255, 0.06); overflow: hidden; }
-.dash__breakdown-fill { height: 100%; border-radius: 4px; }
+.dash__breakdown-fill {
+  height: 100%; width: 100%; border-radius: 4px;
+  transform-origin: left; transform: scaleX(var(--w, 0));
+  transition: transform 0.5s var(--ease);
+}
 
 /* ---------- Sessions table ---------- */
 .dash__table { width: 100%; border-collapse: collapse; min-width: 560px; }

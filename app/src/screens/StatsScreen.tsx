@@ -8,8 +8,9 @@
 // focus-time trend (stats/trend.ts) and a breakdown by the topic tags the user
 // applied from the Focus tab (stats/topics.ts). Both are no-ops on an untagged
 // history -- they just show a hint instead of an empty chart.
-import React, { useMemo, useEffect, useRef } from 'react';
-import { Animated, View, Text, StyleSheet, ScrollView, Switch, LayoutAnimation } from 'react-native';
+import React, { useMemo } from 'react';
+import { View, Text, StyleSheet, ScrollView, Switch } from 'react-native';
+import { Feather } from '@expo/vector-icons';
 import { useStore } from '../store/useStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useTheme } from '../theme/useTheme';
@@ -17,7 +18,9 @@ import { withAlpha } from '../theme/theme';
 import { aggregate, formatDuration, completionRate } from '../stats/stats';
 import { topComparisons, formatComparison } from '../stats/comparisons';
 import { topicBreakdownWithCustom } from '../stats/customLabels';
-import { lastNDays } from '../stats/trend';
+import { lastNDays, bestDay } from '../stats/trend';
+import { useReducedMotion, configureLayoutAnimation } from '../ui/useReducedMotion';
+import { AnimatedFill } from '../ui/AnimatedFill';
 import { typeScale, elevation } from '../theme/tokens';
 
 const TOP_N = 5;
@@ -30,14 +33,16 @@ export default function StatsScreen() {
   const advancedStatsEnabled = useSettingsStore((s) => s.advancedStatsEnabled);
   const setAdvancedStatsEnabled = useSettingsStore((s) => s.setAdvancedStatsEnabled);
   const customLabels = useSettingsStore((s) => s.customLabels);
+  const reducedMotion = useReducedMotion();
 
   const toggleAdvancedStats = (v: boolean) => {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    configureLayoutAnimation(reducedMotion);
     setAdvancedStatsEnabled(v);
   };
 
   const stats = useMemo(() => aggregate(sessions), [sessions]);
   const comparisons = useMemo(() => topComparisons(stats.foc).slice(0, TOP_N), [stats.foc]);
+  const best = useMemo(() => bestDay(sessions), [sessions]);
   const trend = useMemo(() => lastNDays(sessions), [sessions]);
   const topics = useMemo(
     () => topicBreakdownWithCustom(sessions, customLabels, themeMode),
@@ -73,11 +78,28 @@ export default function StatsScreen() {
             Start a focus session to see how it stacks up.
           </Text>
         ) : (
-          comparisons.map((cmp) => (
-            <Text key={cmp.ref.key} style={[styles.fact, { color: c.text }]}>
-              {formatComparison(cmp)}
-            </Text>
-          ))
+          <>
+            {best && (
+              <View style={[styles.bestDay, { backgroundColor: withAlpha(c.accent, 0.12) }]}>
+                <Feather name="award" size={16} color={c.accent} />
+                <Text style={[styles.fact, styles.bestDayText, { color: c.text }]}>
+                  Your best day was{' '}
+                  {new Date(best.dateMs).toLocaleDateString(undefined, {
+                    weekday: 'short',
+                    month: 'short',
+                    day: 'numeric',
+                  })}{' '}
+                  -- {formatDuration(best.focusS)} focused.
+                </Text>
+              </View>
+            )}
+            {comparisons.map((cmp) => (
+              <View key={cmp.ref.key} style={styles.factRow}>
+                <Feather name="zap" size={14} color={c.textDim} />
+                <Text style={[styles.fact, { color: c.text }]}>{formatComparison(cmp)}</Text>
+              </View>
+            ))}
+          </>
         )}
       </View>
 
@@ -153,34 +175,6 @@ function MiniStat({ label, value, color }: { label: string; value: string; color
   );
 }
 
-/** Animates a bar chart fill toward each new value instead of snapping --
- * `height` (trend bars, absolute px within a fixed-height track) and `width`
- * (topic bars, a percentage of track width) both need JS-driven Animated
- * (neither supports the native driver), which is the normal, cheap way to
- * animate a single bar's layout in RN -- unlike animating layout across a
- * whole web page, there's no larger reflow chain here to worry about. */
-function AnimatedFill({
-  axis,
-  toValue,
-  style,
-  color,
-}: {
-  axis: 'height' | 'width';
-  toValue: number;
-  style: any;
-  color: string;
-}) {
-  const anim = useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    Animated.timing(anim, { toValue, duration: 500, useNativeDriver: false }).start();
-  }, [toValue]);
-  const sizeStyle =
-    axis === 'width'
-      ? { width: anim.interpolate({ inputRange: [0, 100], outputRange: ['0%', '100%'] }) }
-      : { height: anim };
-  return <Animated.View style={[style, sizeStyle, { backgroundColor: color }]} />;
-}
-
 const styles = StyleSheet.create({
   container: { padding: 20, paddingTop: 50, gap: 16, paddingBottom: 60 },
   h1: { ...typeScale.title, marginBottom: 4 },
@@ -189,7 +183,10 @@ const styles = StyleSheet.create({
   label: { fontSize: 13, letterSpacing: typeScale.label.letterSpacing, lineHeight: typeScale.label.lineHeight },
   big: { ...typeScale.display },
   sub: { ...typeScale.body },
-  fact: { fontSize: 15, paddingVertical: 4, letterSpacing: typeScale.body.letterSpacing, lineHeight: typeScale.body.lineHeight },
+  fact: { fontSize: 15, letterSpacing: typeScale.body.letterSpacing, lineHeight: typeScale.body.lineHeight, flex: 1 },
+  factRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4 },
+  bestDay: { flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 10, padding: 10, marginBottom: 6 },
+  bestDayText: { fontWeight: '600' },
   switchRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   miniRow: { flexDirection: 'row', gap: 20, marginTop: 8 },
   miniStat: { alignItems: 'flex-start' },

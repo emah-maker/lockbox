@@ -35,16 +35,23 @@
         </span>
         <span class="brand__name">Phone&nbsp;Box</span>
       </a>
-      <nav class="nav__links" aria-label="Primary">
-        <a href="#pillars">Features</a>
-        <a href="#how">How it works</a>
-        <a href="#adjust">Make it yours</a>
-        <a href="#compare">Compare</a>
-        <a href="#pricing">Pricing</a>
-        <a href="#faq">FAQ</a>
-        <a href="dashboard.html">Dashboard</a>
-      </nav>
-      <a class="btn btn--sm btn--primary" href="#waitlist">Join the waitlist</a>
+      <button type="button" class="nav__toggle" id="navToggle" aria-expanded="false" aria-controls="navMenu" aria-label="Open menu">
+        <span class="nav__toggle-bars" aria-hidden="true"></span>
+      </button>
+      <div class="nav__menu" id="navMenu">
+        <div class="nav__menu-inner">
+          <nav class="nav__links" aria-label="Primary">
+            <a href="#pillars">Features</a>
+            <a href="#how">How it works</a>
+            <a href="#adjust">Make it yours</a>
+            <a href="#compare">Compare</a>
+            <a href="#pricing">Pricing</a>
+            <a href="#faq">FAQ</a>
+            <a href="dashboard.html">Dashboard</a>
+          </nav>
+          <a class="btn btn--sm btn--primary nav__cta" href="#waitlist">Join the waitlist</a>
+        </div>
+      </div>
     </div>
   </header>
 
@@ -440,15 +447,15 @@
             <ul class="cost-bars">
               <li>
                 <div class="cost-bars__row"><span>Phone Box</span><span class="cost-bars__val">$99 once</span></div>
-                <div class="cost-bars__track"><span class="cost-bars__fill cost-bars__fill--us" style="--w:33%"></span></div>
+                <div class="cost-bars__track"><span class="cost-bars__fill cost-bars__fill--us" style="--w:0.33"></span></div>
               </li>
               <li>
                 <div class="cost-bars__row"><span>Opal</span><span class="cost-bars__val">~$99 / yr, forever</span></div>
-                <div class="cost-bars__track"><span class="cost-bars__fill" style="--w:33%"></span></div>
+                <div class="cost-bars__track"><span class="cost-bars__fill" style="--w:0.33"></span></div>
               </li>
               <li>
                 <div class="cost-bars__row"><span>GoAro</span><span class="cost-bars__val">~$298 first year, +$99/yr</span></div>
-                <div class="cost-bars__track"><span class="cost-bars__fill" style="--w:100%"></span></div>
+                <div class="cost-bars__track"><span class="cost-bars__fill" style="--w:1"></span></div>
               </li>
             </ul>
             <p class="price-card__fine">Competitor pricing per public listings, July 2026. Opal and GoAro recur annually; Phone Box does not.</p>
@@ -586,6 +593,8 @@
     </div>
   </footer>
 
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+  <script src="js/nav.js"></script>
   <script src="js/script.js"></script>
 </body>
 </html>

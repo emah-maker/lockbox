@@ -6,12 +6,13 @@
 // same last-write-wins way as the rest of SyncableSettings (see
 // useSettingsStore.ts, sync/settingsSyncBridge.ts).
 import React from 'react';
-import { View, Text, StyleSheet, TextInput, Alert, LayoutAnimation } from 'react-native';
+import { View, Text, StyleSheet, TextInput, Alert } from 'react-native';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useTheme } from '../theme/useTheme';
 import { LABEL_SWATCHES } from '../stats/customLabels';
 import { Section, Button } from './SettingsPrimitives';
 import { AnimatedPressable } from '../ui/AnimatedPressable';
+import { useReducedMotion, configureLayoutAnimation } from '../ui/useReducedMotion';
 import { typeScale } from '../theme/tokens';
 
 export function CustomLabelsSection({ color }: { color: ReturnType<typeof useTheme> }) {
@@ -81,9 +82,10 @@ function CustomLabelRow({
 }) {
   const [editing, setEditing] = React.useState(false);
   const [draft, setDraft] = React.useState(label.name);
+  const reducedMotion = useReducedMotion();
 
   const toggleEditing = (next: boolean) => {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    configureLayoutAnimation(reducedMotion);
     setEditing(next);
   };
 

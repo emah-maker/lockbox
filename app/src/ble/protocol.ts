@@ -50,7 +50,7 @@ export interface Settings {
   thm: 0 | 1; // theme mode -- index into theme.ts THEME_MODES (0=dark, 1=light).
   // Phone is authoritative here (see useStore.afterConnected): unlike the other
   // fields, the box's echoed value is never read back into the app's own theme.
-  acc: number; // accent -- index into theme.ts ACCENT_KEYS (0=mint..4=violet).
+  acc: number; // accent -- index into theme.ts ACCENT_KEYS (0=mint..5=rose).
   // The box only applies this to two decorative elements (see
   // Box-code/lib/lock_ui.py set_theme); it never recolors lock/closed/unlocked
   // status indicators.
@@ -101,7 +101,7 @@ export function parseSettings(json: string): Settings | null {
       unlk: d.unlk ? 1 : 0,
       ucal: d.ucal ? 1 : 0,
       thm: Number(d.thm) === 1 ? 1 : 0,
-      acc: Math.max(0, Math.min(4, Number(d.acc) || 0)),
+      acc: Math.max(0, Math.min(5, Number(d.acc) || 0)),
     };
   } catch {
     return null;
@@ -110,6 +110,12 @@ export function parseSettings(json: string): Settings | null {
 
 // ----- app -> box encoders -----
 export const cmdStart = (seconds: number) => `start:${Math.max(0, Math.floor(seconds))}`;
+// Live duration preview: pushes the H/M stepper's value to the box as it
+// changes, so the on-screen clock tracks the picked time without pressing
+// Lock (which is what cmdStart above still does -- set AND start in one
+// write). Ignored by the box while a countdown is already running -- see
+// Box-code/lib/lock_controller.apply_ble_command's "dur" opcode.
+export const cmdSetDuration = (seconds: number) => `dur:${Math.max(0, Math.floor(seconds))}`;
 export const cmdLock = () => 'lock';
 export const cmdUnlock = () => 'unlock'; // ignored if the box's remote-unlock setting is off
 export const encodeSettings = (s: Settings) => JSON.stringify(s);

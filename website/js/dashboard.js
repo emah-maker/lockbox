@@ -69,8 +69,24 @@ const els = {
 };
 
 const STATES = ['notConfigured', 'signedOut', 'loading', 'error', 'content'];
+// Was a flat `hidden` swap (an instant snap between states); now the
+// incoming container settles in with .dash__fade (dashboard.css), reusing
+// script.js's waitlist hand-off technique -- remove `hidden`, flush layout
+// so the opacity/translateY start state is committed, then add `is-in` so
+// the transition actually fires instead of jumping straight to the end state.
 function showState(name) {
-  for (const s of STATES) els[s].hidden = s !== name;
+  for (const s of STATES) {
+    const el = els[s];
+    if (s === name) {
+      el.hidden = false;
+      el.classList.remove('is-in');
+      void el.offsetHeight; // flush hidden -> laid-out start state so .is-in transitions
+      el.classList.add('is-in');
+    } else {
+      el.hidden = true;
+      el.classList.remove('is-in');
+    }
+  }
 }
 
 function clear(el) {
@@ -282,7 +298,9 @@ function renderBreakdown(topics) {
     track.className = 'dash__breakdown-track';
     const fill = document.createElement('div');
     fill.className = 'dash__breakdown-fill';
-    fill.style.width = `${Math.max(4, Math.round((t.focusS / max) * 100))}%`;
+    // Scale via transform, not `width` -- same convention (and reason) as
+    // .dash__trend-bar just above: transform/opacity skip layout on change.
+    fill.style.setProperty('--w', Math.max(0.04, t.focusS / max));
     fill.style.background = t.color;
     track.appendChild(fill);
     row.append(swatch, meta, track);
@@ -371,6 +389,24 @@ async function loadDashboard(db, uid) {
     showError(err);
   }
 }
+
+// ---------- Nav elevation on scroll (same materials cue as script.js) ----------
+(function () {
+  var navEl = document.querySelector('.nav');
+  if (!navEl) return;
+  var ticking = false;
+  var update = function () {
+    navEl.classList.toggle('nav--scrolled', window.scrollY > 8);
+    ticking = false;
+  };
+  update();
+  window.addEventListener('scroll', function () {
+    if (!ticking) {
+      window.requestAnimationFrame(update);
+      ticking = true;
+    }
+  }, { passive: true });
+})();
 
 function init() {
   if (!isFirebaseConfigured()) {

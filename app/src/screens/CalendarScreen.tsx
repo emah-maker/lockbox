@@ -2,7 +2,8 @@
 // via useStore.sessions). Each day with focus time gets a dot; tapping a day
 // lists that day's sessions below the grid.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, StyleSheet, Pressable, ScrollView, Modal, LayoutAnimation, Animated } from 'react-native';
+import { View, Text, StyleSheet, Pressable, ScrollView, Modal, Animated, Easing } from 'react-native';
+import { Feather } from '@expo/vector-icons';
 import { useStore } from '../store/useStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useTheme } from '../theme/useTheme';
@@ -11,8 +12,8 @@ import { formatDuration } from '../stats/stats';
 import { dayKey, groupByDay, LoggedSession } from '../stats/sessionHistory';
 import { dominantTopicWithCustom, resolveTopic, allLabelChoices, ResolvedTopic } from '../stats/customLabels';
 import { AnimatedPressable } from '../ui/AnimatedPressable';
-import { useReducedMotion } from '../ui/useReducedMotion';
-import { typeScale, elevation } from '../theme/tokens';
+import { useReducedMotion, configureLayoutAnimation } from '../ui/useReducedMotion';
+import { typeScale, elevation, springs } from '../theme/tokens';
 
 const WEEKDAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 
@@ -41,6 +42,37 @@ export default function CalendarScreen() {
   const [cursor, setCursor] = useState(startOfMonth(new Date()));
   const [selectedKey, setSelectedKey] = useState<string>(dayKey(Date.now()));
   const [taggingSession, setTaggingSession] = useState<LoggedSession | null>(null);
+  const reducedMotion = useReducedMotion();
+
+  // Month nav gets directional motion (spatial consistency: "next" content
+  // enters from the right, "prev" from the left) instead of the grid just
+  // popping to the new month in place. Entering/exiting ease-out + a
+  // "dropdowns, cards" duration, both from motion-and-animation.md's tables --
+  // not invented values. A timing, not a spring, since this is a tap-triggered
+  // entrance with no gesture/velocity to hand off.
+  const MONTH_SLIDE_DISTANCE = 24;
+  const MONTH_SLIDE_DURATION = 220;
+  const monthSlideX = useRef(new Animated.Value(0)).current;
+  const monthOpacity = useRef(new Animated.Value(1)).current;
+  const animateMonthChange = (direction: 1 | -1) => {
+    if (reducedMotion) return;
+    monthSlideX.setValue(direction * MONTH_SLIDE_DISTANCE);
+    monthOpacity.setValue(0);
+    Animated.parallel([
+      Animated.timing(monthSlideX, {
+        toValue: 0,
+        duration: MONTH_SLIDE_DURATION,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(monthOpacity, {
+        toValue: 1,
+        duration: MONTH_SLIDE_DURATION,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+    ]).start();
+  };
 
   const byDay = useMemo(() => groupByDay(sessions), [sessions]);
   const grid = useMemo(() => buildGrid(cursor), [cursor]);
@@ -65,11 +97,12 @@ export default function CalendarScreen() {
         <AnimatedPressable
           style={styles.navBtn}
           onPress={() => {
-            LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+            configureLayoutAnimation(reducedMotion);
+            animateMonthChange(-1);
             setCursor(new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1));
           }}
         >
-          <Text style={[styles.nav, { color: c.accent }]}>{'<'}</Text>
+          <Feather name="chevron-left" size={22} color={c.accent} />
         </AnimatedPressable>
         <Text style={[styles.monthLabel, { color: c.text }]}>
           {cursor.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}
@@ -77,11 +110,12 @@ export default function CalendarScreen() {
         <AnimatedPressable
           style={styles.navBtn}
           onPress={() => {
-            LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+            configureLayoutAnimation(reducedMotion);
+            animateMonthChange(1);
             setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1));
           }}
         >
-          <Text style={[styles.nav, { color: c.accent }]}>{'>'}</Text>
+          <Feather name="chevron-right" size={22} color={c.accent} />
         </AnimatedPressable>
       </View>
 
@@ -93,7 +127,9 @@ export default function CalendarScreen() {
         ))}
       </View>
 
-      <View style={styles.grid}>
+      <Animated.View
+        style={[styles.grid, { opacity: monthOpacity, transform: [{ translateX: monthSlideX }] }]}
+      >
         {grid.map((date, i) => {
           if (!date) return <View key={i} style={styles.cell} />;
           const key = dayKey(date.getTime());
@@ -108,7 +144,7 @@ export default function CalendarScreen() {
               key={i}
               style={styles.cell}
               onPress={() => {
-                LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                configureLayoutAnimation(reducedMotion);
                 setSelectedKey(key);
               }}
             >
@@ -128,7 +164,7 @@ export default function CalendarScreen() {
             </AnimatedPressable>
           );
         })}
-      </View>
+      </Animated.View>
 
       <View style={[styles.card, { backgroundColor: c.surface }]}>
         <Text style={[styles.h2, { color: c.text }]}>
@@ -203,11 +239,12 @@ export default function CalendarScreen() {
 
 // Sheet presentation: the sheet springs up from SHEET_TRAVEL px below its
 // resting place and back down the same path on dismiss, so entry and exit
-// trace one motion instead of a cut. Damping 30 against stiffness 300 is just
-// under critical (2*sqrt(300) ~= 34.6), settling fast with no visible bounce.
+// trace one motion instead of a cut. Shares the app-wide `springs.default`
+// token (tokens.ts) -- damping 30 against stiffness 300 is just under
+// critical (2*sqrt(300) ~= 34.6), settling fast with no visible bounce.
 const SHEET_TRAVEL = 56;
 const BACKDROP_OPACITY = 0.4;
-const SHEET_SPRING = { stiffness: 300, damping: 30, mass: 1, useNativeDriver: true };
+const SHEET_SPRING = { ...springs.default, useNativeDriver: true };
 
 /** Retag/untag picker for one past session -- lists every built-in topic and
  * custom label (allLabelChoices) plus a "Clear tag" option. */
@@ -338,7 +375,6 @@ const styles = StyleSheet.create({
     lineHeight: typeScale.sectionTitle.lineHeight,
   },
   navBtn: { paddingHorizontal: 12, paddingVertical: 4 },
-  nav: { fontSize: 22, fontWeight: '700' },
   weekRow: { flexDirection: 'row' },
   weekday: {
     flex: 1,

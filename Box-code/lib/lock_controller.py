@@ -59,6 +59,7 @@ class LockController:
         self._wall_epoch0 = None         # epoch pushed by the phone (time_sync)
         self._wall_mono0 = None          # monotonic at the moment of that push
         self._ble_connected = False      # drives the control/clock corner dot
+        self._last_frame_t = None        # for step_motion's dt -- see update()
         self.go_idle()
 
     # ----- view switching -----
@@ -166,6 +167,21 @@ class LockController:
     def update(self, now):
         self._now = now
         just_done = False
+        # Step any in-flight status-bar / clock-active-color eases (see
+        # LockUI.step_color_transitions) -- same per-frame tier as the
+        # done/call-alert blink below, so it runs after touch is read and
+        # never delays gesture sampling.
+        self.ui.step_color_transitions()
+        # Same tier for the position-spring motion (press-depth, success/
+        # override pop -- see LockUI.step_motion). dt is clamped so a long
+        # pause (waking from sleep, a GC pause) can't feed a spring one huge
+        # step and make it visibly snap instead of ease.
+        if self._last_frame_t is None:
+            dt = 0.0
+        else:
+            dt = max(0.0, min(0.1, now - self._last_frame_t))
+        self._last_frame_t = now
+        self.ui.step_motion(dt)
         if self.state == "running":
             left = self.deadline - now
             if left <= 0:
@@ -280,7 +296,8 @@ class LockController:
             1 if st.unlock_on_call else 0, st.theme_mode, st.accent_idx)
 
     def apply_ble_command(self, cmd, now):
-        # opcodes: "start:<seconds>", "lock", "unlock" (unlock gated by
+        # opcodes: "start:<seconds>", "dur:<seconds>" (live duration preview --
+        # see below), "lock", "unlock" (unlock gated by
         # self.settings.allow_remote_unlock, toggled from the app's Settings
         # screen -- see apply_ble_settings_json / lock_ble._drain_inbound),
         # "historyAck:<seq>" (app has durably stored a drained `history`
@@ -299,6 +316,21 @@ class LockController:
                 self.ui.set_clock(self.set_seconds)
             if self.state in ("idle", "closed"):
                 self.go_running(now)
+        elif name == "dur":
+            # Live duration preview from the app's H/M stepper (DashboardScreen)
+            # -- deliberately does NOT start the countdown (that's still only
+            # "start" via the Lock button/press_lock). Ignored while running:
+            # the on-screen clock digits are already owned by the countdown
+            # tick (see update()'s set_clock_text), not this preview.
+            if len(op) != 2:
+                return
+            try:
+                secs = int(op[1])
+            except ValueError:
+                return
+            self.set_seconds = max(0, min(MAX_SECONDS, secs))
+            if self.state != "running":
+                self.ui.set_clock(self.set_seconds)
         elif name == "lock":
             if self.state in ("idle", "done"):
                 self.go_closed(now)
@@ -342,7 +374,7 @@ class LockController:
         if "thm" in d:
             st.theme_mode = max(0, min(1, int(d["thm"])))
         if "acc" in d:
-            st.accent_idx = max(0, min(4, int(d["acc"])))
+            st.accent_idx = max(0, min(5, int(d["acc"])))
         if "thm" in d or "acc" in d:
             self.ui.set_theme(st.theme_mode, st.accent_idx)
         st.save()

@@ -1,15 +1,40 @@
 /* =========================================================================
-   Phone Box marketing site — vanilla JS, no dependencies, file:// friendly.
+   Phone Box marketing site — vanilla JS, file:// friendly, no bundler.
    Handles: reveal-on-scroll, the FAQ accordion, a live countdown on the
-   device mockup, and the waitlist form (client-side only — this is a draft
-   with no backend). All features degrade gracefully and respect
-   prefers-reduced-motion.
+   device mockup, the hero device's boot-in timeline, the override-demo
+   tick feedback, and the waitlist form (client-side only — this is a draft
+   with no backend). GSAP (CDN <script> tag, see index.html) is an optional
+   progressive-enhancement layer for the two timeline/stagger moments below
+   (hero boot, override ticks) -- every `window.gsap` check has a plain-CSS
+   fallback already in place if the CDN script fails to load. All features
+   degrade gracefully and respect prefers-reduced-motion.
    ========================================================================= */
 (function () {
   "use strict";
 
   var reduceMotion = window.matchMedia &&
     window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  /* ---------- Nav elevation on scroll ----------
+     Materials depth cue: the translucent nav becomes a touch more opaque
+     and gains a shadow once page content is scrolling underneath it,
+     instead of staying a flat constant translucency. Not gated on
+     reduceMotion -- it's a background/shadow change, not movement. */
+  var navEl = document.querySelector(".nav");
+  if (navEl) {
+    var navTicking = false;
+    var updateNav = function () {
+      navEl.classList.toggle("nav--scrolled", window.scrollY > 8);
+      navTicking = false;
+    };
+    updateNav();
+    window.addEventListener("scroll", function () {
+      if (!navTicking) {
+        window.requestAnimationFrame(updateNav);
+        navTicking = true;
+      }
+    }, { passive: true });
+  }
 
   /* ---------- Reveal-on-scroll ---------- */
   var revealEls = document.querySelectorAll(".reveal");
@@ -45,6 +70,30 @@
       if (panel) { panel.classList.toggle("is-open", !expanded); }
     });
   });
+
+  /* ---------- Hero device intro: the screen "boots" ----------
+     The device casing already fades/slides in via the generic .reveal class
+     (below) -- this adds a second, purposeful beat on top: once the casing
+     has landed, the screen's own contents stagger in like it just powered
+     on, instead of appearing as part of the same flat fade. First-load-only
+     tier (see the motion-and-animation skill's frequency gate), so the small
+     extra delight budget is spent here rather than on a static readout. */
+  if (!reduceMotion && window.gsap) {
+    var scrEls = [".scr__status", ".scr__label", "#mockTime", ".scr__bar", ".scr__hint"]
+      .map(function (sel) { return document.querySelector(sel); })
+      .filter(Boolean);
+    if (scrEls.length) {
+      gsap.set(scrEls, { opacity: 0, y: 6 });
+      gsap.to(scrEls, {
+        opacity: 1,
+        y: 0,
+        duration: 0.4,
+        ease: "power2.out",
+        stagger: 0.07,
+        delay: 0.5,   // let the casing's own .reveal transition land first
+      });
+    }
+  }
 
   /* ---------- Live countdown on the device mockup ---------- */
   var timeEl = document.getElementById("mockTime");
@@ -93,6 +142,7 @@
   if (ovrBtn && ovrTicks && ovrStatus) {
     var OVR_TOTAL = 25;
     var ovrCount = 0;
+    var ovrHasGsap = !reduceMotion && !!window.gsap;
     for (var i = 0; i < OVR_TOTAL; i++) {
       var t = document.createElement("span");
       t.className = "override-demo__tick";
@@ -105,6 +155,11 @@
         ovrStatus.textContent = "Released";
         ovrStatus.classList.add("is-released");
         ovrBtn.disabled = true;
+        // Settle-in pop on the status text -- feedback that the mechanism
+        // actually fired, not just a label swap.
+        if (ovrHasGsap) {
+          gsap.fromTo(ovrStatus, { scale: 1.15 }, { scale: 1, duration: 0.3, ease: "back.out(2)" });
+        }
       } else {
         ovrStatus.textContent = ovrCount + " / " + OVR_TOTAL;
       }
@@ -113,6 +168,11 @@
       if (ovrCount >= OVR_TOTAL) { return; }
       ovrCount += 1;
       ovrPaint();
+      // Pop only the tick that was just hit -- proof this exact press
+      // registered, not a replay across every earlier tick.
+      if (ovrHasGsap) {
+        gsap.fromTo(ticks[ovrCount - 1], { scale: 1.5 }, { scale: 1, duration: 0.28, ease: "back.out(3)" });
+      }
       if (ovrCount >= OVR_TOTAL) {
         setTimeout(function () {
           ovrCount = 0;

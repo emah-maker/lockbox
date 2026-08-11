@@ -14,6 +14,7 @@ import {
   HistoryEntry,
   Settings,
   cmdStart,
+  cmdSetDuration,
   cmdLock,
   cmdUnlock,
   encodeSettings,
@@ -166,6 +167,12 @@ export class PhoneBoxClient {
 
   startLock(seconds: number) {
     return this.write(CHAR.command, cmdStart(seconds));
+  }
+  /** Pushes the picked duration to the box without starting the countdown --
+   * see protocol.ts's cmdSetDuration for why this is a separate opcode from
+   * startLock above. */
+  setDuration(seconds: number) {
+    return this.write(CHAR.command, cmdSetDuration(seconds));
   }
   lock() {
     return this.write(CHAR.command, cmdLock());

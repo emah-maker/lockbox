@@ -2,7 +2,7 @@
 // react-navigation dependency) since four flat screens don't need a router:
 // Dashboard, Stats, Calendar, Settings.
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, LayoutAnimation } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
@@ -19,6 +19,8 @@ import { useAuthStore } from './src/auth/useAuthStore';
 import { startSettingsSyncBridge } from './src/sync/settingsSyncBridge';
 import { startSessionsSyncBridge } from './src/sync/sessionsSyncBridge';
 import { AnimatedPressable } from './src/ui/AnimatedPressable';
+import { useReducedMotion, configureLayoutAnimation } from './src/ui/useReducedMotion';
+import { typeScale } from './src/theme/tokens';
 
 type Tab = 'dashboard' | 'stats' | 'calendar' | 'settings';
 
@@ -41,6 +43,7 @@ export default function App() {
   const init = useStore((s) => s.init);
   const themeMode = useSettingsStore((s) => s.themeMode);
   const theme = useTheme();
+  const reducedMotion = useReducedMotion();
 
   useEffect(() => {
     // one-time capability log so a dev build surfaces missing native linkage
@@ -86,7 +89,7 @@ export default function App() {
   const Screen = SCREENS[tab];
 
   const selectTab = (next: Tab) => {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    configureLayoutAnimation(reducedMotion);
     setTab(next);
   };
 
@@ -103,7 +106,7 @@ export default function App() {
               return (
                 <AnimatedPressable key={t.key} style={styles.tabBtn} onPress={() => selectTab(t.key)}>
                   <Feather name={t.icon} size={20} color={color} />
-                  <Text style={{ color, fontWeight: active ? '700' : '500', marginTop: 2, fontSize: 12 }}>
+                  <Text style={[styles.tabLabel, { color, fontWeight: active ? '700' : '500' }]}>
                     {t.label}
                   </Text>
                 </AnimatedPressable>
@@ -123,4 +126,5 @@ const styles = StyleSheet.create({
     borderTopColor: 'rgba(127,127,127,0.2)',
   },
   tabBtn: { flex: 1, alignItems: 'center', paddingVertical: 12 },
+  tabLabel: { ...typeScale.caption, marginTop: 2 },
 });

@@ -10,6 +10,28 @@ export interface DayTotal {
 
 const WEEKDAY_INITIALS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 
+export interface BestDay {
+  key: string; // Y-M-D
+  dateMs: number; // startedAt of the day's first session -- enough to format a real calendar date
+  focusS: number;
+}
+
+/** The single calendar day (across all logged history, not just the last 7)
+ * with the most total focus time -- a real personal-record fact for the
+ * Stats screen's "Fun facts" card, computed from the same local session log
+ * as every other stat here, not invented. Null on an empty/all-zero log. */
+export function bestDay(sessions: LoggedSession[]): BestDay | null {
+  const byDay = groupByDay(sessions);
+  let best: BestDay | null = null;
+  for (const [key, daySessions] of byDay) {
+    const focusS = daySessions.reduce((sum, s) => sum + s.actualS, 0);
+    if (focusS > 0 && (!best || focusS > best.focusS)) {
+      best = { key, dateMs: daySessions[0].startedAt, focusS };
+    }
+  }
+  return best;
+}
+
 /** Oldest-to-newest focus totals for the last `days` calendar days
  * (including today). Uses local-date arithmetic (not raw ms subtraction) so
  * it lands on the right calendar day across a DST transition. */

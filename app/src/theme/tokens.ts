@@ -46,3 +46,17 @@ export const elevation = {
     elevation: 2,
   } as const,
 } as const;
+
+// springs -- shared spring physics so every settle in the app comes from one
+// place instead of each file redefining the same numbers (AnimatedPressable.tsx,
+// SettingsPrimitives.tsx's SliderRow, and CalendarScreen.tsx's tag-picker sheet
+// each independently hardcoded an identical { stiffness: 300, damping: 30,
+// mass: 1 } before this token existed). Matches the apple-design skill's
+// "critically damped, no overshoot" default UI-settle spring: damping ratio
+// here is 30 / (2*sqrt(300*1)) ~= 0.87 -- just under critical, so it settles
+// quickly with no visible bounce. `useNativeDriver` is deliberately left off
+// this shared object since it varies per call site (off wherever a spring
+// drives a non-transform property like `width`).
+export const springs = {
+  default: { stiffness: 300, damping: 30, mass: 1 } as const,
+} as const;

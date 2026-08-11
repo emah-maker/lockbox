@@ -32,10 +32,17 @@
         </span>
         <span class="brand__name">Phone&nbsp;Box</span>
       </a>
-      <nav class="nav__links" aria-label="Primary">
-        <a href="index.html">Home</a>
-      </nav>
-      <button id="signOutBtn" class="btn btn--sm btn--ghost" type="button" hidden>Sign out</button>
+      <button type="button" class="nav__toggle" id="navToggle" aria-expanded="false" aria-controls="navMenu" aria-label="Open menu">
+        <span class="nav__toggle-bars" aria-hidden="true"></span>
+      </button>
+      <div class="nav__menu" id="navMenu">
+        <div class="nav__menu-inner">
+          <nav class="nav__links" aria-label="Primary">
+            <a href="index.html">Home</a>
+          </nav>
+          <button id="signOutBtn" class="btn btn--sm btn--ghost nav__cta" type="button" hidden>Sign out</button>
+        </div>
+      </div>
     </div>
   </header>
 
@@ -51,7 +58,7 @@
           </p>
         </div>
 
-        <div id="dashNotConfigured" class="card dash__state" hidden>
+        <div id="dashNotConfigured" class="card dash__state dash__fade" hidden>
           <h3>Dashboard isn't connected yet</h3>
           <p>
             This page needs a Firebase project configured in
@@ -61,7 +68,7 @@
           </p>
         </div>
 
-        <div id="dashSignedOut" class="card dash__state" hidden>
+        <div id="dashSignedOut" class="card dash__state dash__fade" hidden>
           <h3>See your progress here too</h3>
           <p>Sign in with Google to pull in the session history your Phone Box app has synced.</p>
           <button id="signInBtn" class="btn btn--primary" type="button">
@@ -75,16 +82,16 @@
           </button>
         </div>
 
-        <div id="dashLoading" class="dash__state" hidden>
+        <div id="dashLoading" class="dash__state dash__fade" hidden>
           <p>Loading your sessions…</p>
         </div>
 
-        <div id="dashError" class="card dash__state dash__state--error" hidden>
+        <div id="dashError" class="card dash__state dash__state--error dash__fade" hidden>
           <h3>Couldn't load your data</h3>
           <p id="dashErrorMsg"></p>
         </div>
 
-        <div id="dashContent" hidden>
+        <div id="dashContent" class="dash__fade" hidden>
           <div class="dash__summary" id="dashSummary"></div>
           <p id="dashEmptyHint" class="dash__hint" hidden>
             No sessions yet. Once your Phone Box app finishes a focus session while signed in,
@@ -142,6 +149,7 @@
     </section>
   </main>
 
+  <script src="js/nav.js"></script>
   <script type="module" src="js/dashboard.js"></script>
 </body>
 </html>

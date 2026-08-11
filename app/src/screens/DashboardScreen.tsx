@@ -2,17 +2,33 @@
 // open/close. Navigation lives in App.tsx as a trivial tab switcher; this
 // stays the default landing tab.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, View, Text, StyleSheet, Switch, ScrollView, LayoutAnimation, Platform, UIManager } from 'react-native';
+import { Animated, View, Text, StyleSheet, Switch, ScrollView, Platform, UIManager } from 'react-native';
+import { Feather } from '@expo/vector-icons';
 import { useStore, CONN_LABELS } from '../store/useStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useTheme } from '../theme/useTheme';
 import { withAlpha } from '../theme/theme';
 import { aggregate, formatDuration, completionRate, clampLockSeconds, MAX_LOCK_HOURS } from '../stats/stats';
 import { allLabelChoices, resolveTopic } from '../stats/customLabels';
+import { lastNDays } from '../stats/trend';
 import type { Status } from '../ble/protocol';
 import { AnimatedPressable } from '../ui/AnimatedPressable';
-import { useReducedMotion } from '../ui/useReducedMotion';
+import { AnimatedFill } from '../ui/AnimatedFill';
+import { useReducedMotion, configureLayoutAnimation } from '../ui/useReducedMotion';
 import { typeScale, elevation } from '../theme/tokens';
+
+const SPARK_MAX_H = 28;
+
+/** Battery-level color following the box's own threshold language
+ * (Box-code/lib/lock_ui.py update_battery_view: >=50% accent-ish/green,
+ * >=20% amber, else red) instead of a flat textDim -- the number alone
+ * doesn't carry the same at-a-glance urgency the box's own screen gives it. */
+function batteryColor(pct: number, t: ReturnType<typeof useTheme>): string {
+  if (pct < 0) return t.textDim;
+  if (pct >= 50) return t.accent;
+  if (pct >= 20) return t.warn;
+  return t.danger;
+}
 
 const DISABLED_OPACITY = 0.35;
 
@@ -61,6 +77,7 @@ export default function DashboardScreen() {
     connect,
     disconnect,
     startLock,
+    setDuration,
     closeBox,
     openBox,
     tagCurrentSession,
@@ -72,10 +89,14 @@ export default function DashboardScreen() {
   const customLabels = useSettingsStore((st) => st.customLabels);
   const theme = useTheme();
   const s = styles(theme);
+  const reducedMotion = useReducedMotion();
 
   // Duration picker for "Lock for H:MM" -- local to this screen, not persisted;
   // startLock(seconds) both sets the box's duration and starts the countdown
-  // (Box-code/lib/lock_controller.apply_ble_command "start:<seconds>").
+  // (Box-code/lib/lock_controller.apply_ble_command "start:<seconds>"). Every
+  // stepper change also pushes a live preview via setDuration below (opcode
+  // "dur:<seconds>") so the box's clock reflects the picked time immediately,
+  // without waiting for -- or requiring -- the Lock button.
   const [pickHours, setPickHours] = useState(0);
   const [pickMinutes, setPickMinutes] = useState(25);
   const pickSeconds = clampLockSeconds(pickHours, pickMinutes);
@@ -95,6 +116,12 @@ export default function DashboardScreen() {
   // local session log (synced live + drained from the box on connect) is the
   // only copy, and the only place these aggregates can come from.
   const stats = useMemo(() => aggregate(sessions), [sessions]);
+  // Same real per-day totals StatsScreen's "Last 7 days" advanced view
+  // computes -- surfaced here too, as a compact sparkline, so the Focus
+  // card gives an at-a-glance shape without switching tabs or opting into
+  // Advanced stats.
+  const trend = useMemo(() => lastNDays(sessions), [sessions]);
+  const trendMax = Math.max(1, ...trend.map((d) => d.focusS));
 
   // Animates the running-session meter toward each BLE status tick instead of
   // snapping -- width can't use the native driver, but a single bar's layout
@@ -102,25 +129,42 @@ export default function DashboardScreen() {
   const meterAnim = useRef(new Animated.Value(status ? elapsedFraction(status) : 0)).current;
   useEffect(() => {
     if (!status) return;
+    const toValue = elapsedFraction(status);
+    if (reducedMotion) {
+      meterAnim.setValue(toValue);
+      return;
+    }
     Animated.timing(meterAnim, {
-      toValue: elapsedFraction(status),
+      toValue,
       duration: 400,
       useNativeDriver: false,
     }).start();
-  }, [status?.rem, status?.set]);
+  }, [status?.rem, status?.set, reducedMotion]);
 
   // The topic-tagging chip row appears/disappears with the running state;
   // animate that shape change instead of a hard pop.
   useEffect(() => {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    configureLayoutAnimation(reducedMotion);
   }, [status?.st === 'running']);
 
   const connected = conn === 'connected';
+  // Same status-dot language as SettingsScreen's connBadge -- the two screens
+  // show the same connection state and should read identically at a glance.
+  const connColor = conn === 'connected' ? theme.accent : conn === 'error' ? theme.danger : theme.textDim;
   const canClose = connected && (status?.st === 'idle' || status?.st === 'done');
   const canOpen = connected && (status?.st === 'running' || status?.st === 'closed');
   const closeFade = useDisabledFade(!canClose);
   const openFade = useDisabledFade(!canOpen);
   const lockFade = useDisabledFade(pickSeconds <= 0);
+
+  // Push the picked duration to the box as it changes -- not via the Lock
+  // button (that's still startLock, which sets AND starts in one write).
+  // This is what lets the box's on-screen clock track the stepper live, so
+  // the picked time is visible on the box before the user commits to it.
+  useEffect(() => {
+    if (!connected || !canClose) return;
+    setDuration(pickSeconds).catch(() => {});
+  }, [pickSeconds, connected, canClose, setDuration]);
 
   return (
     <ScrollView contentContainerStyle={s.container}>
@@ -128,7 +172,10 @@ export default function DashboardScreen() {
 
       <View style={s.card}>
         <Text style={s.label}>Connection</Text>
-        <Text style={s.value}>{CONN_LABELS[conn]}</Text>
+        <View style={s.connRow}>
+          <View style={[s.connDot, { backgroundColor: connColor }]} />
+          <Text style={s.value}>{CONN_LABELS[conn]}</Text>
+        </View>
         {error && conn !== 'error' ? <Text style={s.error}>{error}</Text> : null}
         <AnimatedPressable style={s.btn} onPress={connected ? disconnect : connect}>
           <Text style={s.btnText}>{connected ? 'Disconnect' : 'Connect'}</Text>
@@ -155,7 +202,10 @@ export default function DashboardScreen() {
               </View>
             </>
           )}
-          <Text style={s.sub}>Battery {status.bat < 0 ? '—' : `${status.bat}%`}</Text>
+          <View style={s.battRow}>
+            <Feather name="battery" size={14} color={batteryColor(status.bat, theme)} />
+            <Text style={s.sub}>Battery {status.bat < 0 ? '—' : `${status.bat}%`}</Text>
+          </View>
 
           <View style={s.controlRow}>
             <AnimatedPressable
@@ -259,6 +309,19 @@ export default function DashboardScreen() {
             </Text>
             <Text style={s.row}>Streak: {stats.str}</Text>
             <Text style={s.row}>Longest: {formatDuration(stats.lng)}</Text>
+            <View style={s.sparkRow}>
+              {trend.map((d) => {
+                const h = Math.max(2, Math.round((d.focusS / trendMax) * SPARK_MAX_H));
+                return (
+                  <View key={d.key} style={s.sparkCol}>
+                    <View style={[s.sparkTrack, { backgroundColor: withAlpha(theme.accent, 0.12) }]}>
+                      <AnimatedFill axis="height" toValue={h} style={s.sparkBar} color={theme.accent} />
+                    </View>
+                    <Text style={s.sparkLabel}>{d.label}</Text>
+                  </View>
+                );
+              })}
+            </View>
           </>
         ) : (
           <Text style={s.sub}>Start a session to see focus stats here.</Text>
@@ -337,6 +400,9 @@ const styles = (t: ReturnType<typeof useTheme>) =>
     error: { color: t.danger, fontSize: 13 },
     btn: { backgroundColor: t.accent, borderRadius: 10, padding: 12, alignItems: 'center', marginTop: 8 },
     btnText: { color: t.accentText, fontWeight: '700' },
+    connRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    connDot: { width: 8, height: 8, borderRadius: 4 },
+    battRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
     switchRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
     controlRow: { flexDirection: 'row', gap: 10, marginTop: 8 },
     controlBtn: {
@@ -364,5 +430,10 @@ const styles = (t: ReturnType<typeof useTheme>) =>
     meterFill: { height: '100%', borderRadius: 4 },
     topicChipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 },
     topicChip: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 16, borderWidth: 1.5 },
+    sparkRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: 10, gap: 4 },
+    sparkCol: { alignItems: 'center', gap: 4, flex: 1 },
+    sparkTrack: { width: 12, height: SPARK_MAX_H, borderRadius: 6, justifyContent: 'flex-end', overflow: 'hidden' },
+    sparkBar: { width: '100%', borderRadius: 6 },
+    sparkLabel: { ...typeScale.caption, color: t.textDim },
     topicChipText: { ...typeScale.label },
   });

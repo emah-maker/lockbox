@@ -21,9 +21,10 @@
 import React, { useRef } from 'react';
 import { Animated, Pressable, PressableProps, StyleProp, ViewStyle } from 'react-native';
 import { useReducedMotion } from './useReducedMotion';
+import { springs } from '../theme/tokens';
 
 const PRESS_SCALE = 0.96;
-const SPRING = { stiffness: 300, damping: 30, mass: 1, useNativeDriver: true } as const;
+const SPRING = { ...springs.default, useNativeDriver: true } as const;
 
 const AnimatedPressableBase = Animated.createAnimatedComponent(Pressable);
 

@@ -9,7 +9,7 @@ import { useStore, CONN_LABELS } from '../store/useStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useAuthStore } from '../auth/useAuthStore';
 import { useTheme } from '../theme/useTheme';
-import { THEME_MODES, ACCENT_KEYS, ACCENT_LABELS, ThemeMode, AccentKey } from '../theme/theme';
+import { THEME_MODES, ACCENT_KEYS, ACCENT_LABELS, ACCENT_SWATCHES, ThemeMode, AccentKey } from '../theme/theme';
 import { CustomLabelsSection } from './CustomLabelsSection';
 import { Button, Section, SliderRow } from './SettingsPrimitives';
 import { AnimatedPressable } from '../ui/AnimatedPressable';
@@ -138,6 +138,7 @@ export default function SettingsScreen() {
                 pushBoxSettings({ acc: ACCENT_KEYS.indexOf(a) });
               }}
               color={c}
+              swatch={ACCENT_SWATCHES[a]}
             >
               {ACCENT_LABELS[a]}
             </Chip>
@@ -319,11 +320,16 @@ function Chip({
   active,
   onPress,
   color,
+  swatch,
   children,
 }: {
   active: boolean;
   onPress: () => void;
   color: ReturnType<typeof useTheme>;
+  /** Hex color for an accent option -- renders as a small dot so the picker
+   * shows the actual hue instead of asking the user to picture it from a
+   * name. Omitted for non-color chips (e.g. the dark/light Theme row). */
+  swatch?: string;
   children: React.ReactNode;
 }) {
   return (
@@ -337,6 +343,14 @@ function Chip({
         },
       ]}
     >
+      {swatch && (
+        <View
+          style={[
+            styles.chipSwatch,
+            { backgroundColor: swatch, borderColor: active ? color.accentText : color.textDim },
+          ]}
+        />
+      )}
       <Text style={{ color: active ? color.accentText : color.text, fontWeight: '600' }}>{children}</Text>
     </AnimatedPressable>
   );
@@ -351,7 +365,22 @@ const styles = StyleSheet.create({
   h1: { ...typeScale.title, marginBottom: 4 },
   subtitle: { fontSize: 12, marginTop: 2, letterSpacing: typeScale.caption.letterSpacing, lineHeight: typeScale.caption.lineHeight },
   row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  label: { fontSize: 15, flexShrink: 1, paddingRight: 12, letterSpacing: -0.1, lineHeight: 20 },
+  label: {
+    fontSize: 15,
+    flexShrink: 1,
+    paddingRight: 12,
+    letterSpacing: typeScale.sectionTitle.letterSpacing,
+    lineHeight: typeScale.sectionTitle.lineHeight,
+  },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  chip: { paddingVertical: 8, paddingHorizontal: 14, borderRadius: 20, borderWidth: 1.5 },
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 20,
+    borderWidth: 1.5,
+  },
+  chipSwatch: { width: 10, height: 10, borderRadius: 5, borderWidth: 1 },
 });

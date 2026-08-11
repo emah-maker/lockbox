@@ -1,6 +1,7 @@
 # lock_ui.py -- builds the displayio scenes and exposes display helpers.
 # Two views: "control" (set/start/stop) and "clock" (countdown dial).
 import math
+import time
 import displayio
 import terminalio
 import bitmaptools
@@ -13,7 +14,11 @@ from lock_config import (
     C_BG, C_SURFACE, C_SURFACE_HILITE, C_WHITE, C_BLACK, C_GREY, C_GREEN, C_RED, C_AMBER, C_ON_ACCENT,
     C_ALERT_RED, C_ALERT_AMBER,
     MODE_COLORS, ACCENT_COLORS, DEFAULT_MODE_IDX, DEFAULT_ACCENT_IDX, fmt_hms,
+    RADIUS_CARD, RADIUS_BTN_SM, RADIUS_BTN_LG, STATUS_TRANSITION_S, lerp_color,
+    SPRING_STIFFNESS, SPRING_DAMPING, SPRING_MASS, PRESS_DEPTH_PX,
+    DONE_POP_OFFSET_PX, OVR_POP_OFFSET_PX,
 )
+from lock_motion import Spring
 
 
 def _bg_tile(w, h, color):
@@ -48,6 +53,32 @@ class LockUI:
         self._accent_idx = DEFAULT_ACCENT_IDX
         self._fg_color = C_WHITE
         self._accent_color = C_GREEN
+
+        # ----- color-transition engine (see _start_color_transition /
+        # step_color_transitions below) -- displayio has no alpha blending,
+        # but a shape's .fill/.color setter is a cheap single-palette-entry
+        # write with no bitmap reallocation (verified against
+        # adafruit_display_shapes' RoundRect source), so lerping a widget's
+        # RGB value across a handful of frames is a real, hardware-safe
+        # motion technique distinct from an alpha cross-fade. Reserved for
+        # "state indication" transitions (status bar, clock-view active
+        # color) -- never for the override-timeout or battery bars, whose
+        # width IS the literal remaining value; easing those would show a
+        # number of seconds/percent that isn't the true one.
+        self._color_transitions = []   # [obj, attr, from_color, to_color, start_time]
+        self._an_active_target = None
+        self._dig_active_target = None
+        self._rg_active_target = None
+
+        # ----- position-spring motion (see lock_motion.Spring / step_motion
+        # below) -- a complement to the color-transition engine above, not an
+        # overlap: these move .y / .anchored_position, never .fill/.color, so
+        # the two systems can never race on the same attribute.
+        self._press_spring = Spring(SPRING_STIFFNESS, SPRING_DAMPING, SPRING_MASS)
+        self._press_targets = ()   # ((obj, 'y'|'label', base), ...) currently offset
+        self._press_ring = None
+        self._done_pop = Spring(SPRING_STIFFNESS, SPRING_DAMPING, SPRING_MASS)
+        self._ovr_pop = Spring(SPRING_STIFFNESS, SPRING_DAMPING, SPRING_MASS)
 
         self._build_control(W, H)
 
@@ -98,6 +129,51 @@ class LockUI:
         self.gtip_pal[0] = fg
         self.button.fill = accent
 
+    # =================== color-transition engine ===================
+    # Duration/curve come from the motion-and-animation skill's tables, never
+    # an invented value: STATUS_TRANSITION_S (lock_config.py) = 200ms sits in
+    # the "Dropdowns, cards, sheet reveals | 150-250ms" band -- the status
+    # bar and clock-view readouts are card-like state surfaces changing on an
+    # occasional (session-level) event, not a rapidly-retriggered control --
+    # eased with the "Entering/exiting" ease-out-cubic curve. Called from
+    # LockController.update() every frame, same tier as animate_done /
+    # animate_call_alert, so it never runs ahead of a touch read.
+    #
+    # Uses lock_config.lerp_color for the actual channel math (its docstring
+    # points at a continuous digital-clock "breathing" highlight as the
+    # motivating use case; that specific effect is deliberately NOT built --
+    # see the implementation evidence doc for why a perpetual ambient pulse
+    # on a screen the user stares at for the whole countdown fails the
+    # motion-and-animation skill's frequency/restraint gate, unlike the
+    # occasional, purposeful state transitions below).
+    def _start_color_transition(self, obj, attr, to_color):
+        frm = getattr(obj, attr)
+        if frm == to_color:
+            return
+        # Drop any in-flight transition already targeting this same attr so a
+        # fast retrigger (e.g. idle -> closed -> running in quick succession)
+        # restarts cleanly from the current on-screen color instead of
+        # stacking two competing lerps on one widget.
+        self._color_transitions = [t for t in self._color_transitions
+                                    if not (t[0] is obj and t[1] == attr)]
+        self._color_transitions.append([obj, attr, frm, to_color, time.monotonic()])
+
+    def step_color_transitions(self):
+        if not self._color_transitions:
+            return
+        now = time.monotonic()
+        still_running = []
+        for obj, attr, frm, to, start in self._color_transitions:
+            t = (now - start) / STATUS_TRANSITION_S
+            if t >= 1.0:
+                setattr(obj, attr, to)
+            else:
+                it = 1.0 - t
+                eased = 1.0 - it * it * it       # ease-out cubic
+                setattr(obj, attr, lerp_color(frm, to, eased))
+                still_running.append([obj, attr, frm, to, start])
+        self._color_transitions = still_running
+
     # ----- corner status glyphs: BLE dot (left) + battery text (right) -----
     def _add_corner_indicators(self, group, W, y):
         dot = Circle(14, y, 4, fill=C_GREY)
@@ -144,8 +220,8 @@ class LockUI:
         # set_status (LOCKED/CLOSED/UNLOCKED), never themed
         self.STATUS_Y = 8
         self.STATUS_H = 38
-        self.status_bar = RoundRect(8, self.STATUS_Y, W - 16, self.STATUS_H, 8,
-                                    fill=C_GREEN)
+        self.status_bar = RoundRect(8, self.STATUS_Y, W - 16, self.STATUS_H,
+                                    RADIUS_CARD, fill=C_GREEN)
         group.append(self.status_bar)
         self.status_lbl = label.Label(terminalio.FONT, text="UNLOCKED",
                                       color=C_BLACK, scale=2)
@@ -200,6 +276,7 @@ class LockUI:
         self.big_msg.anchored_position = (W // 2, 150)
         self.big_msg.hidden = True
         group.append(self.big_msg)
+        self._done_msg_base = self.big_msg.anchored_position
 
         # start/stop button -- fill follows the app's accent (see set_theme);
         # it never carries lock-status meaning (always the "primary action"
@@ -209,8 +286,8 @@ class LockUI:
         self.BTN_H = 56
         self.BTN_X = (W - self.BTN_W) // 2
         self.BTN_Y = H - self.BTN_H - 24
-        self.button = RoundRect(self.BTN_X, self.BTN_Y, self.BTN_W, self.BTN_H, 12,
-                                fill=C_GREEN, outline=C_WHITE, stroke=2)
+        self.button = RoundRect(self.BTN_X, self.BTN_Y, self.BTN_W, self.BTN_H,
+                                RADIUS_BTN_LG, fill=C_GREEN, outline=C_WHITE, stroke=2)
         group.append(self.button)
         self._fg_widgets.append((self.button, 'outline'))
         self.btn_label = label.Label(terminalio.FONT, text="LOCK", color=C_ON_ACCENT,
@@ -237,25 +314,83 @@ class LockUI:
         self.status_press_ring.hidden = True
         group.append(self.status_press_ring)
 
-    # ----- instant touch-down/up feedback (control view only) -----
+    # ----- touch-down/up feedback (control view only) -----
     # Every tap/swipe on this device is resolved on RELEASE, in
     # LockController._handle_release, so a finger landing on the LOCK button
     # or status bar previously got zero visual acknowledgement until the
     # whole gesture completed -- these two calls (wired from
-    # LockController.process, purely additively) are the fix. They only ever
-    # show/hide the rings above; they never decide what a gesture means, so
-    # they carry none of the risk of touching the actual gesture logic.
+    # LockController.process, purely additively) are the fix. The ring
+    # visibility is gated by the press spring settling (see step_motion), not
+    # a flat show/hide, so the sink-in and spring-back are both visible --
+    # they only ever move .y/.anchored_position, never a widget's .fill/
+    # .color, so this can't race with a legitimate state-color change (direct
+    # or via the color-transition engine above).
     def on_touch_down(self, x, y):
         if self.view != "control":
             return
         if self.in_button(x, y) and not self.button.hidden:
-            self.button_press_ring.hidden = False
+            self._begin_press(self.button_press_ring, (
+                (self.button_press_ring, 'y', self.button_press_ring.y),
+                (self.button, 'y', self.BTN_Y),
+                (self.btn_label, 'label', self.btn_label.anchored_position),
+            ))
         elif self.in_status(x, y):
-            self.status_press_ring.hidden = False
+            self._begin_press(self.status_press_ring, (
+                (self.status_press_ring, 'y', self.status_press_ring.y),
+                (self.status_bar, 'y', self.STATUS_Y),
+                (self.status_lbl, 'label', self.status_lbl.anchored_position),
+            ))
 
     def on_touch_up(self):
-        self.button_press_ring.hidden = True
-        self.status_press_ring.hidden = True
+        if self._press_targets:
+            self._press_spring.to(0.0)
+
+    def _begin_press(self, ring, targets):
+        self._finish_press()   # snap any in-flight press back to rest first,
+                                # so a fast re-tap elsewhere can't leave the
+                                # previous widget stuck off its base position
+        self._press_ring = ring
+        self._press_ring.hidden = False
+        self._press_targets = targets
+        self._press_spring.displace(0.0, PRESS_DEPTH_PX)
+
+    def _finish_press(self):
+        for obj, kind, base in self._press_targets:
+            if kind == 'y':
+                obj.y = base
+            else:
+                obj.anchored_position = base
+        if self._press_ring is not None:
+            self._press_ring.hidden = True
+        self._press_targets = ()
+        self._press_ring = None
+
+    # ----- per-frame motion step -- called from LockController.update() every
+    # run-loop iteration (~50Hz while awake), same tier as
+    # step_color_transitions. Cheap when idle: each block below is a no-op
+    # once its spring has settled, so a session with no active press/pop
+    # costs a handful of float comparisons per frame, nothing more.
+    def step_motion(self, dt):
+        if self._press_targets:
+            offset = self._press_spring.step(dt)
+            for obj, kind, base in self._press_targets:
+                if kind == 'y':
+                    obj.y = base + int(round(offset))
+                else:
+                    bx, by = base
+                    obj.anchored_position = (bx, by + int(round(offset)))
+            if self._press_spring.settled and self._press_spring.target == 0.0:
+                self._finish_press()
+
+        if not self.big_msg.hidden and not self._done_pop.settled:
+            v = self._done_pop.step(dt)
+            bx, by = self._done_msg_base
+            self.big_msg.anchored_position = (bx, by + int(round(v)))
+
+        if not self._ovr_pop.settled:
+            v = self._ovr_pop.step(dt)
+            bx, by = self._ovr_count_base
+            self.ov_count.anchored_position = (bx, by + int(round(v)))
 
     # =================== clock view (multiple styles) ===================
     # Swipe up/down on the clock screen cycles these appearances.
@@ -354,7 +489,7 @@ class LockUI:
         self._add_corner_indicators(group, W, y=26)
 
         fh = 70
-        _dig_bg = RoundRect(12, 150 - fh // 2, W - 24, fh, 8,
+        _dig_bg = RoundRect(12, 150 - fh // 2, W - 24, fh, RADIUS_CARD,
                             fill=C_SURFACE, outline=C_GREY, stroke=2)
         group.append(_dig_bg)
         self._surface_widgets.append((_dig_bg, 'fill'))
@@ -511,21 +646,33 @@ class LockUI:
                      "done": "UNLOCKED",
                      "idle": "not started"}.get(state, "")
         active = C_RED if state == "running" else None
+        target = active or self._fg_color
         style = self.clock_styles[self.clock_style_idx]
+        # Same state-indication color ease as set_status, applied per style.
+        # Gated on the cached target (mirrors the "on != self._anim_on"
+        # idiom used by the done/call-alert blink below) so a transition is
+        # only started the moment the target actually flips, not re-started
+        # every redraw tick while running at CLOCK_FPS.
         if style == "analog":
             self.an_time.text = txt
             self._set_hands(remaining)
-            self.an_time.color = active or self._fg_color
+            if target != self._an_active_target:
+                self._an_active_target = target
+                self._start_color_transition(self.an_time, 'color', target)
             self.an_state.text = statetext
         elif style == "digital":
             self.dig_time.text = txt
-            self.dig_time.color = active or self._fg_color
+            if target != self._dig_active_target:
+                self._dig_active_target = target
+                self._start_color_transition(self.dig_time, 'color', target)
             self.dig_state.text = statetext
         else:  # arch gauge
             self.rg_time.text = txt
             frac = 0.0 if total <= 0 else 1.0 - (remaining / total)
             self._set_gauge(frac)
-            self.rg_time.color = active or self._fg_color
+            if target != self._rg_active_target:
+                self._rg_active_target = target
+                self._start_color_transition(self.rg_time, 'color', target)
             self.rg_state.text = statetext
 
     # =================== battery view ===================
@@ -659,6 +806,7 @@ class LockUI:
         self.ov_count.anchored_position = (W // 2, 160)
         group.append(self.ov_count)
         self._fg_widgets.append((self.ov_count, 'color'))
+        self._ovr_count_base = self.ov_count.anchored_position
 
         hint = label.Label(terminalio.FONT, text="keep pressing to unlock",
                            color=C_GREY)
@@ -692,6 +840,11 @@ class LockUI:
 
     def show_override(self, count, total):
         self.ov_count.text = "{}/{}".format(count, total)
+        # Tactile confirmation for the single most repetitive physical
+        # interaction on the device (default 25 presses to force-unlock,
+        # see OVERRIDE_PRESSES) -- each registered press bumps the count up
+        # and springs it back to rest instead of a flat text swap.
+        self._ovr_pop.displace(-OVR_POP_OFFSET_PX, 0.0)
         self.display.root_group = self.override_group
 
     def update_override_timeout(self, remaining, total):
@@ -899,8 +1052,8 @@ class LockUI:
         self.sd_minus_x = 18
         self.sd_plus_x = W - 18 - self.sd_btn_w
         _sd_minus = RoundRect(self.sd_minus_x, self.sd_btn_y, self.sd_btn_w,
-                              self.sd_btn_h, 10, fill=C_RED, outline=C_WHITE,
-                              stroke=2)
+                              self.sd_btn_h, RADIUS_BTN_SM, fill=C_RED,
+                              outline=C_WHITE, stroke=2)
         group.append(_sd_minus)
         self._fg_widgets.append((_sd_minus, 'outline'))
         ml = label.Label(terminalio.FONT, text="-", color=C_WHITE, scale=3)
@@ -910,8 +1063,8 @@ class LockUI:
         group.append(ml)
         self._fg_widgets.append((ml, 'color'))
         _sd_plus = RoundRect(self.sd_plus_x, self.sd_btn_y, self.sd_btn_w,
-                             self.sd_btn_h, 10, fill=C_GREEN, outline=C_WHITE,
-                             stroke=2)
+                             self.sd_btn_h, RADIUS_BTN_SM, fill=C_GREEN,
+                             outline=C_WHITE, stroke=2)
         group.append(_sd_plus)
         self._fg_widgets.append((_sd_plus, 'outline'))
         pl = label.Label(terminalio.FONT, text="+", color=C_WHITE, scale=3)
@@ -955,8 +1108,12 @@ class LockUI:
 
     # =================== control setters ===================
     def set_status(self, text, color):
+        # Text swaps instantly (a glyph cross-fade isn't achievable without
+        # alpha, and isn't desirable anyway -- the label IS the information,
+        # not decoration). The card's fill eases via the color-transition
+        # engine instead of snapping -- see step_color_transitions.
         self.status_lbl.text = text
-        self.status_bar.fill = color
+        self._start_color_transition(self.status_bar, 'fill', color)
 
     def set_button(self, text, color):
         self.btn_label.text = text
@@ -1011,6 +1168,10 @@ class LockUI:
     def show_done(self, auto_open=True):
         self.clock.hidden = True
         self.big_msg.hidden = False
+        # The single highest-payoff moment on the device -- spring the
+        # message up into place instead of having it just appear, on top of
+        # the existing blink (see animate_done) for sustained emphasis.
+        self._done_pop.displace(DONE_POP_OFFSET_PX, 0.0)
         self.set_status("UNLOCKED", C_GREEN)
         if auto_open:
             self._show_button(False)           # no button; auto-dismisses after 2s

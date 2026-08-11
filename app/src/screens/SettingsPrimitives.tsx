@@ -17,7 +17,7 @@ import { useTheme } from '../theme/useTheme';
 import { withAlpha } from '../theme/theme';
 import { AnimatedPressable } from '../ui/AnimatedPressable';
 import { useReducedMotion } from '../ui/useReducedMotion';
-import { typeScale, elevation } from '../theme/tokens';
+import { typeScale, elevation, springs } from '../theme/tokens';
 
 export function Button({
   label,
@@ -76,10 +76,25 @@ export function Section({
 
 const THUMB_SIZE = 28;
 const TRACK_HEIGHT = 6;
-// Matches AnimatedPressable's press spring so every settle in the app shares
-// one feel. useNativeDriver is off because the filled track animates `width`,
-// and a single Animated.Value can't be shared across the two drivers.
-const SPRING = { stiffness: 300, damping: 30, mass: 1, useNativeDriver: false } as const;
+// Shares AnimatedPressable's press spring (via the tokens.ts `springs` token)
+// so every settle in the app comes from one feel. useNativeDriver is off
+// because the filled track animates `width`, and a single Animated.Value
+// can't be shared across the two drivers.
+const SPRING = { ...springs.default, useNativeDriver: false } as const;
+
+// Rubber-band resistance for drag past either track edge, instead of a hard
+// stop -- the apple-design skill's exact formula (§9), constant 0.55 is its
+// documented default. RUBBER_BAND_DIMENSION is the max extra px of give as
+// overshoot approaches infinity (the formula asymptotes to this value), kept
+// small since this is a compact settings control, not a full-screen gesture.
+const RUBBER_BAND_DIMENSION = 24;
+const RUBBER_BAND_CONSTANT = 0.55;
+function rubberBand(overshoot: number): number {
+  return (
+    (overshoot * RUBBER_BAND_DIMENSION * RUBBER_BAND_CONSTANT) /
+    (RUBBER_BAND_DIMENSION + RUBBER_BAND_CONSTANT * Math.abs(overshoot))
+  );
+}
 
 // A draggable slider giving continuous direct-set control (drag or tap
 // anywhere on the track to jump straight to that value), built on RN core's
@@ -164,7 +179,17 @@ export function SliderRow({
     return Math.min(max, Math.max(min, snapped));
   };
 
-  const clampX = (x: number) => Math.min(trackWidthRef.current, Math.max(0, x));
+  // Soft edges while dragging: past either end, the thumb still follows the
+  // finger but with progressive resistance (rubberBand above) instead of
+  // stopping dead. The *value*/snap math below is untouched -- xToValue
+  // already clamps its ratio to [0, 1], so an overshot x here can never
+  // produce an out-of-range committed value, only a visual overhang.
+  const clampX = (x: number) => {
+    const w = trackWidthRef.current;
+    if (x < 0) return -rubberBand(-x);
+    if (x > w) return w + rubberBand(x - w);
+    return x;
+  };
 
   const xToValue = (x: number) => {
     const w = trackWidthRef.current;
@@ -244,12 +269,21 @@ export function SliderRow({
     thumbX.setValue(restingX);
   }, [restingX, thumbX]);
 
-  // A slightly-underdamped spring can overshoot past zero at the low end, and
-  // a negative width is a layout error; the thumb itself can overhang freely.
-  const fillWidth = React.useMemo(
-    () => thumbX.interpolate({ inputRange: [0, 1], outputRange: [0, 1], extrapolateLeft: 'clamp' }),
-    [thumbX],
-  );
+  // A slightly-underdamped spring can overshoot past either end during
+  // settle, and rubber-banding now lets the raw drag overshoot too -- a
+  // fill narrower/wider than the track is a layout error, so this clamps the
+  // *fill* to real track bounds on both sides; the thumb itself (styled via
+  // `transform: translateX`, not this) is left free to overhang, which is
+  // the whole point of the rubber-band/overshoot feel.
+  const fillWidth = React.useMemo(() => {
+    const w = Math.max(trackWidth, 1);
+    return thumbX.interpolate({
+      inputRange: [0, w],
+      outputRange: [0, w],
+      extrapolateLeft: 'clamp',
+      extrapolateRight: 'clamp',
+    });
+  }, [thumbX, trackWidth]);
 
   return (
     <View>

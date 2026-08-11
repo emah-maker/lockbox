@@ -66,6 +66,10 @@ interface AppState {
   connect: () => Promise<void>;
   disconnect: () => Promise<void>;
   startLock: (seconds: number) => Promise<void>;
+  /** Live-previews a picked duration on the box without starting the
+   * countdown -- see DashboardScreen's stepper effect and
+   * PhoneBoxClient.setDuration. */
+  setDuration: (seconds: number) => Promise<void>;
   closeBox: () => Promise<void>;
   openBox: () => Promise<void>;
   setAutoConnect: (on: boolean) => void;
@@ -244,6 +248,10 @@ export const useStore = create<AppState>((set, get) => {
 
     startLock: async (seconds) => {
       await client.startLock(seconds);
+    },
+
+    setDuration: async (seconds) => {
+      await client.setDuration(seconds);
     },
 
     closeBox: async () => {

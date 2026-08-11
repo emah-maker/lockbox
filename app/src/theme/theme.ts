@@ -3,7 +3,7 @@
 // values (see useStore.ts setThemeMode/setAccent) instead of a whole color
 // object, and every screen derives the same palette from `useTheme()`.
 export type ThemeMode = 'dark' | 'light';
-export type AccentKey = 'mint' | 'coral' | 'amber' | 'sky' | 'violet';
+export type AccentKey = 'mint' | 'coral' | 'amber' | 'sky' | 'violet' | 'rose';
 
 export interface ThemeColors {
   bg: string;
@@ -27,6 +27,7 @@ const ACCENTS: Record<AccentKey, AccentColors> = {
   amber: { accent: '#f2b84b', accentText: '#2b1300' },
   sky: { accent: '#38bdf8', accentText: '#001c2b' },
   violet: { accent: '#a78bfa', accentText: '#1c0f3d' },
+  rose: { accent: '#fb7185', accentText: '#2b0511' },
 };
 
 const MODES: Record<ThemeMode, ModeColors> = {
@@ -51,12 +52,20 @@ const MODES: Record<ThemeMode, ModeColors> = {
 export const THEME_MODES: ThemeMode[] = ['dark', 'light'];
 export const ACCENT_KEYS = Object.keys(ACCENTS) as AccentKey[];
 
+// Accent hex only (mode-independent, unlike ThemeColors.accent which needs a
+// resolved mode) -- lets a picker show each option's actual color swatch
+// instead of a bare text label. See SettingsScreen's accent Chip.
+export const ACCENT_SWATCHES: Record<AccentKey, string> = Object.fromEntries(
+  ACCENT_KEYS.map((k) => [k, ACCENTS[k].accent]),
+) as Record<AccentKey, string>;
+
 export const ACCENT_LABELS: Record<AccentKey, string> = {
   mint: 'Mint',
   coral: 'Coral',
   amber: 'Amber',
   sky: 'Sky',
   violet: 'Violet',
+  rose: 'Rose',
 };
 
 export function resolveTheme(mode: ThemeMode, accent: AccentKey): ThemeColors {

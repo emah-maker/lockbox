@@ -26,7 +26,12 @@
       "mcp__playwright__browser_take_screenshot",
       "mcp__playwright__browser_evaluate",
       "mcp__playwright__browser_click",
-      "mcp__playwright__browser_console_messages"
+      "mcp__playwright__browser_console_messages",
+      "Bash(gh repo *)",
+      "Read(//c/Users/emah/AppData/Local/Temp/claude/C--Users-emah-OneDrive---Northeastern-University-Summer-Projects-Phone-Box/201612de-fe90-439e-8c0c-53d94b482133/scratchpad/mobile-app-ui-design/**)",
+      "Read(//c/Users/emah/AppData/Local/Temp/claude/C--Users-emah-OneDrive---Northeastern-University-Summer-Projects-Phone-Box/201612de-fe90-439e-8c0c-53d94b482133/scratchpad/expo-skills/**)",
+      "Bash(find /c/Users/emah/AppData/Local/Temp/claude/C--Users-emah-OneDrive---Northeastern-University-Summer-Projects-Phone-Box/201612de-fe90-439e-8c0c-53d94b482133/scratchpad/gsap-skills -maxdepth 3 -not -path */.git*)",
+      "Bash(find /c/Users/emah/AppData/Local/Temp/claude/C--Users-emah-OneDrive---Northeastern-University-Summer-Projects-Phone-Box/201612de-fe90-439e-8c0c-53d94b482133/scratchpad/ui-ux-pro-max-skill -maxdepth 3 -not -path */.git*)"
     ]
   },
   "enableAllProjectMcpServers": true,
