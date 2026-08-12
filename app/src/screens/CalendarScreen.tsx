@@ -89,9 +89,56 @@ export default function CalendarScreen() {
 
   const selectedSessions: LoggedSession[] = byDay.get(selectedKey) ?? [];
 
+  // Newest-last in storage (see stats.ts's aggregate doc comment) -- reverse
+  // for a most-recent-first quick-jump row.
+  const recentSessions = useMemo(() => sessions.slice(-8).reverse(), [sessions]);
+
+  // A recent session can belong to a month the grid isn't currently showing
+  // (that's the whole point of a "recent" shortcut -- last week's session
+  // is still "recent" after you've paged the grid elsewhere), so this moves
+  // both the displayed month and the selected day, not just the latter.
+  const jumpToSession = (sess: LoggedSession) => {
+    configureLayoutAnimation(reducedMotion);
+    setCursor(startOfMonth(new Date(sess.startedAt)));
+    setSelectedKey(dayKey(sess.startedAt));
+  };
+
   return (
     <ScrollView style={{ backgroundColor: c.bg }} contentContainerStyle={styles.container}>
       <Text style={[styles.h1, { color: c.text }]}>Focus Calendar</Text>
+
+      {recentSessions.length > 0 && (
+        <View style={styles.recentSection}>
+          <Text style={[styles.h2, { color: c.text }]}>Recent sessions</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.recentRow}>
+            {recentSessions.map((sess, i) => {
+              const resolved = resolveTopic(sess.topic, customLabels, themeMode);
+              const active = dayKey(sess.startedAt) === selectedKey;
+              return (
+                <AnimatedPressable
+                  key={i}
+                  style={[
+                    styles.recentChip,
+                    { backgroundColor: c.surface },
+                    active && { borderColor: c.accent, borderWidth: 1.5 },
+                  ]}
+                  onPress={() => jumpToSession(sess)}
+                >
+                  <View style={styles.recentChipTop}>
+                    {resolved && <View style={[styles.topicDotInline, { backgroundColor: resolved.color }]} />}
+                    <Text style={[styles.recentChipDate, { color: c.text }]}>
+                      {new Date(sess.startedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                    </Text>
+                  </View>
+                  <Text style={[styles.recentChipDuration, { color: c.textDim }]}>
+                    {formatDuration(sess.actualS)}
+                  </Text>
+                </AnimatedPressable>
+              );
+            })}
+          </ScrollView>
+        </View>
+      )}
 
       <View style={styles.monthHeader}>
         <AnimatedPressable
@@ -367,6 +414,12 @@ const styles = StyleSheet.create({
   container: { padding: 20, paddingTop: 50, gap: 16 },
   h1: { ...typeScale.title, marginBottom: 4 },
   h2: { ...typeScale.sectionTitle, marginBottom: 8 },
+  recentSection: { gap: 4 },
+  recentRow: { flexDirection: 'row', gap: 8, paddingRight: 4 },
+  recentChip: { borderRadius: 12, borderWidth: 1.5, borderColor: 'transparent', padding: 10, minWidth: 84 },
+  recentChipTop: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  recentChipDate: { fontSize: 13, fontWeight: '600', letterSpacing: typeScale.label.letterSpacing },
+  recentChipDuration: { fontSize: 12, marginTop: 2, letterSpacing: typeScale.caption.letterSpacing },
   monthHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   monthLabel: {
     fontSize: 17,
