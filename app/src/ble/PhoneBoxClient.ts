@@ -64,6 +64,15 @@ export class PhoneBoxClient {
   private device: Device | null = null;
   private subs: Subscription[] = [];
   private alertNonce = 0;
+  // The device id of a connect() / connectById() call that's still awaiting
+  // the native connect promise, i.e. before it has landed in `this.device`.
+  // Without this, disconnect() called while a connection attempt is in
+  // flight (user taps Disconnect right after Connect, or a manual
+  // disconnect races an auto-reconnect) has nothing to cancel -- `device` is
+  // still null, so the pending connectToDevice() keeps running in the
+  // background and silently re-establishes the very connection the user
+  // just asked to tear down. See disconnect() below.
+  private pendingDeviceId: string | null = null;
 
   /** Resolve once Bluetooth is powered on (iOS asks for permission here). */
   async waitForPoweredOn(): Promise<void> {
@@ -102,30 +111,61 @@ export class PhoneBoxClient {
     });
   }
 
-  async connect(device: Device, cb: ClientCallbacks): Promise<void> {
-    const d = await device.connect();
+  // timeoutMs defaults match connectById's below -- previously this path had
+  // no timeout at all, so a peripheral that accepted the GATT connection but
+  // never finished negotiating could leave the app stuck in "Connecting"
+  // indefinitely with no error and (before the pendingDeviceId fix above) no
+  // way to cancel via Disconnect either.
+  async connect(device: Device, cb: ClientCallbacks, timeoutMs = 6000): Promise<void> {
+    this.pendingDeviceId = device.id;
+    let d: Device;
+    try {
+      d = await device.connect({ timeout: timeoutMs });
+    } finally {
+      this.pendingDeviceId = null;
+    }
     await this.afterConnect(d, cb);
   }
 
   /** Connect straight to a remembered device id (no scan) -- the autoconnect path. */
   async connectById(deviceId: string, cb: ClientCallbacks, timeoutMs = 6000): Promise<void> {
-    const d = await this.manager.connectToDevice(deviceId, { timeout: timeoutMs });
+    this.pendingDeviceId = deviceId;
+    let d: Device;
+    try {
+      d = await this.manager.connectToDevice(deviceId, { timeout: timeoutMs });
+    } finally {
+      this.pendingDeviceId = null;
+    }
     await this.afterConnect(d, cb);
   }
 
   private async afterConnect(d: Device, cb: ClientCallbacks): Promise<void> {
     await d.discoverAllServicesAndCharacteristics();
     this.device = d;
+    // Own array per connection session, not the shared `this.subs` field --
+    // see the onDisconnected guard below for why.
+    const sessionSubs: Subscription[] = [];
+    this.subs = sessionSubs;
 
     d.onDisconnected(() => {
-      this.subs.forEach((s) => s.remove());
+      // A native disconnect event for THIS device object can arrive after
+      // it's already been superseded by a newer connection (reconnect raced
+      // ahead of a delayed callback for the old session -- observed in
+      // practice on both platforms' BLE stacks). If `this.device` has moved
+      // on, this event is stale: acting on it would tear down the new
+      // connection's subscriptions and flip the store back to disconnected
+      // out from under a connection that's actually fine -- exactly the
+      // "sometimes it just won't reconnect" symptom, since the app then
+      // looks connected but silently stops receiving status/history.
+      if (this.device !== d) return;
+      sessionSubs.forEach((s) => s.remove());
       this.subs = [];
       this.device = null;
       cb.onDisconnect?.();
     });
 
     if (cb.onStatus) {
-      this.subs.push(
+      sessionSubs.push(
         d.monitorCharacteristicForService(SERVICE_UUID, CHAR.status, (err, c) => {
           if (err || !c) return;
           const s = parseStatus(fromB64(c.value));
@@ -134,7 +174,7 @@ export class PhoneBoxClient {
       );
     }
     if (cb.onHistory) {
-      this.subs.push(
+      sessionSubs.push(
         d.monitorCharacteristicForService(SERVICE_UUID, CHAR.history, (err, c) => {
           if (err || !c) return;
           const entries = parseHistoryEntries(fromB64(c.value));
@@ -217,6 +257,14 @@ export class PhoneBoxClient {
   }
 
   async disconnect() {
-    if (this.device) await this.manager.cancelDeviceConnection(this.device.id);
+    // Cancel whichever of "already connected" or "still connecting" applies
+    // -- see pendingDeviceId's comment above for why the latter matters.
+    const targetId = this.device?.id ?? this.pendingDeviceId;
+    if (!targetId) return;
+    try {
+      await this.manager.cancelDeviceConnection(targetId);
+    } catch {
+      // Nothing to cancel (never actually connected/connecting) -- fine.
+    }
   }
 }

@@ -28,8 +28,19 @@ export interface LoggedSession extends SessionRecord {
   topic?: string;
 }
 
+/** Loads the durable session log, pruning (and persisting the prune of) any
+ * sub-MIN_LOGGED_SESSION_S record found in storage. buildLoggedSessions has
+ * kept new box-history entries clean since it started filtering, but that
+ * doesn't retroactively clean records written before this threshold existed,
+ * or ones that arrive through a path that doesn't go through
+ * buildLoggedSessions at all -- e.g. firestoreSync.ts's cross-device merge,
+ * which reads session docs straight from Firestore. This is the one choke
+ * point every consumer reads through, so healing here covers both cases. */
 export async function loadSessions(): Promise<LoggedSession[]> {
-  return getJSON<LoggedSession[]>(KEY, []);
+  const sessions = await getJSON<LoggedSession[]>(KEY, []);
+  const kept = sessions.filter((s) => s.actualS >= MIN_LOGGED_SESSION_S);
+  if (kept.length !== sessions.length) await setJSON(KEY, kept);
+  return kept;
 }
 
 /** Append one completed/overridden session and persist. Returns the updated list. */

@@ -40,7 +40,12 @@ const AUTO_CONNECT_KEY = 'autoConnect';
 const LAST_DEVICE_KEY = 'lastDeviceId';
 const PENDING_TOPIC_KEY = 'pendingTopicTag';
 const RECONNECT_DELAY_MS = 4000;
-const CONNECT_BY_ID_TIMEOUT_MS = 6000;
+// Used for both the by-id (autoconnect) and scan-then-connect paths -- see
+// connect() below. The scan path previously had no timeout on the actual
+// device.connect() call at all, so a peripheral that accepted the GATT
+// connection but never finished could leave the UI stuck on "Connecting"
+// indefinitely with no error and no way to cancel.
+const CONNECT_TIMEOUT_MS = 6000;
 const PENDING_TOPIC_SLACK_MS = 5000; // tolerance past a session's end for the tag to still count
 // Tolerance before a session's start, for a tag applied via DashboardScreen's
 // pre-session picker (before the box's own LOCK button is physically
@@ -212,7 +217,15 @@ export const useStore = create<AppState>((set, get) => {
     },
 
     connect: async () => {
-      if (get().conn === 'connecting' || get().conn === 'connected') return;
+      // 'scanning' has to be guarded too, not just 'connecting'/'connected':
+      // without it, autoConnect's init() call and a manual reconnect (or a
+      // double-tapped Connect button) can both be mid-scan at once. The two
+      // client.scanForBox() calls step on the same manager.startDeviceScan()
+      // session -- the second call's timeout can stop the *first* call's
+      // scan out from under it, so one of the two connect attempts fails for
+      // no reason a user could ever explain, and looks exactly like an
+      // unreliable "sometimes it just won't reconnect".
+      if (get().conn === 'connecting' || get().conn === 'connected' || get().conn === 'scanning') return;
       clearReconnectTimer();
       userDisconnected = false;
       const cb = {
@@ -226,25 +239,50 @@ export const useStore = create<AppState>((set, get) => {
       try {
         set({ conn: 'scanning', error: null });
         await client.waitForPoweredOn();
+        // Each of the checks below guards against disconnect() having run
+        // while we were awaiting the previous step (user taps Disconnect
+        // mid-scan/mid-connect, or a manual disconnect races an
+        // auto-reconnect). Without them we'd carry on connecting/scanning
+        // and could land back on "Connected" right after the user asked to
+        // stop -- see PhoneBoxClient.disconnect()'s pendingDeviceId for the
+        // other half of this fix.
+        if (userDisconnected) return;
 
         const lastDeviceId = await getJSON<string | null>(LAST_DEVICE_KEY, null);
+        if (userDisconnected) return;
         if (lastDeviceId) {
           set({ conn: 'connecting' });
           try {
-            await client.connectById(lastDeviceId, cb, CONNECT_BY_ID_TIMEOUT_MS);
+            await client.connectById(lastDeviceId, cb, CONNECT_TIMEOUT_MS);
+            if (userDisconnected) {
+              await client.disconnect();
+              return;
+            }
             await afterConnected();
             return;
           } catch {
+            if (userDisconnected) return;
             // remembered box isn't reachable directly (out of range, OS forgot
             // the peripheral) -- fall through to a normal scan below
             set({ conn: 'scanning' });
           }
         }
+        if (userDisconnected) return;
         const device = await client.scanForBox();
+        if (userDisconnected) return;
         set({ conn: 'connecting' });
-        await client.connect(device, cb);
+        await client.connect(device, cb, CONNECT_TIMEOUT_MS);
+        if (userDisconnected) {
+          await client.disconnect();
+          return;
+        }
         await afterConnected();
       } catch (e: any) {
+        // disconnect() already put us back to 'idle' and stopped any
+        // reconnect -- don't let this attempt's (possibly
+        // cancellation-induced) rejection overwrite that with a spurious
+        // error state or re-arm a reconnect timer the user just cancelled.
+        if (userDisconnected) return;
         set({ conn: 'error', error: e?.message ?? 'Connection failed' });
         scheduleReconnect();
       }
@@ -255,7 +293,7 @@ export const useStore = create<AppState>((set, get) => {
       clearReconnectTimer();
       monitor.stop();
       await client.disconnect();
-      set({ conn: 'idle', status: null });
+      set({ conn: 'idle', status: null, error: null });
     },
 
     startLock: async (seconds) => {

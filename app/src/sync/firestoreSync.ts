@@ -18,7 +18,7 @@ import {
   serverTimestamp,
 } from 'firebase/firestore';
 import { getDb, getFirebaseAuth } from '../auth/firebase';
-import { loadSessions, replaceSessions, type LoggedSession } from '../stats/sessionHistory';
+import { loadSessions, replaceSessions, MIN_LOGGED_SESSION_S, type LoggedSession } from '../stats/sessionHistory';
 import { useSettingsStore, type SyncableSettings } from '../store/useSettingsStore';
 import { getJSON } from '../storage/storage';
 import { sessionDocId, mergeSessionsPreferLocalTopic } from './sessionMerge';
@@ -94,19 +94,26 @@ async function syncSessions(uid: string): Promise<void> {
     getDocs(query(collection(db, 'users', uid, 'sessions'), orderBy('startedAt'))),
   ]);
 
-  const remoteEntries = remoteSnap.docs.map((d) => {
-    const data = d.data() as RemoteSession;
-    return {
-      id: d.id,
-      session: {
-        startedAt: data.startedAt,
-        plannedS: data.plannedS,
-        actualS: data.actualS,
-        outcome: data.outcome,
-        topic: data.topic,
-      },
-    };
-  });
+  const remoteEntries = remoteSnap.docs
+    .map((d) => {
+      const data = d.data() as RemoteSession;
+      return {
+        id: d.id,
+        session: {
+          startedAt: data.startedAt,
+          plannedS: data.plannedS,
+          actualS: data.actualS,
+          outcome: data.outcome,
+          topic: data.topic,
+        },
+      };
+    })
+    // A remote doc under a minute shouldn't count as real focus time any
+    // more than a local one -- see sessionHistory.ts's loadSessions. Without
+    // this, a sub-minute session written by another device (or from before
+    // this threshold existed) would sync in and re-inflate stats on every
+    // device, since it never passes through buildLoggedSessions' own filter.
+    .filter((e) => e.session.actualS >= MIN_LOGGED_SESSION_S);
   const { merged: mergedList, toUpload } = mergeSessionsPreferLocalTopic(localSessions, remoteEntries, deviceId);
 
   // Write the full reconciled set back to local storage (replace, not

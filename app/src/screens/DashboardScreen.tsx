@@ -105,6 +105,11 @@ export default function DashboardScreen() {
   // the picked time immediately, ready for LOCK to be tapped on the box.
   const [pickHours, setPickHours] = useState(0);
   const [pickMinutes, setPickMinutes] = useState(25);
+  // While a finger is down on the wheel pickers, the outer screen ScrollView
+  // must not steal the vertical drag -- two nested vertical scrollers
+  // competing for the same gesture is why swiping a wheel used to just
+  // scroll the whole screen instead.
+  const [pickerTouched, setPickerTouched] = useState(false);
   const pickSeconds = clampLockSeconds(pickHours, pickMinutes);
 
   // 9:00 is the cap -- once hours hits it, the minutes wheel has nothing
@@ -177,103 +182,99 @@ export default function DashboardScreen() {
   }, [pickSeconds, connected, canClose, setDuration]);
 
   return (
-    <ScrollView contentContainerStyle={s.container}>
+    <ScrollView contentContainerStyle={s.container} scrollEnabled={!pickerTouched}>
       <Text style={s.h1}>Phone Box</Text>
 
+      {/* Connection state and box status share one card that's always
+          mounted -- it used to be two pieces (an always-visible "Connection"
+          card and a separate "Box status" card that only existed once
+          `status` arrived), and that card popping in/out on every
+          connect/disconnect was the biggest layout jump on this screen.
+          Now the same card just swaps its status line to "Not connected"
+          and leaves the battery/close/open rows in place (disabled) instead
+          of unmounting them. */}
       <View style={s.card}>
-        <Text style={s.label}>Connection</Text>
+        <Text style={s.label}>Box</Text>
         <View style={s.connRow}>
           <View style={[s.connDot, { backgroundColor: connColor }]} />
-          <Text style={s.value}>{CONN_LABELS[conn]}</Text>
+          <Text style={s.value}>{status ? status.st.toUpperCase() : CONN_LABELS[conn]}</Text>
         </View>
-        {error && conn !== 'error' ? <Text style={s.error}>{error}</Text> : null}
+        {error && conn === 'error' ? <Text style={s.error}>{error}</Text> : null}
         <AnimatedPressable style={s.btn} onPress={connected ? disconnect : connect}>
           <Text style={s.btnText}>{connected ? 'Disconnect' : 'Connect'}</Text>
         </AnimatedPressable>
-      </View>
 
-      {status && (
-        <View style={s.card}>
-          <Text style={s.label}>Box status</Text>
-          <Text style={s.value}>{status.st.toUpperCase()}</Text>
-          {status.st === 'running' && (
-            <>
-              <Text style={s.sub}>{formatDuration(status.rem)} left</Text>
-              <View style={[s.meterTrack, { backgroundColor: withAlpha(theme.accent, 0.2) }]}>
-                <Animated.View
-                  style={[
-                    s.meterFill,
-                    {
-                      backgroundColor: theme.accent,
-                      width: meterAnim.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] }),
-                    },
-                  ]}
-                />
-              </View>
-            </>
-          )}
-          <View style={s.battRow}>
-            <Feather name="battery" size={14} color={batteryColor(status.bat, theme)} />
-            <Text style={s.sub}>Battery {status.bat < 0 ? '—' : `${status.bat}%`}</Text>
-          </View>
-
-          {/* No remote Lock-start here -- starting a countdown has to happen
-              physically at the box (tap LOCK once the phone is inside it).
-              Close (arm the latch, no timer yet) and Open/unlock are
-              unaffected -- both remain the "Allow open/close from this
-              phone" remote actions Settings already promises. */}
-          <View style={s.controlRow}>
-            <AnimatedPressable
-              style={[s.controlBtn, { opacity: closeFade }]}
-              disabled={!canClose}
-              onPress={closeBox}
-            >
-              <Text style={s.controlBtnText}>Close</Text>
-            </AnimatedPressable>
-            <AnimatedPressable
-              style={[
-                s.controlBtn,
-                { backgroundColor: theme.danger },
-                { opacity: openFade },
-              ]}
-              disabled={!canOpen}
-              onPress={openBox}
-            >
-              <Text style={s.controlBtnText}>Open</Text>
-            </AnimatedPressable>
-          </View>
-          {canOpen && !remoteUnlockOn && (
-            <Text style={s.sub}>
-              Remote unlock is off in Settings -- Open won't release the box until you turn it on.
-            </Text>
-          )}
-
-          {canClose && (
-            <View style={s.pickerBlock}>
-              {/* Duration only -- no lock button here. Locking has to happen
-                  at the box (tap LOCK once the phone is physically inside);
-                  this just previews/pushes the duration live (see the
-                  setDuration effect above) so the box's clock reflects it. */}
-              <Text style={s.label}>Set lock duration</Text>
-              <View style={s.pickerRow}>
-                <WheelPicker labels={HOUR_LABELS} selectedIndex={pickHours} onChange={onHoursIndexChange} />
-                <WheelPicker labels={minuteLabels} selectedIndex={minutesIndex} onChange={onMinutesIndexChange} />
-              </View>
-              <TopicPicker
-                heading="Tag this session before you lock it"
-                currentTopic={currentTopic}
-                customLabels={customLabels}
-                themeMode={themeMode}
-                theme={theme}
-                s={s}
-                onSelect={tagCurrentSession}
+        {status?.st === 'running' && (
+          <>
+            <Text style={s.sub}>{formatDuration(status.rem)} left</Text>
+            <View style={[s.meterTrack, { backgroundColor: withAlpha(theme.accent, 0.2) }]}>
+              <Animated.View
+                style={[
+                  s.meterFill,
+                  {
+                    backgroundColor: theme.accent,
+                    width: meterAnim.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] }),
+                  },
+                ]}
               />
             </View>
-          )}
+          </>
+        )}
 
-          {status.st === 'running' && (
+        <View style={s.battRow}>
+          <Feather name="battery" size={14} color={status ? batteryColor(status.bat, theme) : theme.textDim} />
+          <Text style={s.sub}>Battery {status && status.bat >= 0 ? `${status.bat}%` : '—'}</Text>
+        </View>
+
+        {/* No remote Lock-start here -- starting a countdown has to happen
+            physically at the box (tap LOCK once the phone is inside it).
+            Close (arm the latch, no timer yet) and Open/unlock are
+            unaffected -- both remain the "Allow open/close from this
+            phone" remote actions Settings already promises. */}
+        <View style={s.controlRow}>
+          <AnimatedPressable
+            style={[s.controlBtn, { opacity: closeFade }]}
+            disabled={!canClose}
+            onPress={closeBox}
+          >
+            <Text style={s.controlBtnText}>Close</Text>
+          </AnimatedPressable>
+          <AnimatedPressable
+            style={[
+              s.controlBtn,
+              { backgroundColor: theme.danger },
+              { opacity: openFade },
+            ]}
+            disabled={!canOpen}
+            onPress={openBox}
+          >
+            <Text style={s.controlBtnText}>Open</Text>
+          </AnimatedPressable>
+        </View>
+        {canOpen && !remoteUnlockOn && (
+          <Text style={s.sub}>
+            Remote unlock is off in Settings -- Open won't release the box until you turn it on.
+          </Text>
+        )}
+
+        {canClose && (
+          <View style={s.pickerBlock}>
+            {/* Duration only -- no lock button here. Locking has to happen
+                at the box (tap LOCK once the phone is physically inside);
+                this just previews/pushes the duration live (see the
+                setDuration effect above) so the box's clock reflects it. */}
+            <Text style={s.label}>Set lock duration</Text>
+            <View
+              style={s.pickerRow}
+              onTouchStart={() => setPickerTouched(true)}
+              onTouchEnd={() => setPickerTouched(false)}
+              onTouchCancel={() => setPickerTouched(false)}
+            >
+              <WheelPicker labels={HOUR_LABELS} selectedIndex={pickHours} onChange={onHoursIndexChange} />
+              <WheelPicker labels={minuteLabels} selectedIndex={minutesIndex} onChange={onMinutesIndexChange} />
+            </View>
             <TopicPicker
-              heading="What are you focusing on?"
+              heading="Tag this session before you lock it"
               currentTopic={currentTopic}
               customLabels={customLabels}
               themeMode={themeMode}
@@ -281,9 +282,21 @@ export default function DashboardScreen() {
               s={s}
               onSelect={tagCurrentSession}
             />
-          )}
-        </View>
-      )}
+          </View>
+        )}
+
+        {status?.st === 'running' && (
+          <TopicPicker
+            heading="What are you focusing on?"
+            currentTopic={currentTopic}
+            customLabels={customLabels}
+            themeMode={themeMode}
+            theme={theme}
+            s={s}
+            onSelect={tagCurrentSession}
+          />
+        )}
+      </View>
 
       <View style={s.card}>
         <Text style={s.label}>Focus</Text>
