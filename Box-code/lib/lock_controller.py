@@ -435,8 +435,9 @@ class LockController:
     # ----- physical buttons -----
     def press_lock(self, now):
         """Sensor button (lid closed): latch the servo and show the CLOSED setup
-        screen (pick a time, then tap LOCK). Only acts from idle -- ignored while
-        closed/running/done, so a still-held sensor won't re-latch after unlock."""
+        screen (pick a time, then tap the timer area to start -- no visible
+        button). Only acts from idle -- ignored while closed/running/done, so
+        a still-held sensor won't re-latch after unlock."""
         if self.state == "idle":
             self.go_closed(now)
 
@@ -599,7 +600,7 @@ class LockController:
         # misread as a swipe (the button is taller than SWIPE_MIN_PX).
         if self.ui.in_button(*self._start) and self.ui.in_button(*self._last):
             if self.state in ("idle", "closed"):
-                self.go_running(self._now)   # LOCK button starts the countdown
+                self.go_running(self._now)   # tap this (invisible) region starts the countdown
             elif self.state == "done":
                 self.go_idle()               # reset after finishing -> re-arms sensor
             # running: no on-screen cancel -- override button only

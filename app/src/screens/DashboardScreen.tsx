@@ -333,9 +333,6 @@ export default function DashboardScreen() {
           <Text style={s.label}>Alert box on incoming calls</Text>
           <Switch value={callAlertsEnabled} onValueChange={setCallAlertsEnabled} />
         </View>
-        <Text style={s.sub}>
-          When locked, an incoming call lights up the box screen (it never unlocks).
-        </Text>
         {callAlertsEnabled && !callDetectionAvailable ? (
           <Text style={[s.sub, { color: theme.danger }]}>
             Call detection isn't available in this build -- it needs a dev-client build

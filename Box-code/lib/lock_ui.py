@@ -316,7 +316,8 @@ class LockUI:
 
     # ----- touch-down/up feedback (control view only) -----
     # Every tap/swipe on this device is resolved on RELEASE, in
-    # LockController._handle_release, so a finger landing on the LOCK button
+    # LockController._handle_release, so a finger landing on the button
+    # (visible only in the done state -- see show_idle/show_closed/show_done)
     # or status bar previously got zero visual acknowledgement until the
     # whole gesture completed -- these two calls (wired from
     # LockController.process, purely additively) are the fix. The ring
@@ -1142,8 +1143,7 @@ class LockUI:
         self.border.hidden = True
         self._idle_widgets(True)
         self.set_status("UNLOCKED", C_GREEN)
-        self.set_button("LOCK", self._accent_color)
-        self._show_button(True)
+        self._show_button(False)
 
     def show_running(self):
         self.clock.hidden = False
@@ -1155,15 +1155,16 @@ class LockUI:
         self._show_button(False)          # no on-screen cancel; override only
 
     def show_closed(self):
-        # lid closed but not yet timed: pick a time, then tap LOCK to start
+        # lid closed but not yet timed: pick a time, then tap the timer area
+        # to start (no visible button -- the tap region is still live, see
+        # LockController._handle_release)
         self.clock.hidden = False
         self.clock.color = self._fg_color
         self.big_msg.hidden = True
         self.border.hidden = True
         self._idle_widgets(True)          # show H/M/S guides so time is selectable
         self.set_status("CLOSED", C_AMBER)
-        self.set_button("LOCK", self._accent_color)
-        self._show_button(True)
+        self._show_button(False)
 
     def show_done(self, auto_open=True):
         self.clock.hidden = True
@@ -1173,11 +1174,12 @@ class LockUI:
         # the existing blink (see animate_done) for sustained emphasis.
         self._done_pop.displace(DONE_POP_OFFSET_PX, 0.0)
         self.set_status("UNLOCKED", C_GREEN)
-        if auto_open:
-            self._show_button(False)           # no button; auto-dismisses after 2s
-        else:
-            self.set_button("OPEN", self._accent_color)   # manual open: tap to release servo
-            self._show_button(True)
+        # Shown regardless of auto_open: with auto_open on the servo already
+        # released and this state self-dismisses after DONE_ANIM_S, but the
+        # done-state tap region (LockController._handle_release) calls
+        # go_idle() on tap either way, so the affordance stays visible.
+        self.set_button("OPEN", self._accent_color)
+        self._show_button(True)
 
     def animate_done(self, on):
         self.big_msg.hidden = not on
