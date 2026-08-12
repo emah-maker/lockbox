@@ -9,11 +9,12 @@ from adafruit_display_text import label
 from adafruit_display_shapes.roundrect import RoundRect
 from adafruit_display_shapes.rect import Rect
 from adafruit_display_shapes.circle import Circle
+from adafruit_display_shapes.triangle import Triangle
 
 from lock_config import (
     C_BG, C_SURFACE, C_SURFACE_HILITE, C_WHITE, C_BLACK, C_GREY, C_GREEN, C_RED, C_AMBER, C_ON_ACCENT,
     C_ALERT_RED, C_ALERT_AMBER,
-    MODE_COLORS, ACCENT_COLORS, DEFAULT_MODE_IDX, DEFAULT_ACCENT_IDX, fmt_hms,
+    MODE_COLORS, ACCENT_COLORS, DEFAULT_MODE_IDX, DEFAULT_ACCENT_IDX, fmt_hms, fmt_hm,
     RADIUS_CARD, RADIUS_BTN_SM, RADIUS_BTN_LG, STATUS_TRANSITION_S, lerp_color,
     SPRING_STIFFNESS, SPRING_DAMPING, SPRING_MASS, PRESS_DEPTH_PX,
     DONE_POP_OFFSET_PX, OVR_POP_OFFSET_PX,
@@ -26,6 +27,24 @@ def _bg_tile(w, h, color):
     pal = displayio.Palette(1)
     pal[0] = color
     return displayio.TileGrid(bmp, pixel_shader=pal)
+
+
+# Hard ceiling on any spring-driven position offset actually applied to a
+# widget, in _step_motion below -- independent of whatever is or isn't wrong
+# further upstream in lock_motion.Spring's math. The largest INTENDED
+# amplitude among the three springs that use this (press-depth 3px, override
+# pop 8px, done-message pop 16px -- lock_config.py) is 16px; this leaves
+# room for a legitimate slight spring overshoot past its target without ever
+# letting a widget visibly fly across the screen, regardless of the cause.
+_MAX_MOTION_OFFSET_PX = 40
+
+
+def _clamp_offset(v):
+    if v > _MAX_MOTION_OFFSET_PX:
+        return _MAX_MOTION_OFFSET_PX
+    if v < -_MAX_MOTION_OFFSET_PX:
+        return -_MAX_MOTION_OFFSET_PX
+    return v
 
 
 class LockUI:
@@ -254,44 +273,97 @@ class LockUI:
 
         self._add_corner_indicators(group, W, y=55)
 
-        self.title = label.Label(terminalio.FONT, text="LOCK TIMER", color=C_GREY)
-        self.title.anchor_point = (0.5, 0.5)
-        self.title.anchored_position = (W // 2, 64)
-        group.append(self.title)
-        self._dim_widgets.append((self.title, 'color'))
+        # Small override-press-count indicator -- not a sentence explaining
+        # what override is (that was the clutter just cut above), just the
+        # configured number itself, in the empty center of the BLE-dot/
+        # battery-% row so it doesn't cost this screen a new row. "x" (ASCII),
+        # not "x" unicode multiplication sign -- terminalio.FONT's glyph set
+        # isn't guaranteed to cover non-ASCII. Kept live via update_settings,
+        # the same call every settings-change path already makes.
+        self.ov_count_hint = label.Label(terminalio.FONT, text="", color=C_GREY)
+        self.ov_count_hint.anchor_point = (0.5, 0.5)
+        self.ov_count_hint.anchored_position = (W // 2, 55)
+        group.append(self.ov_count_hint)
+        self._dim_widgets.append((self.ov_count_hint, 'color'))
 
-        self.clock = label.Label(terminalio.FONT, text="0:00:00", color=C_WHITE,
-                                 scale=3)
+        # No "LOCK TIMER" title here anymore -- purely decorative label with
+        # no function of its own; the clock and button already say what this
+        # screen is for. Cut for the same minimalism pass as the hint lines
+        # below.
+        # scale=4, not 3: now that this label only ever shows H:MM (fmt_hm,
+        # see set_clock/set_clock_text) instead of H:MM:SS, its widest text
+        # ("9:59", 4 chars) at scale=4 is 4*6*4 = 96px -- narrower than the
+        # old "9:59:59" (7 chars) was even at scale=3 (126px), so there's
+        # room to size it up.
+        # Moved up from 150 (with the guides/hint/nav_hint below it also
+        # shifted up by the same 30px) to open up the tight gap that used to
+        # sit between nav_hint and the LOCK/OPEN button, and give the whole
+        # screen more even vertical rhythm instead of a big gap above the
+        # clock and a cramped cluster below it.
+        # Surface card behind the clock, matching the digital/elapsed
+        # clock-view styles (RADIUS_CARD, C_SURFACE fill, C_GREY outline) --
+        # every OTHER clock face on this device sits in one of these; this
+        # was the one screen where the digits floated on bare background
+        # with no card, an inconsistency once the other views had it.
+        # Smaller (fh=60, not 70) and un-hilited to fit this screen's
+        # tighter gap to the H/M guides right below without touching them.
+        _clk_fh = 60
+        self._clk_bg = RoundRect(12, 120 - _clk_fh // 2, W - 24, _clk_fh, RADIUS_CARD,
+                                 fill=C_SURFACE, outline=C_GREY, stroke=2)
+        group.append(self._clk_bg)
+        self._surface_widgets.append((self._clk_bg, 'fill'))
+        self._dim_widgets.append((self._clk_bg, 'outline'))
+
+        self.clock = label.Label(terminalio.FONT, text="0:00", color=C_WHITE,
+                                 scale=4)
         self.clock.anchor_point = (0.5, 0.5)
-        self.clock.anchored_position = (W // 2, 150)
+        self.clock.anchored_position = (W // 2, 120)
         group.append(self.clock)
 
         # column guides: swipe over H / M to change that unit. Seconds were
         # dropped from the box's own editing UI (still shown live in the
         # running countdown -- see LockController.update's fmt_hms(left)) --
         # a two-way split reads clearer at this width than the old 3-way one.
+        # x-positions are derived from the clock label's own geometry (scale
+        # 4 -> 24px/glyph, "H:MM" is 4 glyphs wide, centered on W//2), not
+        # independently chosen quarter-points -- H centers over the hour
+        # digit itself, M centers over the two-digit minutes group, so each
+        # guide sits directly above the column it actually adjusts.
+        _clock_char_w = 6 * 4
+        _clock_left = W // 2 - 2 * _clock_char_w  # left edge of "H:MM"'s 4 glyphs
+        _hour_digit_cx = _clock_left + _clock_char_w // 2
+        _minutes_cx = _clock_left + 2 * _clock_char_w + _clock_char_w
+        # y=168, not 156: the clock's surface card (fh=60, centered on the
+        # clock's own y=120) bottom edge is at 150 -- 156 put these scale-2
+        # labels (~16px tall, so spanning roughly 148-164) overlapping the
+        # card's bottom edge. 168 clears it with real margin, still well
+        # short of nav_hint at 205.
         self.guide_h = label.Label(terminalio.FONT, text="H", color=C_GREY, scale=2)
         self.guide_m = label.Label(terminalio.FONT, text="M", color=C_GREY, scale=2)
-        for g, gx in ((self.guide_h, W // 4), (self.guide_m, 3 * W // 4)):
+        for g, gx in ((self.guide_h, _hour_digit_cx), (self.guide_m, _minutes_cx)):
             g.anchor_point = (0.5, 0.5)
-            g.anchored_position = (gx, 186)
+            g.anchored_position = (gx, 168)
             group.append(g)
             self._dim_widgets.append((g, 'color'))
 
-        self.hint = label.Label(terminalio.FONT, text="swipe up/down on H M",
-                                color=C_GREY)
-        self.hint.anchor_point = (0.5, 0.5)
-        self.hint.anchored_position = (W // 2, 212)
-        group.append(self.hint)
-        self._dim_widgets.append((self.hint, 'color'))
-
-        # always-visible navigation hint
-        self.nav_hint = label.Label(terminalio.FONT, text="<- styles   battery ->",
+        # No separate "swipe up/down on H M" caption either -- the H/M
+        # letters now sit precisely on their own digit columns, which is
+        # itself the instruction; a redundant sentence restating it in the
+        # same grey, same size, right below was exactly the kind of "every
+        # element has equal weight" clutter that made this screen feel busy.
+        # always-visible navigation hint. "clock", not "styles" -- "styles"
+        # assumes the reader already knows the clock view has multiple
+        # appearances; "clock" names the actual destination screen.
+        self.nav_hint = label.Label(terminalio.FONT, text="<- clock   battery ->",
                                     color=C_GREY)
         self.nav_hint.anchor_point = (0.5, 0.5)
-        self.nav_hint.anchored_position = (W // 2, 230)
+        self.nav_hint.anchored_position = (W // 2, 205)
         group.append(self.nav_hint)
         self._dim_widgets.append((self.nav_hint, 'color'))
+        # Reverted the third caption line added here (an override-discovery
+        # hint) -- three stacked grey hint lines plus a title all reading at
+        # the same visual weight made this screen feel cluttered rather than
+        # more helpful. Cutting text instead of adding more of it.
 
         # big animated message for the done state -- fixed "success" color
         self.big_msg = label.Label(terminalio.FONT, text="UNLOCKED", color=C_GREEN,
@@ -408,8 +480,24 @@ class LockUI:
     # once its spring has settled, so a session with no active press/pop
     # costs a handful of float comparisons per frame, nothing more.
     def step_motion(self, dt):
+        # This whole method is purely cosmetic (press-feedback dips, success/
+        # override pops) -- nothing here should ever be able to take down the
+        # run loop that also drives the servo/timer/touch, but an uncaught
+        # exception here previously did exactly that (observed on device).
+        # lock_motion.Spring now guards its own math against going non-finite,
+        # which was the identified cause; this try/except is the last-resort
+        # backstop for anything else in this per-frame hot path, since the
+        # cost of a skipped animation frame is invisible but the cost of a
+        # crashed lock/timer is not. Press state is reset to a known-good
+        # rest position on failure rather than left mid-animation.
+        try:
+            self._step_motion(dt)
+        except Exception:
+            self._finish_press()
+
+    def _step_motion(self, dt):
         if self._press_targets:
-            offset = self._press_spring.step(dt)
+            offset = _clamp_offset(self._press_spring.step(dt))
             for obj, kind, base in self._press_targets:
                 if kind == 'y':
                     obj.y = base + int(round(offset))
@@ -420,12 +508,12 @@ class LockUI:
                 self._finish_press()
 
         if not self.big_msg.hidden and not self._done_pop.settled:
-            v = self._done_pop.step(dt)
+            v = _clamp_offset(self._done_pop.step(dt))
             bx, by = self._done_msg_base
             self.big_msg.anchored_position = (bx, by + int(round(v)))
 
         if not self._ovr_pop.settled:
-            v = self._ovr_pop.step(dt)
+            v = _clamp_offset(self._ovr_pop.step(dt))
             bx, by = self._ovr_count_base
             self.ov_count.anchored_position = (bx, by + int(round(v)))
 
@@ -662,28 +750,42 @@ class LockUI:
     # ----- style 4: elapsed time (same card layout as digital, but counts up
     # from lock start instead of down to zero) -----
     def _build_clock_elapsed(self, W, H):
+        # Deliberately NOT styled like _build_clock_digital (same card
+        # shape, same grey outline, same layout, only the title text
+        # differed) -- easy to misread at a glance, and this is the one
+        # style that counts UP instead of down, which matters (mistaking
+        # "elapsed" for "remaining" is a real, meaningful misread on a lock
+        # timer). Fixed amber outline/title/arrow, not theme-tracked, same
+        # "material cue, not a themed surface color" precedent as the
+        # digital view's hilite and the call-alert overlay -- this should
+        # look the same regardless of theme so it's always recognizable at
+        # a glance, not just readable once you find the title text.
         group = displayio.Group()
         self.clock_groups.append(group)
         _tile = _bg_tile(W, H, C_BG)
         group.append(_tile)
         self._bg_tiles.append(_tile)
 
-        ttl = label.Label(terminalio.FONT, text="ELAPSED", color=C_GREY, scale=2)
+        ttl = label.Label(terminalio.FONT, text="ELAPSED", color=C_AMBER, scale=2)
         ttl.anchor_point = (0.5, 0.5)
         ttl.anchored_position = (W // 2, 26)
         group.append(ttl)
-        self._dim_widgets.append((ttl, 'color'))
         self._add_corner_indicators(group, W, y=26)
 
         fh = 70
         _el_bg = RoundRect(12, 150 - fh // 2, W - 24, fh, RADIUS_CARD,
-                           fill=C_SURFACE, outline=C_GREY, stroke=2)
+                           fill=C_SURFACE, outline=C_AMBER, stroke=3)
         group.append(_el_bg)
         self._surface_widgets.append((_el_bg, 'fill'))
-        self._dim_widgets.append((_el_bg, 'outline'))
 
-        _el_hilite = Rect(14, 150 - fh // 2 + 2, W - 28, 2, fill=C_SURFACE_HILITE)
-        group.append(_el_hilite)
+        # Up-pointing arrow above the time -- an unambiguous "this counts UP"
+        # cue that doesn't rely on noticing the outline color or reading the
+        # title, same idea as the override ring's dots-fill direction.
+        arrow_cx = W // 2
+        arrow_top_y = 150 - fh // 2 - 14
+        _el_arrow = Triangle(arrow_cx, arrow_top_y, arrow_cx - 7, arrow_top_y + 10,
+                             arrow_cx + 7, arrow_top_y + 10, fill=C_AMBER)
+        group.append(_el_arrow)
 
         self.el_time = label.Label(terminalio.FONT, text="0:00:00",
                                    color=C_WHITE, scale=3)
@@ -691,12 +793,11 @@ class LockUI:
         self.el_time.anchored_position = (W // 2, 150)
         group.append(self.el_time)
 
-        self.el_state = label.Label(terminalio.FONT, text="", color=C_GREY,
+        self.el_state = label.Label(terminalio.FONT, text="", color=C_AMBER,
                                     scale=2)
         self.el_state.anchor_point = (0.5, 0.5)
         self.el_state.anchored_position = (W // 2, 224)
         group.append(self.el_state)
-        self._dim_widgets.append((self.el_state, 'color'))
 
         self._clock_hints(group, W)
 
@@ -902,7 +1003,7 @@ class LockUI:
 
         ttl = label.Label(terminalio.FONT, text="OVERRIDE", color=C_AMBER, scale=2)
         ttl.anchor_point = (0.5, 0.5)
-        ttl.anchored_position = (W // 2, 70)
+        ttl.anchored_position = (W // 2, 26)
         group.append(ttl)
 
         # Circular progress ring around the press counter -- same
@@ -914,9 +1015,13 @@ class LockUI:
         # Built and appended BEFORE ov_count so the count text always paints
         # on top of the ring, same z-order reasoning as the press rings in
         # _build_control.
+        # r=72, not the original 86: at r=86 the ring's outermost dots (4px
+        # radius) reached x = 86 +- 90 = -4 to 176 on this 172px-wide screen
+        # -- off the edge on both sides. r=72 keeps the dots' full extent
+        # within x = 10..162, a real ~10px margin inside the 172px screen.
         self.ovr_ring_cx = W // 2
-        self.ovr_ring_cy = 160
-        self.ovr_ring_r = 86
+        self.ovr_ring_cy = 145
+        self.ovr_ring_r = 72
         self.ovr_ring_n = 40
         self.ovr_ring_dots = []
         for i in range(self.ovr_ring_n):
@@ -928,18 +1033,38 @@ class LockUI:
             group.append(dot)
         self._ovr_ring_k = -1
 
+        # This label reassigns on every single override-button press
+        # (show_override), and override_presses can be configured as high as
+        # 250 (OVR_OPTIONS), so a real "keep pressing to unlock" sequence is
+        # a long, uninterrupted burst of small label-bitmap reallocations --
+        # a likely contributor to the reported crash. This board's installed
+        # adafruit_display_text.Label does NOT accept a `max_glyphs` kwarg to
+        # pre-size and avoid that (confirmed on-device: it raised
+        # `TypeError: unexpected keyword argument 'max_glyphs'` and halted
+        # code.py with no UI) -- reverted. The periodic gc.collect() in
+        # LockController.press_override is the mitigation actually in place.
+        # scale=3, not 4: at scale=4 the widest text this ever shows
+        # ("250/250", 7 chars, OVR_OPTIONS' ceiling) is 4*6*7 = 168px --
+        # nearly the full 172px screen width on its own, let alone fitting
+        # inside the ring (whose usable inner width, after the ring's own
+        # stroke, is well under that). scale=3 -> 126px, comfortable both
+        # against the screen edge and inside the ring.
         self.ov_count = label.Label(terminalio.FONT, text="0/0", color=C_WHITE,
-                                    scale=4)
+                                    scale=3)
         self.ov_count.anchor_point = (0.5, 0.5)
-        self.ov_count.anchored_position = (W // 2, 160)
+        self.ov_count.anchored_position = (W // 2, 145)
         group.append(self.ov_count)
         self._fg_widgets.append((self.ov_count, 'color'))
         self._ovr_count_base = self.ov_count.anchored_position
 
+        # Positioned below the ring's bottom edge (ovr_ring_cy + ovr_ring_r =
+        # 145 + 72 = 217), not at a value chosen independently of it -- this
+        # row (and the bar/hint2 below) used to sit inside the ring's circle,
+        # overlapping it.
         hint = label.Label(terminalio.FONT, text="keep pressing to unlock",
                            color=C_GREY)
         hint.anchor_point = (0.5, 0.5)
-        hint.anchored_position = (W // 2, 210)
+        hint.anchored_position = (W // 2, 248)
         group.append(hint)
         self._dim_widgets.append((hint, 'color'))
 
@@ -949,7 +1074,7 @@ class LockUI:
         # real time (driven by update_override_timeout each frame) and
         # changes color as the deadline nears, same idiom as the battery bar.
         self.ov_bar_x = W // 2 - 70
-        self.ov_bar_y = 240
+        self.ov_bar_y = 264
         self.ov_bar_w = 140
         self.ov_bar_h = 14
         _ov_bar_bg = Rect(self.ov_bar_x, self.ov_bar_y, self.ov_bar_w,
@@ -965,7 +1090,7 @@ class LockUI:
         hint2 = label.Label(terminalio.FONT, text="resets if you stop",
                             color=C_GREY)
         hint2.anchor_point = (0.5, 0.5)
-        hint2.anchored_position = (W // 2, 270)
+        hint2.anchored_position = (W // 2, 296)
         group.append(hint2)
         self._dim_widgets.append((hint2, 'color'))
 
@@ -1138,6 +1263,7 @@ class LockUI:
         self.set_vals[3].text = "{}%".format(s.bright_pct)
         self.set_vals[4].text = "ON" if s.allow_remote_unlock else "OFF"
         self.set_vals[5].text = "ON" if s.unlock_on_call else "OFF"
+        self.ov_count_hint.text = "x{}".format(s.override_presses)
 
     def settings_row_at(self, y):
         # Tolerance must stay under half the row pitch (40px, was 43px for 5
@@ -1281,7 +1407,10 @@ class LockUI:
         group.append(_tile)
         self._bg_tiles.append(_tile)
 
-        ttl = label.Label(terminalio.FONT, text="TAG THIS SESSION", color=C_GREY,
+        # "TAG THIS SESSION" (16 chars) at scale=2 (12px/glyph) is 192px --
+        # wider than this 172px screen on its own, before any row/hint text.
+        # "TAG SESSION" (11 chars, 132px) fits with real margin.
+        ttl = label.Label(terminalio.FONT, text="TAG SESSION", color=C_GREY,
                           scale=2)
         ttl.anchor_point = (0.5, 0.5)
         ttl.anchored_position = (W // 2, 30)
@@ -1301,24 +1430,52 @@ class LockUI:
 
         hint = label.Label(terminalio.FONT, text="tap = tag & start", color=C_GREY)
         hint.anchor_point = (0.5, 0.5)
-        hint.anchored_position = (W // 2, 300)
+        hint.anchored_position = (W // 2, 288)
         group.append(hint)
         self._dim_widgets.append((hint, 'color'))
 
-        hint2 = label.Label(terminalio.FONT,
-                            text="swipe: left = skip, right = more",
-                            color=C_GREY)
-        hint2.anchor_point = (0.5, 0.5)
-        hint2.anchored_position = (W // 2, 314)
-        group.append(hint2)
-        self._dim_widgets.append((hint2, 'color'))
+        # SKIP/MORE controls -- an arrow plus a short label on each side,
+        # both tappable (see tag_picker_nav_at) and still swipe-compatible.
+        # The old single hint2 line ("swipe: left = skip, right = more", 34
+        # chars) overflowed this 172px-wide screen even at scale 1, and
+        # swipe-only paging with no visible control was easy to miss --
+        # this fixes both by giving each direction its own small, explicit,
+        # theme-colored affordance instead of one long unreadable caption.
+        self.tp_nav_y = 308
+        self._tp_arrow_left = Triangle(20, self.tp_nav_y - 5, 20, self.tp_nav_y + 5,
+                                       12, self.tp_nav_y, fill=C_WHITE)
+        group.append(self._tp_arrow_left)
+        self._fg_widgets.append((self._tp_arrow_left, 'fill'))
+
+        skip_lbl = label.Label(terminalio.FONT, text="SKIP", color=C_WHITE)
+        skip_lbl.anchor_point = (0.0, 0.5)
+        skip_lbl.anchored_position = (28, self.tp_nav_y)
+        group.append(skip_lbl)
+        self._fg_widgets.append((skip_lbl, 'color'))
+
+        more_lbl = label.Label(terminalio.FONT, text="MORE", color=C_WHITE)
+        more_lbl.anchor_point = (1.0, 0.5)
+        more_lbl.anchored_position = (W - 28, self.tp_nav_y)
+        group.append(more_lbl)
+        self._fg_widgets.append((more_lbl, 'color'))
+
+        self._tp_arrow_right = Triangle(W - 20, self.tp_nav_y - 5, W - 20, self.tp_nav_y + 5,
+                                        W - 12, self.tp_nav_y, fill=C_WHITE)
+        group.append(self._tp_arrow_right)
+        self._fg_widgets.append((self._tp_arrow_right, 'fill'))
 
     def show_tag_picker(self, page_topics):
         """page_topics: [(id, name), ...], up to 6 entries for this page."""
         self._tp_ids = [t[0] for t in page_topics]
         for i, lbl in enumerate(self.tp_row_labels):
             if i < len(page_topics):
-                lbl.text = page_topics[i][1][:16]
+                # 12 chars, not 16 -- at this row's scale=2 (12px/glyph), 16
+                # chars is 192px, wider than the 172px screen itself. 12
+                # chars (144px) fits with margin, and matches
+                # BLE_LABEL_NAME_MAX_LEN, so a synced custom label is never
+                # actually truncated here -- only a pathological built-in
+                # name would be, and none of the 6 built-ins are close.
+                lbl.text = page_topics[i][1][:12]
                 lbl.hidden = False
             else:
                 lbl.text = ""
@@ -1335,6 +1492,14 @@ class LockUI:
             if abs(y - ry) <= 19 and i < len(self._tp_ids):
                 return self._tp_ids[i]
         return None
+
+    def tag_picker_nav_at(self, x, y):
+        """'skip' / 'more' if (x, y) landed on that arrow+label control,
+        else None. Left half of the row = skip, right half = more -- a
+        generous tap target, not just the small triangle glyph itself."""
+        if abs(y - self.tp_nav_y) > 18:
+            return None
+        return 'skip' if x < self.W // 2 else 'more'
 
     # =================== hit testing ===================
     def in_button(self, x, y):
@@ -1359,13 +1524,15 @@ class LockUI:
         self.button.fill = color
 
     def set_clock(self, secs):
-        self.clock.text = fmt_hms(secs)
+        # Home screen only -- no seconds (see fmt_hm's docstring); the clock
+        # view's own styles still show full H:MM:SS via fmt_hms.
+        self.clock.text = fmt_hm(secs)
 
     def set_clock_text(self, text):
         self.clock.text = text
 
     def _idle_widgets(self, visible):
-        for w in (self.title, self.guide_h, self.guide_m, self.hint):
+        for w in (self.guide_h, self.guide_m):
             w.hidden = not visible
 
     # =================== whole-screen states ===================
@@ -1375,6 +1542,7 @@ class LockUI:
 
     def show_idle(self, secs):
         self.clock.hidden = False
+        self._clk_bg.hidden = False
         self.clock.color = self._fg_color
         self.set_clock(secs)
         self.big_msg.hidden = True
@@ -1389,6 +1557,7 @@ class LockUI:
 
     def show_running(self):
         self.clock.hidden = False
+        self._clk_bg.hidden = False
         self.clock.color = self._fg_color
         self.big_msg.hidden = True
         self.border.hidden = True
@@ -1399,6 +1568,7 @@ class LockUI:
     def show_closed(self):
         # lid closed but not yet timed: pick a time, then tap LOCK to start
         self.clock.hidden = False
+        self._clk_bg.hidden = False
         self.clock.color = self._fg_color
         self.big_msg.hidden = True
         self.border.hidden = True
@@ -1409,6 +1579,7 @@ class LockUI:
 
     def show_done(self, auto_open=True):
         self.clock.hidden = True
+        self._clk_bg.hidden = True
         self.big_msg.hidden = False
         # The single highest-payoff moment on the device -- spring the
         # message up into place instead of having it just appear, on top of

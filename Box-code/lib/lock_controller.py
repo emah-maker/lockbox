@@ -1,9 +1,10 @@
 # lock_controller.py -- the timer state machine and gesture handling.
+import gc
 from lock_config import (
     MAX_SECONDS, MAX_HOURS, SWIPE_MIN_PX, ANIM_HZ, DEFAULT_SECONDS,
     SWAP_XY, INVERT_X, INVERT_Y, CLOCK_FPS, SERVO_HOLD_S, OVERRIDE_PRESSES,
     OVERRIDE_TIMEOUT, DONE_ANIM_S, MIN_STEP, RELEASE_FRAMES,
-    SERVO_LOCK_ANGLE, SERVO_UNLOCK_ANGLE, fmt_hms,
+    SERVO_LOCK_ANGLE, SERVO_UNLOCK_ANGLE, fmt_hm,
     OVR_OPTIONS, BLE_CALL_ALERT_S, CALL_ALERT_BLINK_HZ,
     HOLD_REPEAT_DELAY, HOLD_REPEAT_START, HOLD_REPEAT_MIN, HOLD_REPEAT_RAMP,
     STATUS_TAP_COOLDOWN_S, BUILTIN_TOPICS, BLE_LABEL_MAX_COUNT,
@@ -19,6 +20,10 @@ OVERRIDDEN = "overridden"
 
 # ordered top-level views; horizontal swipe moves between them
 VIEWS = ("clock", "control", "battery", "settings")
+# Reachable while state == "running" (see _handle_release's horizontal-swipe
+# branch) -- control/settings are blocked while actually locked, but battery
+# should still be checkable without waiting for the countdown to finish.
+LOCKED_VIEWS = ("clock", "battery")
 
 
 class LockController:
@@ -42,6 +47,10 @@ class LockController:
         self.servo = Servo()
         self.settings = Settings()
         self.ui.set_theme(self.settings.theme_mode, self.settings.accent_idx)
+        # Previously only ever called on navigating to the settings view --
+        # left the control view's small override-count indicator blank from
+        # boot until the user happened to visit Settings first.
+        self.ui.update_settings(self.settings)
         self.log = SessionLog()
         self._editing = False
         self._edit_idx = 0
@@ -151,6 +160,14 @@ class LockController:
         self._session_topic = topic
         self.engage_lock()
         self.ui.show_running()
+        # While actually locked, the clock view (analog/digital/ring/elapsed
+        # -- its own styles, still reachable via the vertical swipe) is the
+        # only screen available; the control/battery/settings views are
+        # blocked in _handle_release's horizontal-swipe branch below until
+        # go_done returns to "control". Force onto it now rather than
+        # leaving whatever view (always "control" -- LOCK is only reachable
+        # from there) was showing when LOCK was tapped.
+        self.set_view("clock")
 
     def go_closed(self, now):
         # lid closed (sensor): servo latches; user picks a time then taps LOCK.
@@ -248,10 +265,11 @@ class LockController:
     def adjust(self, unit, direction):
         # Box editing is Hours + Minutes only (unit 0/1) -- seconds were
         # dropped from the on-screen swipe-to-set UI (see LockUI's
-        # guide_h/guide_m), but any existing sub-minute remainder (e.g. from
-        # a BLE "dur"/"start" push) is preserved untouched rather than
-        # zeroed, since the live running countdown still shows seconds (see
-        # update()'s fmt_hms(left)).
+        # guide_h/guide_m) and from the home screen's display (fmt_hm), but
+        # any existing sub-minute remainder (e.g. from a BLE "dur"/"start"
+        # push) is preserved untouched rather than zeroed -- it still counts
+        # toward the actual countdown length, it just never shows on this
+        # screen.
         h = self.set_seconds // 3600
         m = (self.set_seconds % 3600) // 60
         s = self.set_seconds % 60
@@ -289,7 +307,10 @@ class LockController:
                 self.go_done(now)
                 just_done = True
             else:
-                self.ui.set_clock_text(fmt_hms(left + 0.999))
+                # Home screen shows H:MM only -- fmt_hm does its own
+                # ceiling-to-minute, unlike fmt_hms's callers which ceiling
+                # to the next second themselves (see fmt_hm's docstring).
+                self.ui.set_clock_text(fmt_hm(left))
         elif self.state == "done":
             if self.settings.auto_open and now - self.done_start >= DONE_ANIM_S:
                 self.go_idle()             # auto-dismiss the unlock animation
@@ -580,6 +601,17 @@ class LockController:
             self.ui.show_override(self._override, target)
             # each press resets the timeout, so the countdown bar restarts full
             self.ui.update_override_timeout(OVERRIDE_TIMEOUT, OVERRIDE_TIMEOUT)
+            # Defensive: override_presses can be configured as high as 250
+            # (OVR_OPTIONS), so a real "keep pressing to unlock" sequence is
+            # a long, uninterrupted burst of small allocations (the count
+            # label, before the max_glyphs pre-sizing in LockUI -- see its
+            # comment). A press is a discrete, human-paced button edge, not a
+            # 50Hz frame, so an occasional GC pause here is not felt as
+            # touch/servo jank the way one in the run loop's hot path would
+            # be; done every 5th press, not every press, since gc.collect()
+            # itself isn't free.
+            if self._override % 5 == 0:
+                gc.collect()
 
     def _clear_override(self):
         # reset the counter and drop the on-screen overlay if it is showing
@@ -681,10 +713,12 @@ class LockController:
             return
 
         # Pre-session tag picker (see go_picking): tap a row to start tagged,
-        # swipe left to start untagged, swipe right for more synced labels if
-        # they don't fit on one page. Handled here, before the generic
-        # horizontal-swipe view-switch below, since the picker occupies the
-        # control view's screen without being one of the top-level VIEWS.
+        # tap/swipe the SKIP or MORE control to start untagged or page
+        # through synced labels (see LockUI's tag_picker_nav_at -- explicit
+        # arrow+label controls, not swipe-only). Handled here, before the
+        # generic horizontal-swipe view-switch below, since the picker
+        # occupies the control view's screen without being one of the
+        # top-level VIEWS.
         if self.state == "picking":
             if abs(dx) >= SWIPE_MIN_PX and abs(dx) > abs(dy):
                 right = (dx < 0) if INVERT_X else (dx > 0)
@@ -695,20 +729,40 @@ class LockController:
                     self.go_running(self._now, topic=None)
                 return
             if abs(dx) < SWIPE_MIN_PX and abs(dy) < SWIPE_MIN_PX:
-                topic = self.ui.tag_picker_topic_at(self._start[1])
-                if topic is not None:
-                    self.go_running(self._now, topic=topic)
+                nav = self.ui.tag_picker_nav_at(*self._start)
+                if nav == 'skip':
+                    self.go_running(self._now, topic=None)
+                elif nav == 'more':
+                    self._picker_page = (self._picker_page + 1) % self._picker_page_count()
+                    self.ui.show_tag_picker(self._picker_page_topics(self._picker_page))
+                else:
+                    topic = self.ui.tag_picker_topic_at(self._start[1])
+                    if topic is not None:
+                        self.go_running(self._now, topic=topic)
             return
 
         # Horizontal swipe -> switch views. INVERT_X is on, so a physical
-        # swipe-right corresponds to a negative mapped dx.
+        # swipe-right corresponds to a negative mapped dx. While actually
+        # locked (state == "running"), only clock and battery are reachable
+        # (LOCKED_VIEWS) -- control/settings stay blocked until go_done
+        # returns to "control". clock and battery aren't adjacent in the
+        # full VIEWS order (control sits between them), so this swipes
+        # within LOCKED_VIEWS's own order instead of VIEWS's while running.
         if abs(dx) >= SWIPE_MIN_PX and abs(dx) > abs(dy):
             right = (dx < 0) if INVERT_X else (dx > 0)
-            idx = VIEWS.index(self.view)
-            if right and idx < len(VIEWS) - 1:
-                self.set_view(VIEWS[idx + 1])
-            elif not right and idx > 0:
-                self.set_view(VIEWS[idx - 1])
+            if self.state == "running":
+                if self.view in LOCKED_VIEWS:
+                    idx = LOCKED_VIEWS.index(self.view)
+                    if right and idx < len(LOCKED_VIEWS) - 1:
+                        self.set_view(LOCKED_VIEWS[idx + 1])
+                    elif not right and idx > 0:
+                        self.set_view(LOCKED_VIEWS[idx - 1])
+            else:
+                idx = VIEWS.index(self.view)
+                if right and idx < len(VIEWS) - 1:
+                    self.set_view(VIEWS[idx + 1])
+                elif not right and idx > 0:
+                    self.set_view(VIEWS[idx - 1])
             return
 
         # Clock view: a vertical swipe cycles the clock appearance.

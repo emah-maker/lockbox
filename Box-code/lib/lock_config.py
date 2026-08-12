@@ -87,6 +87,21 @@ def fmt_hms(secs):
     return "{:d}:{:02d}:{:02d}".format(secs // 3600, (secs % 3600) // 60, secs % 60)
 
 
+def fmt_hm(secs):
+    """H:MM, no seconds -- the control ("home") screen's clock label only
+    (LockUI.set_clock/set_clock_text). The clock view's analog/digital/ring/
+    elapsed styles still show full H:MM:SS via fmt_hms above; this is a
+    separate, coarser display, not a change to fmt_hms itself. Rounds UP to
+    the next whole minute (except on an exact minute) so the displayed
+    minute never ticks down a full minute early -- the same "never show less
+    time than is actually left" rule fmt_hms's callers apply via a `+0.999`
+    ceiling, just baked in here since there's no seconds digit left to
+    absorb the fractional remainder."""
+    secs = max(0, int(secs))
+    mins = (secs + 59) // 60 if secs % 60 else secs // 60
+    return "{:d}:{:02d}".format(mins // 60, mins % 60)
+
+
 def lerp_color(c0, c1, t):
     """Linear-blend two already-`fix()`ed 0xRRGGBB colors by t in [0, 1].
     fix() is a per-channel bitwise complement (an affine map), so lerping the
@@ -138,11 +153,20 @@ OVERRIDE_TIMEOUT = 3.0       # seconds; no override press within this resets the
 # chatters/bounces at that screen region, a bounce can exceed RELEASE_FRAMES'
 # debounce and read as its own distinct tap, re-triggering go_idle()/
 # go_closed() and restarting LockUI's press-depth spring -- visible on
-# screen as the status text and press-dip repeatedly bouncing. This cooldown
-# only gates that one gesture (not the LOCK/OPEN button or any other tap),
-# and is well under STATUS_TRANSITION_S so a deliberate second tap right
-# after the cooldown still feels immediate.
-STATUS_TAP_COOLDOWN_S = 0.4
+# screen as the status text and press-dip repeatedly bouncing.
+#
+# Was widened to 1.0s, then 0.35s, to paper over the status text/press-dip
+# "moving all over the screen" -- that turned out to be a real bug
+# (lock_motion.Spring's integration was numerically unstable at the 0.1s
+# worst-case frame-delay LockController.update() clamps to, amplifying error
+# ~4.5x per step instead of damping it), now fixed at the source (Spring.step
+# sub-steps at a stable dt). Reported as "still unresponsive" at 0.35s, so
+# brought down further to a standard hardware-debounce duration (long enough
+# to absorb genuine electrical/mechanical touch chatter, which settles in
+# tens of ms; short enough that back-to-back deliberate taps both register).
+# RELEASE_FRAMES (2 frames, ~40ms at this loop's ~50Hz) is the other source
+# of tap-to-registered latency and is not the bottleneck here.
+STATUS_TAP_COOLDOWN_S = 0.2
 
 # ----- BLE companion link (adafruit_ble GATT peripheral) -----
 # The ESP32-S3 radio is already on the board ($0 added), previously unused. This
