@@ -134,6 +134,17 @@ BTN_OVERRIDE_PIN = "GPIO10"  # override button (press OVERRIDE_PRESSES times to 
 OVERRIDE_PRESSES = 25        # default; adjustable on the settings screen
 OVERRIDE_TIMEOUT = 3.0       # seconds; no override press within this resets the counter
 
+# Minimum time between status-bar tap-to-toggle actions (see
+# LockController._handle_release's status-bar branch). If the AXS5106L
+# chatters/bounces at that screen region, a bounce can exceed RELEASE_FRAMES'
+# debounce and read as its own distinct tap, re-triggering go_idle()/
+# go_closed() and restarting LockUI's press-depth spring -- visible on
+# screen as the status text and press-dip repeatedly bouncing. This cooldown
+# only gates that one gesture (not the LOCK/OPEN button or any other tap),
+# and is well under STATUS_TRANSITION_S so a deliberate second tap right
+# after the cooldown still feels immediate.
+STATUS_TAP_COOLDOWN_S = 0.4
+
 # ----- BLE companion link (adafruit_ble GATT peripheral) -----
 # The ESP32-S3 radio is already on the board ($0 added), previously unused. This
 # turns it on as a GATT peripheral so the phone app can read live status,

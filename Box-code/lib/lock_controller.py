@@ -6,6 +6,7 @@ from lock_config import (
     SERVO_LOCK_ANGLE, SERVO_UNLOCK_ANGLE, fmt_hms,
     OVR_OPTIONS, BLE_CALL_ALERT_S, CALL_ALERT_BLINK_HZ,
     HOLD_REPEAT_DELAY, HOLD_REPEAT_START, HOLD_REPEAT_MIN, HOLD_REPEAT_RAMP,
+    STATUS_TAP_COOLDOWN_S,
 )
 from lock_battery import Battery
 from lock_servo import Servo
@@ -47,6 +48,10 @@ class LockController:
         self._servo_locked = False
         self._override = 0
         self._override_at = 0.0
+        # last time the status-bar tap-to-toggle actually fired go_idle()/
+        # go_closed() -- see STATUS_TAP_COOLDOWN_S in lock_config.py. Seeded
+        # negative so the very first real tap of a session is never blocked.
+        self._last_status_toggle_at = -STATUS_TAP_COOLDOWN_S
         # settings detail-page [-]/[+] and swipe press-and-hold auto-repeat
         self._hold_dir = 0
         self._hold_next_at = 0.0
@@ -472,7 +477,16 @@ class LockController:
             pt = self._map(points[0])
             if not self._was_down:
                 self._start = pt
-                self.ui.on_touch_down(*pt)   # cosmetic only -- see LockUI.on_touch_down
+                # Suppress the press-dip too while the status-bar toggle is
+                # still cooling down (STATUS_TAP_COOLDOWN_S) -- on_touch_down
+                # is purely cosmetic (LockUI.on_touch_down) but a chattering
+                # touch there would otherwise keep restarting the press-depth
+                # spring even though _handle_release now skips the actual
+                # go_idle()/go_closed() call, still reading as a bounce.
+                in_cooldown = (self.ui.in_status(*pt) and
+                               self._now - self._last_status_toggle_at < STATUS_TAP_COOLDOWN_S)
+                if not in_cooldown:
+                    self.ui.on_touch_down(*pt)   # cosmetic only -- see LockUI.on_touch_down
             self._last = pt
             self._was_down = True
             if self._editing:
@@ -588,12 +602,24 @@ class LockController:
             return
 
         # Tap the status bar to toggle the lid: CLOSED -> open, UNLOCKED -> lock.
+        # Gated by STATUS_TAP_COOLDOWN_S so a chattering/bouncing touch read
+        # right after a real toggle can't re-fire go_idle()/go_closed() and
+        # restart the press-depth spring -- see lock_config.py's comment.
+        # The state-matching `return`s are unconditional (matching the
+        # pre-cooldown behavior) so a tap on the status bar is never
+        # misread as hitting the LOCK/OPEN button below; only the actual
+        # go_idle()/go_closed() call is skipped while still cooling down.
         if self.ui.in_status(*self._start) and self.ui.in_status(*self._last):
+            cooled_down = (self._now - self._last_status_toggle_at) >= STATUS_TAP_COOLDOWN_S
             if self.state == "closed":
-                self.go_idle()            # open (release the servo)
+                if cooled_down:
+                    self._last_status_toggle_at = self._now
+                    self.go_idle()            # open (release the servo)
                 return
             if self.state in ("idle", "done"):
-                self.go_closed(self._now)  # lock: close the servo, show setup
+                if cooled_down:
+                    self._last_status_toggle_at = self._now
+                    self.go_closed(self._now)  # lock: close the servo, show setup
                 return
 
         # Button press is checked FIRST so finger wobble on a tap is not
