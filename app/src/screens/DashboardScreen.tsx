@@ -14,6 +14,7 @@ import { lastNDays } from '../stats/trend';
 import type { Status } from '../ble/protocol';
 import { AnimatedPressable } from '../ui/AnimatedPressable';
 import { AnimatedFill } from '../ui/AnimatedFill';
+import { WheelPicker } from '../ui/WheelPicker';
 import { useReducedMotion, configureLayoutAnimation } from '../ui/useReducedMotion';
 import { typeScale, elevation } from '../theme/tokens';
 
@@ -33,8 +34,8 @@ function batteryColor(pct: number, t: ReturnType<typeof useTheme>): string {
 const DISABLED_OPACITY = 0.35;
 
 /** Fades a button's opacity between enabled/disabled instead of an instant
- * cut, so losing/gaining availability (e.g. Close vs. Open as box state
- * changes) reads as a state transition rather than a jump. */
+ * cut, so losing/gaining availability (e.g. Open as box state changes) reads
+ * as a state transition rather than a jump. */
 function useDisabledFade(disabled: boolean) {
   const reducedMotion = useReducedMotion();
   const opacity = useRef(new Animated.Value(disabled ? DISABLED_OPACITY : 1)).current;
@@ -57,6 +58,12 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 }
 
 const MINUTE_STEP = 5;
+// Wheel contents for the H/M duration picker -- hours 0..MAX_LOCK_HOURS,
+// minutes in the same 5-minute steps the old stepper used.
+const HOUR_VALUES = Array.from({ length: MAX_LOCK_HOURS + 1 }, (_, i) => i);
+const MINUTE_VALUES = Array.from({ length: 60 / MINUTE_STEP }, (_, i) => i * MINUTE_STEP);
+const HOUR_LABELS = HOUR_VALUES.map((h) => `${h}h`);
+const MINUTE_LABELS = MINUTE_VALUES.map((m) => `${String(m).padStart(2, '0')}m`);
 
 /** Fraction of the configured lock duration elapsed so far, for the running
  * -session progress meter. 0 when `set` is unknown (0). */
@@ -76,7 +83,6 @@ export default function DashboardScreen() {
     callDetectionAvailable,
     connect,
     disconnect,
-    startLock,
     setDuration,
     closeBox,
     openBox,
@@ -91,24 +97,30 @@ export default function DashboardScreen() {
   const s = styles(theme);
   const reducedMotion = useReducedMotion();
 
-  // Duration picker for "Lock for H:MM" -- local to this screen, not persisted;
-  // startLock(seconds) both sets the box's duration and starts the countdown
-  // (Box-code/lib/lock_controller.apply_ble_command "start:<seconds>"). Every
-  // stepper change also pushes a live preview via setDuration below (opcode
-  // "dur:<seconds>") so the box's clock reflects the picked time immediately,
-  // without waiting for -- or requiring -- the Lock button.
+  // Duration picker -- local to this screen, not persisted. Preview-only: it
+  // can't start a lock from the phone (that has to happen at the box, with
+  // the phone physically inside it -- see show_idle/show_closed in
+  // Box-code/lib/lock_ui.py). Every stepper change pushes a live preview via
+  // setDuration below (opcode "dur:<seconds>") so the box's clock reflects
+  // the picked time immediately, ready for LOCK to be tapped on the box.
   const [pickHours, setPickHours] = useState(0);
   const [pickMinutes, setPickMinutes] = useState(25);
   const pickSeconds = clampLockSeconds(pickHours, pickMinutes);
 
-  const stepPickHours = (dir: 1 | -1) => {
-    const next = Math.max(0, Math.min(MAX_LOCK_HOURS, pickHours + dir));
+  // 9:00 is the cap -- once hours hits it, the minutes wheel has nothing
+  // left to offer but 0 (mirrors the old stepper's clamp).
+  const atMaxHours = pickHours >= MAX_LOCK_HOURS;
+  const minuteValues = atMaxHours ? [0] : MINUTE_VALUES;
+  const minuteLabels = atMaxHours ? ['00m'] : MINUTE_LABELS;
+  const minutesIndex = Math.max(0, minuteValues.indexOf(pickMinutes));
+
+  const onHoursIndexChange = (index: number) => {
+    const next = HOUR_VALUES[index];
     setPickHours(next);
-    if (next >= MAX_LOCK_HOURS) setPickMinutes(0); // 9:00 is the cap -- no extra minutes
+    if (next >= MAX_LOCK_HOURS) setPickMinutes(0);
   };
-  const stepPickMinutes = (dir: 1 | -1) => {
-    if (pickHours >= MAX_LOCK_HOURS) return;
-    setPickMinutes((m) => Math.max(0, Math.min(55, m + dir * MINUTE_STEP)));
+  const onMinutesIndexChange = (index: number) => {
+    setPickMinutes(minuteValues[index]);
   };
 
   // Computed here, not read over BLE: the box keeps no long-term stats of its
@@ -155,12 +167,10 @@ export default function DashboardScreen() {
   const canOpen = connected && (status?.st === 'running' || status?.st === 'closed');
   const closeFade = useDisabledFade(!canClose);
   const openFade = useDisabledFade(!canOpen);
-  const lockFade = useDisabledFade(pickSeconds <= 0);
 
-  // Push the picked duration to the box as it changes -- not via the Lock
-  // button (that's still startLock, which sets AND starts in one write).
-  // This is what lets the box's on-screen clock track the stepper live, so
-  // the picked time is visible on the box before the user commits to it.
+  // Push the picked duration to the box as it changes. This is what lets the
+  // box's on-screen clock track the stepper live, so the picked time is
+  // visible on the box before the user taps its own LOCK button.
   useEffect(() => {
     if (!connected || !canClose) return;
     setDuration(pickSeconds).catch(() => {});
@@ -207,6 +217,11 @@ export default function DashboardScreen() {
             <Text style={s.sub}>Battery {status.bat < 0 ? '—' : `${status.bat}%`}</Text>
           </View>
 
+          {/* No remote Lock-start here -- starting a countdown has to happen
+              physically at the box (tap LOCK once the phone is inside it).
+              Close (arm the latch, no timer yet) and Open/unlock are
+              unaffected -- both remain the "Allow open/close from this
+              phone" remote actions Settings already promises. */}
           <View style={s.controlRow}>
             <AnimatedPressable
               style={[s.controlBtn, { opacity: closeFade }]}
@@ -235,64 +250,37 @@ export default function DashboardScreen() {
 
           {canClose && (
             <View style={s.pickerBlock}>
-              <Text style={s.label}>Or lock for a set time</Text>
+              {/* Duration only -- no lock button here. Locking has to happen
+                  at the box (tap LOCK once the phone is physically inside);
+                  this just previews/pushes the duration live (see the
+                  setDuration effect above) so the box's clock reflects it. */}
+              <Text style={s.label}>Set lock duration</Text>
               <View style={s.pickerRow}>
-                <DurationStepper
-                  value={`${pickHours}h`}
-                  onMinus={() => stepPickHours(-1)}
-                  onPlus={() => stepPickHours(1)}
-                  theme={theme}
-                  s={s}
-                />
-                <DurationStepper
-                  value={`${String(pickMinutes).padStart(2, '0')}m`}
-                  onMinus={() => stepPickMinutes(-1)}
-                  onPlus={() => stepPickMinutes(1)}
-                  disabled={pickHours >= MAX_LOCK_HOURS}
-                  theme={theme}
-                  s={s}
-                />
+                <WheelPicker labels={HOUR_LABELS} selectedIndex={pickHours} onChange={onHoursIndexChange} />
+                <WheelPicker labels={minuteLabels} selectedIndex={minutesIndex} onChange={onMinutesIndexChange} />
               </View>
-              <AnimatedPressable
-                style={[s.controlBtn, s.lockForBtn, { opacity: lockFade }]}
-                disabled={pickSeconds <= 0}
-                onPress={() => startLock(pickSeconds)}
-              >
-                <Text style={s.controlBtnText}>
-                  Lock for {pickHours}:{String(pickMinutes).padStart(2, '0')}
-                </Text>
-              </AnimatedPressable>
+              <TopicPicker
+                heading="Tag this session before you lock it"
+                currentTopic={currentTopic}
+                customLabels={customLabels}
+                themeMode={themeMode}
+                theme={theme}
+                s={s}
+                onSelect={tagCurrentSession}
+              />
             </View>
           )}
 
           {status.st === 'running' && (
-            <View style={{ marginTop: 8 }}>
-              <Text style={s.label}>
-                {currentTopic
-                  ? `Tagged: ${resolveTopic(currentTopic, customLabels, themeMode)?.label ?? currentTopic}`
-                  : 'What are you focusing on?'}
-              </Text>
-              <View style={s.topicChipRow}>
-                {allLabelChoices(customLabels, themeMode).map((choice) => {
-                  const active = currentTopic === choice.id;
-                  return (
-                    <AnimatedPressable
-                      key={choice.id}
-                      style={[
-                        s.topicChip,
-                        { borderColor: choice.color },
-                        active && { backgroundColor: choice.color },
-                      ]}
-                      onPress={() => tagCurrentSession(choice.id)}
-                    >
-                      <Text style={[s.topicChipText, { color: active ? choice.textColor : theme.text }]}>
-                        {choice.label}
-                      </Text>
-                    </AnimatedPressable>
-                  );
-                })}
-              </View>
-            </View>
+            <TopicPicker
+              heading="What are you focusing on?"
+              currentTopic={currentTopic}
+              customLabels={customLabels}
+              themeMode={themeMode}
+              theme={theme}
+              s={s}
+              onSelect={tagCurrentSession}
+            />
           )}
         </View>
       )}
@@ -345,41 +333,53 @@ export default function DashboardScreen() {
   );
 }
 
-// Local stepper matching SettingsScreen's StepperRow (-/+ buttons) convention,
-// sized for this screen's two-up hours/minutes row.
-function DurationStepper({
-  value,
-  onMinus,
-  onPlus,
-  disabled,
+// Shared by the pre-session picker (canClose, above) and the in-session chip
+// row (status.st === 'running') so both tagging moments render identically
+// and stay backed by the same custom-label catalog.
+function TopicPicker({
+  heading,
+  currentTopic,
+  customLabels,
+  themeMode,
   theme,
   s,
+  onSelect,
 }: {
-  value: string;
-  onMinus: () => void;
-  onPlus: () => void;
-  disabled?: boolean;
+  heading: string;
+  currentTopic: string | null;
+  customLabels: ReturnType<typeof useSettingsStore.getState>['customLabels'];
+  themeMode: ReturnType<typeof useSettingsStore.getState>['themeMode'];
   theme: ReturnType<typeof useTheme>;
   s: ReturnType<typeof styles>;
+  onSelect: (topic: string) => void;
 }) {
-  const fade = useDisabledFade(!!disabled);
   return (
-    <View style={s.stepper}>
-      <AnimatedPressable
-        style={[s.stepBtn, { borderColor: theme.textDim, opacity: fade }]}
-        disabled={disabled}
-        onPress={onMinus}
-      >
-        <Text style={{ color: theme.text, fontSize: 18 }}>-</Text>
-      </AnimatedPressable>
-      <Text style={s.stepValue}>{value}</Text>
-      <AnimatedPressable
-        style={[s.stepBtn, { borderColor: theme.textDim, opacity: fade }]}
-        disabled={disabled}
-        onPress={onPlus}
-      >
-        <Text style={{ color: theme.text, fontSize: 18 }}>+</Text>
-      </AnimatedPressable>
+    <View style={{ marginTop: 8 }}>
+      <Text style={s.label}>
+        {currentTopic
+          ? `Tagged: ${resolveTopic(currentTopic, customLabels, themeMode)?.label ?? currentTopic}`
+          : heading}
+      </Text>
+      <View style={s.topicChipRow}>
+        {allLabelChoices(customLabels, themeMode).map((choice) => {
+          const active = currentTopic === choice.id;
+          return (
+            <AnimatedPressable
+              key={choice.id}
+              style={[
+                s.topicChip,
+                { borderColor: choice.color },
+                active && { backgroundColor: choice.color },
+              ]}
+              onPress={() => onSelect(choice.id)}
+            >
+              <Text style={[s.topicChipText, { color: active ? choice.textColor : theme.text }]}>
+                {choice.label}
+              </Text>
+            </AnimatedPressable>
+          );
+        })}
+      </View>
     </View>
   );
 }
@@ -412,17 +412,6 @@ const styles = (t: ReturnType<typeof useTheme>) =>
     controlBtnText: { color: t.accentText, fontWeight: '700' },
     pickerBlock: { marginTop: 12 },
     pickerRow: { flexDirection: 'row', gap: 16, marginTop: 6 },
-    lockForBtn: { marginTop: 10 },
-    stepper: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-    stepBtn: {
-      width: 32,
-      height: 32,
-      borderRadius: 8,
-      borderWidth: 1,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    stepValue: { minWidth: 40, textAlign: 'center', color: t.text, fontSize: 15, fontWeight: '600' },
     meterTrack: { height: 8, borderRadius: 4, overflow: 'hidden', marginTop: 2 },
     meterFill: { height: '100%', borderRadius: 4 },
     topicChipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 },

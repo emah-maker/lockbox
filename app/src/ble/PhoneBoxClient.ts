@@ -21,6 +21,7 @@ import {
   encodeTime,
   encodeAlert,
   cmdHistoryAck,
+  cmdSetLabels,
 } from './protocol';
 
 const b64 = (s: string) => Buffer.from(s, 'utf8').toString('base64');
@@ -202,6 +203,13 @@ export class PhoneBoxClient {
    * handleHistory), not just received. */
   ackHistory(seq: number) {
     return this.write(CHAR.command, cmdHistoryAck(seq));
+  }
+
+  /** Best-effort, one-way push of the custom-label catalog -- see
+   * protocol.ts's cmdSetLabels for the wire format and why this reuses
+   * CHAR.command. */
+  setLabels(labels: { id: string; name: string; color: string }[]) {
+    return this.write(CHAR.command, cmdSetLabels(labels));
   }
 
   get connected() {

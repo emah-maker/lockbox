@@ -69,6 +69,7 @@ class LockUI:
         self._an_active_target = None
         self._dig_active_target = None
         self._rg_active_target = None
+        self._el_active_target = None
 
         # ----- position-spring motion (see lock_motion.Spring / step_motion
         # below) -- a complement to the color-transition engine above, not an
@@ -83,17 +84,19 @@ class LockUI:
         self._build_control(W, H)
 
         # clock view has several swappable appearances (swipe up/down)
-        self.clock_styles = ["analog", "digital", "ring"]
+        self.clock_styles = ["analog", "digital", "ring", "elapsed"]
         self.clock_style_idx = 0
         self.clock_groups = []
         self._build_clock_analog(W, H)
         self._build_clock_digital(W, H)
         self._build_clock_ring(W, H)
+        self._build_clock_elapsed(W, H)
         self._build_battery(W, H)
         self._build_call_alert(W, H)
         self._build_override(W, H)
         self._build_settings(W, H)
         self._build_setting_detail(W, H)
+        self._build_tag_picker(W, H)
 
         self.view = "control"
         display.root_group = self.control_group
@@ -223,11 +226,31 @@ class LockUI:
         self.status_bar = RoundRect(8, self.STATUS_Y, W - 16, self.STATUS_H,
                                     RADIUS_CARD, fill=C_GREEN)
         group.append(self.status_bar)
+        # Press-feedback ring for the status bar (see on_touch_down) --
+        # appended here, between the bar and its label, so the label is
+        # GUARANTEED to paint on top of the ring's stroke every frame
+        # (displayio paints append order back-to-front). Previously this ring
+        # was built in a separate block at the very end of _build_control,
+        # after every other control-view widget including this label -- on
+        # top of it for the ring's entire visible lifetime, which is the most
+        # likely source of the reported "status text disappears" glitch even
+        # though the ring's own fill=None should leave the interior
+        # transparent. Moving it here removes that risk without touching the
+        # tap-to-toggle interaction model at all (still shown/hidden only).
+        self.status_press_ring = RoundRect(6, self.STATUS_Y - 2, W - 12,
+                                           self.STATUS_H + 4, 9,
+                                           fill=None, outline=C_WHITE, stroke=3)
+        self.status_press_ring.hidden = True
+        group.append(self.status_press_ring)
+        # Fixed rest position, captured once at build time -- see
+        # on_touch_down's comment on why this must NOT be a live `.y` read.
+        self._status_ring_rest_y = self.status_press_ring.y
         self.status_lbl = label.Label(terminalio.FONT, text="UNLOCKED",
                                       color=C_BLACK, scale=2)
         self.status_lbl.anchor_point = (0.5, 0.5)
         self.status_lbl.anchored_position = (W // 2, self.STATUS_Y + self.STATUS_H // 2)
         group.append(self.status_lbl)
+        self._status_lbl_rest_pos = self.status_lbl.anchored_position
 
         self._add_corner_indicators(group, W, y=55)
 
@@ -243,18 +266,19 @@ class LockUI:
         self.clock.anchored_position = (W // 2, 150)
         group.append(self.clock)
 
-        # column guides: swipe over H / M / S to change that unit
+        # column guides: swipe over H / M to change that unit. Seconds were
+        # dropped from the box's own editing UI (still shown live in the
+        # running countdown -- see LockController.update's fmt_hms(left)) --
+        # a two-way split reads clearer at this width than the old 3-way one.
         self.guide_h = label.Label(terminalio.FONT, text="H", color=C_GREY, scale=2)
         self.guide_m = label.Label(terminalio.FONT, text="M", color=C_GREY, scale=2)
-        self.guide_s = label.Label(terminalio.FONT, text="S", color=C_GREY, scale=2)
-        for g, gx in ((self.guide_h, W // 6), (self.guide_m, W // 2),
-                      (self.guide_s, W - W // 6)):
+        for g, gx in ((self.guide_h, W // 4), (self.guide_m, 3 * W // 4)):
             g.anchor_point = (0.5, 0.5)
             g.anchored_position = (gx, 186)
             group.append(g)
             self._dim_widgets.append((g, 'color'))
 
-        self.hint = label.Label(terminalio.FONT, text="swipe up/down on H M S",
+        self.hint = label.Label(terminalio.FONT, text="swipe up/down on H M",
                                 color=C_GREY)
         self.hint.anchor_point = (0.5, 0.5)
         self.hint.anchored_position = (W // 2, 212)
@@ -290,29 +314,28 @@ class LockUI:
                                 RADIUS_BTN_LG, fill=C_GREEN, outline=C_WHITE, stroke=2)
         group.append(self.button)
         self._fg_widgets.append((self.button, 'outline'))
-        self.btn_label = label.Label(terminalio.FONT, text="LOCK", color=C_ON_ACCENT,
-                                     scale=2)
-        self.btn_label.anchor_point = (0.5, 0.5)
-        self.btn_label.anchored_position = (W // 2, self.BTN_Y + self.BTN_H // 2)
-        group.append(self.btn_label)
-
-        # Press-feedback rings for the two direct-tap targets on this view
-        # (start/stop button, status bar) -- see on_touch_down/on_touch_up.
-        # A plain outline drawn OVER the widget, shown/hidden only, never
-        # touching the widget's own `.fill` -- that color is actively managed
-        # by set_status/set_button/show_* as the state machine transitions,
-        # and a ring that only toggles .hidden can never race with or clobber
-        # a legitimate state-color change on release.
+        # Press-feedback ring for the button (see on_touch_down/on_touch_up)
+        # -- appended between the button and its label for the same z-order
+        # reason as status_press_ring above: the label must always paint on
+        # top of the ring's stroke. A plain outline drawn OVER the button,
+        # shown/hidden only, never touching the button's own `.fill` -- that
+        # color is actively managed by set_button as the state machine
+        # transitions, and a ring that only toggles .hidden can never race
+        # with or clobber a legitimate state-color change on release.
         self.button_press_ring = Rect(self.BTN_X - 3, self.BTN_Y - 3,
                                       self.BTN_W + 6, self.BTN_H + 6,
                                       fill=None, outline=C_WHITE, stroke=3)
         self.button_press_ring.hidden = True
         group.append(self.button_press_ring)
-        self.status_press_ring = RoundRect(6, self.STATUS_Y - 2, W - 12,
-                                           self.STATUS_H + 4, 9,
-                                           fill=None, outline=C_WHITE, stroke=3)
-        self.status_press_ring.hidden = True
-        group.append(self.status_press_ring)
+        # Fixed rest position, captured once at build time -- see
+        # on_touch_down's comment on why this must NOT be a live `.y` read.
+        self._btn_ring_rest_y = self.button_press_ring.y
+        self.btn_label = label.Label(terminalio.FONT, text="LOCK", color=C_ON_ACCENT,
+                                     scale=2)
+        self.btn_label.anchor_point = (0.5, 0.5)
+        self.btn_label.anchored_position = (W // 2, self.BTN_Y + self.BTN_H // 2)
+        group.append(self.btn_label)
+        self._btn_label_rest_pos = self.btn_label.anchored_position
 
     # ----- touch-down/up feedback (control view only) -----
     # Every tap/swipe on this device is resolved on RELEASE, in
@@ -329,17 +352,30 @@ class LockUI:
     def on_touch_down(self, x, y):
         if self.view != "control":
             return
+        # Bases below are the FIXED rest positions captured once at build
+        # time (_btn_ring_rest_y/_btn_label_rest_pos/etc.), never a live
+        # `.y`/`.anchored_position` read. A rapid re-tap (or a chattering
+        # touch controller re-firing this before the previous press-depth
+        # spring had settled back to 0) used to capture whatever offset
+        # position the widget was CURRENTLY at as the new "base" -- since
+        # step_motion always adds the spring's offset on top of that base,
+        # every such re-tap baked in the previous frame's residual offset,
+        # and the button/status text visibly walked away from its true
+        # position a little further with each rapid tap (reported as the
+        # on-screen text "shaking all over the screen" under repeated
+        # pressing). Fixed bases make every press start from the same true
+        # rest point regardless of how many rapid re-taps preceded it.
         if self.in_button(x, y) and not self.button.hidden:
             self._begin_press(self.button_press_ring, (
-                (self.button_press_ring, 'y', self.button_press_ring.y),
+                (self.button_press_ring, 'y', self._btn_ring_rest_y),
                 (self.button, 'y', self.BTN_Y),
-                (self.btn_label, 'label', self.btn_label.anchored_position),
+                (self.btn_label, 'label', self._btn_label_rest_pos),
             ))
         elif self.in_status(x, y):
             self._begin_press(self.status_press_ring, (
-                (self.status_press_ring, 'y', self.status_press_ring.y),
+                (self.status_press_ring, 'y', self._status_ring_rest_y),
                 (self.status_bar, 'y', self.STATUS_Y),
-                (self.status_lbl, 'label', self.status_lbl.anchored_position),
+                (self.status_lbl, 'label', self._status_lbl_rest_pos),
             ))
 
     def on_touch_up(self):
@@ -623,6 +659,47 @@ class LockUI:
         self._draw_hand(min_a, self.ring_r - 10, 1, 4)    # minute hand (white)
         self._draw_hand(sec_a, self.ring_r - 4, 2, 2)     # second hand (accent)
 
+    # ----- style 4: elapsed time (same card layout as digital, but counts up
+    # from lock start instead of down to zero) -----
+    def _build_clock_elapsed(self, W, H):
+        group = displayio.Group()
+        self.clock_groups.append(group)
+        _tile = _bg_tile(W, H, C_BG)
+        group.append(_tile)
+        self._bg_tiles.append(_tile)
+
+        ttl = label.Label(terminalio.FONT, text="ELAPSED", color=C_GREY, scale=2)
+        ttl.anchor_point = (0.5, 0.5)
+        ttl.anchored_position = (W // 2, 26)
+        group.append(ttl)
+        self._dim_widgets.append((ttl, 'color'))
+        self._add_corner_indicators(group, W, y=26)
+
+        fh = 70
+        _el_bg = RoundRect(12, 150 - fh // 2, W - 24, fh, RADIUS_CARD,
+                           fill=C_SURFACE, outline=C_GREY, stroke=2)
+        group.append(_el_bg)
+        self._surface_widgets.append((_el_bg, 'fill'))
+        self._dim_widgets.append((_el_bg, 'outline'))
+
+        _el_hilite = Rect(14, 150 - fh // 2 + 2, W - 28, 2, fill=C_SURFACE_HILITE)
+        group.append(_el_hilite)
+
+        self.el_time = label.Label(terminalio.FONT, text="0:00:00",
+                                   color=C_WHITE, scale=3)
+        self.el_time.anchor_point = (0.5, 0.5)
+        self.el_time.anchored_position = (W // 2, 150)
+        group.append(self.el_time)
+
+        self.el_state = label.Label(terminalio.FONT, text="", color=C_GREY,
+                                    scale=2)
+        self.el_state.anchor_point = (0.5, 0.5)
+        self.el_state.anchored_position = (W // 2, 224)
+        group.append(self.el_state)
+        self._dim_widgets.append((self.el_state, 'color'))
+
+        self._clock_hints(group, W)
+
     # ----- view switching -----
     def show_view(self, view):
         self.view = view
@@ -667,7 +744,7 @@ class LockUI:
                 self._dig_active_target = target
                 self._start_color_transition(self.dig_time, 'color', target)
             self.dig_state.text = statetext
-        else:  # arch gauge
+        elif style == "ring":  # arch gauge
             self.rg_time.text = txt
             frac = 0.0 if total <= 0 else 1.0 - (remaining / total)
             self._set_gauge(frac)
@@ -675,6 +752,16 @@ class LockUI:
                 self._rg_active_target = target
                 self._start_color_transition(self.rg_time, 'color', target)
             self.rg_state.text = statetext
+        else:  # elapsed -- counts up from lock start instead of down to zero;
+            # `remaining`/`total` come from the same _remaining_total pair
+            # every other style uses, so total - remaining is already 0 when
+            # idle (nothing elapsed yet) and the full duration once done.
+            elapsed = max(0.0, total - remaining)
+            self.el_time.text = fmt_hms(elapsed)
+            if target != self._el_active_target:
+                self._el_active_target = target
+                self._start_color_transition(self.el_time, 'color', target)
+            self.el_state.text = statetext
 
     # =================== battery view ===================
     def _build_battery(self, W, H):
@@ -714,6 +801,7 @@ class LockUI:
         self.bat_fill_max = self.bat_w - 2 * self.bat_pad
         self.bat_fill_group = displayio.Group()
         group.append(self.bat_fill_group)
+        self._bat_bar_last_key = None  # see update_battery_view
 
         self.bat_pct = label.Label(terminalio.FONT, text="--%", color=C_WHITE,
                                    scale=3)
@@ -760,31 +848,47 @@ class LockUI:
             self.bat_chg.text = ""
             self.bat_watts.text = ""
             self.bat_diag.text = "MAX17048 @0x36 not found"
+            key = None
+        else:
+            self.bat_volts.text = "{:.2f} V".format(r.volts)
+            self.bat_diag.text = "raw {}".format(r.raw)
+            if r.charging:
+                # A voltage-only gauge can't know the true level while
+                # charging, so don't fake a %: show "CHG" and leave the bar
+                # empty.
+                self.bat_pct.text = "CHG"
+                self.bat_chg.text = "Charging"
+                self.bat_chg.color = C_GREEN
+                self.bat_watts.text = "-- W"
+                key = None
+            else:
+                pct = max(0, min(100, r.percent))
+                self.bat_pct.text = "{}%".format(pct)
+                self.bat_chg.text = "On battery"
+                self.bat_chg.color = C_AMBER
+                self.bat_watts.text = "~{:.1f} W (est)".format(r.watts)
+                if pct >= 50:
+                    col = C_GREEN
+                elif pct >= 20:
+                    col = C_AMBER
+                else:
+                    col = C_RED
+                w = max(1, int(self.bat_fill_max * pct / 100))
+                key = (w, col)
+        # Only rebuild the fill Rect when it actually changed -- see the
+        # identical fix (and the reason) in update_override_timeout above.
+        # Falling through to this gate even in the "not available"/"charging"
+        # cases (rather than returning early) matters too: without it, a fill
+        # bar drawn while the gauge was available and discharging would never
+        # get cleared if the gauge later drops out or starts charging while
+        # the battery view stays open.
+        if key == self._bat_bar_last_key:
             return
-        self.bat_volts.text = "{:.2f} V".format(r.volts)
-        self.bat_diag.text = "raw {}".format(r.raw)
+        self._bat_bar_last_key = key
         while len(self.bat_fill_group):
             self.bat_fill_group.pop()
-        if r.charging:
-            # A voltage-only gauge can't know the true level while charging, so
-            # don't fake a %: show "CHG" and leave the bar empty.
-            self.bat_pct.text = "CHG"
-            self.bat_chg.text = "Charging"
-            self.bat_chg.color = C_GREEN
-            self.bat_watts.text = "-- W"
-        else:
-            pct = max(0, min(100, r.percent))
-            self.bat_pct.text = "{}%".format(pct)
-            self.bat_chg.text = "On battery"
-            self.bat_chg.color = C_AMBER
-            self.bat_watts.text = "~{:.1f} W (est)".format(r.watts)
-            if pct >= 50:
-                col = C_GREEN
-            elif pct >= 20:
-                col = C_AMBER
-            else:
-                col = C_RED
-            w = max(1, int(self.bat_fill_max * pct / 100))
+        if key is not None:
+            w, col = key
             self.bat_fill_group.append(Rect(self.bat_fill_x, self.bat_fill_y, w,
                                             self.bat_fill_h, fill=col))
 
@@ -800,6 +904,29 @@ class LockUI:
         ttl.anchor_point = (0.5, 0.5)
         ttl.anchored_position = (W // 2, 70)
         group.append(ttl)
+
+        # Circular progress ring around the press counter -- same
+        # dots-around-a-circle technique as the clock view's arch gauge
+        # (_build_clock_ring/_set_gauge), recolored to the app's accent as
+        # the count approaches target instead of amber/green (this ring IS
+        # the override's own progress, not a lock/closed/unlocked STATE
+        # color, so it's free to use accent like the LOCK/OPEN button).
+        # Built and appended BEFORE ov_count so the count text always paints
+        # on top of the ring, same z-order reasoning as the press rings in
+        # _build_control.
+        self.ovr_ring_cx = W // 2
+        self.ovr_ring_cy = 160
+        self.ovr_ring_r = 86
+        self.ovr_ring_n = 40
+        self.ovr_ring_dots = []
+        for i in range(self.ovr_ring_n):
+            theta = 2 * math.pi * i / self.ovr_ring_n
+            x = self.ovr_ring_cx + int(self.ovr_ring_r * math.sin(theta))
+            y = self.ovr_ring_cy - int(self.ovr_ring_r * math.cos(theta))
+            dot = Circle(x, y, 4, fill=C_GREY)
+            self.ovr_ring_dots.append(dot)
+            group.append(dot)
+        self._ovr_ring_k = -1
 
         self.ov_count = label.Label(terminalio.FONT, text="0/0", color=C_WHITE,
                                     scale=4)
@@ -831,6 +958,9 @@ class LockUI:
         self._dim_widgets.append((_ov_bar_bg, 'outline'))
         self.ov_bar_fill_group = displayio.Group()
         group.append(self.ov_bar_fill_group)
+        # last (w, color) actually drawn -- see update_override_timeout, which
+        # only touches the group when this changes instead of on every frame
+        self._ov_bar_last_key = None
 
         hint2 = label.Label(terminalio.FONT, text="resets if you stop",
                             color=C_GREY)
@@ -839,8 +969,21 @@ class LockUI:
         group.append(hint2)
         self._dim_widgets.append((hint2, 'color'))
 
+    def _set_ovr_ring(self, frac):
+        # Same key-gated redraw idiom as _set_gauge/update_override_timeout
+        # -- only touch a dot's .fill when the filled count actually changes,
+        # not on every press-counter update.
+        frac = max(0.0, min(1.0, frac))
+        k = int(round(frac * self.ovr_ring_n))
+        if k == self._ovr_ring_k:
+            return
+        self._ovr_ring_k = k
+        for i, dot in enumerate(self.ovr_ring_dots):
+            dot.fill = self._accent_color if i < k else C_GREY
+
     def show_override(self, count, total):
         self.ov_count.text = "{}/{}".format(count, total)
+        self._set_ovr_ring(count / total if total else 0.0)
         # Tactile confirmation for the single most repetitive physical
         # interaction on the device (default 25 presses to force-unlock,
         # see OVERRIDE_PRESSES) -- each registered press bumps the count up
@@ -850,11 +993,19 @@ class LockUI:
 
     def update_override_timeout(self, remaining, total):
         # remaining/total -> a depleting bar, green -> amber -> red as the
-        # silent counter-reset gets close.
+        # silent counter-reset gets close. Called every frame (~50Hz) while an
+        # override is in progress -- LockController.update() drives this for
+        # the whole OVERRIDE_TIMEOUT window on every press, not just once.
+        # Rebuilding the Rect on every call (pop+allocate) regardless of
+        # whether the on-screen bar actually changed churns the heap fast
+        # enough at that rate to exhaust it during a sustained "keep pressing
+        # to unlock" sequence and crash/reboot the board. Only touch the
+        # group when the drawn (width, color) actually changes -- same fix
+        # as update_battery_view below, which only needed it because it's
+        # gated to ~1Hz already.
         frac = max(0.0, min(1.0, remaining / total)) if total else 0.0
-        while len(self.ov_bar_fill_group):
-            self.ov_bar_fill_group.pop()
         w = max(0, int((self.ov_bar_w - 4) * frac))
+        col = None
         if w > 0:
             if frac > 0.5:
                 col = C_GREEN
@@ -862,11 +1013,23 @@ class LockUI:
                 col = C_AMBER
             else:
                 col = C_RED
+        key = (w, col)
+        if key == self._ov_bar_last_key:
+            return
+        self._ov_bar_last_key = key
+        while len(self.ov_bar_fill_group):
+            self.ov_bar_fill_group.pop()
+        if w > 0:
             self.ov_bar_fill_group.append(
                 Rect(self.ov_bar_x + 2, self.ov_bar_y + 2, w, self.ov_bar_h - 4,
                      fill=col))
 
     def hide_override(self):
+        # Reset the ring to empty so the next override sequence starts fresh
+        # on screen instead of showing the previous attempt's fill level.
+        self._ovr_ring_k = -1
+        for dot in self.ovr_ring_dots:
+            dot.fill = C_GREY
         # restore whatever top-level view was active before the overlay
         self.show_view(self.view)
 
@@ -1098,6 +1261,81 @@ class LockUI:
         return (self.sd_plus_x <= x <= self.sd_plus_x + self.sd_btn_w and
                 self.sd_btn_y <= y <= self.sd_btn_y + self.sd_btn_h)
 
+    # =================== pre-session tag picker ===================
+    # Shown before go_running() actually starts the countdown (see
+    # LockController.go_picking) so the chosen topic can ride along in the
+    # session's log entry. Reuses the settings list's row-tap layout
+    # (set_rows_y's 6-row, 40px-pitch pattern) rather than inventing a new
+    # one. Best-effort: rows come from LockController._all_topics, which is
+    # the 6 built-in topics (mirrors app/src/stats/topics.ts) plus whatever
+    # custom labels the app has synced over BLE_UUID_LABELS (see
+    # apply_ble_labels_json) -- if more than 6 topics exist they page via the
+    # same horizontal-swipe gesture already used to move between top-level
+    # views elsewhere, repurposed here (see LockController._handle_release's
+    # "picking" branch) since the picker occupies the control view's screen
+    # real estate without actually being one of the top-level VIEWS.
+    def _build_tag_picker(self, W, H):
+        group = displayio.Group()
+        self.tag_picker_group = group
+        _tile = _bg_tile(W, H, C_BG)
+        group.append(_tile)
+        self._bg_tiles.append(_tile)
+
+        ttl = label.Label(terminalio.FONT, text="TAG THIS SESSION", color=C_GREY,
+                          scale=2)
+        ttl.anchor_point = (0.5, 0.5)
+        ttl.anchored_position = (W // 2, 30)
+        group.append(ttl)
+        self._dim_widgets.append((ttl, 'color'))
+
+        self.tp_rows_y = (70, 110, 150, 190, 230, 270)
+        self.tp_row_labels = []
+        for y in self.tp_rows_y:
+            lbl = label.Label(terminalio.FONT, text="", color=C_WHITE, scale=2)
+            lbl.anchor_point = (0.5, 0.5)
+            lbl.anchored_position = (W // 2, y)
+            group.append(lbl)
+            self._fg_widgets.append((lbl, 'color'))
+            self.tp_row_labels.append(lbl)
+        self._tp_ids = []
+
+        hint = label.Label(terminalio.FONT, text="tap = tag & start", color=C_GREY)
+        hint.anchor_point = (0.5, 0.5)
+        hint.anchored_position = (W // 2, 300)
+        group.append(hint)
+        self._dim_widgets.append((hint, 'color'))
+
+        hint2 = label.Label(terminalio.FONT,
+                            text="swipe: left = skip, right = more",
+                            color=C_GREY)
+        hint2.anchor_point = (0.5, 0.5)
+        hint2.anchored_position = (W // 2, 314)
+        group.append(hint2)
+        self._dim_widgets.append((hint2, 'color'))
+
+    def show_tag_picker(self, page_topics):
+        """page_topics: [(id, name), ...], up to 6 entries for this page."""
+        self._tp_ids = [t[0] for t in page_topics]
+        for i, lbl in enumerate(self.tp_row_labels):
+            if i < len(page_topics):
+                lbl.text = page_topics[i][1][:16]
+                lbl.hidden = False
+            else:
+                lbl.text = ""
+                lbl.hidden = True
+        self.display.root_group = self.tag_picker_group
+
+    def hide_tag_picker(self):
+        # restore whatever top-level view was active before the picker
+        self.show_view(self.view)
+
+    def tag_picker_topic_at(self, y):
+        # Same tolerance convention as settings_row_at.
+        for i, ry in enumerate(self.tp_rows_y):
+            if abs(y - ry) <= 19 and i < len(self._tp_ids):
+                return self._tp_ids[i]
+        return None
+
     # =================== hit testing ===================
     def in_button(self, x, y):
         return (self.BTN_X <= x <= self.BTN_X + self.BTN_W and
@@ -1127,7 +1365,7 @@ class LockUI:
         self.clock.text = text
 
     def _idle_widgets(self, visible):
-        for w in (self.title, self.guide_h, self.guide_m, self.guide_s, self.hint):
+        for w in (self.title, self.guide_h, self.guide_m, self.hint):
             w.hidden = not visible
 
     # =================== whole-screen states ===================
@@ -1143,7 +1381,11 @@ class LockUI:
         self.border.hidden = True
         self._idle_widgets(True)
         self.set_status("UNLOCKED", C_GREEN)
-        self._show_button(False)
+        # Visible LOCK button -- restores the on-screen affordance for
+        # starting a lock; also resets the label away from "OPEN" (set by
+        # show_done) since set_button is otherwise never called again here.
+        self.set_button("LOCK", self._accent_color)
+        self._show_button(True)
 
     def show_running(self):
         self.clock.hidden = False
@@ -1155,16 +1397,15 @@ class LockUI:
         self._show_button(False)          # no on-screen cancel; override only
 
     def show_closed(self):
-        # lid closed but not yet timed: pick a time, then tap the timer area
-        # to start (no visible button -- the tap region is still live, see
-        # LockController._handle_release)
+        # lid closed but not yet timed: pick a time, then tap LOCK to start
         self.clock.hidden = False
         self.clock.color = self._fg_color
         self.big_msg.hidden = True
         self.border.hidden = True
-        self._idle_widgets(True)          # show H/M/S guides so time is selectable
+        self._idle_widgets(True)          # show H/M guides so time is selectable
         self.set_status("CLOSED", C_AMBER)
-        self._show_button(False)
+        self.set_button("LOCK", self._accent_color)
+        self._show_button(True)
 
     def show_done(self, auto_open=True):
         self.clock.hidden = True

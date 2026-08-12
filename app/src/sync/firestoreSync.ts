@@ -153,7 +153,6 @@ async function syncSettingsTwoWay(uid: string): Promise<void> {
         themeMode: remote.themeMode,
         accent: remote.accent,
         callAlertsEnabled: remote.callAlertsEnabled,
-        advancedStatsEnabled: remote.advancedStatsEnabled,
         customLabels: remote.customLabels ?? [],
       },
       remote.updatedAt,
@@ -169,7 +168,6 @@ function localSettingsPayload(local: ReturnType<typeof useSettingsStore.getState
     themeMode: local.themeMode,
     accent: local.accent,
     callAlertsEnabled: local.callAlertsEnabled,
-    advancedStatsEnabled: local.advancedStatsEnabled,
     customLabels: local.customLabels,
     updatedAt: local.settingsUpdatedAt,
   };

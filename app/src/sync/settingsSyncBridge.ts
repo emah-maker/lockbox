@@ -18,7 +18,6 @@ interface Snapshot {
   themeMode: string;
   accent: string;
   callAlertsEnabled: boolean;
-  advancedStatsEnabled: boolean;
   customLabels: CustomLabel[];
 }
 
@@ -27,7 +26,6 @@ function snapshot(state: ReturnType<typeof useSettingsStore.getState>): Snapshot
     themeMode: state.themeMode,
     accent: state.accent,
     callAlertsEnabled: state.callAlertsEnabled,
-    advancedStatsEnabled: state.advancedStatsEnabled,
     customLabels: state.customLabels,
   };
 }
@@ -37,7 +35,6 @@ function equal(a: Snapshot, b: Snapshot): boolean {
     a.themeMode === b.themeMode &&
     a.accent === b.accent &&
     a.callAlertsEnabled === b.callAlertsEnabled &&
-    a.advancedStatsEnabled === b.advancedStatsEnabled &&
     // customLabels is replaced with a new array on every CRUD op (see
     // useSettingsStore's addCustomLabel/renameCustomLabel/removeCustomLabel),
     // so a reference check alone would miss nothing here -- JSON compare is

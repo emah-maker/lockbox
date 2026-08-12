@@ -6,10 +6,16 @@
 // is the durable, per-session, timestamped copy -- the box keeps nothing
 // long-term (no SD card, no NVM) once it has handed a session off here.
 import type { SessionRecord } from './stats';
+import type { HistoryEntry } from '../ble/protocol';
 import { getJSON, setJSON } from '../storage/storage';
 
 const KEY = 'sessionHistory';
 const MAX_RECORDS = 2000; // keep unbounded growth in check; ~a session/hour is years of history
+
+// Accidental taps/instant overrides aren't real focus time -- entries shorter
+// than this are dropped in buildLoggedSessions below before they ever reach
+// the durable log, not merely filtered out of stats afterward.
+export const MIN_LOGGED_SESSION_S = 60;
 
 export interface LoggedSession extends SessionRecord {
   startedAt: number; // epoch ms, local device clock at session start
@@ -103,6 +109,74 @@ export async function retagSession(
   topic: string | undefined,
 ): Promise<LoggedSession[]> {
   return replaceSessions(applyTopicUpdate(sessions, target, topic));
+}
+
+export interface PendingTopicTag {
+  topic: string;
+  at: number; // epoch ms when the user tagged the in-progress session
+}
+
+export interface BuiltLoggedSessions {
+  sessions: LoggedSession[];
+  consumedPendingTopic: boolean;
+}
+
+/** Pure transform from raw box history entries (ble/protocol.ts's
+ * HistoryEntry) to LoggedSessions: drops entries under
+ * MIN_LOGGED_SESSION_S, and matches `pending` (a topic tagged via
+ * useStore's tagCurrentSession, either while a session was running or ahead
+ * of it via DashboardScreen's pre-session tag picker) to whichever surviving
+ * entry's time window contains its timestamp, widened by `preSlackMs` before
+ * the start and `slackMs` past the end. Split out from useStore's
+ * handleHistory so this is unit-testable without BLE mocks, same as
+ * applyTopicUpdate above. */
+export function buildLoggedSessions(
+  entries: HistoryEntry[],
+  pending: PendingTopicTag | null,
+  slackMs: number,
+  preSlackMs: number = 0,
+  nowMs: number = Date.now(),
+): BuiltLoggedSessions {
+  let consumed = false;
+  const sessions: LoggedSession[] = entries
+    .filter((e) => e.a >= MIN_LOGGED_SESSION_S)
+    .map((e) => {
+      // e.t is a wall-clock epoch second, or -1 if the box's clock was never
+      // synced (no phone had connected yet); fall back to "now" so the
+      // session still shows up somewhere on the calendar.
+      const startedAt = (e.t >= 0 ? e.t * 1000 : nowMs) - e.a * 1000;
+      const endedAt = startedAt + e.a * 1000;
+      let topic: string | undefined;
+      if (pending && !consumed && pending.at >= startedAt - preSlackMs && pending.at <= endedAt + slackMs) {
+        topic = pending.topic;
+        consumed = true;
+      }
+      return { startedAt, plannedS: e.p, actualS: e.a, outcome: e.c ? 'completed' : 'overridden', topic };
+    });
+  return { sessions, consumedPendingTopic: consumed };
+}
+
+export type TimeWindow = 'day' | 'week' | 'month' | 'all';
+
+const WINDOW_DAYS: Record<TimeWindow, number | null> = { day: 1, week: 7, month: 30, all: null };
+
+/** Filters to sessions started within the selected calendar window, anchored
+ * to today (local time): 'day' = today only, 'week'/'month' = the trailing 7
+ * or 30 calendar days including today, 'all' = no filtering. Local-date
+ * arithmetic (not raw ms subtraction), same as lastNDays, so the boundary
+ * lands on the right calendar day across a DST transition. Used by
+ * StatsScreen to scope both the total (stats.aggregate) and the topic
+ * breakdown (customLabels.topicBreakdownWithCustom) to the same window. */
+export function filterByWindow(
+  sessions: LoggedSession[],
+  window: TimeWindow,
+  nowMs: number = Date.now(),
+): LoggedSession[] {
+  const days = WINDOW_DAYS[window];
+  if (days == null) return sessions;
+  const now = new Date(nowMs);
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - (days - 1)).getTime();
+  return sessions.filter((s) => s.startedAt >= start);
 }
 
 export function groupByDay(sessions: LoggedSession[]): Map<string, LoggedSession[]> {

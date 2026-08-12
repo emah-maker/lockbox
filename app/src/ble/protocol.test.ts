@@ -1,5 +1,5 @@
 // Unit tests for the BLE wire-contract codecs. Run with `npm test` (jest-expo).
-import { parseSettings, encodeSettings, Settings } from './protocol';
+import { parseSettings, encodeSettings, Settings, cmdSetLabels } from './protocol';
 
 const FULL: Settings = { ovr: 25, auto: 1, sleep: 20, bright: 50, unlk: 0, ucal: 1, thm: 1, acc: 3 };
 
@@ -36,5 +36,16 @@ describe('parseSettings defensive parsing', () => {
   it('returns null on garbled JSON', () => {
     expect(parseSettings('{"ovr":25,'))
       .toBeNull();
+  });
+});
+
+describe('cmdSetLabels', () => {
+  it('encodes the label catalog as a labels: opcode with a JSON array body', () => {
+    const labels = [{ id: 'custom:abc', name: 'Reading', color: '#e11d48' }];
+    expect(cmdSetLabels(labels)).toBe(`labels:${JSON.stringify(labels)}`);
+  });
+
+  it('round-trips an empty catalog', () => {
+    expect(cmdSetLabels([])).toBe('labels:[]');
   });
 });

@@ -8,6 +8,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, TextInput, Alert } from 'react-native';
 import { useSettingsStore } from '../store/useSettingsStore';
+import { useStore } from '../store/useStore';
 import { useTheme } from '../theme/useTheme';
 import { LABEL_SWATCHES } from '../stats/customLabels';
 import { Section, Button } from './SettingsPrimitives';
@@ -25,6 +26,11 @@ export function CustomLabelsSection({ color }: { color: ReturnType<typeof useThe
   const [newColor, setNewColor] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
 
+  // Best-effort push of the label catalog to the box after every local edit
+  // -- see useStore.pushLabels/protocol.ts's cmdSetLabels. No-ops silently
+  // while disconnected; the next connect's afterConnected does a full push.
+  const syncLabelsToBox = () => useStore.getState().pushLabels().catch(() => {});
+
   const handleCreate = () => {
     if (!newColor) {
       setError('Pick a color first.');
@@ -32,6 +38,7 @@ export function CustomLabelsSection({ color }: { color: ReturnType<typeof useThe
     }
     try {
       addCustomLabel(newName, newColor);
+      syncLabelsToBox();
       setNewName('');
       setNewColor(null);
       setError(null);
@@ -40,17 +47,29 @@ export function CustomLabelsSection({ color }: { color: ReturnType<typeof useThe
     }
   };
 
+  const handleRename = (id: string, name: string) => {
+    renameCustomLabel(id, name);
+    syncLabelsToBox();
+  };
+
   const handleDelete = (id: string, name: string) => {
     Alert.alert('Delete label?', `"${name}" will be removed. Past sessions tagged with it keep their history, just without this label's color/name.`, [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete', style: 'destructive', onPress: () => removeCustomLabel(id) },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: () => {
+          removeCustomLabel(id);
+          syncLabelsToBox();
+        },
+      },
     ]);
   };
 
   return (
     <Section title="Custom labels" subtitle="Add your own focus categories, alongside the built-in ones" color={color}>
       {customLabels.map((label) => (
-        <CustomLabelRow key={label.id} label={label} color={color} onRename={renameCustomLabel} onDelete={handleDelete} />
+        <CustomLabelRow key={label.id} label={label} color={color} onRename={handleRename} onDelete={handleDelete} />
       ))}
 
       <View style={{ gap: 8 }}>

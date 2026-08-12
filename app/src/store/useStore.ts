@@ -18,7 +18,7 @@ import { PhoneBoxClient } from '../ble/PhoneBoxClient';
 import { CallMonitor } from '../calls/CallMonitor';
 import type { Status, HistoryEntry, BoxState, Settings } from '../ble/protocol';
 import { getJSON, setJSON } from '../storage/storage';
-import { loadSessions, appendSessions, retagSession, LoggedSession } from '../stats/sessionHistory';
+import { loadSessions, appendSessions, retagSession, buildLoggedSessions, LoggedSession, PendingTopicTag } from '../stats/sessionHistory';
 import { useSettingsStore } from './useSettingsStore';
 // Remote sync (docs/rfcs/google-signin-cross-device-sync-architecture.md §4.3)
 // is wired from outside this store -- see sync/sessionsSyncBridge.ts, which
@@ -42,11 +42,12 @@ const PENDING_TOPIC_KEY = 'pendingTopicTag';
 const RECONNECT_DELAY_MS = 4000;
 const CONNECT_BY_ID_TIMEOUT_MS = 6000;
 const PENDING_TOPIC_SLACK_MS = 5000; // tolerance past a session's end for the tag to still count
-
-interface PendingTopicTag {
-  topic: string;
-  at: number; // epoch ms when the user tagged the in-progress session
-}
+// Tolerance before a session's start, for a tag applied via DashboardScreen's
+// pre-session picker (before the box's own LOCK button is physically
+// pressed) to still count. Comfortably covers "pick a tag, walk to the box,
+// press Lock" without being so wide it risks matching a stale tag someone
+// set and then changed their mind about -- see buildLoggedSessions.
+const PENDING_TOPIC_PRE_SLACK_MS = 120_000;
 
 interface AppState {
   initialized: boolean;
@@ -74,6 +75,12 @@ interface AppState {
   openBox: () => Promise<void>;
   setAutoConnect: (on: boolean) => void;
   pushBoxSettings: (patch: Partial<Settings>) => Promise<void>;
+  /** Best-effort push of the app's custom-label catalog to the box (pairs
+   * with the box's own pre-session tag picker) -- see protocol.ts's
+   * cmdSetLabels. No-op while disconnected; not part of pushBoxSettings
+   * since labels aren't part of Settings, and there's no mirror to keep in
+   * sync -- customLabels already lives durably in useSettingsStore. */
+  pushLabels: () => Promise<void>;
   tagCurrentSession: (topic: string) => void;
   /** Retag (or clear the tag on) a past, already-logged session -- see
    * CalendarScreen's per-day list. Identifies the session by the same
@@ -127,34 +134,35 @@ export const useStore = create<AppState>((set, get) => {
   const handleHistory = (entries: HistoryEntry[]) => {
     if (!entries.length) return;
     getJSON<PendingTopicTag | null>(PENDING_TOPIC_KEY, null).then((pending) => {
-      let consumed = false;
-      const logged: LoggedSession[] = entries.map((e) => {
-        // e.t is a wall-clock epoch second, or -1 if the box's clock was never
-        // synced (no phone had connected yet); fall back to "now" so the
-        // session still shows up somewhere on the calendar.
-        const startedAt = (e.t >= 0 ? e.t * 1000 : Date.now()) - e.a * 1000;
-        const endedAt = startedAt + e.a * 1000;
-        let topic: string | undefined;
-        if (pending && !consumed && pending.at >= startedAt && pending.at <= endedAt + PENDING_TOPIC_SLACK_MS) {
-          topic = pending.topic;
-          consumed = true;
-        }
-        return { startedAt, plannedS: e.p, actualS: e.a, outcome: e.c ? 'completed' : 'overridden', topic };
-      });
-      if (consumed) {
+      // buildLoggedSessions drops sessions under MIN_LOGGED_SESSION_S
+      // (accidental taps/instant overrides, not real focus time) so they
+      // never reach the durable log/stats, not merely hidden from it later.
+      const { sessions: logged, consumedPendingTopic } = buildLoggedSessions(
+        entries,
+        pending,
+        PENDING_TOPIC_SLACK_MS,
+        PENDING_TOPIC_PRE_SLACK_MS,
+      );
+      if (consumedPendingTopic) {
         setJSON<PendingTopicTag | null>(PENDING_TOPIC_KEY, null);
         set({ currentTopic: null });
       }
+      // Ack by the original entry count once handled, whether or not any of
+      // them were durably logged -- see Box-code/lib/lock_log.py's
+      // SessionLog.ack and
+      // docs/rfcs/ios-call-greenlist-and-force-quit-logging-technical-design.md
+      // §3.2: the box only drops its own pending queue once it hears this
+      // back, so a dropped write here (e.g. disconnected right after this
+      // notify) just means the box resends the same batch next connection
+      // -- safe because appendSessions dedupes by (startedAt, plannedS).
+      const ack = () => client.ackHistory(entries.length).catch(() => {});
+      if (!logged.length) {
+        ack();
+        return;
+      }
       appendSessions(logged).then((sessions) => {
         set({ sessions });
-        // Ack the batch by entry count once it's durably in AsyncStorage --
-        // see Box-code/lib/lock_log.py's SessionLog.ack and
-        // docs/rfcs/ios-call-greenlist-and-force-quit-logging-technical-design.md
-        // §3.2: the box only drops its own pending queue once it hears this
-        // back, so a dropped write here (e.g. disconnected right after this
-        // notify) just means the box resends the same batch next connection
-        // -- safe because appendSessions dedupes by (startedAt, plannedS).
-        client.ackHistory(entries.length).catch(() => {});
+        ack();
       });
     });
   };
@@ -176,6 +184,10 @@ export const useStore = create<AppState>((set, get) => {
     } catch {
       // box didn't answer the settings read; the mirror keeps its last value
     }
+    // Best-effort: give a freshly-connected box today's label catalog so its
+    // own pre-session tag picker (box-firmware-batch, parallel task) has
+    // something to offer without waiting for the next label edit.
+    client.setLabels(useSettingsStore.getState().customLabels).catch(() => {});
   };
 
   return {
@@ -276,6 +288,11 @@ export const useStore = create<AppState>((set, get) => {
       if (!client.connected) return;
       const next = useSettingsStore.getState().boxSettings;
       await client.writeSettings(next);
+    },
+
+    pushLabels: async () => {
+      if (!client.connected) return;
+      await client.setLabels(useSettingsStore.getState().customLabels);
     },
 
     // Optimistic, like pushBoxSettings: shows the tag immediately and is

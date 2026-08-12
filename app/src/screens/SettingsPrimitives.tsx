@@ -162,19 +162,12 @@ export function SliderRow({
   const settlingRef = React.useRef(false);
   const restingXRef = React.useRef(0);
 
+  // Only reached for the uniform min/max/step case -- the non-uniform
+  // `options` case is snapped by index directly in xToValue/valueToX below.
+  // The `if (options)` guard only exists so TS narrows min/max/step to
+  // `number` below; xToValue never actually calls this when options is set.
   const snapValue = (v: number) => {
-    if (options) {
-      let nearest = options[0];
-      let bestDist = Math.abs(v - nearest);
-      for (const opt of options) {
-        const dist = Math.abs(v - opt);
-        if (dist < bestDist) {
-          nearest = opt;
-          bestDist = dist;
-        }
-      }
-      return nearest;
-    }
+    if (options) return v;
     const snapped = Math.round((v - min) / step) * step + min;
     return Math.min(max, Math.max(min, snapped));
   };
@@ -195,10 +188,27 @@ export function SliderRow({
     const w = trackWidthRef.current;
     if (w <= 0) return effMin;
     const ratio = Math.min(1, Math.max(0, x / w));
+    if (options) {
+      // Snap by INDEX, not by value: OVR_OPTIONS-style non-uniform staircases
+      // pack many small-value options into a short value-range (5-50 in ten
+      // steps of 5) and few large-value options into a long one (150-250 in
+      // two steps of 50). Interpolating linearly in *value* space then
+      // nearest-matching squeezes most options into a sliver of the track,
+      // so ordinary finger tremor while holding a drag position there swings
+      // across several options and made the readout flicker between them.
+      // Giving every option an equal-width slice of the track fixes that.
+      const idx = Math.round(ratio * (options.length - 1));
+      return options[Math.max(0, Math.min(options.length - 1, idx))];
+    }
     return snapValue(effMin + ratio * (effMax - effMin));
   };
 
   const valueToX = (v: number) => {
+    if (options) {
+      const idx = options.indexOf(v);
+      const denom = Math.max(1, options.length - 1);
+      return (idx < 0 ? 0 : idx / denom) * trackWidthRef.current;
+    }
     if (effMax === effMin) return 0;
     return ((v - effMin) / (effMax - effMin)) * trackWidthRef.current;
   };
@@ -226,6 +236,14 @@ export function SliderRow({
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponder: () => true,
+      // Capture variants too: without these, SettingsScreen's ScrollView
+      // ancestor can steal the gesture mid-drag on any touch with vertical
+      // motion, firing onPanResponderTerminate (snap to null) then re-grant
+      // -- a cycle that reads as the thumb glitching/flashing while dragging.
+      // Claiming at the capture phase keeps the whole drag with this
+      // responder once it starts.
+      onStartShouldSetPanResponderCapture: () => true,
+      onMoveShouldSetPanResponderCapture: () => true,
       onPanResponderGrant: (evt) => {
         draggingRef.current = true;
         track(clampX(evt.nativeEvent.locationX));

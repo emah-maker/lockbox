@@ -50,7 +50,7 @@ from lock_config import (
     BLE_ENABLED, BLE_NAME, BLE_ADV_INTERVAL, BLE_ADV_WHEN_LOCKED,
     BLE_CMD_MIN_INTERVAL, BLE_CALL_ALERT_S,
     BLE_SERVICE_UUID, BLE_UUID_STATUS, BLE_UUID_HISTORY, BLE_UUID_COMMAND,
-    BLE_UUID_SETTINGS, BLE_UUID_TIME, BLE_UUID_ALERT,
+    BLE_UUID_SETTINGS, BLE_UUID_TIME, BLE_UUID_ALERT, BLE_UUID_LABELS,
 )
 
 _FW = "1.0"
@@ -82,6 +82,11 @@ def _build_service_cls():
         alert = StringCharacteristic(
             uuid=VendorUUID(BLE_UUID_ALERT),
             properties=Characteristic.WRITE | Characteristic.WRITE_NO_RESPONSE)
+        # Custom-label sync (best-effort) -- see lock_config.BLE_UUID_LABELS
+        # and LockController.apply_ble_labels_json.
+        labels = StringCharacteristic(
+            uuid=VendorUUID(BLE_UUID_LABELS),
+            properties=Characteristic.WRITE | Characteristic.WRITE_NO_RESPONSE)
 
     return PhoneBoxService
 
@@ -99,6 +104,7 @@ class PhoneBoxBLE:
         self._last_alert = ""
         self._last_time = ""
         self._last_settings = ""
+        self._last_labels = ""
         self._last_history = None  # None (not "") so the very first push
                                     # after boot always writes, same as after
                                     # a reconnect -- see _on_connected below.
@@ -223,3 +229,8 @@ class PhoneBoxBLE:
         if sett and sett != self._last_settings:
             self._last_settings = sett
             ctrl.apply_ble_settings_json(sett)
+
+        labels = self._svc.labels
+        if labels and labels != self._last_labels:
+            self._last_labels = labels
+            ctrl.apply_ble_labels_json(labels)

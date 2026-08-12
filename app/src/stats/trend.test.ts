@@ -1,5 +1,5 @@
 // Unit tests for the pure trend helpers. Run with `npm test` (jest-expo).
-import { lastNDays, bestDay } from './trend';
+import { lastNDays, lastNDaysHeatmap, bestDay } from './trend';
 import { LoggedSession } from './sessionHistory';
 
 // Wednesday, noon local time, so days both before and after in the window
@@ -63,5 +63,27 @@ describe('bestDay', () => {
     const sessions = [sessionOnDaysAgo(1, 100), sessionOnDaysAgo(1, 50), sessionOnDaysAgo(2, 120)];
     const best = bestDay(sessions);
     expect(best?.focusS).toBe(150); // day 1's 100+50 beats day 2's 120
+  });
+});
+
+describe('lastNDaysHeatmap', () => {
+  it('returns 35 entries, oldest first, ending on today', () => {
+    const days = lastNDaysHeatmap([], NOW);
+    expect(days).toHaveLength(35);
+    expect(days[34].key).toBe('2026-07-15');
+    expect(days[0].key).toBe('2026-06-11');
+  });
+
+  it('gives an empty day level 0 and the busiest day level 4', () => {
+    const sessions = [sessionOnDaysAgo(0, 1000), sessionOnDaysAgo(1, 10)];
+    const days = lastNDaysHeatmap(sessions, NOW);
+    expect(days[34].level).toBe(4); // today, the busiest day in the window
+    expect(days[33].level).toBe(1); // yesterday, a small fraction of the max
+    expect(days[32].level).toBe(0); // no session at all
+  });
+
+  it('is unaffected by sessions outside the 35-day window', () => {
+    const days = lastNDaysHeatmap([sessionOnDaysAgo(100, 999)], NOW);
+    expect(days.every((d) => d.focusS === 0 && d.level === 0)).toBe(true);
   });
 });

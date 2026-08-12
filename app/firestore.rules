@@ -32,7 +32,7 @@ service cloud.firestore {
       match /settings/app {
         allow read, write: if isOwner(uid)
                             && request.resource.data.keys().hasOnly(
-                                 ['themeMode', 'accent', 'callAlertsEnabled', 'advancedStatsEnabled', 'customLabels', 'updatedAt']);
+                                 ['themeMode', 'accent', 'callAlertsEnabled', 'customLabels', 'updatedAt']);
       }
 
       match /devices/{deviceId} {

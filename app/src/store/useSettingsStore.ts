@@ -26,7 +26,6 @@ export interface SyncableSettings {
   themeMode: ThemeMode;
   accent: AccentKey;
   callAlertsEnabled: boolean;
-  advancedStatsEnabled: boolean;
   customLabels: CustomLabel[];
 }
 
@@ -35,7 +34,6 @@ interface SettingsState {
   themeMode: ThemeMode;
   accent: AccentKey;
   callAlertsEnabled: boolean;
-  advancedStatsEnabled: boolean;
   customLabels: CustomLabel[];
   boxSettings: Settings;
   // Epoch ms of the last local change to any of the SyncableSettings
@@ -47,7 +45,6 @@ interface SettingsState {
   setThemeMode: (mode: ThemeMode) => void;
   setAccent: (accent: AccentKey) => void;
   setCallAlertsEnabled: (on: boolean) => void;
-  setAdvancedStatsEnabled: (on: boolean) => void;
   setBoxSettings: (patch: Partial<Settings>) => void;
   addCustomLabel: (name: string, color: string) => void;
   renameCustomLabel: (id: string, name: string) => void;
@@ -64,19 +61,17 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   themeMode: 'dark',
   accent: 'mint',
   callAlertsEnabled: true,
-  advancedStatsEnabled: false,
   customLabels: [],
   boxSettings: DEFAULT_BOX_SETTINGS,
   settingsUpdatedAt: 0,
 
   hydrate: async () => {
     if (get().hydrated) return;
-    const [themeMode, accent, callAlertsEnabled, advancedStatsEnabled, customLabels, boxSettings, settingsUpdatedAt] =
+    const [themeMode, accent, callAlertsEnabled, customLabels, boxSettings, settingsUpdatedAt] =
       await Promise.all([
         getJSON<ThemeMode>('themeMode', 'dark'),
         getJSON<AccentKey>('accent', 'mint'),
         getJSON<boolean>('callAlertsEnabled', true),
-        getJSON<boolean>('advancedStatsEnabled', false),
         getJSON<CustomLabel[]>('customLabels', []),
         getJSON<Settings>('boxSettings', DEFAULT_BOX_SETTINGS),
         getJSON<number>('settingsUpdatedAt', 0),
@@ -86,7 +81,6 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       themeMode,
       accent,
       callAlertsEnabled,
-      advancedStatsEnabled,
       customLabels,
       boxSettings,
       settingsUpdatedAt,
@@ -111,13 +105,6 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     const settingsUpdatedAt = Date.now();
     set({ callAlertsEnabled: on, settingsUpdatedAt });
     setJSON('callAlertsEnabled', on);
-    setJSON('settingsUpdatedAt', settingsUpdatedAt);
-  },
-
-  setAdvancedStatsEnabled: (on) => {
-    const settingsUpdatedAt = Date.now();
-    set({ advancedStatsEnabled: on, settingsUpdatedAt });
-    setJSON('advancedStatsEnabled', on);
     setJSON('settingsUpdatedAt', settingsUpdatedAt);
   },
 
@@ -158,7 +145,6 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     setJSON('themeMode', remote.themeMode);
     setJSON('accent', remote.accent);
     setJSON('callAlertsEnabled', remote.callAlertsEnabled);
-    setJSON('advancedStatsEnabled', remote.advancedStatsEnabled);
     setJSON('customLabels', remote.customLabels);
     setJSON('settingsUpdatedAt', updatedAt);
   },

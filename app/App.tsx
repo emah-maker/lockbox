@@ -25,7 +25,7 @@ import { typeScale } from './src/theme/tokens';
 type Tab = 'dashboard' | 'stats' | 'calendar' | 'settings';
 
 const TABS: { key: Tab; label: string; icon: React.ComponentProps<typeof Feather>['name'] }[] = [
-  { key: 'dashboard', label: 'Focus', icon: 'target' },
+  { key: 'dashboard', label: 'Home', icon: 'home' },
   { key: 'stats', label: 'Stats', icon: 'bar-chart-2' },
   { key: 'calendar', label: 'Calendar', icon: 'calendar' },
   { key: 'settings', label: 'Settings', icon: 'settings' },

@@ -139,3 +139,15 @@ export const encodeAlert = (nonce: number, label: string) => `${nonce}|${label}`
 // SessionLog.ack() clears exactly that many from the front, leaving anything
 // recorded after the send untouched.
 export const cmdHistoryAck = (seq: number) => `historyAck:${Math.max(0, Math.floor(seq))}`;
+
+// Best-effort push of the app's custom-label catalog (stats/customLabels.ts)
+// to the box, so its own pre-session tag picker (box-firmware-batch task 7,
+// built in parallel with this) can offer the same labels the app does.
+// Reuses CHAR.command rather than a new characteristic UUID -- like
+// cmdHistoryAck above, a label-catalog push is a one-way, occasional app ->
+// box write, not something that needs NOTIFY or CHAR.settings' round-trip
+// semantics. Wire format: `labels:<JSON array of {id, name, color}>` -- the
+// box does not echo this back. Mirrors Box-code/lib/lock_config.py's
+// expected label shape; keep id/name/color in lockstep with that side.
+export const cmdSetLabels = (labels: { id: string; name: string; color: string }[]) =>
+  `labels:${JSON.stringify(labels)}`;

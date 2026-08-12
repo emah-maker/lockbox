@@ -1,12 +1,13 @@
 # lock_controller.py -- the timer state machine and gesture handling.
 from lock_config import (
-    MAX_SECONDS, MAX_HOURS, SEC_STEP, SWIPE_MIN_PX, ANIM_HZ, DEFAULT_SECONDS,
+    MAX_SECONDS, MAX_HOURS, SWIPE_MIN_PX, ANIM_HZ, DEFAULT_SECONDS,
     SWAP_XY, INVERT_X, INVERT_Y, CLOCK_FPS, SERVO_HOLD_S, OVERRIDE_PRESSES,
     OVERRIDE_TIMEOUT, DONE_ANIM_S, MIN_STEP, RELEASE_FRAMES,
     SERVO_LOCK_ANGLE, SERVO_UNLOCK_ANGLE, fmt_hms,
     OVR_OPTIONS, BLE_CALL_ALERT_S, CALL_ALERT_BLINK_HZ,
     HOLD_REPEAT_DELAY, HOLD_REPEAT_START, HOLD_REPEAT_MIN, HOLD_REPEAT_RAMP,
-    STATUS_TAP_COOLDOWN_S,
+    STATUS_TAP_COOLDOWN_S, BUILTIN_TOPICS, BLE_LABEL_MAX_COUNT,
+    BLE_LABEL_NAME_MAX_LEN,
 )
 from lock_battery import Battery
 from lock_servo import Servo
@@ -65,6 +66,24 @@ class LockController:
         self._wall_mono0 = None          # monotonic at the moment of that push
         self._ble_connected = False      # drives the control/clock corner dot
         self._last_frame_t = None        # for step_motion's dt -- see update()
+        # ----- pre-session tag picker + custom-label sync (best-effort) -----
+        self._synced_labels = []   # [(id, name), ...] most recently pushed by
+                                    # the app over BLE_UUID_LABELS -- see
+                                    # apply_ble_labels_json. Names only; the
+                                    # app resolves color/display from its own
+                                    # customLabels list using the id we echo
+                                    # back (see ble_status_json's "tp" field).
+        self._picker_page = 0
+        self._session_topic = None  # topic tagged to the session in progress
+                                     # (set by go_running's topic= argument)
+        # ----- deferred logging for auto-open-off sessions -----
+        # When Settings.auto_open is False, the box stays shut at timer
+        # expiry (see go_done) until OPEN is tapped or override forces it --
+        # logging actual_s at expiry would record a truncated duration for a
+        # box that's still holding the phone. (planned_s, lock_start_at,
+        # completed) once a "running" session ends without auto-open, flushed
+        # by _flush_pending_log the moment the box is actually opened.
+        self._pending_log = None
         self.go_idle()
 
     # ----- view switching -----
@@ -106,23 +125,37 @@ class LockController:
 
     # ----- state transitions -----
     def go_idle(self):
+        self._flush_pending_log()
         self._clear_override()
         self.state = "idle"
         self.release_lock()
         self.ui.show_idle(self.set_seconds)
 
-    def go_running(self, now):
+    def go_picking(self, now):
+        """Pre-session tag picker (best-effort custom-label sync -- see
+        apply_ble_labels_json): shown before the countdown actually starts,
+        from the LOCK tap in idle/closed, so the chosen topic can ride along
+        in the session's log entry. See _handle_release's "picking" branch
+        for the tap/swipe handling on this screen."""
+        self.state = "picking"
+        self._picker_page = 0
+        self.ui.show_tag_picker(self._picker_page_topics(0))
+
+    def go_running(self, now, topic=None):
         if self.set_seconds <= 0:
             return
+        self.ui.hide_tag_picker()   # no-op if the picker was never shown
         self.state = "running"
         self._override = 0
         self.deadline = now + self.set_seconds
+        self._session_topic = topic
         self.engage_lock()
         self.ui.show_running()
 
     def go_closed(self, now):
         # lid closed (sensor): servo latches; user picks a time then taps LOCK.
         # No countdown yet -- that begins when LOCK is pressed (go_running).
+        self._flush_pending_log()
         self._clear_override()
         self.state = "closed"
         self.engage_lock()
@@ -136,9 +169,20 @@ class LockController:
         # be reached from "closed" (override/remote-unlock before LOCK was
         # ever pressed), which has no elapsed time worth logging.
         if self.state == "running":
-            actual_s = max(0.0, now - (self.deadline - self.set_seconds))
-            self.log.record(self.set_seconds, actual_s, outcome == COMPLETED,
-                             self.wall_time(now))
+            lock_start = self.deadline - self.set_seconds
+            if self.settings.auto_open:
+                actual_s = max(0.0, now - lock_start)
+                self.log.record(self.set_seconds, actual_s, outcome == COMPLETED,
+                                 self.wall_time(now))
+            else:
+                # Box stays shut until OPEN is tapped (or override forces it
+                # from that holding state -- see press_override) -- the
+                # session isn't over yet, so don't log a truncated actual_s
+                # at timer-expiry. Recorded once actually opened, using total
+                # elapsed time from lock start to that moment (see
+                # _flush_pending_log).
+                self._pending_log = (self.set_seconds, lock_start,
+                                      outcome == COMPLETED)
         self._clear_override()
         self.state = "done"
         self.done_start = now
@@ -152,19 +196,71 @@ class LockController:
         if self.view != "control":  # return to control so the unlock anim shows
             self.set_view("control")
 
+    def _flush_pending_log(self):
+        """Records a deferred auto-open-off session the moment the box is
+        actually opened (go_idle -- OPEN tap or override, see press_override)
+        or defensively on any other exit from the "done, not yet opened"
+        holding state (go_closed), so a session's data is never silently
+        dropped even on an unusual path out of that state."""
+        if self._pending_log is None:
+            return
+        planned_s, lock_start, completed = self._pending_log
+        self._pending_log = None
+        actual_s = max(0.0, self._now - lock_start)
+        self.log.record(planned_s, actual_s, completed, self.wall_time(self._now))
+
+    # ----- pre-session tag picker helpers -----
+    def _all_topics(self):
+        return list(BUILTIN_TOPICS) + self._synced_labels
+
+    def _picker_page_count(self):
+        n = len(self._all_topics())
+        return max(1, (n + 5) // 6)   # 6 rows per page
+
+    def _picker_page_topics(self, page):
+        all_t = self._all_topics()
+        start = page * 6
+        return all_t[start:start + 6]
+
+    def apply_ble_labels_json(self, text):
+        """Best-effort custom-label sync from the app (see lock_config.py's
+        BLE_UUID_LABELS comment for the still-needed app-side protocol.ts
+        additions) -- feeds the on-box pre-session tag picker only. Compact
+        keys ("i"/"n") to save BLE payload bytes; malformed input just leaves
+        the previous list in place rather than crashing the run loop."""
+        try:
+            import json
+            d = json.loads(text)
+        except (ValueError, ImportError):
+            return
+        if not isinstance(d, list):
+            return
+        labels = []
+        for item in d[:BLE_LABEL_MAX_COUNT]:
+            if not isinstance(item, dict):
+                continue
+            lid = str(item.get("i", ""))[:40]
+            name = str(item.get("n", ""))[:BLE_LABEL_NAME_MAX_LEN]
+            if lid and name:
+                labels.append((lid, name))
+        self._synced_labels = labels
+
     def adjust(self, unit, direction):
+        # Box editing is Hours + Minutes only (unit 0/1) -- seconds were
+        # dropped from the on-screen swipe-to-set UI (see LockUI's
+        # guide_h/guide_m), but any existing sub-minute remainder (e.g. from
+        # a BLE "dur"/"start" push) is preserved untouched rather than
+        # zeroed, since the live running countdown still shows seconds (see
+        # update()'s fmt_hms(left)).
         h = self.set_seconds // 3600
         m = (self.set_seconds % 3600) // 60
         s = self.set_seconds % 60
         if unit == 0:
             h += direction
-        elif unit == 1:
-            m += direction * MIN_STEP
         else:
-            s += direction * SEC_STEP
+            m += direction * MIN_STEP
         h = max(0, min(MAX_HOURS, h))
         m = max(0, min(59, m))
-        s = max(0, min(59, s))
         self.set_seconds = max(0, min(MAX_SECONDS, h * 3600 + m * 60 + s))
         self.ui.set_clock(self.set_seconds)
 
@@ -287,8 +383,20 @@ class LockController:
 
     def ble_status_json(self, now):
         rem = int(max(0.0, self.deadline - now)) if self.state == "running" else 0
-        return '{{"st":"{}","rem":{},"set":{},"bat":{},"fw":"1.0"}}'.format(
-            self.state, rem, int(self.set_seconds), self._battery_pct(now))
+        # "tp": the picked topic's id (built-in or synced-custom -- see
+        # _all_topics), only while a tagged session is actually running. Only
+        # the id crosses the wire (never a user-typed name) -- the app
+        # resolves display name/color itself from its own topics/customLabels
+        # tables. NOT YET read by the app: protocol.ts's Status interface and
+        # parseStatus need a `tp` field added to consume this (see
+        # lock_config.py's BLE_UUID_LABELS comment for the sibling app-side
+        # gap). The box's own offline history queue (lock_log.py, synced via
+        # BLE_UUID_HISTORY) does NOT carry this -- its NVM entry layout is a
+        # fixed 9 bytes with no room for a topic id, and widening it is a
+        # separate NVM-migration task, intentionally not attempted here.
+        topic = self._session_topic if self.state == "running" and self._session_topic else ""
+        return '{{"st":"{}","rem":{},"set":{},"bat":{},"tp":"{}","fw":"1.0"}}'.format(
+            self.state, rem, int(self.set_seconds), self._battery_pct(now), topic)
 
     def ble_history_json(self):
         return self.log.to_json()
@@ -448,15 +556,26 @@ class LockController:
 
     def press_override(self):
         """Button 2: count presses while locked (with on-screen counter);
-        force-unlock at the limit."""
-        if self.state not in ("running", "closed"):
+        force-unlock at the limit. Also usable from the post-timeout "done,
+        not yet opened" holding state (auto_open off -- see go_done), since
+        the box is still physically shut there and override stays the
+        always-available emergency path; NOT usable once the box is actually
+        open (auto_open on, or already forced open) -- nothing left to
+        override."""
+        if self.state == "done":
+            if self._pending_log is None:
+                return
+        elif self.state not in ("running", "closed"):
             return
         self._override += 1
         self._override_at = self._now
         target = self.settings.override_presses
         if self._override >= target:
             self._clear_override()
-            self.go_done(self._now, OVERRIDDEN)  # unlock -> done; sensor ignored until RESET
+            if self.state == "done":
+                self.go_idle()   # force-open the holding state; flushes the deferred log
+            else:
+                self.go_done(self._now, OVERRIDDEN)  # unlock -> done; sensor ignored until RESET
         else:
             self.ui.show_override(self._override, target)
             # each press resets the timeout, so the countdown bar restarts full
@@ -561,6 +680,26 @@ class LockController:
                 self.ui.update_settings(self.settings)
             return
 
+        # Pre-session tag picker (see go_picking): tap a row to start tagged,
+        # swipe left to start untagged, swipe right for more synced labels if
+        # they don't fit on one page. Handled here, before the generic
+        # horizontal-swipe view-switch below, since the picker occupies the
+        # control view's screen without being one of the top-level VIEWS.
+        if self.state == "picking":
+            if abs(dx) >= SWIPE_MIN_PX and abs(dx) > abs(dy):
+                right = (dx < 0) if INVERT_X else (dx > 0)
+                if right:
+                    self._picker_page = (self._picker_page + 1) % self._picker_page_count()
+                    self.ui.show_tag_picker(self._picker_page_topics(self._picker_page))
+                else:
+                    self.go_running(self._now, topic=None)
+                return
+            if abs(dx) < SWIPE_MIN_PX and abs(dy) < SWIPE_MIN_PX:
+                topic = self.ui.tag_picker_topic_at(self._start[1])
+                if topic is not None:
+                    self.go_running(self._now, topic=topic)
+            return
+
         # Horizontal swipe -> switch views. INVERT_X is on, so a physical
         # swipe-right corresponds to a negative mapped dx.
         if abs(dx) >= SWIPE_MIN_PX and abs(dx) > abs(dy):
@@ -626,17 +765,15 @@ class LockController:
         # misread as a swipe (the button is taller than SWIPE_MIN_PX).
         if self.ui.in_button(*self._start) and self.ui.in_button(*self._last):
             if self.state in ("idle", "closed"):
-                self.go_running(self._now)   # tap this (invisible) region starts the countdown
+                self.go_picking(self._now)   # tag picker first, then the countdown actually starts
             elif self.state == "done":
                 self.go_idle()               # reset after finishing -> re-arms sensor
             # running: no on-screen cancel -- override button only
         elif abs(dy) >= SWIPE_MIN_PX and abs(dy) >= abs(dx):
-            # vertical swipe over a unit column sets the lock time (idle or closed)
+            # vertical swipe over a unit column sets the lock time (idle or
+            # closed). Two-way split (hours/minutes only) -- seconds were
+            # dropped from the box's own editing UI, see LockUI's guide_h/
+            # guide_m and adjust()'s comment.
             if self.state in ("idle", "closed") and self._start[1] < self.ui.BTN_Y:
-                if self._start[0] < self.ui.W // 3:
-                    unit = 0          # hours
-                elif self._start[0] < 2 * self.ui.W // 3:
-                    unit = 1          # minutes
-                else:
-                    unit = 2          # seconds
+                unit = 0 if self._start[0] < self.ui.W // 2 else 1
                 self.adjust(unit, 1 if dy < 0 else -1)

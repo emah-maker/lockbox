@@ -47,3 +47,41 @@ export function lastNDays(sessions: LoggedSession[], days = 7, nowMs = Date.now(
   }
   return out;
 }
+
+export interface HeatmapDay {
+  key: string; // Y-M-D
+  dateMs: number;
+  focusS: number;
+  level: 0 | 1 | 2 | 3 | 4; // intensity relative to the busiest day in the window, 0 = no focus
+}
+
+const HEATMAP_DAYS = 35; // 5 full weeks, GitHub-contributions-style grid
+
+function heatmapLevel(focusS: number, max: number): 0 | 1 | 2 | 3 | 4 {
+  if (focusS <= 0) return 0;
+  const ratio = focusS / max;
+  if (ratio > 0.75) return 4;
+  if (ratio > 0.5) return 3;
+  if (ratio > 0.25) return 2;
+  return 1;
+}
+
+/** Last 5 calendar weeks (oldest to newest, including today), bucketed into
+ * 5 intensity levels relative to the busiest day in that window -- a
+ * broader "which days were productive" pattern than the 7-bar trend chart
+ * above. Deliberately unwindowed (same choice as lastNDays/bestDay): a
+ * day/week filter would shrink this to a handful of cells, which is a worse
+ * view of the pattern than a fixed 5-week grid. */
+export function lastNDaysHeatmap(sessions: LoggedSession[], nowMs = Date.now()): HeatmapDay[] {
+  const byDay = groupByDay(sessions);
+  const now = new Date(nowMs);
+  const raw: { key: string; dateMs: number; focusS: number }[] = [];
+  for (let i = HEATMAP_DAYS - 1; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+    const key = dayKey(d.getTime());
+    const focusS = (byDay.get(key) ?? []).reduce((sum, s) => sum + s.actualS, 0);
+    raw.push({ key, dateMs: d.getTime(), focusS });
+  }
+  const max = Math.max(1, ...raw.map((d) => d.focusS));
+  return raw.map((d) => ({ ...d, level: heatmapLevel(d.focusS, max) }));
+}

@@ -4,7 +4,6 @@
 MAX_HOURS = 9                 # hours selectable (0..9)
 MAX_SECONDS = MAX_HOURS * 3600
 DEFAULT_SECONDS = 5 * 60      # time shown on boot (5:00)
-SEC_STEP = 5                  # seconds change per swipe on the S column
 MIN_STEP = 5                  # minutes change per swipe on the M column
 SWIPE_MIN_PX = 35             # min vertical travel to count as a swipe
 RELEASE_FRAMES = 2            # consecutive empty touch reads before a "release"
@@ -199,6 +198,13 @@ BLE_UUID_COMMAND = "6b9a7e00-4c2a-4f8e-9b21-9d7a5e3c0004"  # WRITE
 BLE_UUID_SETTINGS = "6b9a7e00-4c2a-4f8e-9b21-9d7a5e3c0005" # READ | WRITE
 BLE_UUID_TIME = "6b9a7e00-4c2a-4f8e-9b21-9d7a5e3c0006"     # WRITE (epoch seconds)
 BLE_UUID_ALERT = "6b9a7e00-4c2a-4f8e-9b21-9d7a5e3c0007"    # WRITE (call label)
+# Custom-label sync (app -> box), best-effort -- see lock_controller.
+# apply_ble_labels_json. NOT YET mirrored in app/src/ble/protocol.ts: the app
+# side still needs this UUID added to CHAR, an encoder that sends compact
+# {"i":id,"n":name} objects (name truncated to BLE_LABEL_NAME_MAX_LEN), and a
+# `tp` field added to the Status interface/parseStatus for the topic id the
+# box echoes back in ble_status_json while a tagged session is running.
+BLE_UUID_LABELS = "6b9a7e00-4c2a-4f8e-9b21-9d7a5e3c0008"   # WRITE (label list)
 
 # ----- Session log (Box-code/lib/lock_log.py) -----
 # Cap on the box's own on-device queue of sessions finished while no phone
@@ -241,6 +247,28 @@ HOLD_REPEAT_DELAY = 0.4       # seconds held before auto-repeat kicks in
 HOLD_REPEAT_START = 0.35      # seconds between the first few repeats
 HOLD_REPEAT_MIN = 0.08        # fastest repeat interval once ramped up
 HOLD_REPEAT_RAMP = 0.85       # interval *= this factor after each repeat
+
+# ----- Custom label sync (app -> box), best-effort -----
+# The box has no independent concept of a "label" -- it just holds whatever
+# compact (id, name) pairs the app most recently pushed over BLE_UUID_LABELS,
+# purely to populate the pre-session tag picker (see LockUI's tag-picker
+# screen / LockController._all_topics). Hard-capped so a large app-side
+# label list can't grow the box's RAM or the BLE payload unbounded -- the app
+# always pushes its FULL current list (not a delta), so a re-sync after
+# trimming on the app side fixes an over-cap list automatically.
+BLE_LABEL_MAX_COUNT = 8
+BLE_LABEL_NAME_MAX_LEN = 12
+
+# Built-in focus topics shown on the box's pre-session tag picker (see
+# LockController._all_topics / LockUI's tag-picker screen). Mirrors
+# app/src/stats/topics.ts's TOPIC_KEYS/TOPIC_LABELS order and ids exactly --
+# these ids are the ones echoed back over BLE (ble_status_json's "tp" field),
+# so a mismatch here would make a box-tagged session's topic unrecognizable
+# once the app tries to resolve it.
+BUILTIN_TOPICS = (
+    ("work", "Work"), ("study", "Study"), ("reading", "Reading"),
+    ("creative", "Creative"), ("exercise", "Exercise"), ("other", "Other"),
+)
 
 # ----- Companion-app theme sync -----
 # Mirrors app/src/theme/theme.ts. MODE_COLORS index = THEME_MODES order
