@@ -8,7 +8,7 @@ import { useStore, CONN_LABELS } from '../store/useStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useTheme } from '../theme/useTheme';
 import { withAlpha } from '../theme/theme';
-import { aggregate, formatDuration, completionRate, clampLockSeconds, MAX_LOCK_HOURS } from '../stats/stats';
+import { aggregate, formatDuration, completionRate, clampLockSeconds, MAX_LOCK_HOURS, MAX_LOCK_SECONDS } from '../stats/stats';
 import { allLabelChoices, resolveTopic } from '../stats/customLabels';
 import { lastNDays } from '../stats/trend';
 import type { Status } from '../ble/protocol';
@@ -108,24 +108,23 @@ export default function DashboardScreen() {
   // While a finger is down on the wheel pickers, the outer screen ScrollView
   // must not steal the vertical drag -- two nested vertical scrollers
   // competing for the same gesture is why swiping a wheel used to just
-  // scroll the whole screen instead.
-  const [pickerTouched, setPickerTouched] = useState(false);
+  // scroll the whole screen instead. This has to be a direct setNativeProps
+  // on a ref, not React state: a setState-driven `scrollEnabled` prop only
+  // takes effect after the next render reaches native, which can lose the
+  // race against the outer ScrollView's own gesture recognizer starting to
+  // track the same touch -- exactly why swiping felt unreliable ("works on
+  // some touches, not others") rather than reliably broken.
+  const outerScrollRef = useRef<ScrollView>(null);
+  const lockOuterScroll = () => outerScrollRef.current?.setNativeProps({ scrollEnabled: false });
+  const unlockOuterScroll = () => outerScrollRef.current?.setNativeProps({ scrollEnabled: true });
   const pickSeconds = clampLockSeconds(pickHours, pickMinutes);
-
-  // 9:00 is the cap -- once hours hits it, the minutes wheel has nothing
-  // left to offer but 0 (mirrors the old stepper's clamp).
-  const atMaxHours = pickHours >= MAX_LOCK_HOURS;
-  const minuteValues = atMaxHours ? [0] : MINUTE_VALUES;
-  const minuteLabels = atMaxHours ? ['00m'] : MINUTE_LABELS;
-  const minutesIndex = Math.max(0, minuteValues.indexOf(pickMinutes));
+  const minutesIndex = Math.max(0, MINUTE_VALUES.indexOf(pickMinutes));
 
   const onHoursIndexChange = (index: number) => {
-    const next = HOUR_VALUES[index];
-    setPickHours(next);
-    if (next >= MAX_LOCK_HOURS) setPickMinutes(0);
+    setPickHours(HOUR_VALUES[index]);
   };
   const onMinutesIndexChange = (index: number) => {
-    setPickMinutes(minuteValues[index]);
+    setPickMinutes(MINUTE_VALUES[index]);
   };
 
   // Computed here, not read over BLE: the box keeps no long-term stats of its
@@ -170,19 +169,59 @@ export default function DashboardScreen() {
   const connColor = conn === 'connected' ? theme.accent : conn === 'error' ? theme.danger : theme.textDim;
   const canClose = connected && (status?.st === 'idle' || status?.st === 'done');
   const canOpen = connected && (status?.st === 'running' || status?.st === 'closed');
+  // Unlike canClose (which also gates the actual Close button -- that one
+  // has to require a live BLE connection), the duration picker itself stays
+  // up whenever there's no reason to hide it: while disconnected (status is
+  // null) or once a session's finished (idle/done). It only hides while a
+  // session is actively running, since there's nothing to preview a
+  // duration for until that session ends. Previously this piggybacked on
+  // canClose, so the whole picker vanished on disconnect instead of just
+  // staying put with nothing to push yet.
+  const showDurationPicker = !status || status.st === 'idle' || status.st === 'done';
   const closeFade = useDisabledFade(!canClose);
   const openFade = useDisabledFade(!canOpen);
+
+  // True for exactly one render right after the wheels below were moved by
+  // the box-sync effect (not by the user's own finger) -- lets the push
+  // effect skip re-sending a value the box just told us it already has,
+  // instead of round-tripping the same number straight back to it.
+  const syncingFromBoxRef = useRef(false);
+
+  // Mirrors a duration changed directly on the box (its own +/- buttons or
+  // swipe-to-adjust while idle) back into the app's wheels -- otherwise the
+  // picker silently drifts out of sync with whatever the box is actually
+  // about to lock for, since until now this sync only ever ran one way
+  // (app -> box, just below). Guarded to the same states the picker itself
+  // is shown in, and skipped once status.set already matches what's
+  // picked -- which is also what stops this from re-triggering on the
+  // ordinary echo of this app's own pushed value.
+  useEffect(() => {
+    if (!status || status.st === 'running' || status.set <= 0 || status.set === pickSeconds) return;
+    // Defensive clamp only -- the box already caps at the same MAX_LOCK_SECONDS
+    // (lock_config.py MAX_HOURS), so this is just guarding against a stale/odd
+    // value rather than a case expected to actually trigger.
+    const seconds = Math.min(MAX_LOCK_SECONDS, status.set);
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.round((seconds % 3600) / 60 / MINUTE_STEP) * MINUTE_STEP;
+    syncingFromBoxRef.current = true;
+    setPickHours(hours);
+    setPickMinutes(minutes);
+  }, [status?.set, status?.st]);
 
   // Push the picked duration to the box as it changes. This is what lets the
   // box's on-screen clock track the stepper live, so the picked time is
   // visible on the box before the user taps its own LOCK button.
   useEffect(() => {
+    if (syncingFromBoxRef.current) {
+      syncingFromBoxRef.current = false; // consumed -- this pickSeconds change came from the box, not the user
+      return;
+    }
     if (!connected || !canClose) return;
     setDuration(pickSeconds).catch(() => {});
   }, [pickSeconds, connected, canClose, setDuration]);
 
   return (
-    <ScrollView contentContainerStyle={s.container} scrollEnabled={!pickerTouched}>
+    <ScrollView ref={outerScrollRef} contentContainerStyle={s.container}>
       <Text style={s.h1}>Phone Box</Text>
 
       {/* Connection state and box status share one card that's always
@@ -257,7 +296,7 @@ export default function DashboardScreen() {
           </Text>
         )}
 
-        {canClose && (
+        {showDurationPicker && (
           <View style={s.pickerBlock}>
             {/* Duration only -- no lock button here. Locking has to happen
                 at the box (tap LOCK once the phone is physically inside);
@@ -266,12 +305,12 @@ export default function DashboardScreen() {
             <Text style={s.label}>Set lock duration</Text>
             <View
               style={s.pickerRow}
-              onTouchStart={() => setPickerTouched(true)}
-              onTouchEnd={() => setPickerTouched(false)}
-              onTouchCancel={() => setPickerTouched(false)}
+              onTouchStart={lockOuterScroll}
+              onTouchEnd={unlockOuterScroll}
+              onTouchCancel={unlockOuterScroll}
             >
               <WheelPicker labels={HOUR_LABELS} selectedIndex={pickHours} onChange={onHoursIndexChange} />
-              <WheelPicker labels={minuteLabels} selectedIndex={minutesIndex} onChange={onMinutesIndexChange} />
+              <WheelPicker labels={MINUTE_LABELS} selectedIndex={minutesIndex} onChange={onMinutesIndexChange} />
             </View>
             <TopicPicker
               heading="Tag this session before you lock it"

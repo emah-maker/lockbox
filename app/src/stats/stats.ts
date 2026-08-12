@@ -59,9 +59,10 @@ export function completionRate(st: Stats): number {
 // Mirrors Box-code/lib/lock_config.py MAX_HOURS/MAX_SECONDS. The firmware
 // clamps to this on its own (lock_controller.apply_ble_command), but the app
 // clamps too so a picker button never labels itself with a duration longer
-// than what will actually run.
+// than what will actually run. The cap is 9h55m, not a clean 9h -- MAX_SECONDS
+// is intentionally not just MAX_LOCK_HOURS * 3600.
 export const MAX_LOCK_HOURS = 9;
-export const MAX_LOCK_SECONDS = MAX_LOCK_HOURS * 3600;
+export const MAX_LOCK_SECONDS = MAX_LOCK_HOURS * 3600 + 55 * 60;
 
 /** Combine an H/MM duration-picker selection into seconds for startLock(). */
 export function clampLockSeconds(hours: number, minutes: number): number {

@@ -51,9 +51,11 @@ export interface Settings {
   // Phone is authoritative here (see useStore.afterConnected): unlike the other
   // fields, the box's echoed value is never read back into the app's own theme.
   acc: number; // accent -- index into theme.ts ACCENT_KEYS (0=mint..5=rose).
-  // The box only applies this to two decorative elements (see
-  // Box-code/lib/lock_ui.py set_theme); it never recolors lock/closed/unlocked
-  // status indicators.
+  // The box applies this to its decorative accent elements -- the LOCK/OPEN
+  // button, the analog clock's second hand, the settings screen's values
+  // (list + detail page), and the elapsed-clock style's time text (see
+  // Box-code/lib/lock_ui.py set_theme/_accent_widgets) -- but never recolors
+  // lock/closed/unlocked status indicators.
 }
 
 // ----- parsers (defensive: the radio can hand us partial/garbled JSON) -----

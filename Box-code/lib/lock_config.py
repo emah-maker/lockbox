@@ -2,7 +2,7 @@
 
 # ----- Behavior -----
 MAX_HOURS = 9                 # hours selectable (0..9)
-MAX_SECONDS = MAX_HOURS * 3600
+MAX_SECONDS = MAX_HOURS * 3600 + 55 * 60   # cap is 9h55m, not a clean 9h
 DEFAULT_SECONDS = 5 * 60      # time shown on boot (5:00)
 MIN_STEP = 5                  # minutes change per swipe on the M column
 SWIPE_MIN_PX = 35             # min vertical travel to count as a swipe
@@ -298,8 +298,9 @@ BUILTIN_TOPICS = (
 # Mirrors app/src/theme/theme.ts. MODE_COLORS index = THEME_MODES order
 # (dark, light); ACCENT_COLORS index = ACCENT_KEYS order (mint, coral, amber,
 # sky, violet, rose). Mode swaps background/surface/text everywhere on the box.
-# Accent recolors ONLY two elements that never carry lock-status meaning (the
-# LOCK/OPEN button fill, the analog clock's second hand) -- the red/amber/
+# Accent recolors only elements that never carry lock-status meaning (the
+# LOCK/OPEN button fill, the analog clock's second hand, the settings
+# screen's values, and the elapsed-clock style's time text) -- the red/amber/
 # green STATE colors above (locked=red, closed=amber, unlocked=green) are
 # fixed regardless of mode or accent, so status stays readable at a glance no
 # matter which theme is picked. See lock_ui.LockUI.set_theme.

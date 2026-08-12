@@ -62,6 +62,11 @@ class LockUI:
         self._surface_widgets = []     # (obj, attr) tracking the "surface" color
         self._fg_widgets = []          # (obj, attr) tracking the "fg" (readable-on-bg) color
         self._dim_widgets = []         # (obj, attr) tracking the "dim" (secondary) color
+        self._accent_widgets = []      # (obj, attr) tracking the chosen accent color --
+        # settings values and the elapsed-clock time text, same accent the
+        # LOCK/OPEN button and analog second hand already use, so a chosen
+        # accent is actually visible there instead of every accent looking
+        # identical on those two screens.
         # corner status glyphs (one pair per view that has them -- control +
         # the 3 clock styles) so battery/BLE state is glanceable without
         # swiping to the dedicated battery view. See update_corner_battery /
@@ -144,6 +149,8 @@ class LockUI:
             setattr(obj, attr, fg)
         for obj, attr in self._dim_widgets:
             setattr(obj, attr, dim)
+        for obj, attr in self._accent_widgets:
+            setattr(obj, attr, accent)
 
         # indexed-palette widgets (bitmaps), not plain .fill/.color attrs
         self.hand_pal[1] = fg
@@ -826,6 +833,11 @@ class LockUI:
                      "idle": "not started"}.get(state, "")
         active = C_RED if state == "running" else None
         target = active or self._fg_color
+        # The elapsed style's time text follows the accent (like the
+        # LOCK/OPEN button and analog second hand) instead of the plain fg
+        # color the other three clock styles use below -- otherwise every
+        # accent choice looked identical on this one screen.
+        elapsed_target = active or self._accent_color
         style = self.clock_styles[self.clock_style_idx]
         # Same state-indication color ease as set_status, applied per style.
         # Gated on the cached target (mirrors the "on != self._anim_on"
@@ -859,9 +871,9 @@ class LockUI:
             # idle (nothing elapsed yet) and the full duration once done.
             elapsed = max(0.0, total - remaining)
             self.el_time.text = fmt_hms(elapsed)
-            if target != self._el_active_target:
-                self._el_active_target = target
-                self._start_color_transition(self.el_time, 'color', target)
+            if elapsed_target != self._el_active_target:
+                self._el_active_target = elapsed_target
+                self._start_color_transition(self.el_time, 'color', elapsed_target)
             self.el_state.text = statetext
 
     # =================== battery view ===================
@@ -1248,6 +1260,7 @@ class LockUI:
             vlbl.anchor_point = (1.0, 0.5)
             vlbl.anchored_position = (W - 14, y)
             group.append(vlbl)
+            self._accent_widgets.append((vlbl, 'color'))
             self.set_vals.append(vlbl)
 
         h1 = label.Label(terminalio.FONT, text="tap a row to change", color=C_GREY)
@@ -1320,6 +1333,7 @@ class LockUI:
         self.sd_value.anchor_point = (0.5, 0.5)
         self.sd_value.anchored_position = (W // 2, 130)
         group.append(self.sd_value)
+        self._accent_widgets.append((self.sd_value, 'color'))
 
         # Plain-language meaning of the number/state above (see
         # _SET_DESCRIPTIONS) -- sits in the gap between the big value and the

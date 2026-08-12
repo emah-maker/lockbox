@@ -56,8 +56,9 @@ describe('clampLockSeconds', () => {
     expect(clampLockSeconds(0, 5)).toBe(300);
   });
 
-  it('caps at the box\'s 9-hour maximum', () => {
-    expect(clampLockSeconds(9, 30)).toBe(MAX_LOCK_SECONDS);
+  it('caps at the box\'s 9h55m maximum', () => {
+    expect(clampLockSeconds(9, 55)).toBe(MAX_LOCK_SECONDS);
+    expect(clampLockSeconds(9, 60)).toBe(MAX_LOCK_SECONDS);
     expect(clampLockSeconds(20, 0)).toBe(MAX_LOCK_SECONDS);
   });
 
