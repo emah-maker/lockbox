@@ -84,21 +84,33 @@
   audit, hand motion questions to the sibling `motion-and-animation` skill,
   and hand off flow-mapping/validation/usability-testing to the matching
   synced ux-design skill instead of doing that work inline.
-- When running the `fully-delegate` FRAIM job, use Ruflo (`mcp__claude-flow__*` /
-  `mcp__ruflo__*`) for the sub-agent coordination layer only: spawn the
-  delegation graph's sub-agents as named agents in one batch
-  (`run_in_background: true`), have them `SendMessage` each other directly per
-  the dependency graph instead of polling, and use
+- When running the `fully-delegate` FRAIM job, MANdy (the manager) does **not**
+  spawn the delegation graph's sub-agents herself via the Agent tool, and does
+  not wait to be reached via `SendMessage` under the name "Mandy" - she is the
+  root/manager session, not a named agent spawned into this session's
+  Agent-tool namespace, so nothing can `SendMessage` her by that name and
+  every attempt will fail with "no agent named Mandy" (observed on every
+  child workstream in the 2026-08-11 icon/disclaimer/box-button run - see
+  `fraim/personalized-employee/learnings/raw/emah@kitchenlab.org-2026-08-11T20-00-00-avoid-duplicate-subagent-spawn-in-fully-delegate.md`).
+  Emit the delegation ledger via `seekMentoring` per the job's own
+  `create-delegation-graph`/`execute` phase text ("the orchestration layer
+  handles launching child jobs from the delegation ledger... do not do the
+  research or drafting yourself") and let that layer launch the real
+  children; MANdy's role afterward is only to review whatever lands - as a
+  working-tree diff, an evidence file, or the next manager-coaching turn's
+  deliverable summary - never to also spawn duplicate Agent-tool workers for
+  the same ledger tasks. Use Ruflo (`mcp__claude-flow__*` / `mcp__ruflo__*`)
+  only for the parts that are actually useful on top of that:
   `memory_search`/`memory_store` + `hooks_route` around each sub-agent job so
-  results are reusable across sessions. Ruflo must not replace each
-  sub-agent's own FRAIM job execution: every spawned sub-agent still calls
+  results are reusable across sessions. Every spawned sub-agent still calls
   `fraim_connect` and runs its assigned job through `get_fraim_job`/
   `seekMentoring` in full (per `fully-delegate`'s "delegation changes the
-  reviewer, not the deliverable" principle) so the FRAIM UI keeps showing that
-  agent as working its phases. FRAIM owns the job phases, verification gates,
-  and evidence file; Ruflo only supplies how sub-agents are spawned and talk
-  to each other on top of that. Do not add this machinery to jobs other than
-  `fully-delegate` unless asked.
+  reviewer, not the deliverable" principle) so the FRAIM UI keeps showing
+  that agent as working its phases; if a sub-agent's own instructions tell it
+  to `SendMessage` a "Mandy" agent when done, treat that as expected to fail
+  and fall back to reporting its deliverable inline instead - that fallback
+  is the real, working reporting path, not an error to route around. Do not
+  add this machinery to jobs other than `fully-delegate` unless asked.
 - `graphify-out/graph.json` already covers this whole repo (firmware, app,
   website, docs, retrospectives, and the FRAIM/Ruflo agent docs themselves —
   404 files as of the 2026-08-09 build). This applies to **every FRAIM job**,
