@@ -326,6 +326,13 @@ class LockUI:
         self.clock.anchor_point = (0.5, 0.5)
         self.clock.anchored_position = (W // 2, 120)
         group.append(self.clock)
+        # Was never in a theme registry -- only recolored by the
+        # show_idle/show_running/show_closed calls below, so switching to
+        # light mode while sitting on this screen left these digits white
+        # (invisible) on the new light background until the next state
+        # change happened to call one of those. Registering it here means
+        # set_theme keeps it correct immediately, regardless of state.
+        self._fg_widgets.append((self.clock, 'color'))
 
         # column guides: swipe over H / M to change that unit. Seconds were
         # dropped from the box's own editing UI (still shown live in the
@@ -1047,7 +1054,7 @@ class LockUI:
 
         # This label reassigns on every single override-button press
         # (show_override), and override_presses can be configured as high as
-        # 250 (OVR_OPTIONS), so a real "keep pressing to unlock" sequence is
+        # 255 (OVR_MAX), so a real "keep pressing to unlock" sequence is
         # a long, uninterrupted burst of small label-bitmap reallocations --
         # a likely contributor to the reported crash. This board's installed
         # adafruit_display_text.Label does NOT accept a `max_glyphs` kwarg to
@@ -1056,7 +1063,7 @@ class LockUI:
         # code.py with no UI) -- reverted. The periodic gc.collect() in
         # LockController.press_override is the mitigation actually in place.
         # scale=3, not 4: at scale=4 the widest text this ever shows
-        # ("250/250", 7 chars, OVR_OPTIONS' ceiling) is 4*6*7 = 168px --
+        # ("255/255", 7 chars, OVR_MAX's ceiling) is 4*6*7 = 168px --
         # nearly the full 172px screen width on its own, let alone fitting
         # inside the ring (whose usable inner width, after the ring's own
         # stroke, is well under that). scale=3 -> 126px, comfortable both
@@ -1431,12 +1438,25 @@ class LockUI:
         group.append(ttl)
         self._dim_widgets.append((ttl, 'color'))
 
+        # Dot at a fixed x, name left-anchored just after it -- was a single
+        # centered label per row until each row needed its own topic color
+        # (built-in or synced-custom, see lock_config.BUILTIN_TOPICS /
+        # LockController._synced_labels): centering text AND fitting a dot
+        # in the remaining margin doesn't work at this screen's 172px width,
+        # so the row layout shifted to dot-then-name instead.
+        self.tp_dot_x = 26
+        self.tp_dot_r = 6
+        self.tp_name_x = 44
         self.tp_rows_y = (70, 110, 150, 190, 230, 270)
         self.tp_row_labels = []
+        self.tp_row_dots = []
         for y in self.tp_rows_y:
+            dot = Circle(self.tp_dot_x, y, self.tp_dot_r, fill=C_GREY)
+            group.append(dot)
+            self.tp_row_dots.append(dot)
             lbl = label.Label(terminalio.FONT, text="", color=C_WHITE, scale=2)
-            lbl.anchor_point = (0.5, 0.5)
-            lbl.anchored_position = (W // 2, y)
+            lbl.anchor_point = (0.0, 0.5)
+            lbl.anchored_position = (self.tp_name_x, y)
             group.append(lbl)
             self._fg_widgets.append((lbl, 'color'))
             self.tp_row_labels.append(lbl)
@@ -1479,21 +1499,25 @@ class LockUI:
         self._fg_widgets.append((self._tp_arrow_right, 'fill'))
 
     def show_tag_picker(self, page_topics):
-        """page_topics: [(id, name), ...], up to 6 entries for this page."""
+        """page_topics: [(id, name, color), ...], up to 6 entries for this page."""
         self._tp_ids = [t[0] for t in page_topics]
-        for i, lbl in enumerate(self.tp_row_labels):
+        for i, (lbl, dot) in enumerate(zip(self.tp_row_labels, self.tp_row_dots)):
             if i < len(page_topics):
-                # 12 chars, not 16 -- at this row's scale=2 (12px/glyph), 16
-                # chars is 192px, wider than the 172px screen itself. 12
-                # chars (144px) fits with margin, and matches
-                # BLE_LABEL_NAME_MAX_LEN, so a synced custom label is never
-                # actually truncated here -- only a pathological built-in
-                # name would be, and none of the 6 built-ins are close.
-                lbl.text = page_topics[i][1][:12]
+                # 9 chars, not 12 -- at this row's scale=2 (12px/glyph), the
+                # dot-then-name layout (see _build_tag_picker) leaves less
+                # room for text than the old fully-centered row did. A
+                # synced custom label can still be longer than this (up to
+                # BLE_LABEL_NAME_MAX_LEN=12) and would truncate here; that's
+                # a real display-only limit of this 172px screen, not a
+                # sync-side one.
+                lbl.text = page_topics[i][1][:9]
                 lbl.hidden = False
+                dot.fill = page_topics[i][2]
+                dot.hidden = False
             else:
                 lbl.text = ""
                 lbl.hidden = True
+                dot.hidden = True
         self.display.root_group = self.tag_picker_group
 
     def hide_tag_picker(self):
@@ -1557,7 +1581,6 @@ class LockUI:
     def show_idle(self, secs):
         self.clock.hidden = False
         self._clk_bg.hidden = False
-        self.clock.color = self._fg_color
         self.set_clock(secs)
         self.big_msg.hidden = True
         self.border.hidden = True
@@ -1572,7 +1595,6 @@ class LockUI:
     def show_running(self):
         self.clock.hidden = False
         self._clk_bg.hidden = False
-        self.clock.color = self._fg_color
         self.big_msg.hidden = True
         self.border.hidden = True
         self._idle_widgets(False)
@@ -1583,7 +1605,6 @@ class LockUI:
         # lid closed but not yet timed: pick a time, then tap LOCK to start
         self.clock.hidden = False
         self._clk_bg.hidden = False
-        self.clock.color = self._fg_color
         self.big_msg.hidden = True
         self.border.hidden = True
         self._idle_widgets(True)          # show H/M guides so time is selectable

@@ -14,6 +14,14 @@ export interface ThemeColors {
   accentText: string; // text/icon color placed on top of a filled `accent` surface
   danger: string;
   warn: string;
+  // Fixed, accent-independent -- the BLE connection dot's "connected" color.
+  // Same precedent as danger/warn: a status color that must read the same
+  // way regardless of which accent is picked, mirroring Box-code's LockUI
+  // (locked=red/closed=amber/unlocked=green never follow the box's own
+  // accent setting either). Before this existed, the connected dot used
+  // `accent` directly, so picking a non-green accent (coral, sky, ...) made
+  // "connected" stop looking green.
+  success: string;
 }
 
 type AccentColors = Pick<ThemeColors, 'accent' | 'accentText'>;
@@ -38,6 +46,7 @@ const MODES: Record<ThemeMode, ModeColors> = {
     textDim: '#9aa0a6',
     danger: '#ef4444',
     warn: '#f2b84b',
+    success: '#22c55e',
   },
   light: {
     bg: '#f5f6f8',
@@ -46,6 +55,7 @@ const MODES: Record<ThemeMode, ModeColors> = {
     textDim: '#5b6167',
     danger: '#dc2626',
     warn: '#b45309',
+    success: '#16a34a',
   },
 };
 

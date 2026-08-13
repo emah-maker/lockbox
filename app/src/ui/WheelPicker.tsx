@@ -30,11 +30,24 @@ export function WheelPicker({
   selectedIndex,
   onChange,
   width = 90,
+  onDragStart,
+  onDragEnd,
 }: {
   labels: string[];
   selectedIndex: number;
   onChange: (index: number) => void;
   width?: number;
+  // Fire on the ScrollView's own drag lifecycle, not a wrapping View's raw
+  // touch events -- once this wheel actually captures the gesture (which it
+  // does the moment a real drag starts), the caller's wrapping View stops
+  // receiving touch-end/-cancel at all, since only the responder does. A
+  // caller using onTouchEnd alone to, say, re-enable a sibling ScrollView's
+  // scrolling would then never see that re-enable fire, leaving it stuck
+  // disabled -- exactly the bug DashboardScreen's picker-row hit ("swipe
+  // freezes the screen"). onDragStart/onDragEnd give a caller a signal this
+  // component can guarantee actually fires.
+  onDragStart?: () => void;
+  onDragEnd?: () => void;
 }) {
   const theme = useTheme();
   const scrollRef = useRef<ScrollView>(null);
@@ -63,6 +76,7 @@ export function WheelPicker({
     }
     settledIndexRef.current = index;
     if (index !== selectedIndex) onChange(index);
+    onDragEnd?.();
   };
 
   return (
@@ -76,10 +90,11 @@ export function WheelPicker({
         contentOffset={{ x: 0, y: selectedIndex * WHEEL_ITEM_HEIGHT }}
         onScroll={onScroll}
         scrollEventThrottle={16}
+        onScrollBeginDrag={onDragStart}
         onMomentumScrollEnd={commit}
         onScrollEndDrag={(e) => {
           const vy = e.nativeEvent.velocity?.y ?? 0;
-          if (Math.abs(vy) > DRAG_SETTLE_VELOCITY) return; // momentum will settle it
+          if (Math.abs(vy) > DRAG_SETTLE_VELOCITY) return; // momentum will settle it, commit() will fire onDragEnd then
           commit(e);
         }}
       >

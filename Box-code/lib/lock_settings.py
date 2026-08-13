@@ -6,8 +6,8 @@ import microcontroller
 
 from lock_config import (
     OVERRIDE_PRESSES, INACTIVITY_S, BL_LEVEL, BLE_ALLOW_REMOTE_UNLOCK,
-    BLE_UNLOCK_ON_CALL, OVR_OPTIONS, SLEEP_OPTIONS, BRIGHT_OPTIONS,
-    DEFAULT_MODE_IDX, DEFAULT_ACCENT_IDX, ACCENT_COLORS,
+    BLE_UNLOCK_ON_CALL, OVR_MIN, OVR_MAX, OVR_STEP, SLEEP_OPTIONS,
+    BRIGHT_OPTIONS, DEFAULT_MODE_IDX, DEFAULT_ACCENT_IDX, ACCENT_COLORS,
 )
 
 _MAGIC = 0x60        # bump when the NVM layout changes (forces defaults once);
@@ -24,6 +24,10 @@ def _step_in(options, value, direction):
         i = 0
     i = max(0, min(len(options) - 1, i + (1 if direction > 0 else -1)))
     return options[i]
+
+
+def _step_clamped(value, direction, step, lo, hi):
+    return max(lo, min(hi, value + (step if direction > 0 else -step)))
 
 
 class Settings:
@@ -97,7 +101,7 @@ class Settings:
     def adjust(self, idx, direction):
         # swipe up/down: direction +1 = up/increase, -1 = down/decrease (clamped)
         if idx == 0:
-            self.override_presses = _step_in(OVR_OPTIONS, self.override_presses, direction)
+            self.override_presses = _step_clamped(self.override_presses, direction, OVR_STEP, OVR_MIN, OVR_MAX)
         elif idx == 1:
             self.auto_open = direction > 0
         elif idx == 2:

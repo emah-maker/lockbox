@@ -76,9 +76,16 @@ conventions, not design taste or motion values.
      `Pressable` wrapped in `Animated.createAnimatedComponent`, press-scale via
      a critically-damped spring, respects `useReducedMotion()`); build new
      draggable controls the way `SettingsPrimitives.tsx`'s `SliderRow` does,
-     with core RN `PanResponder`, not a new gesture library — `SliderRow`
-     already covers both a uniform-step range and a discrete, non-uniform
-     `options` array, so check it covers the ask before writing a new one.
+     with core RN `PanResponder`, not a new gesture library — `SliderRow` is a
+     uniform-step `min`/`max`/`step` slider (it used to also snap to a
+     discrete, non-uniform `options` array for the firmware's old OVR_OPTIONS
+     staircase; that mode was removed once Override presses became a flat
+     step, since a non-uniform staircase is what made the slider feel
+     "inconsistent" in the first place — check SliderRow's own header comment
+     before reintroducing anything like it). For a value that also needs an
+     escape hatch beyond the slider's range or granularity, see
+     `SettingsScreen.tsx`'s `OverrideCustomEntry` — a small inline `TextInput`
+     shown behind a "Custom…" toggle, deliberately not `Alert.prompt` (iOS-only).
    - `AnimatedPressable`'s scale-down-on-press is a uniformly-applied
      iOS-style treatment; there's no `Platform.select` branching for touch
      feedback today. The Android-native equivalent is `Pressable`'s

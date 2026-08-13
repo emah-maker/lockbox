@@ -223,11 +223,11 @@ BLE_UUID_SETTINGS = "6b9a7e00-4c2a-4f8e-9b21-9d7a5e3c0005" # READ | WRITE
 BLE_UUID_TIME = "6b9a7e00-4c2a-4f8e-9b21-9d7a5e3c0006"     # WRITE (epoch seconds)
 BLE_UUID_ALERT = "6b9a7e00-4c2a-4f8e-9b21-9d7a5e3c0007"    # WRITE (call label)
 # Custom-label sync (app -> box), best-effort -- see lock_controller.
-# apply_ble_labels_json. NOT YET mirrored in app/src/ble/protocol.ts: the app
-# side still needs this UUID added to CHAR, an encoder that sends compact
-# {"i":id,"n":name} objects (name truncated to BLE_LABEL_NAME_MAX_LEN), and a
-# `tp` field added to the Status interface/parseStatus for the topic id the
-# box echoes back in ble_status_json while a tagged session is running.
+# apply_ble_labels_json. Mirrored in app/src/ble/protocol.ts as CHAR.labels /
+# cmdSetLabels: raw JSON (no opcode prefix -- this has its own characteristic,
+# unlike the CHAR.command opcodes), compact {"i":id,"n":name,"c":color}
+# objects (name truncated to BLE_LABEL_NAME_MAX_LEN, color a "#rrggbb" hex
+# string).
 BLE_UUID_LABELS = "6b9a7e00-4c2a-4f8e-9b21-9d7a5e3c0008"   # WRITE (label list)
 
 # ----- Session log (Box-code/lib/lock_log.py) -----
@@ -246,18 +246,20 @@ BLE_UUID_LABELS = "6b9a7e00-4c2a-4f8e-9b21-9d7a5e3c0008"   # WRITE (label list)
 LOG_MAX_PENDING = 200
 
 # ----- Settings screen option ranges (values persisted in NVM) -----
-# Non-uniform staircase: small steps (5) while the count is low, growing to
-# bigger steps (10, then 25, then 50) as the count gets bigger -- a flat step
-# across the whole range would make either the low end too coarse or the high
-# end tediously slow to reach. Ceiling of 250 stays well under the 1-byte NVM
-# budget (see lock_settings.Settings.save -- override_presses is stored in a
-# single nvm byte, max 255).
-OVR_OPTIONS = (
-    5, 10, 15, 20, 25, 30, 35, 40, 45, 50,    # step 5  (5-50)
-    60, 70, 80, 90, 100,                       # step 10 (50-100)
-    125, 150,                                  # step 25 (100-150)
-    200, 250,                                  # step 50 (150-250)
-)
+# Override presses used to be a non-uniform 5/10/25/50 staircase (small steps
+# while the count was low, growing as it got bigger), retired in favor of a
+# flat linear step -- both the box's own swipe-to-adjust and the app's
+# slider snapped by equal-width track/hold-repeat slices regardless of the
+# staircase's actual value spacing, so the same-size nudge meant a tiny
+# change near one end and a huge jump near the other. That inconsistency is
+# what a non-uniform range costs; a flat step removes it entirely.
+# OVR_MAX is the box's real storage ceiling, not an arbitrary UI choice: see
+# lock_settings.Settings.save, which persists this in a single NVM byte
+# (max 255) -- also confirmed safe for LockUI's on-screen "N/N" override
+# counter, sized for exactly this many digits (see LockUI._build_override).
+OVR_MIN = 5
+OVR_MAX = 255
+OVR_STEP = 5
 SLEEP_OPTIONS = (10, 20, 30, 60)      # screen-sleep seconds (on battery)
 BRIGHT_OPTIONS = (10, 30, 50, 70, 100)    # backlight percent (min 10)
 
@@ -282,17 +284,6 @@ HOLD_REPEAT_RAMP = 0.85       # interval *= this factor after each repeat
 # trimming on the app side fixes an over-cap list automatically.
 BLE_LABEL_MAX_COUNT = 8
 BLE_LABEL_NAME_MAX_LEN = 12
-
-# Built-in focus topics shown on the box's pre-session tag picker (see
-# LockController._all_topics / LockUI's tag-picker screen). Mirrors
-# app/src/stats/topics.ts's TOPIC_KEYS/TOPIC_LABELS order and ids exactly --
-# these ids are the ones echoed back over BLE (ble_status_json's "tp" field),
-# so a mismatch here would make a box-tagged session's topic unrecognizable
-# once the app tries to resolve it.
-BUILTIN_TOPICS = (
-    ("work", "Work"), ("study", "Study"), ("reading", "Reading"),
-    ("creative", "Creative"), ("exercise", "Exercise"), ("other", "Other"),
-)
 
 # ----- Companion-app theme sync -----
 # Mirrors app/src/theme/theme.ts. MODE_COLORS index = THEME_MODES order
@@ -319,6 +310,28 @@ ACCENT_COLORS = (
     fix(0xFB7185),  # rose
 )
 DEFAULT_ACCENT_IDX = 0
+
+# Built-in focus topics shown on the box's pre-session tag picker (see
+# LockController._all_topics / LockUI's tag-picker screen). Mirrors
+# app/src/stats/topics.ts's TOPIC_KEYS/TOPIC_LABELS order and ids exactly --
+# these ids are the ones echoed back over BLE (ble_status_json's "tp" field),
+# so a mismatch here would make a box-tagged session's topic unrecognizable
+# once the app tries to resolve it. The third element is the color for that
+# topic's dot on the tag-picker row (see LockUI.show_tag_picker) -- reuses
+# ACCENT_COLORS positionally rather than inventing a separate 6-color
+# palette, since it's already the validated set of distinct hues this
+# display uses elsewhere. Not tied to the user's own chosen accent (that
+# stays whatever ACCENT_COLORS[accent_idx] set_theme picked); this just
+# borrows the same swatches to give each of the (at most) 6 built-ins its
+# own fixed, distinct dot.
+BUILTIN_TOPICS = (
+    ("work", "Work", ACCENT_COLORS[0]),
+    ("study", "Study", ACCENT_COLORS[1]),
+    ("reading", "Reading", ACCENT_COLORS[2]),
+    ("creative", "Creative", ACCENT_COLORS[3]),
+    ("exercise", "Exercise", ACCENT_COLORS[4]),
+    ("other", "Other", ACCENT_COLORS[5]),
+)
 
 # Text drawn directly on an accent fill (the LOCK/OPEN button label) needs a
 # fixed dark color, not the mode's fg/dim -- all 6 accents above are light

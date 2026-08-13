@@ -4,7 +4,7 @@
 // useStore.pushBoxSettings, mirrored locally in useSettingsStore.boxSettings
 // so this screen has something to show even before a connection is made.
 import React from 'react';
-import { View, Text, StyleSheet, Switch, ScrollView, Alert } from 'react-native';
+import { View, Text, StyleSheet, Switch, ScrollView, TextInput, Alert } from 'react-native';
 import { useStore, CONN_LABELS } from '../store/useStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useAuthStore } from '../auth/useAuthStore';
@@ -16,13 +16,17 @@ import { AnimatedPressable } from '../ui/AnimatedPressable';
 import { typeScale } from '../theme/tokens';
 
 // Mirrors Box-code/lib/lock_config.py -- keep these ranges in lockstep with
-// OVR_OPTIONS/SLEEP_OPTIONS/BRIGHT_OPTIONS on the firmware side.
-const OVR_OPTIONS = [
-  5, 10, 15, 20, 25, 30, 35, 40, 45, 50, // step 5  (5-50)
-  60, 70, 80, 90, 100, // step 10 (50-100)
-  125, 150, // step 25 (100-150)
-  200, 250, // step 50 (150-250)
-];
+// OVR_MIN/OVR_MAX/OVR_STEP and SLEEP_OPTIONS/BRIGHT_OPTIONS on the firmware
+// side. Override presses used to be a non-uniform 5/10/25/50 staircase
+// (OVR_OPTIONS) -- a slider gives every option an equal-width slice of the
+// track regardless of value, so the staircase made the same-size drag
+// distance mean a tiny nudge near one end and a huge jump near the other,
+// which read as "inconsistent". A flat step fixes that at the source.
+// OVR_MAX (255) is the box's actual storage ceiling (lock_settings.Settings.
+// save persists this in a single NVM byte) -- not an arbitrary UI choice.
+const OVR_MIN = 5;
+const OVR_MAX = 255;
+const OVR_STEP = 5;
 const SLEEP_OPTIONS = [10, 20, 30, 60];
 const BRIGHT_OPTIONS = [10, 30, 50, 70, 100];
 
@@ -39,7 +43,9 @@ export default function SettingsScreen() {
   const accent = useSettingsStore((s) => s.accent);
   const setAccent = useSettingsStore((s) => s.setAccent);
 
-  const connColor = conn === 'connected' ? c.accent : conn === 'error' ? c.danger : c.textDim;
+  // Fixed green/red, matching DashboardScreen's connection dot -- see its
+  // comment for why this can't just follow the accent/textDim theme colors.
+  const connColor = conn === 'connected' ? c.success : c.danger;
 
   return (
     <ScrollView style={{ backgroundColor: c.bg }} contentContainerStyle={styles.container}>
@@ -69,9 +75,18 @@ export default function SettingsScreen() {
         <SliderRow
           label="Override presses"
           value={boxSettings.ovr}
-          options={OVR_OPTIONS}
+          min={OVR_MIN}
+          max={OVR_MAX}
+          step={OVR_STEP}
           onChange={(v) => pushBoxSettings({ ovr: v })}
           caption={(v) => `${v} presses to force-unlock`}
+          color={c}
+        />
+        <OverrideCustomEntry
+          value={boxSettings.ovr}
+          min={OVR_MIN}
+          max={OVR_MAX}
+          onChange={(v) => pushBoxSettings({ ovr: v })}
           color={c}
         />
         <PickerGroup
@@ -234,8 +249,14 @@ function AccountSection({ color }: { color: ReturnType<typeof useTheme> }) {
           {syncError ? <Text style={[styles.subtitle, { color: color.danger }]}>{syncError}</Text> : null}
           {deleteError ? <Text style={[styles.subtitle, { color: color.danger }]}>{deleteError}</Text> : null}
           <View style={styles.chipRow}>
-            <Button label={syncing ? 'Syncing...' : 'Sync now'} onPress={syncNow} disabled={syncing || busy} color={color} />
-            <Button label="Sign out" onPress={handleSignOut} disabled={busy} color={color} variant="outline" />
+            <Button
+              label={syncing ? 'Syncing...' : 'Sync now'}
+              onPress={syncNow}
+              disabled={syncing || busy}
+              loading={syncing || busy}
+              color={color}
+            />
+            <Button label="Sign out" onPress={handleSignOut} disabled={busy} loading={busy} color={color} variant="outline" />
           </View>
           <AnimatedPressable onPress={handleDeleteAccount} disabled={busy} style={{ marginTop: 12 }}>
             <Text style={[styles.subtitle, { color: color.danger }]}>Delete account</Text>
@@ -248,7 +269,7 @@ function AccountSection({ color }: { color: ReturnType<typeof useTheme> }) {
             fully without this.
           </Text>
           {syncError ? <Text style={[styles.subtitle, { color: color.danger }]}>{syncError}</Text> : null}
-          <Button label="Sign in with Google" onPress={handleSignIn} disabled={busy} color={color} />
+          <Button label="Sign in with Google" onPress={handleSignIn} disabled={busy} loading={busy} color={color} />
         </>
       )}
     </Section>
@@ -312,6 +333,75 @@ function PickerGroup({
           </Chip>
         ))}
       </View>
+    </View>
+  );
+}
+
+// Escape hatch below the Override-presses slider: the slider is a fast way
+// to pick a round-ish number, but has no way to land on an arbitrary exact
+// value without a lot of dragging. Cross-platform by construction (unlike
+// Alert.prompt, which is iOS-only) -- same TextInput pattern as
+// CustomLabelsSection's label-name field. Clamped to [min, max] here too,
+// not just relying on the box's own clamp in apply_ble_settings_json --
+// same "app clamps too" belt-and-suspenders as clampLockSeconds.
+function OverrideCustomEntry({
+  value,
+  min,
+  max,
+  onChange,
+  color,
+}: {
+  value: number;
+  min: number;
+  max: number;
+  onChange: (v: number) => void;
+  color: ReturnType<typeof useTheme>;
+}) {
+  const [open, setOpen] = React.useState(false);
+  const [draft, setDraft] = React.useState('');
+  const [error, setError] = React.useState<string | null>(null);
+
+  if (!open) {
+    return (
+      <AnimatedPressable
+        onPress={() => {
+          setDraft(String(value));
+          setError(null);
+          setOpen(true);
+        }}
+        style={{ marginTop: 4 }}
+      >
+        <Text style={[styles.customLink, { color: color.accent }]}>Enter a custom number...</Text>
+      </AnimatedPressable>
+    );
+  }
+
+  const commit = () => {
+    const n = Math.round(Number(draft));
+    if (!draft.trim() || !Number.isFinite(n)) {
+      setError('Enter a whole number.');
+      return;
+    }
+    onChange(Math.max(min, Math.min(max, n)));
+    setOpen(false);
+  };
+
+  return (
+    <View style={{ marginTop: 8, gap: 6 }}>
+      <View style={styles.customRow}>
+        <TextInput
+          value={draft}
+          onChangeText={setDraft}
+          keyboardType="number-pad"
+          autoFocus
+          style={[styles.customInput, { color: color.text, borderColor: color.textDim }]}
+        />
+        <Button label="Set" onPress={commit} color={color} />
+        <AnimatedPressable onPress={() => setOpen(false)}>
+          <Text style={{ color: color.textDim }}>Cancel</Text>
+        </AnimatedPressable>
+      </View>
+      {error ? <Text style={[styles.subtitle, { color: color.danger }]}>{error}</Text> : null}
     </View>
   );
 }
@@ -383,4 +473,7 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
   },
   chipSwatch: { width: 10, height: 10, borderRadius: 5, borderWidth: 1 },
+  customLink: { fontSize: 13, fontWeight: '600' },
+  customRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  customInput: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, fontSize: 15, minWidth: 70, textAlign: 'center' },
 });

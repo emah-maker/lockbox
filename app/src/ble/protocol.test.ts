@@ -1,5 +1,12 @@
 // Unit tests for the BLE wire-contract codecs. Run with `npm test` (jest-expo).
-import { parseSettings, encodeSettings, Settings, cmdSetLabels } from './protocol';
+import {
+  parseSettings,
+  encodeSettings,
+  Settings,
+  cmdSetLabels,
+  BLE_LABEL_MAX_COUNT,
+  BLE_LABEL_NAME_MAX_LEN,
+} from './protocol';
 
 const FULL: Settings = { ovr: 25, auto: 1, sleep: 20, bright: 50, unlk: 0, ucal: 1, thm: 1, acc: 3 };
 
@@ -40,12 +47,30 @@ describe('parseSettings defensive parsing', () => {
 });
 
 describe('cmdSetLabels', () => {
-  it('encodes the label catalog as a labels: opcode with a JSON array body', () => {
+  it('encodes the label catalog as raw JSON with compact i/n/c keys', () => {
     const labels = [{ id: 'custom:abc', name: 'Reading', color: '#e11d48' }];
-    expect(cmdSetLabels(labels)).toBe(`labels:${JSON.stringify(labels)}`);
+    expect(cmdSetLabels(labels)).toBe(JSON.stringify([{ i: 'custom:abc', n: 'Reading', c: '#e11d48' }]));
   });
 
   it('round-trips an empty catalog', () => {
-    expect(cmdSetLabels([])).toBe('labels:[]');
+    expect(cmdSetLabels([])).toBe('[]');
+  });
+
+  it('truncates a name past BLE_LABEL_NAME_MAX_LEN so the box never receives an over-length one', () => {
+    const labels = [{ id: 'custom:1', name: 'A Very Long Custom Label Name', color: '#e11d48' }];
+    const [encoded] = JSON.parse(cmdSetLabels(labels));
+    expect(encoded.n).toBe('A Very Long '.slice(0, BLE_LABEL_NAME_MAX_LEN));
+    expect(encoded.n.length).toBe(BLE_LABEL_NAME_MAX_LEN);
+  });
+
+  it('caps the catalog at BLE_LABEL_MAX_COUNT entries', () => {
+    const labels = Array.from({ length: BLE_LABEL_MAX_COUNT + 3 }, (_, i) => ({
+      id: `custom:${i}`,
+      name: `Label ${i}`,
+      color: '#e11d48',
+    }));
+    const decoded = JSON.parse(cmdSetLabels(labels));
+    expect(decoded).toHaveLength(BLE_LABEL_MAX_COUNT);
+    expect(decoded[0].i).toBe('custom:0');
   });
 });

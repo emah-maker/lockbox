@@ -108,15 +108,21 @@ export default function DashboardScreen() {
   // While a finger is down on the wheel pickers, the outer screen ScrollView
   // must not steal the vertical drag -- two nested vertical scrollers
   // competing for the same gesture is why swiping a wheel used to just
-  // scroll the whole screen instead. This has to be a direct setNativeProps
-  // on a ref, not React state: a setState-driven `scrollEnabled` prop only
-  // takes effect after the next render reaches native, which can lose the
-  // race against the outer ScrollView's own gesture recognizer starting to
-  // track the same touch -- exactly why swiping felt unreliable ("works on
-  // some touches, not others") rather than reliably broken.
-  const outerScrollRef = useRef<ScrollView>(null);
-  const lockOuterScroll = () => outerScrollRef.current?.setNativeProps({ scrollEnabled: false });
-  const unlockOuterScroll = () => outerScrollRef.current?.setNativeProps({ scrollEnabled: true });
+  // scroll the whole screen instead. Plain React state driving the
+  // ScrollView's own `scrollEnabled` prop -- NOT a ref + setNativeProps --
+  // is deliberate here: setNativeProps is a documented React Native escape
+  // hatch (writes straight to the native view, bypassing props
+  // reconciliation) that was tried first for lower latency, but it's exactly
+  // the kind of imperative/render-desync footgun RN's own docs warn is
+  // "difficult to follow" and not guaranteed safe to mix with an Animated
+  // native-driven ScrollView -- it lined up with reports of the picker (and
+  // occasionally the whole app) freezing. A state-driven prop can only ever
+  // be as fast as the next render, which very occasionally means a swipe
+  // has to be repeated, but it can never leave native and JS holding
+  // conflicting ideas of whether this view is scrollable.
+  const [pickerActive, setPickerActive] = useState(false);
+  const lockOuterScroll = () => setPickerActive(true);
+  const unlockOuterScroll = () => setPickerActive(false);
   const pickSeconds = clampLockSeconds(pickHours, pickMinutes);
   const minutesIndex = Math.max(0, MINUTE_VALUES.indexOf(pickMinutes));
 
@@ -166,7 +172,12 @@ export default function DashboardScreen() {
   const connected = conn === 'connected';
   // Same status-dot language as SettingsScreen's connBadge -- the two screens
   // show the same connection state and should read identically at a glance.
-  const connColor = conn === 'connected' ? theme.accent : conn === 'error' ? theme.danger : theme.textDim;
+  // Fixed green/red, not accent/textDim -- this dot is a status indicator
+  // (like the box's own locked=red/closed=amber/unlocked=green), so it must
+  // read the same regardless of which accent is picked, and disconnected
+  // (idle/scanning/connecting/error alike) must always read as clearly "not
+  // connected", not a neutral grey that only turns red on a hard error.
+  const connColor = connected ? theme.success : theme.danger;
   const canClose = connected && (status?.st === 'idle' || status?.st === 'done');
   const canOpen = connected && (status?.st === 'running' || status?.st === 'closed');
   // Unlike canClose (which also gates the actual Close button -- that one
@@ -221,7 +232,7 @@ export default function DashboardScreen() {
   }, [pickSeconds, connected, canClose, setDuration]);
 
   return (
-    <ScrollView ref={outerScrollRef} contentContainerStyle={s.container}>
+    <ScrollView scrollEnabled={!pickerActive} contentContainerStyle={s.container}>
       <Text style={s.h1}>Phone Box</Text>
 
       {/* Connection state and box status share one card that's always
@@ -309,8 +320,28 @@ export default function DashboardScreen() {
               onTouchEnd={unlockOuterScroll}
               onTouchCancel={unlockOuterScroll}
             >
-              <WheelPicker labels={HOUR_LABELS} selectedIndex={pickHours} onChange={onHoursIndexChange} />
-              <WheelPicker labels={MINUTE_LABELS} selectedIndex={minutesIndex} onChange={onMinutesIndexChange} />
+              {/* onTouchStart above disables the outer scroll early enough to
+                  win the gesture; onTouchEnd/onTouchCancel only re-enable it
+                  reliably for a tap that never became a drag -- once a wheel
+                  actually captures a drag, this wrapping View stops getting
+                  touch-end/-cancel at all (only the responder does), so
+                  onDragEnd below is the guaranteed re-enable for that case.
+                  Without it, an actual swipe left the outer scroll disabled
+                  forever, reading as the whole screen freezing. */}
+              <WheelPicker
+                labels={HOUR_LABELS}
+                selectedIndex={pickHours}
+                onChange={onHoursIndexChange}
+                onDragStart={lockOuterScroll}
+                onDragEnd={unlockOuterScroll}
+              />
+              <WheelPicker
+                labels={MINUTE_LABELS}
+                selectedIndex={minutesIndex}
+                onChange={onMinutesIndexChange}
+                onDragStart={lockOuterScroll}
+                onDragEnd={unlockOuterScroll}
+              />
             </View>
             <TopicPicker
               heading="Tag this session before you lock it"

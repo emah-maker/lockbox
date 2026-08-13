@@ -23,12 +23,22 @@ export function Button({
   label,
   onPress,
   disabled,
+  loading,
   color,
   variant = 'filled',
 }: {
   label: string;
   onPress: () => void;
   disabled?: boolean;
+  // Distinct from `disabled`: a button can be disabled simply because its
+  // inputs aren't valid yet (e.g. CustomLabelsSection's "Add label" with no
+  // name/color picked) -- that's a static, resting state, not a spinner-
+  // worthy one. `loading` is for the narrower case of an actual in-flight
+  // async action (sign-in, sync, sign-out below), where a spinner is the
+  // right signal. Every disabled button used to show a spinner regardless
+  // of which of these was true, which read as "Add label" being perpetually
+  // stuck loading before you'd typed anything.
+  loading?: boolean;
   color: ReturnType<typeof useTheme>;
   variant?: 'filled' | 'outline';
 }) {
@@ -45,7 +55,7 @@ export function Button({
         disabled ? { opacity: 0.5 } : null,
       ]}
     >
-      {disabled ? (
+      {loading ? (
         <ActivityIndicator size="small" color={filled ? color.accentText : color.text} />
       ) : (
         <Text style={[styles.buttonLabel, { color: filled ? color.accentText : color.text }]}>{label}</Text>
@@ -99,34 +109,23 @@ function rubberBand(overshoot: number): number {
 // A draggable slider giving continuous direct-set control (drag or tap
 // anywhere on the track to jump straight to that value), built on RN core's
 // PanResponder -- app/package.json has no gesture-handler/reanimated, and
-// this doesn't need either. Values snap either to a uniform `step` on a
-// `min` anchor, or -- when `options` is given instead of `min`/`max`/`step`
-// -- to the nearest value in that (ascending) array. The latter covers
-// non-uniform staircases like the firmware's OVR_OPTIONS
-// (Box-code/lib/lock_config.py), where a flat step can't express steps that
-// grow with the value. Only commits (calls `onChange`) on release, so a drag
-// produces one BLE settings write via pushBoxSettings, not one per
-// touch-move event.
-type SliderRowRangeProps = {
-  min: number;
-  max: number;
-  step: number;
-  options?: undefined;
-};
-type SliderRowOptionsProps = {
-  options: number[];
-  min?: undefined;
-  max?: undefined;
-  step?: undefined;
-};
-
+// this doesn't need either. Values snap to a uniform `step` on a `min`
+// anchor. Only commits (calls `onChange`) on release, so a drag produces one
+// BLE settings write via pushBoxSettings, not one per touch-move event.
+//
+// Used to also support a non-uniform `options` array (for the firmware's old
+// OVR_OPTIONS staircase, Box-code/lib/lock_config.py) with equal-width
+// per-option track slices instead of value-proportional ones -- removed once
+// override presses became a flat linear step, since a non-uniform staircase
+// is exactly what made that slider feel "inconsistent" (the same drag
+// distance meant a tiny nudge near one end and a huge jump near the other).
+// If a future control needs that again, it's in this file's git history.
 export function SliderRow({
   label,
   value,
   min,
   max,
   step,
-  options,
   format = (v: number) => String(v),
   caption,
   onChange,
@@ -134,14 +133,14 @@ export function SliderRow({
 }: {
   label: string;
   value: number;
+  min: number;
+  max: number;
+  step: number;
   format?: (v: number) => string;
   caption?: (v: number) => string;
   onChange: (v: number) => void;
   color: ReturnType<typeof useTheme>;
-} & (SliderRowRangeProps | SliderRowOptionsProps)) {
-  const effMin = options ? options[0] : min;
-  const effMax = options ? options[options.length - 1] : max;
-
+}) {
   const [trackWidth, setTrackWidth] = React.useState(0);
   const trackWidthRef = React.useRef(0);
   const [dragValue, setDragValue] = React.useState<number | null>(null);
@@ -162,12 +161,7 @@ export function SliderRow({
   const settlingRef = React.useRef(false);
   const restingXRef = React.useRef(0);
 
-  // Only reached for the uniform min/max/step case -- the non-uniform
-  // `options` case is snapped by index directly in xToValue/valueToX below.
-  // The `if (options)` guard only exists so TS narrows min/max/step to
-  // `number` below; xToValue never actually calls this when options is set.
   const snapValue = (v: number) => {
-    if (options) return v;
     const snapped = Math.round((v - min) / step) * step + min;
     return Math.min(max, Math.max(min, snapped));
   };
@@ -186,31 +180,14 @@ export function SliderRow({
 
   const xToValue = (x: number) => {
     const w = trackWidthRef.current;
-    if (w <= 0) return effMin;
+    if (w <= 0) return min;
     const ratio = Math.min(1, Math.max(0, x / w));
-    if (options) {
-      // Snap by INDEX, not by value: OVR_OPTIONS-style non-uniform staircases
-      // pack many small-value options into a short value-range (5-50 in ten
-      // steps of 5) and few large-value options into a long one (150-250 in
-      // two steps of 50). Interpolating linearly in *value* space then
-      // nearest-matching squeezes most options into a sliver of the track,
-      // so ordinary finger tremor while holding a drag position there swings
-      // across several options and made the readout flicker between them.
-      // Giving every option an equal-width slice of the track fixes that.
-      const idx = Math.round(ratio * (options.length - 1));
-      return options[Math.max(0, Math.min(options.length - 1, idx))];
-    }
-    return snapValue(effMin + ratio * (effMax - effMin));
+    return snapValue(min + ratio * (max - min));
   };
 
   const valueToX = (v: number) => {
-    if (options) {
-      const idx = options.indexOf(v);
-      const denom = Math.max(1, options.length - 1);
-      return (idx < 0 ? 0 : idx / denom) * trackWidthRef.current;
-    }
-    if (effMax === effMin) return 0;
-    return ((v - effMin) / (effMax - effMin)) * trackWidthRef.current;
+    if (max === min) return 0;
+    return ((v - min) / (max - min)) * trackWidthRef.current;
   };
 
   const track = (x: number) => {
@@ -275,7 +252,7 @@ export function SliderRow({
   };
 
   const displayValue = dragValue ?? value;
-  const restingRatio = effMax === effMin ? 0 : (value - effMin) / (effMax - effMin);
+  const restingRatio = max === min ? 0 : (value - min) / (max - min);
   const restingX = trackWidth > 0 ? restingRatio * trackWidth : 0;
   restingXRef.current = restingX;
 

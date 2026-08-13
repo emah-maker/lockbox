@@ -173,11 +173,24 @@ export const useStore = create<AppState>((set, get) => {
   };
 
   const handleStatus = (status: Status) =>
-    set((state) => ({
-      status,
+    set((state) => {
+      const freshRun = status.st === 'running' && state.status?.st !== 'running';
+      // The box's own pre-session tag picker (now fed the app's synced
+      // custom labels -- see Box-code/lib/lock_controller.py's _all_topics)
+      // can tag a session before Lock is even pressed at the box; status.tp
+      // echoes that pick back live while running. Feed it through the same
+      // pending-tag path tagCurrentSession uses, so buildLoggedSessions
+      // still attaches it once this session's history entry arrives --
+      // otherwise a topic chosen at the box has no way to reach the app's
+      // durable session log at all (the box's own NVM history entries have
+      // no room for a topic id -- see lock_log.py).
+      if (status.st === 'running' && status.tp && status.tp !== state.currentTopic) {
+        setJSON<PendingTopicTag>(PENDING_TOPIC_KEY, { topic: status.tp, at: Date.now() });
+        return { status, currentTopic: status.tp };
+      }
       // A fresh run needs a fresh tag; clear the label from whatever finished before.
-      currentTopic: status.st === 'running' && state.status?.st !== 'running' ? null : state.currentTopic,
-    }));
+      return { status, currentTopic: freshRun ? null : state.currentTopic };
+    });
 
   const afterConnected = async () => {
     set({ conn: 'connected' });

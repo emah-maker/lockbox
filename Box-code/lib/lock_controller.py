@@ -4,8 +4,8 @@ from lock_config import (
     MAX_SECONDS, MAX_HOURS, SWIPE_MIN_PX, ANIM_HZ, DEFAULT_SECONDS,
     SWAP_XY, INVERT_X, INVERT_Y, CLOCK_FPS, SERVO_HOLD_S, OVERRIDE_PRESSES,
     OVERRIDE_TIMEOUT, DONE_ANIM_S, MIN_STEP, RELEASE_FRAMES,
-    SERVO_LOCK_ANGLE, SERVO_UNLOCK_ANGLE, fmt_hm,
-    OVR_OPTIONS, BLE_CALL_ALERT_S, CALL_ALERT_BLINK_HZ,
+    SERVO_LOCK_ANGLE, SERVO_UNLOCK_ANGLE, fmt_hm, fix, C_GREY,
+    OVR_MIN, OVR_MAX, BLE_CALL_ALERT_S, CALL_ALERT_BLINK_HZ,
     HOLD_REPEAT_DELAY, HOLD_REPEAT_START, HOLD_REPEAT_MIN, HOLD_REPEAT_RAMP,
     STATUS_TAP_COOLDOWN_S, BUILTIN_TOPICS, BLE_LABEL_MAX_COUNT,
     BLE_LABEL_NAME_MAX_LEN,
@@ -24,6 +24,22 @@ VIEWS = ("clock", "control", "battery", "settings")
 # branch) -- control/settings are blocked while actually locked, but battery
 # should still be checkable without waiting for the countdown to finish.
 LOCKED_VIEWS = ("clock", "battery")
+
+
+def _parse_hex_color(s):
+    """'#rrggbb' (app/src/stats/customLabels.ts's LABEL_SWATCHES format,
+    leading '#' optional, case-insensitive) -> a fix()-applied int, the same
+    encoding every other color in lock_config.py already uses as a displayio
+    fill. Falls back to C_GREY on anything malformed, same "don't crash the
+    run loop on garbage BLE input" philosophy as apply_ble_labels_json's
+    other fields."""
+    try:
+        h = str(s).lstrip("#")
+        if len(h) != 6:
+            return C_GREY
+        return fix(int(h, 16))
+    except (ValueError, TypeError):
+        return C_GREY
 
 
 class LockController:
@@ -76,12 +92,18 @@ class LockController:
         self._ble_connected = False      # drives the control/clock corner dot
         self._last_frame_t = None        # for step_motion's dt -- see update()
         # ----- pre-session tag picker + custom-label sync (best-effort) -----
-        self._synced_labels = []   # [(id, name), ...] most recently pushed by
-                                    # the app over BLE_UUID_LABELS -- see
-                                    # apply_ble_labels_json. Names only; the
-                                    # app resolves color/display from its own
-                                    # customLabels list using the id we echo
-                                    # back (see ble_status_json's "tp" field).
+        self._synced_labels = []   # [(id, name, color), ...] most recently
+                                    # pushed by the app over BLE_UUID_LABELS --
+                                    # see apply_ble_labels_json. `color` is a
+                                    # fix()-applied int, same encoding as every
+                                    # other color in lock_config.py, used for
+                                    # this label's dot on the tag-picker row
+                                    # (LockUI.show_tag_picker). The app still
+                                    # separately resolves its own display/color
+                                    # from its own customLabels list using the
+                                    # id we echo back (ble_status_json's "tp"
+                                    # field) -- this copy only drives the box's
+                                    # own on-screen picker.
         self._picker_page = 0
         self._session_topic = None  # topic tagged to the session in progress
                                      # (set by go_running's topic= argument)
@@ -240,11 +262,10 @@ class LockController:
         return all_t[start:start + 6]
 
     def apply_ble_labels_json(self, text):
-        """Best-effort custom-label sync from the app (see lock_config.py's
-        BLE_UUID_LABELS comment for the still-needed app-side protocol.ts
-        additions) -- feeds the on-box pre-session tag picker only. Compact
-        keys ("i"/"n") to save BLE payload bytes; malformed input just leaves
-        the previous list in place rather than crashing the run loop."""
+        """Best-effort custom-label sync from the app (app/src/ble/protocol.ts's
+        cmdSetLabels) -- feeds the on-box pre-session tag picker only. Compact
+        keys ("i"/"n"/"c") to save BLE payload bytes; malformed input just
+        leaves the previous list in place rather than crashing the run loop."""
         try:
             import json
             d = json.loads(text)
@@ -258,8 +279,9 @@ class LockController:
                 continue
             lid = str(item.get("i", ""))[:40]
             name = str(item.get("n", ""))[:BLE_LABEL_NAME_MAX_LEN]
+            color = _parse_hex_color(item.get("c", ""))
             if lid and name:
-                labels.append((lid, name))
+                labels.append((lid, name, color))
         self._synced_labels = labels
 
     def adjust(self, unit, direction):
@@ -489,12 +511,12 @@ class LockController:
             return
         st = self.settings
         if "ovr" in d:
-            # Clamp to the staircase's endpoints rather than snapping to the
-            # nearest option -- a BLE write carries a value the app already
-            # picked from OVR_OPTIONS, so this only guards against an
-            # out-of-range/malformed payload, not normal in-range values that
-            # would otherwise land between two staircase steps.
-            st.override_presses = max(OVR_OPTIONS[0], min(OVR_OPTIONS[-1], int(d["ovr"])))
+            # Clamp to [OVR_MIN, OVR_MAX] -- a BLE write now carries whatever
+            # the app's slider or its custom-number entry sent, not a value
+            # pre-snapped to a fixed option list, so this is the only thing
+            # standing between a malformed/out-of-range payload and a stored
+            # value the box's single NVM byte can't actually hold.
+            st.override_presses = max(OVR_MIN, min(OVR_MAX, int(d["ovr"])))
         if "auto" in d:
             st.auto_open = bool(d["auto"])
         if "sleep" in d:
@@ -601,8 +623,8 @@ class LockController:
             self.ui.show_override(self._override, target)
             # each press resets the timeout, so the countdown bar restarts full
             self.ui.update_override_timeout(OVERRIDE_TIMEOUT, OVERRIDE_TIMEOUT)
-            # Defensive: override_presses can be configured as high as 250
-            # (OVR_OPTIONS), so a real "keep pressing to unlock" sequence is
+            # Defensive: override_presses can be configured as high as
+            # OVR_MAX (255), so a real "keep pressing to unlock" sequence is
             # a long, uninterrupted burst of small allocations (the count
             # label, before the max_glyphs pre-sizing in LockUI -- see its
             # comment). A press is a discrete, human-paced button edge, not a

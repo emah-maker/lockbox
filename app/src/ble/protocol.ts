@@ -14,6 +14,7 @@ export const CHAR = {
   settings: '6b9a7e00-4c2a-4f8e-9b21-9d7a5e3c0005', // READ | WRITE (round-trip)
   timeSync: '6b9a7e00-4c2a-4f8e-9b21-9d7a5e3c0006', // WRITE       (epoch seconds)
   alert: '6b9a7e00-4c2a-4f8e-9b21-9d7a5e3c0007', // WRITE          (call label)
+  labels: '6b9a7e00-4c2a-4f8e-9b21-9d7a5e3c0008', // WRITE         (label list)
 } as const;
 
 // ----- box -> app payloads -----
@@ -24,6 +25,15 @@ export interface Status {
   rem: number; // remaining seconds (running only, else 0)
   set: number; // configured lock seconds
   bat: number; // battery percent, -1 if unavailable
+  // Topic id tagged via the box's OWN pre-session picker (Box-code/lib/
+  // lock_controller.py go_picking/go_running's `topic` arg), echoed back
+  // live while running -- '' whenever no on-box tag was chosen (including
+  // any session tagged only from the app's own TopicPicker, which the box
+  // has no way to know about). Only the id crosses the wire; the app still
+  // resolves the display name/color itself via resolveTopic, same as any
+  // other tag. See useStore.ts's handleStatus for how this reaches the
+  // eventual logged session.
+  tp: string;
   fw: string;
 }
 
@@ -68,6 +78,7 @@ export function parseStatus(json: string): Status | null {
       rem: Number(d.rem) || 0,
       set: Number(d.set) || 0,
       bat: d.bat == null ? -1 : Number(d.bat),
+      tp: String(d.tp ?? ''),
       fw: String(d.fw ?? ''),
     };
   } catch {
@@ -143,13 +154,31 @@ export const encodeAlert = (nonce: number, label: string) => `${nonce}|${label}`
 export const cmdHistoryAck = (seq: number) => `historyAck:${Math.max(0, Math.floor(seq))}`;
 
 // Best-effort push of the app's custom-label catalog (stats/customLabels.ts)
-// to the box, so its own pre-session tag picker (box-firmware-batch task 7,
-// built in parallel with this) can offer the same labels the app does.
-// Reuses CHAR.command rather than a new characteristic UUID -- like
-// cmdHistoryAck above, a label-catalog push is a one-way, occasional app ->
-// box write, not something that needs NOTIFY or CHAR.settings' round-trip
-// semantics. Wire format: `labels:<JSON array of {id, name, color}>` -- the
-// box does not echo this back. Mirrors Box-code/lib/lock_config.py's
-// expected label shape; keep id/name/color in lockstep with that side.
+// to the box, so its own pre-session tag picker can offer the same labels
+// the app does (name only, abbreviated to BLE_LABEL_NAME_MAX_LEN chars to
+// fit the screen -- see Box-code/lib/lock_ui.py show_tag_picker; the color
+// still crosses the wire per label but the box's own picker doesn't render
+// a swatch with it today). Writes CHAR.labels directly
+// (Box-code/lib/lock_config.py's dedicated BLE_UUID_LABELS characteristic),
+// NOT CHAR.command -- unlike cmdHistoryAck/cmdSetDuration etc., this isn't
+// an opcode apply_ble_command recognizes, it's read straight off its own
+// characteristic by lock_ble.py's _drain_inbound. Raw JSON, no opcode
+// prefix, and compact keys (i/n/c) to save BLE payload bytes -- mirrors
+// Box-code/lib/lock_controller.py's apply_ble_labels_json exactly; keep the
+// two in lockstep.
+// Mirrors Box-code/lib/lock_config.py's BLE_LABEL_MAX_COUNT/
+// BLE_LABEL_NAME_MAX_LEN exactly. The box already re-applies both limits
+// defensively on receipt (apply_ble_labels_json), so this isn't the only
+// thing standing between an oversized catalog and a dropped/truncated
+// label -- same "app clamps too" belt-and-suspenders as clampLockSeconds --
+// but truncating here means what the app just sent is what actually shows
+// on the box, not a silent further cut the app has no visibility into.
+export const BLE_LABEL_MAX_COUNT = 8;
+export const BLE_LABEL_NAME_MAX_LEN = 12;
+
 export const cmdSetLabels = (labels: { id: string; name: string; color: string }[]) =>
-  `labels:${JSON.stringify(labels)}`;
+  JSON.stringify(
+    labels
+      .slice(0, BLE_LABEL_MAX_COUNT)
+      .map((l) => ({ i: l.id, n: l.name.slice(0, BLE_LABEL_NAME_MAX_LEN), c: l.color })),
+  );

@@ -246,10 +246,12 @@ export class PhoneBoxClient {
   }
 
   /** Best-effort, one-way push of the custom-label catalog -- see
-   * protocol.ts's cmdSetLabels for the wire format and why this reuses
-   * CHAR.command. */
+   * protocol.ts's cmdSetLabels for the wire format. Its own dedicated
+   * characteristic, not CHAR.command -- the box reads this one directly
+   * (lock_ble.py's _drain_inbound), not through apply_ble_command's opcode
+   * dispatcher. */
   setLabels(labels: { id: string; name: string; color: string }[]) {
-    return this.write(CHAR.command, cmdSetLabels(labels));
+    return this.write(CHAR.labels, cmdSetLabels(labels));
   }
 
   get connected() {
