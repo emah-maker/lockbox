@@ -45,7 +45,15 @@ export function WheelPicker({
   // scrolling would then never see that re-enable fire, leaving it stuck
   // disabled -- exactly the bug DashboardScreen's picker-row hit ("swipe
   // freezes the screen"). onDragStart/onDragEnd give a caller a signal this
-  // component can guarantee actually fires.
+  // component can guarantee actually fires. onDragEnd fires the instant the
+  // finger lifts (onScrollEndDrag), not once a fast flick's momentum coast
+  // fully settles (onMomentumScrollEnd, which can trail the actual release
+  // by several hundred ms) -- momentum coasting is this wheel's own internal
+  // animation, not a live touch a sibling could ever steal, so there's
+  // nothing left for a caller to keep guarding against once the finger is
+  // off the screen. Firing late here is what made a fast flick leave a
+  // caller's disabled sibling scroll stuck for the whole coast, reading as
+  // the picker/screen intermittently going unresponsive.
   onDragStart?: () => void;
   onDragEnd?: () => void;
 }) {
@@ -76,7 +84,6 @@ export function WheelPicker({
     }
     settledIndexRef.current = index;
     if (index !== selectedIndex) onChange(index);
-    onDragEnd?.();
   };
 
   return (
@@ -93,8 +100,20 @@ export function WheelPicker({
         onScrollBeginDrag={onDragStart}
         onMomentumScrollEnd={commit}
         onScrollEndDrag={(e) => {
+          // The finger has left the screen the instant this fires, whether
+          // or not the wheel itself keeps coasting under momentum -- that
+          // coasting is purely internal animation, not a live touch the
+          // outer ScrollView could ever steal, so there's nothing left to
+          // guard against. Firing onDragEnd here (not only from commit(),
+          // which a fast flick defers to onMomentumScrollEnd until the
+          // coast fully settles) is what onDragEnd is actually for: without
+          // it, the outer scroll stayed disabled for the whole coast --
+          // often several hundred ms -- and any gesture landing on the rest
+          // of the screen during that window did nothing, reading as the
+          // picker/screen intermittently "glitching" or going unresponsive.
+          onDragEnd?.();
           const vy = e.nativeEvent.velocity?.y ?? 0;
-          if (Math.abs(vy) > DRAG_SETTLE_VELOCITY) return; // momentum will settle it, commit() will fire onDragEnd then
+          if (Math.abs(vy) > DRAG_SETTLE_VELOCITY) return; // momentum will settle the snap itself
           commit(e);
         }}
       >
