@@ -75,11 +75,26 @@ export function WheelPicker({
     useNativeDriver: true,
   });
 
+  const maxOffset = (labels.length - 1) * WHEEL_ITEM_HEIGHT;
+
   const commit = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const y = e.nativeEvent.contentOffset.y;
     const index = Math.max(0, Math.min(labels.length - 1, Math.round(y / WHEEL_ITEM_HEIGHT)));
     const snappedY = index * WHEEL_ITEM_HEIGHT;
-    if (Math.abs(y - snappedY) > 0.5) {
+    // At the first/last item (0m/55m, 0h/9h -- exactly the boundary values
+    // that were freezing) a fast release past the edge leaves the ScrollView
+    // still elastically bouncing back on its own (iOS rubber-banding, the
+    // "screen moves up and down" at the limit) when this fires. Correcting
+    // with our own scrollTo while y is still out of [0, maxOffset] pits that
+    // imperative call against the native bounce-back animation running on
+    // the same view; the two fighting each other is what left the
+    // ScrollView's gesture responder wedged and the picker (and, since
+    // onDragEnd never got a chance to run, the outer screen -- see
+    // DashboardScreen's pickerActive) unresponsive afterward. In range, the
+    // native bounce can't be involved (there's nothing to elastically
+    // correct there), so this only skips the exact case that fights it --
+    // the clamped index/onChange below still fire every time regardless.
+    if (Math.abs(y - snappedY) > 0.5 && y >= -0.5 && y <= maxOffset + 0.5) {
       scrollRef.current?.scrollTo({ y: snappedY, animated: true });
     }
     settledIndexRef.current = index;
@@ -93,6 +108,16 @@ export function WheelPicker({
         showsVerticalScrollIndicator={false}
         snapToInterval={WHEEL_ITEM_HEIGHT}
         decelerationRate="fast"
+        // No elastic overscroll at the first/last item -- the commit() guard
+        // below and DashboardScreen's pickerSafetyTimer both exist only to
+        // react to the rubber-band-vs-manual-snap fight that overscroll
+        // creates at 0m/55m and 0h/9h ("the screen moves up and down" at
+        // those exact values, then sometimes never settles). A real
+        // UIPickerView wheel doesn't bounce past its own ends either, so this
+        // isn't a feel regression -- it removes the precondition for that
+        // fight instead of only guarding around it after the fact.
+        bounces={false}
+        overScrollMode="never"
         contentContainerStyle={{ paddingVertical: PAD }}
         contentOffset={{ x: 0, y: selectedIndex * WHEEL_ITEM_HEIGHT }}
         onScroll={onScroll}

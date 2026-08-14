@@ -121,8 +121,31 @@ export default function DashboardScreen() {
   // has to be repeated, but it can never leave native and JS holding
   // conflicting ideas of whether this view is scrollable.
   const [pickerActive, setPickerActive] = useState(false);
-  const lockOuterScroll = () => setPickerActive(true);
-  const unlockOuterScroll = () => setPickerActive(false);
+  // Belt-and-suspenders against WheelPicker's onDragEnd not firing -- same
+  // reasoning as clampLockSeconds double-clamping what the box already caps.
+  // Observed at the wheels' hard limits (0m/55m, 0h/9h): releasing while the
+  // ScrollView is still elastically bouncing back from an overscroll at the
+  // edge (the "screen moves up and down" at those exact values) could leave
+  // the outer ScrollView disabled with no gesture left to ever re-enable it,
+  // reading as the whole Focus screen freezing. No real drag+bounce-settle
+  // takes anywhere near this long, so a stuck flag always means the paired
+  // unlock was lost, not a session still legitimately in progress.
+  const pickerSafetyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lockOuterScroll = () => {
+    setPickerActive(true);
+    if (pickerSafetyTimer.current) clearTimeout(pickerSafetyTimer.current);
+    pickerSafetyTimer.current = setTimeout(() => setPickerActive(false), 600);
+  };
+  const unlockOuterScroll = () => {
+    if (pickerSafetyTimer.current) {
+      clearTimeout(pickerSafetyTimer.current);
+      pickerSafetyTimer.current = null;
+    }
+    setPickerActive(false);
+  };
+  useEffect(() => () => {
+    if (pickerSafetyTimer.current) clearTimeout(pickerSafetyTimer.current);
+  }, []);
   const pickSeconds = clampLockSeconds(pickHours, pickMinutes);
   const minutesIndex = Math.max(0, MINUTE_VALUES.indexOf(pickMinutes));
 
