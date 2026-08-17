@@ -9,7 +9,7 @@ import { useStore, CONN_LABELS } from '../store/useStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useAuthStore } from '../auth/useAuthStore';
 import { useTheme } from '../theme/useTheme';
-import { THEME_MODES, ACCENT_KEYS, ACCENT_LABELS, ACCENT_SWATCHES, ThemeMode, AccentKey } from '../theme/theme';
+import { THEME_MODES, ACCENT_KEYS, ACCENT_LABELS, accentSwatch, ThemeMode, AccentKey } from '../theme/theme';
 import { CustomLabelsSection } from './CustomLabelsSection';
 import { Button, Section, SliderRow } from './SettingsPrimitives';
 import { AnimatedPressable } from '../ui/AnimatedPressable';
@@ -22,10 +22,11 @@ import { typeScale } from '../theme/tokens';
 // track regardless of value, so the staircase made the same-size drag
 // distance mean a tiny nudge near one end and a huge jump near the other,
 // which read as "inconsistent". A flat step fixes that at the source.
-// OVR_MAX (255) is the box's actual storage ceiling (lock_settings.Settings.
-// save persists this in a single NVM byte) -- not an arbitrary UI choice.
+// OVR_MAX was 255 (a single NVM byte's ceiling) until raised to 500 (manager
+// request) -- lock_settings.Settings now persists override_presses across 2
+// NVM bytes to fit; see that file's save()/_load() comments.
 const OVR_MIN = 5;
-const OVR_MAX = 255;
+const OVR_MAX = 500;
 const OVR_STEP = 5;
 const SLEEP_OPTIONS = [10, 20, 30, 60];
 const BRIGHT_OPTIONS = [10, 30, 50, 70, 100];
@@ -153,7 +154,7 @@ export default function SettingsScreen() {
                 pushBoxSettings({ acc: ACCENT_KEYS.indexOf(a) });
               }}
               color={c}
-              swatch={ACCENT_SWATCHES[a]}
+              swatch={accentSwatch(themeMode, a)}
             >
               {ACCENT_LABELS[a]}
             </Chip>

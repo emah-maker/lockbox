@@ -114,7 +114,13 @@ export function parseSettings(json: string): Settings | null {
       unlk: d.unlk ? 1 : 0,
       ucal: d.ucal ? 1 : 0,
       thm: Number(d.thm) === 1 ? 1 : 0,
-      acc: Math.max(0, Math.min(5, Number(d.acc) || 0)),
+      // Upper bound is ACCENT_KEYS.length - 1 (../theme/theme.ts) -- not
+      // imported here to keep this wire-parsing module UI-independent, same
+      // reasoning as the manually-synced UUIDs above. Was hardcoded to 5
+      // (the old 6-accent set's last index); bump this by hand alongside
+      // ACCENT_KEYS/Box-code/lib/lock_config.py's ACCENT_COLORS_DARK/LIGHT
+      // if the accent count ever changes again.
+      acc: Math.max(0, Math.min(7, Number(d.acc) || 0)),
     };
   } catch {
     return null;

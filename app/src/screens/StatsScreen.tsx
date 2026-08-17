@@ -99,7 +99,10 @@ export default function StatsScreen() {
         })}
       </View>
 
-      <View style={[styles.card, { backgroundColor: c.surface }]}>
+      {/* minHeight reserves the miniRow's space below even on a window with
+          zero sessions, so switching windows (or logging the first session)
+          doesn't change this card's height and shift everything below it. */}
+      <View style={[styles.card, { backgroundColor: c.surface, minHeight: 170 }]}>
         <Text style={[styles.label, { color: c.textDim }]}>Total focus time</Text>
         <AnimatedTotal text={formatDuration(stats.foc)} color={c.accent} reducedMotion={reducedMotion} />
         <Text style={[styles.sub, { color: c.textDim }]}>
@@ -114,7 +117,11 @@ export default function StatsScreen() {
         )}
       </View>
 
-      <View style={[styles.card, { backgroundColor: c.surface }]}>
+      {/* minHeight ~= one best-day banner + one comparison row, so the empty
+          placeholder doesn't leave this noticeably shorter than the typical
+          populated state -- can't fully fix an unbounded comparisons list,
+          but removes the common small-vs-empty jump. */}
+      <View style={[styles.card, { backgroundColor: c.surface, minHeight: 140 }]}>
         <Text style={[styles.h2, { color: c.text }]}>Fun facts</Text>
         {stats.foc <= 0 ? (
           <Text style={[styles.sub, { color: c.textDim }]}>
@@ -178,7 +185,11 @@ export default function StatsScreen() {
         </View>
       </View>
 
-      <View style={[styles.card, { backgroundColor: c.surface }]}>
+      {/* minHeight ~= donut + one topic row, same reasoning as the other
+          placeholder cards above -- a genuinely long topic list still grows
+          past this, which is expected content growth, not the reflow bug
+          being fixed here. */}
+      <View style={[styles.card, { backgroundColor: c.surface, minHeight: 160 }]}>
         <Text style={[styles.h2, { color: c.text }]}>By topic</Text>
         {topics.length === 0 ? (
           <Text style={[styles.sub, { color: c.textDim }]}>

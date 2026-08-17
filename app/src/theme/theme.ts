@@ -3,7 +3,15 @@
 // values (see useStore.ts setThemeMode/setAccent) instead of a whole color
 // object, and every screen derives the same palette from `useTheme()`.
 export type ThemeMode = 'dark' | 'light';
-export type AccentKey = 'mint' | 'coral' | 'amber' | 'sky' | 'violet' | 'rose';
+export type AccentKey =
+  | 'mint'
+  | 'coral'
+  | 'amber'
+  | 'sky'
+  | 'violet'
+  | 'rose'
+  | 'teal'
+  | 'indigo';
 
 export interface ThemeColors {
   bg: string;
@@ -29,13 +37,48 @@ type ModeColors = Omit<ThemeColors, 'accent' | 'accentText'>;
 
 // Mint/dark is the app's original look (see DashboardScreen's old hardcoded
 // styles); it stays the default so upgrading users see no change.
-const ACCENTS: Record<AccentKey, AccentColors> = {
-  mint: { accent: '#22c55e', accentText: '#04210f' },
-  coral: { accent: '#ef5350', accentText: '#2b0605' },
-  amber: { accent: '#f2b84b', accentText: '#2b1300' },
-  sky: { accent: '#38bdf8', accentText: '#001c2b' },
-  violet: { accent: '#a78bfa', accentText: '#1c0f3d' },
-  rose: { accent: '#fb7185', accentText: '#2b0511' },
+//
+// Per-mode accent audit (2026-08-15): a WCAG contrast pass found every one of
+// the original 6 accents failed minimum text contrast (<3:1, most ~2:1-2.7:1)
+// when drawn as TEXT on the light mode's bg/surface (#f5f6f8/#ffffff) -- they
+// were tuned for dark mode only, where all 6 pass comfortably (5.6-11:1).
+// `dark` below keeps those original hex values unchanged (upgrading users see
+// no dark-mode change); `light` is a separately darkened/more-saturated
+// variant of the SAME hue, each tuned to >=4.5:1 against both light.bg and
+// light.surface (see the fully-delegate evidence file for the exact contrast
+// numbers). Because the light-mode fills are now much darker/more saturated,
+// the old near-black `accentText` no longer has enough contrast against them
+// as a button-fill text color (computed ~3.3-3.8:1) -- white passes >=4.9:1
+// against every light-mode fill, so light mode's accentText is white across
+// the board while dark mode keeps its original per-accent near-black text.
+//
+// `teal` and `indigo` are new accent options (manager request) chosen to sit
+// in hue gaps the original 6 leave open -- teal is a green-leaning cyan
+// distinct from both mint (pure green) and sky (blue-leaning cyan); indigo is
+// a deeper blue-violet distinct from both sky (cyan) and violet (lighter
+// purple). Both were computed with the same per-mode contrast method as the
+// original 6 from the start, so neither needed a later fix.
+const ACCENTS: Record<ThemeMode, Record<AccentKey, AccentColors>> = {
+  dark: {
+    mint: { accent: '#22c55e', accentText: '#04210f' },
+    coral: { accent: '#ef5350', accentText: '#2b0605' },
+    amber: { accent: '#f2b84b', accentText: '#2b1300' },
+    sky: { accent: '#38bdf8', accentText: '#001c2b' },
+    violet: { accent: '#a78bfa', accentText: '#1c0f3d' },
+    rose: { accent: '#fb7185', accentText: '#2b0511' },
+    teal: { accent: '#2dd4bf', accentText: '#04211d' },
+    indigo: { accent: '#818cf8', accentText: '#0d0f2b' },
+  },
+  light: {
+    mint: { accent: '#167f3d', accentText: '#ffffff' },
+    coral: { accent: '#de1814', accentText: '#ffffff' },
+    amber: { accent: '#94640b', accentText: '#ffffff' },
+    sky: { accent: '#0678ab', accentText: '#ffffff' },
+    violet: { accent: '#774bf7', accentText: '#ffffff' },
+    rose: { accent: '#e10626', accentText: '#ffffff' },
+    teal: { accent: '#197c70', accentText: '#ffffff' },
+    indigo: { accent: '#4c5bf5', accentText: '#ffffff' },
+  },
 };
 
 const MODES: Record<ThemeMode, ModeColors> = {
@@ -60,14 +103,17 @@ const MODES: Record<ThemeMode, ModeColors> = {
 };
 
 export const THEME_MODES: ThemeMode[] = ['dark', 'light'];
-export const ACCENT_KEYS = Object.keys(ACCENTS) as AccentKey[];
+export const ACCENT_KEYS = Object.keys(ACCENTS.dark) as AccentKey[];
 
-// Accent hex only (mode-independent, unlike ThemeColors.accent which needs a
-// resolved mode) -- lets a picker show each option's actual color swatch
-// instead of a bare text label. See SettingsScreen's accent Chip.
-export const ACCENT_SWATCHES: Record<AccentKey, string> = Object.fromEntries(
-  ACCENT_KEYS.map((k) => [k, ACCENTS[k].accent]),
-) as Record<AccentKey, string>;
+// Accent hex for a given mode -- lets a picker show each option's actual
+// resolved color swatch instead of a bare text label. Mode-aware since
+// light/dark now use different hex values per accent (see the ACCENTS
+// contrast-audit comment above); a picker must show whichever one will
+// actually apply in the currently-selected mode. See SettingsScreen's
+// accent Chip.
+export function accentSwatch(mode: ThemeMode, key: AccentKey): string {
+  return ACCENTS[mode][key].accent;
+}
 
 export const ACCENT_LABELS: Record<AccentKey, string> = {
   mint: 'Mint',
@@ -76,10 +122,12 @@ export const ACCENT_LABELS: Record<AccentKey, string> = {
   sky: 'Sky',
   violet: 'Violet',
   rose: 'Rose',
+  teal: 'Teal',
+  indigo: 'Indigo',
 };
 
 export function resolveTheme(mode: ThemeMode, accent: AccentKey): ThemeColors {
-  return { ...MODES[mode], ...ACCENTS[accent] };
+  return { ...MODES[mode], ...ACCENTS[mode][accent] };
 }
 
 /** Blends a hex color toward the given alpha via RN's 8-digit hex alpha

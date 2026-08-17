@@ -12,12 +12,13 @@ from adafruit_display_shapes.circle import Circle
 from adafruit_display_shapes.triangle import Triangle
 
 from lock_config import (
-    C_BG, C_SURFACE, C_SURFACE_HILITE, C_WHITE, C_BLACK, C_GREY, C_GREEN, C_RED, C_AMBER, C_ON_ACCENT,
+    C_BG, C_SURFACE, C_SURFACE_HILITE, C_WHITE, C_BLACK, C_GREY, C_GREEN, C_RED, C_AMBER,
+    C_ON_ACCENT_DARK, C_ON_ACCENT_LIGHT,
     C_ALERT_RED, C_ALERT_AMBER,
-    MODE_COLORS, ACCENT_COLORS, DEFAULT_MODE_IDX, DEFAULT_ACCENT_IDX, fmt_hms, fmt_hm,
+    MODE_COLORS, ACCENT_COLORS_DARK, ACCENT_COLORS_LIGHT, DEFAULT_MODE_IDX, DEFAULT_ACCENT_IDX, fmt_hms, fmt_hm,
     RADIUS_CARD, RADIUS_BTN_SM, RADIUS_BTN_LG, STATUS_TRANSITION_S, lerp_color,
     SPRING_STIFFNESS, SPRING_DAMPING, SPRING_MASS, PRESS_DEPTH_PX,
-    DONE_POP_OFFSET_PX, OVR_POP_OFFSET_PX,
+    DONE_POP_OFFSET_PX, OVR_POP_OFFSET_PX, DONE_MSG_Y, DONE_BTN_CENTER_Y,
 )
 from lock_motion import Spring
 
@@ -133,11 +134,19 @@ class LockUI:
     # =================== theme ===================
     def set_theme(self, mode_idx, accent_idx):
         mode_idx = 0 if mode_idx not in (0, 1) else mode_idx
-        accent_idx = max(0, min(len(ACCENT_COLORS) - 1, accent_idx))
+        # Per-mode accent tuple (see lock_config.py's contrast-audit comment)
+        # -- light mode's swatches are a separately darkened/more-saturated
+        # variant of the same hue, tuned for text contrast against the light
+        # bg/surface; dark mode is unchanged from before. Both tuples are the
+        # same length by construction, so bounds-checking against either is
+        # equivalent.
+        accent_set = ACCENT_COLORS_LIGHT if mode_idx == 1 else ACCENT_COLORS_DARK
+        accent_idx = max(0, min(len(accent_set) - 1, accent_idx))
         self._mode_idx = mode_idx
         self._accent_idx = accent_idx
         bg, surface, fg, dim = MODE_COLORS[mode_idx]
-        accent = ACCENT_COLORS[accent_idx]
+        accent = accent_set[accent_idx]
+        on_accent = C_ON_ACCENT_LIGHT if mode_idx == 1 else C_ON_ACCENT_DARK
         self._fg_color = fg
         self._accent_color = accent
 
@@ -157,6 +166,12 @@ class LockUI:
         self.hand_pal[2] = accent
         self.gtip_pal[0] = fg
         self.button.fill = accent
+        # Button label color used to be a fixed build-time constant (near-
+        # black) -- fine while every accent fill was dark-mode's light/pastel
+        # set, but light mode's fills are now deliberately darker/more
+        # saturated (see the contrast audit above), so this must follow mode
+        # like every other themed attribute.
+        self.btn_label.color = on_accent
 
     # =================== color-transition engine ===================
     # Duration/curve come from the motion-and-animation skill's tables, never
@@ -165,8 +180,9 @@ class LockUI:
     # bar and clock-view readouts are card-like state surfaces changing on an
     # occasional (session-level) event, not a rapidly-retriggered control --
     # eased with the "Entering/exiting" ease-out-cubic curve. Called from
-    # LockController.update() every frame, same tier as animate_done /
-    # animate_call_alert, so it never runs ahead of a touch read.
+    # LockController.update() every frame, same tier as step_motion's
+    # button-move spring / animate_call_alert, so it never runs ahead of a
+    # touch read.
     #
     # Uses lock_config.lerp_color for the actual channel math (its docstring
     # points at a continuous digital-clock "breathing" highlight as the
@@ -238,12 +254,6 @@ class LockUI:
         _tile = _bg_tile(W, H, C_BG)
         group.append(_tile)
         self._bg_tiles.append(_tile)
-
-        # flashing border for the done animation -- part of the fixed
-        # "success" state language (see set_theme docstring), not themed
-        self.border = Rect(0, 0, W, H, fill=None, outline=C_GREEN, stroke=5)
-        self.border.hidden = True
-        group.append(self.border)
 
         # status bar (on/off indicator) -- fill is set per-state by
         # set_status (LOCKED/CLOSED/UNLOCKED), never themed
@@ -380,10 +390,14 @@ class LockUI:
         # more helpful. Cutting text instead of adding more of it.
 
         # big animated message for the done state -- fixed "success" color
+        # Moved up from the old y=150 to DONE_MSG_Y (lock_config.py) -- the
+        # button now springs up into the vertical center of this screen on
+        # unlock (see below), which is exactly where this message used to
+        # sit; this clears that space for the button instead of overlapping.
         self.big_msg = label.Label(terminalio.FONT, text="UNLOCKED", color=C_GREEN,
                                    scale=2)
         self.big_msg.anchor_point = (0.5, 0.5)
-        self.big_msg.anchored_position = (W // 2, 150)
+        self.big_msg.anchored_position = (W // 2, DONE_MSG_Y)
         self.big_msg.hidden = True
         group.append(self.big_msg)
         self._done_msg_base = self.big_msg.anchored_position
@@ -408,20 +422,42 @@ class LockUI:
         # color is actively managed by set_button as the state machine
         # transitions, and a ring that only toggles .hidden can never race
         # with or clobber a legitimate state-color change on release.
-        self.button_press_ring = Rect(self.BTN_X - 3, self.BTN_Y - 3,
-                                      self.BTN_W + 6, self.BTN_H + 6,
-                                      fill=None, outline=C_WHITE, stroke=3)
+        # RoundRect, not Rect -- a sharp-cornered outline drawn 3px outside a
+        # rounded button read as a mismatched box around it (manager-reported
+        # visual bug). radius = RADIUS_BTN_LG + 3 is the concentric offset: a
+        # rounded rect's corner is a quarter-circle of radius r centered
+        # 3px in from each edge, so pushing the outline out by the same 3px
+        # the ring is already offset by grows that same corner's radius by
+        # exactly 3, keeping the ring and the button's edge genuinely
+        # parallel instead of visually not matching. status_press_ring above
+        # already gets this right (RoundRect, not Rect) -- this was the one
+        # remaining plain-Rect press ring in the file.
+        self.button_press_ring = RoundRect(self.BTN_X - 3, self.BTN_Y - 3,
+                                           self.BTN_W + 6, self.BTN_H + 6,
+                                           RADIUS_BTN_LG + 3,
+                                           fill=None, outline=C_WHITE, stroke=3)
         self.button_press_ring.hidden = True
         group.append(self.button_press_ring)
-        # Fixed rest position, captured once at build time -- see
-        # on_touch_down's comment on why this must NOT be a live `.y` read.
-        self._btn_ring_rest_y = self.button_press_ring.y
-        self.btn_label = label.Label(terminalio.FONT, text="LOCK", color=C_ON_ACCENT,
+        # color is a placeholder -- set_theme() (called once every widget is
+        # built, see __init__'s tail) immediately overwrites this per mode.
+        self.btn_label = label.Label(terminalio.FONT, text="LOCK", color=C_ON_ACCENT_DARK,
                                      scale=2)
         self.btn_label.anchor_point = (0.5, 0.5)
         self.btn_label.anchored_position = (W // 2, self.BTN_Y + self.BTN_H // 2)
         group.append(self.btn_label)
         self._btn_label_rest_pos = self.btn_label.anchored_position
+        # Unlock animation, take 2 (manager rejected the ring reveal outright):
+        # the OPEN button itself springs from its normal bottom rest position
+        # up to the screen's center on unlock, using the SAME Spring physics
+        # already used for _done_pop/_ovr_pop/press-depth above -- not a new
+        # motion primitive, per this project's "extend the existing spring
+        # pattern, don't fork a new one" convention. _btn_move.value IS the
+        # button's live top-left y (not an offset added to a fixed base, like
+        # the other two springs) so a single spring drives both the button
+        # and its label with no separate bookkeeping. Starts settled at rest.
+        self._btn_move = Spring(SPRING_STIFFNESS, SPRING_DAMPING, SPRING_MASS)
+        self._btn_move.displace(self.BTN_Y, self.BTN_Y)
+        self._done_btn_top_y = DONE_BTN_CENTER_Y - self.BTN_H // 2
 
     # ----- touch-down/up feedback (control view only) -----
     # Every tap/swipe on this device is resolved on RELEASE, in
@@ -438,24 +474,36 @@ class LockUI:
     def on_touch_down(self, x, y):
         if self.view != "control":
             return
-        # Bases below are the FIXED rest positions captured once at build
-        # time (_btn_ring_rest_y/_btn_label_rest_pos/etc.), never a live
-        # `.y`/`.anchored_position` read. A rapid re-tap (or a chattering
-        # touch controller re-firing this before the previous press-depth
-        # spring had settled back to 0) used to capture whatever offset
-        # position the widget was CURRENTLY at as the new "base" -- since
-        # step_motion always adds the spring's offset on top of that base,
-        # every such re-tap baked in the previous frame's residual offset,
-        # and the button/status text visibly walked away from its true
-        # position a little further with each rapid tap (reported as the
-        # on-screen text "shaking all over the screen" under repeated
-        # pressing). Fixed bases make every press start from the same true
-        # rest point regardless of how many rapid re-taps preceded it.
+        # Bases below are FIXED for the duration of a single press, captured
+        # once at THIS press's touch-down -- never re-read mid-press. A rapid
+        # re-tap (or a chattering touch controller re-firing this before the
+        # previous press-depth spring had settled back to 0) used to capture
+        # whatever offset position the widget was CURRENTLY at as the new
+        # "base" -- since step_motion always adds the spring's offset on top
+        # of that base, every such re-tap baked in the previous frame's
+        # residual offset, and the button/status text visibly walked away
+        # from its true position a little further with each rapid tap
+        # (reported as the on-screen text "shaking all over the screen"
+        # under repeated pressing). _begin_press's own _finish_press() call
+        # below resets any such residual offset before this capture happens,
+        # so reading a "live" value here is safe and gives the same
+        # single-true-rest-point guarantee as the old always-BTN_Y constant.
+        #
+        # The button (unlike the status bar) no longer has one universal
+        # rest y -- it can legitimately be at the bottom (LOCK/idle), sprung
+        # to the screen's center (done, see _btn_move below), or momentarily
+        # mid-flight between the two -- so its press-dip base is captured
+        # live at press-time instead of the old build-time BTN_Y constant.
+        # The independent _btn_move spring keeps driving the button's actual
+        # rest position in the background regardless of this press, so it
+        # simply resumes control on the next frame after release.
         if self.in_button(x, y) and not self.button.hidden:
+            btn_y = self.button.y
             self._begin_press(self.button_press_ring, (
-                (self.button_press_ring, 'y', self._btn_ring_rest_y),
-                (self.button, 'y', self.BTN_Y),
-                (self.btn_label, 'label', self._btn_label_rest_pos),
+                (self.button_press_ring, 'y', btn_y - 3),
+                (self.button, 'y', btn_y),
+                (self.btn_label, 'label', (self._btn_label_rest_pos[0],
+                                            btn_y + self.BTN_H // 2)),
             ))
         elif self.in_status(x, y):
             self._begin_press(self.status_press_ring, (
@@ -530,6 +578,25 @@ class LockUI:
             v = _clamp_offset(self._ovr_pop.step(dt))
             bx, by = self._ovr_count_base
             self.ov_count.anchored_position = (bx, by + int(round(v)))
+
+        # Unlock animation, take 2: the OPEN button springing to/from the
+        # screen's center. Runs unconditionally whenever not settled, same
+        # gating style as _done_pop/_ovr_pop above -- cheap once settled (one
+        # float comparison), and this is exactly the fix for the reported
+        # touch-freeze: a single small widget's .y changing, never a
+        # full-screen redraw, and it never blocks -- see show_done/
+        # _reset_button_position for what starts/stops it.
+        # Deliberately deferred to the press-dip above while the button is
+        # actively being pressed (self._press_ring is self.button_press_ring)
+        # -- both blocks would otherwise fight over self.button.y on the same
+        # frame. Resumes the instant the press ends (_finish_press clears
+        # _press_ring), since the spring itself keeps advancing regardless.
+        if not self._btn_move.settled and self._press_ring is not self.button_press_ring:
+            y = int(round(self._btn_move.step(dt)))
+            self.button.y = y
+            self.button_press_ring.y = y - 3
+            bx, _ = self._btn_label_rest_pos
+            self.btn_label.anchored_position = (bx, y + self.BTN_H // 2)
 
     # =================== clock view (multiple styles) ===================
     # Swipe up/down on the clock screen cycles these appearances.
@@ -674,9 +741,13 @@ class LockUI:
 
         # A 270-degree arch (open at the bottom) built from overlapping dots so
         # the band is thick and each segment can be recoloured cheaply to show
-        # elapsed (amber) vs remaining (green). This amber/green pairing is a
-        # local progress indicator, not the app-lock/closed/unlocked status
-        # language, so it's left out of theming like the other STATE colors.
+        # elapsed (accent) vs remaining (grey). Used to be a fixed amber/green
+        # pairing, deliberately left out of theming as "a local progress
+        # indicator, not the app-lock/closed/unlocked status language" -- the
+        # manager has since asked for the opposite (match the theme colors),
+        # so this now follows the same accent-if-progressed/grey-if-not
+        # convention the override ring already uses (_set_ovr_ring below),
+        # rather than inventing a different theming rule for this one gauge.
         self.gauge_cx = W // 2
         self.gauge_cy = 158
         self.gauge_r = 72
@@ -688,7 +759,7 @@ class LockUI:
             theta = self.gauge_start + self.gauge_span * i / (self.gauge_n - 1)
             x = self.gauge_cx + int(self.gauge_r * math.sin(theta))
             y = self.gauge_cy - int(self.gauge_r * math.cos(theta))
-            dot = Circle(x, y, 7, fill=C_GREEN)
+            dot = Circle(x, y, 7, fill=C_GREY)
             self.gauge_dots.append(dot)
             group.append(dot)
         self._gauge_k = -1
@@ -723,7 +794,7 @@ class LockUI:
         if k != self._gauge_k:
             self._gauge_k = k
             for i, dot in enumerate(self.gauge_dots):
-                dot.fill = C_AMBER if i < k else C_GREEN
+                dot.fill = self._accent_color if i < k else C_GREY
         # glide the tip marker to the exact angle every frame (smooth)
         theta = self.gauge_start + self.gauge_span * frac
         x = self.gauge_cx + int(self.gauge_r * math.sin(theta))
@@ -847,8 +918,8 @@ class LockUI:
         elapsed_target = active or self._accent_color
         style = self.clock_styles[self.clock_style_idx]
         # Same state-indication color ease as set_status, applied per style.
-        # Gated on the cached target (mirrors the "on != self._anim_on"
-        # idiom used by the done/call-alert blink below) so a transition is
+        # Gated on the cached target (mirrors the "on != self._call_anim_on"
+        # idiom used by the call-alert blink below) so a transition is
         # only started the moment the target actually flips, not re-started
         # every redraw tick while running at CLOCK_FPS.
         if style == "analog":
@@ -1438,6 +1509,23 @@ class LockUI:
         group.append(ttl)
         self._dim_widgets.append((ttl, 'color'))
 
+        # Explicit on-screen cancel hint (manager report: accidentally
+        # pressing LOCK dropped the user on this screen with no visible way
+        # out -- the swipe-up cancel added earlier was real but entirely
+        # undiscoverable, a hidden gesture with no on-screen affordance at
+        # all, same class of problem the SKIP/MORE nav row below was already
+        # built to fix for left/right). Placed above the title (no corner
+        # indicators are built on this screen, unlike control/clock, so this
+        # row is free) rather than folded into the "tap = tag & start" hint
+        # below -- "swipe up = cancel, tap = tag & start" measured wider than
+        # this 172px screen even at scale 1.
+        cancel_hint = label.Label(terminalio.FONT, text="swipe up = cancel",
+                                  color=C_GREY)
+        cancel_hint.anchor_point = (0.5, 0.5)
+        cancel_hint.anchored_position = (W // 2, 12)
+        group.append(cancel_hint)
+        self._dim_widgets.append((cancel_hint, 'color'))
+
         # Dot at a fixed x, name left-anchored just after it -- was a single
         # centered label per row until each row needed its own topic color
         # (built-in or synced-custom, see lock_config.BUILTIN_TOPICS /
@@ -1541,8 +1629,12 @@ class LockUI:
 
     # =================== hit testing ===================
     def in_button(self, x, y):
+        # Reads the button's LIVE y, not the build-time BTN_Y constant --
+        # the button now moves (see _btn_move/show_done), and a tap must hit
+        # wherever it actually is on screen right now (rest, sprung to
+        # center, or mid-flight between the two), not where it started.
         return (self.BTN_X <= x <= self.BTN_X + self.BTN_W and
-                self.BTN_Y <= y <= self.BTN_Y + self.BTN_H)
+                self.button.y <= y <= self.button.y + self.BTN_H)
 
     def in_status(self, x, y):
         return (8 <= x <= self.W - 8 and
@@ -1583,7 +1675,7 @@ class LockUI:
         self._clk_bg.hidden = False
         self.set_clock(secs)
         self.big_msg.hidden = True
-        self.border.hidden = True
+        self._reset_button_position()
         self._idle_widgets(True)
         self.set_status("UNLOCKED", C_GREEN)
         # Visible LOCK button -- restores the on-screen affordance for
@@ -1596,7 +1688,7 @@ class LockUI:
         self.clock.hidden = False
         self._clk_bg.hidden = False
         self.big_msg.hidden = True
-        self.border.hidden = True
+        self._reset_button_position()
         self._idle_widgets(False)
         self.set_status("LOCKED", C_RED)
         self._show_button(False)          # no on-screen cancel; override only
@@ -1606,7 +1698,7 @@ class LockUI:
         self.clock.hidden = False
         self._clk_bg.hidden = False
         self.big_msg.hidden = True
-        self.border.hidden = True
+        self._reset_button_position()
         self._idle_widgets(True)          # show H/M guides so time is selectable
         self.set_status("CLOSED", C_AMBER)
         self.set_button("LOCK", self._accent_color)
@@ -1617,9 +1709,15 @@ class LockUI:
         self._clk_bg.hidden = True
         self.big_msg.hidden = False
         # The single highest-payoff moment on the device -- spring the
-        # message up into place instead of having it just appear, on top of
-        # the existing blink (see animate_done) for sustained emphasis.
+        # message up into place (unchanged from before), while the OPEN
+        # button itself is now the primary unlock animation: it springs from
+        # its normal bottom rest position up to the screen's center (see
+        # _btn_move in _build_control / step_motion). Snap-then-target (not
+        # just `.to`) so every unlock replays the move fresh from the true
+        # bottom rest position, even if a previous done->idle transition
+        # somehow left it mid-flight.
         self._done_pop.displace(DONE_POP_OFFSET_PX, 0.0)
+        self._btn_move.displace(self.BTN_Y, self._done_btn_top_y)
         self.set_status("UNLOCKED", C_GREEN)
         # Shown regardless of auto_open: with auto_open on the servo already
         # released and this state self-dismisses after DONE_ANIM_S, but the
@@ -1628,6 +1726,37 @@ class LockUI:
         self.set_button("OPEN", self._accent_color)
         self._show_button(True)
 
-    def animate_done(self, on):
-        self.big_msg.hidden = not on
-        self.border.hidden = not on
+    def _reset_button_position(self):
+        # Called on every transition OUT of the done state (idle/running/
+        # closed) so the button is back at its normal bottom rest position
+        # for LOCK/normal use, never left mid-flight or centered. Snaps
+        # immediately rather than springing back -- this is a state-entry
+        # reset, not part of the unlock animation itself.
+        #
+        # BUG FIX: tapping OPEN to dismiss "done" is the ordinary, everyday
+        # path into this method -- and the press-depth spring that tap just
+        # started is still easing back to 0 (not yet settled) at the exact
+        # moment _handle_release fires go_idle(), because release is
+        # detected and acted on before the cosmetic press-dip has finished
+        # animating. If that press is still in flight when this method
+        # snaps the button back to BTN_Y, the very next _step_motion frame's
+        # (still-active) press-dip block overwrites it right back to its
+        # stale captured base -- wherever the button was CENTERED at when
+        # the press began -- and once that dip settles, _finish_press()
+        # leaves the button sitting at that stale centered position instead
+        # of the bottom. This is the reported "button gets stuck in the
+        # animation position" bug. Cancelling the in-flight press outright
+        # (rather than letting it finish naturally) removes the stale base
+        # before it can fight this reset.
+        if self._press_ring is self.button_press_ring:
+            self._press_targets = ()
+            self._press_ring = None
+            self.button_press_ring.hidden = True
+            self._press_spring.value = 0.0
+            self._press_spring.velocity = 0.0
+            self._press_spring.target = 0.0
+        self._btn_move.displace(self.BTN_Y, self.BTN_Y)
+        self.button.y = self.BTN_Y
+        self.button_press_ring.y = self.BTN_Y - 3
+        bx, _ = self._btn_label_rest_pos
+        self.btn_label.anchored_position = (bx, self.BTN_Y + self.BTN_H // 2)

@@ -1,14 +1,14 @@
 # lock_controller.py -- the timer state machine and gesture handling.
 import gc
 from lock_config import (
-    MAX_SECONDS, MAX_HOURS, SWIPE_MIN_PX, ANIM_HZ, DEFAULT_SECONDS,
+    MAX_SECONDS, MAX_HOURS, SWIPE_MIN_PX, DEFAULT_SECONDS,
     SWAP_XY, INVERT_X, INVERT_Y, CLOCK_FPS, SERVO_HOLD_S, OVERRIDE_PRESSES,
     OVERRIDE_TIMEOUT, DONE_ANIM_S, MIN_STEP, RELEASE_FRAMES,
     SERVO_LOCK_ANGLE, SERVO_UNLOCK_ANGLE, fmt_hm, fix, C_GREY,
     OVR_MIN, OVR_MAX, BLE_CALL_ALERT_S, CALL_ALERT_BLINK_HZ,
     HOLD_REPEAT_DELAY, HOLD_REPEAT_START, HOLD_REPEAT_MIN, HOLD_REPEAT_RAMP,
     STATUS_TAP_COOLDOWN_S, BUILTIN_TOPICS, BLE_LABEL_MAX_COUNT,
-    BLE_LABEL_NAME_MAX_LEN,
+    BLE_LABEL_NAME_MAX_LEN, ACCENT_COLORS,
 )
 from lock_battery import Battery
 from lock_servo import Servo
@@ -55,7 +55,6 @@ class LockController:
         self._last = None
         self._miss = 0
         self._now = 0.0
-        self._anim_on = None
         self.view = "control"
         self._last_fkey = None
         self._last_bkey = None
@@ -105,6 +104,10 @@ class LockController:
                                     # field) -- this copy only drives the box's
                                     # own on-screen picker.
         self._picker_page = 0
+        self._picking_from = "idle"  # "idle" or "closed" -- which state to
+                                      # cancel back to from the tag picker
+                                      # (see go_picking / _handle_release's
+                                      # "picking" branch swipe-up handling)
         self._session_topic = None  # topic tagged to the session in progress
                                      # (set by go_running's topic= argument)
         # ----- deferred logging for auto-open-off sessions -----
@@ -168,6 +171,13 @@ class LockController:
         from the LOCK tap in idle/closed, so the chosen topic can ride along
         in the session's log entry. See _handle_release's "picking" branch
         for the tap/swipe handling on this screen."""
+        self._picking_from = self.state   # "idle" or "closed" -- see the
+                                           # swipe-up cancel handling below,
+                                           # which must return to whichever
+                                           # one was actually true rather than
+                                           # assume idle (closed means the lid
+                                           # sensor already latched the servo;
+                                           # cancelling must not lose that).
         self.state = "picking"
         self._picker_page = 0
         self.ui.show_tag_picker(self._picker_page_topics(0))
@@ -225,7 +235,6 @@ class LockController:
         self._clear_override()
         self.state = "done"
         self.done_start = now
-        self._anim_on = None        # force the first animation frame to draw
         if self.settings.auto_open:
             self.release_lock()          # auto-open: servo releases now
         else:
@@ -336,11 +345,13 @@ class LockController:
         elif self.state == "done":
             if self.settings.auto_open and now - self.done_start >= DONE_ANIM_S:
                 self.go_idle()             # auto-dismiss the unlock animation
-            elif not self._was_down:       # skip the blink redraw while a finger is down
-                on = int((now - self.done_start) * ANIM_HZ * 2) % 2 == 0
-                if on != self._anim_on:    # only redraw when the blink flips
-                    self._anim_on = on
-                    self.ui.animate_done(on)
+            # No per-frame driving needed here anymore: the unlock animation
+            # is now the OPEN button springing to the screen's center (see
+            # LockUI.show_done/_step_motion), which rides the same
+            # unconditional step_motion(dt) call above as _done_pop/_ovr_pop
+            # -- one less special case in this state machine, and it already
+            # gets the same "keep the run loop responsive" treatment those
+            # springs get (cheap no-op once settled, never blocks touch).
 
         # Skip the (relatively expensive) clock-view redraw while a finger is
         # down so touch sampling stays responsive -- the hands resume the moment
@@ -530,7 +541,12 @@ class LockController:
         if "thm" in d:
             st.theme_mode = max(0, min(1, int(d["thm"])))
         if "acc" in d:
-            st.accent_idx = max(0, min(5, int(d["acc"])))
+            # Was hardcoded to 5 (the old 6-accent set's last index) -- this
+            # silently clamped the two new accents (teal=6, indigo=7) down to
+            # rose the moment they were added. len(ACCENT_COLORS) tracks
+            # whatever the current accent count actually is instead of a
+            # second number that has to be remembered and kept in sync.
+            st.accent_idx = max(0, min(len(ACCENT_COLORS) - 1, int(d["acc"])))
         if "thm" in d or "acc" in d:
             self.ui.set_theme(st.theme_mode, st.accent_idx)
         st.save()
@@ -742,6 +758,18 @@ class LockController:
         # occupies the control view's screen without being one of the
         # top-level VIEWS.
         if self.state == "picking":
+            if abs(dy) >= SWIPE_MIN_PX and abs(dy) > abs(dx):
+                # Swipe up = cancel: back out to whichever screen was active
+                # before LOCK was tapped, with no session started at all --
+                # distinct from SKIP/swipe-left, which still starts an
+                # untagged session. This was previously a dead end: entering
+                # the picker (even by accident) forced starting SOME session.
+                if dy < 0:
+                    if self._picking_from == "closed":
+                        self.go_closed(self._now)
+                    else:
+                        self.go_idle()
+                return
             if abs(dx) >= SWIPE_MIN_PX and abs(dx) > abs(dy):
                 right = (dx < 0) if INVERT_X else (dx > 0)
                 if right:

@@ -30,7 +30,9 @@ describe('encodeSettings / parseSettings round-trip', () => {
 
   it('clamps an out-of-range acc index instead of forwarding garbage to the box', () => {
     const parsed = parseSettings('{"ovr":25,"auto":1,"sleep":20,"bright":50,"unlk":0,"acc":99}');
-    expect(parsed?.acc).toBe(5);
+    // Upper bound is 7 (8 accents: mint/coral/amber/sky/violet/rose/teal/indigo,
+    // see ACCENT_KEYS in ../theme/theme.ts) -- was 5 before teal/indigo were added.
+    expect(parsed?.acc).toBe(7);
   });
 
   it('treats any thm value other than 1 as dark (0)', () => {

@@ -48,7 +48,7 @@ except ImportError:
 
 from lock_config import (
     BLE_ENABLED, BLE_NAME, BLE_ADV_INTERVAL, BLE_ADV_WHEN_LOCKED,
-    BLE_CMD_MIN_INTERVAL, BLE_CALL_ALERT_S,
+    BLE_ADV_REASSERT_S, BLE_CMD_MIN_INTERVAL, BLE_CALL_ALERT_S,
     BLE_SERVICE_UUID, BLE_UUID_STATUS, BLE_UUID_HISTORY, BLE_UUID_COMMAND,
     BLE_UUID_SETTINGS, BLE_UUID_TIME, BLE_UUID_ALERT, BLE_UUID_LABELS,
 )
@@ -98,6 +98,7 @@ class PhoneBoxBLE:
         self._svc = None
         self._adv = None
         self._advertising = False
+        self._last_adv_start = 0.0
         self._last_push = 0.0
         self._last_cmd_at = 0.0
         self._last_command = ""
@@ -105,6 +106,7 @@ class PhoneBoxBLE:
         self._last_time = ""
         self._last_settings = ""
         self._last_labels = ""
+        self._last_drain_slow = 0.0
         self._last_history = None  # None (not "") so the very first push
                                     # after boot always writes, same as after
                                     # a reconnect -- see _on_connected below.
@@ -136,13 +138,23 @@ class PhoneBoxBLE:
             return True
         return BLE_ADV_WHEN_LOCKED and ctrl.state in _LOCKED_STATES
 
-    def _set_advertising(self, on):
-        if on == self._advertising:
+    def _set_advertising(self, on, now=0.0):
+        # Re-assert periodically even when `on` matches the cached flag
+        # already -- see BLE_ADV_REASSERT_S's comment for why the cached
+        # flag alone isn't trustworthy evidence the radio is actually still
+        # transmitting. `now=0.0` default keeps the `connected` branch's
+        # `_set_advertising(False)` call (which never needs re-asserting --
+        # stopping is idempotent either way) from having to pass a real
+        # timestamp it doesn't have handy.
+        due_for_reassert = (on and self._advertising
+                            and now - self._last_adv_start >= BLE_ADV_REASSERT_S)
+        if on == self._advertising and not due_for_reassert:
             return
         try:
             if on:
                 self._radio.start_advertising(self._adv,
                                               interval=BLE_ADV_INTERVAL)
+                self._last_adv_start = now
             else:
                 self._radio.stop_advertising()
             self._advertising = on
@@ -163,7 +175,7 @@ class PhoneBoxBLE:
                 self._drain_inbound(ctrl, now)
                 self._push_outbound(ctrl, now)
             else:
-                self._set_advertising(self._want_advertise(ctrl, awake))
+                self._set_advertising(self._want_advertise(ctrl, awake), now)
         except Exception:
             # never let a radio hiccup break the run loop
             pass
@@ -203,12 +215,30 @@ class PhoneBoxBLE:
                 ctrl.log.mark_sent()
 
     def _drain_inbound(self, ctrl, now):
+        # `command` is polled every single loop iteration (~50Hz) --
+        # deliberately, since this is the "Open"/"Close" remote-action path
+        # and should feel as instant as a physical button. The other four
+        # characteristics (alert/time_sync/settings/labels) change rarely
+        # (an incoming call, an occasional settings/label edit, one clock
+        # sync) but were ALSO being read every single iteration -- five
+        # characteristic reads a frame, every frame, for the whole time a
+        # phone is connected. Each is a real _bleio round-trip, not free, and
+        # this runs unconditionally regardless of which screen is showing
+        # (see code.py: ble.service() runs after touch/update every loop
+        # pass) -- reported as "buttons feel laggy" on the settings and lock
+        # screens alike, i.e. the whole run loop slowing down, not a
+        # per-screen bug. Rate-limited to 5x/sec (still far faster than a
+        # human notices these particular things change) instead of 50x/sec.
         cmd = self._svc.command
         if cmd and cmd != self._last_command:
             self._last_command = cmd
             if now - self._last_cmd_at >= BLE_CMD_MIN_INTERVAL:
                 self._last_cmd_at = now
                 ctrl.apply_ble_command(cmd, now)
+
+        if now - self._last_drain_slow < 0.2:
+            return
+        self._last_drain_slow = now
 
         alert = self._svc.alert
         if alert and alert != self._last_alert:

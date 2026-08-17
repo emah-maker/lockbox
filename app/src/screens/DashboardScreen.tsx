@@ -11,6 +11,7 @@ import { withAlpha } from '../theme/theme';
 import { aggregate, formatDuration, completionRate, clampLockSeconds, MAX_LOCK_HOURS, MAX_LOCK_SECONDS } from '../stats/stats';
 import { allLabelChoices, resolveTopic } from '../stats/customLabels';
 import { lastNDays } from '../stats/trend';
+import { filterByWindow } from '../stats/sessionHistory';
 import type { Status } from '../ble/protocol';
 import { AnimatedPressable } from '../ui/AnimatedPressable';
 import { AnimatedFill } from '../ui/AnimatedFill';
@@ -161,6 +162,13 @@ export default function DashboardScreen() {
   // local session log (synced live + drained from the box on connect) is the
   // only copy, and the only place these aggregates can come from.
   const stats = useMemo(() => aggregate(sessions), [sessions]);
+  // Headline "focus time" figure is scoped to today only (manager request) --
+  // everything else in this card (session count, completion rate, streak,
+  // longest) stays a lifetime figure from `stats` above, same as before and
+  // matching StatsScreen's own precedent of never windowing streak/longest.
+  // filterByWindow('day', ...) anchors to local midnight, same helper
+  // StatsScreen uses for its own "day" window.
+  const todayStats = useMemo(() => aggregate(filterByWindow(sessions, 'day')), [sessions]);
   // Same real per-day totals StatsScreen's "Last 7 days" advanced view
   // computes -- surfaced here too, as a compact sparkline, so the Focus
   // card gives an at-a-glance shape without switching tabs or opting into
@@ -256,8 +264,6 @@ export default function DashboardScreen() {
 
   return (
     <ScrollView scrollEnabled={!pickerActive} contentContainerStyle={s.container}>
-      <Text style={s.h1}>Phone Box</Text>
-
       {/* Connection state and box status share one card that's always
           mounted -- it used to be two pieces (an always-visible "Connection"
           card and a separate "Box status" card that only existed once
@@ -277,22 +283,28 @@ export default function DashboardScreen() {
           <Text style={s.btnText}>{connected ? 'Disconnect' : 'Connect'}</Text>
         </AnimatedPressable>
 
-        {status?.st === 'running' && (
-          <>
-            <Text style={s.sub}>{formatDuration(status.rem)} left</Text>
-            <View style={[s.meterTrack, { backgroundColor: withAlpha(theme.accent, 0.2) }]}>
-              <Animated.View
-                style={[
-                  s.meterFill,
-                  {
-                    backgroundColor: theme.accent,
-                    width: meterAnim.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] }),
-                  },
-                ]}
-              />
-            </View>
-          </>
-        )}
+        {/* Always mounted, same "reserve the space, don't unmount" fix as
+            this card's own merge (see the comment above) -- previously this
+            whole block appeared/disappeared with running state, shifting
+            the battery/control rows below it up and down every time a
+            session started or ended. The track shows an empty (0%) bar
+            instead of the real one while not running, so the row's height
+            never changes, only its content. */}
+        <Text style={s.sub}>{status?.st === 'running' ? `${formatDuration(status.rem)} left` : ' '}</Text>
+        <View style={[s.meterTrack, { backgroundColor: withAlpha(theme.accent, 0.2) }]}>
+          <Animated.View
+            style={[
+              s.meterFill,
+              {
+                backgroundColor: theme.accent,
+                width:
+                  status?.st === 'running'
+                    ? meterAnim.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] })
+                    : '0%',
+              },
+            ]}
+          />
+        </View>
 
         <View style={s.battRow}>
           <Feather name="battery" size={14} color={status ? batteryColor(status.bat, theme) : theme.textDim} />
@@ -324,11 +336,15 @@ export default function DashboardScreen() {
             <Text style={s.controlBtnText}>Open</Text>
           </AnimatedPressable>
         </View>
-        {canOpen && !remoteUnlockOn && (
-          <Text style={s.sub}>
-            Remote unlock is off in Settings -- Open won't release the box until you turn it on.
-          </Text>
-        )}
+        {/* Always mounted (reserves 2 lines' worth of height via s.warnSub's
+            minHeight) rather than appearing/disappearing with canOpen/
+            remoteUnlockOn, which used to shift the duration-picker/topic-
+            picker block below it every time those flipped. */}
+        <Text style={s.warnSub}>
+          {canOpen && !remoteUnlockOn
+            ? "Remote unlock is off in Settings -- Open won't release the box until you turn it on."
+            : ''}
+        </Text>
 
         {showDurationPicker && (
           <View style={s.pickerBlock}>
@@ -391,12 +407,19 @@ export default function DashboardScreen() {
         )}
       </View>
 
-      <View style={s.card}>
+      {/* minHeight sized to the full-stats variant below (label + big number
+          + sub + 4 stat rows + sparkline row + card padding/gaps) so the
+          empty-history placeholder doesn't leave this card short and make
+          the rest of the screen jump up/down the moment the first session
+          is logged. Reasoned from typeScale line-heights + s.card's own
+          padding/gap, not measured in a live layout inspector -- verify
+          visually and adjust if it's off. */}
+      <View style={[s.card, { minHeight: 260 }]}>
         <Text style={s.label}>Focus</Text>
         {stats.n > 0 ? (
           <>
-            <Text style={s.big}>{formatDuration(stats.foc)}</Text>
-            <Text style={s.sub}>focus time</Text>
+            <Text style={s.big}>{formatDuration(todayStats.foc)}</Text>
+            <Text style={s.sub}>focus time today</Text>
             <Text style={s.row}>Sessions: {stats.n}</Text>
             <Text style={s.row}>
               Completed: {stats.done}/{stats.n} ({completionRate(stats)}%)
@@ -492,13 +515,20 @@ function TopicPicker({
 
 const styles = (t: ReturnType<typeof useTheme>) =>
   StyleSheet.create({
-    container: { padding: 20, gap: 16, backgroundColor: t.bg, paddingBottom: 60 },
-    h1: { color: t.text, ...typeScale.title, marginTop: 40 },
+    // paddingTop replaces the old h1 title's marginTop:40 for top clearance
+    // now that the title (redundant with the bottom tab bar's own label,
+    // manager request) is gone -- matches the paddingTop:50 convention the
+    // other three screens already use for the same purpose.
+    container: { padding: 20, paddingTop: 50, gap: 16, backgroundColor: t.bg, paddingBottom: 60 },
     card: { backgroundColor: t.surface, borderRadius: 14, padding: 16, gap: 6, ...elevation.card },
     label: { color: t.textDim, ...typeScale.label },
     value: { color: t.text, fontSize: 22, fontWeight: '600' },
     big: { color: t.accent, ...typeScale.display },
     sub: { color: t.textDim, ...typeScale.body },
+    // Same as `sub`, but reserves 2 lines of height (typeScale.body.lineHeight
+    // * 2) so this row's box doesn't collapse/grow when the warning text is
+    // hidden vs shown -- see the remote-unlock warning above.
+    warnSub: { color: t.textDim, ...typeScale.body, minHeight: typeScale.body.lineHeight * 2 },
     row: { color: t.text, fontSize: 16, marginTop: 2 },
     error: { color: t.danger, fontSize: 13 },
     btn: { backgroundColor: t.accent, borderRadius: 10, padding: 12, alignItems: 'center', marginTop: 8 },

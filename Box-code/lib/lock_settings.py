@@ -10,10 +10,13 @@ from lock_config import (
     BRIGHT_OPTIONS, DEFAULT_MODE_IDX, DEFAULT_ACCENT_IDX, ACCENT_COLORS,
 )
 
-_MAGIC = 0x60        # bump when the NVM layout changes (forces defaults once);
-                     # bumped to add the theme_mode + accent_idx bytes (app
-                     # theme sync) so a box flashed before this feature
-                     # doesn't read stray erased bytes in those slots
+_MAGIC = 0x61        # bump when the NVM layout changes (forces defaults once);
+                     # bumped from 0x60 to add the override_presses high byte
+                     # (OVR_MAX raised from 255 to 500 -- a single NVM byte
+                     # can't hold that, see Settings.save/_load) so a box
+                     # flashed before this change doesn't read a stray erased
+                     # byte as a garbage high byte and reconstruct a bogus
+                     # override count
 _BASE = 8            # NVM offset for settings (byte 0 = brownout counter)
 
 
@@ -60,7 +63,9 @@ class Settings:
         try:
             nvm = microcontroller.nvm
             if nvm is not None and nvm[_BASE] == _MAGIC:
-                self.override_presses = nvm[_BASE + 1]
+                # override_presses is 2 bytes (low, high) since OVR_MAX=500
+                # no longer fits one byte -- see save() below.
+                self.override_presses = nvm[_BASE + 1] | (nvm[_BASE + 9] << 8)
                 self.auto_open = bool(nvm[_BASE + 2])
                 self.sleep_s = nvm[_BASE + 3]
                 self.bright_pct = nvm[_BASE + 4]
@@ -77,7 +82,14 @@ class Settings:
             if nvm is None:
                 return
             nvm[_BASE] = _MAGIC
-            nvm[_BASE + 1] = max(1, min(255, int(self.override_presses)))
+            # 2-byte little-endian split -- OVR_MAX=500 exceeds a single
+            # byte's 0-255 range. Low byte kept at the original offset
+            # (_BASE+1) so this stays a value-format-only change, not a
+            # layout shift of every other field; high byte appended at a
+            # new offset (_BASE+9) rather than reordering the existing ones.
+            ovr = max(1, min(OVR_MAX, int(self.override_presses)))
+            nvm[_BASE + 1] = ovr & 0xFF
+            nvm[_BASE + 9] = (ovr >> 8) & 0xFF
             nvm[_BASE + 2] = 1 if self.auto_open else 0
             nvm[_BASE + 3] = max(0, min(255, int(self.sleep_s)))
             nvm[_BASE + 4] = max(0, min(100, int(self.bright_pct)))
