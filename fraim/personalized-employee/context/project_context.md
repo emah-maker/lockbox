@@ -27,7 +27,7 @@ to integrate with.
     - `lock_controller.py` — gesture/state machine tying UI, touch, servo,
       timer, and settings together.
     - `lock_ui.py` — display rendering (timer view, clock/countdown, settings,
-      unlock animation). Largest module (~680 lines).
+      unlock animation). Largest module (1763 lines).
     - `lock_servo.py` — servo lock actuator driver (PWM, hold-then-relax).
     - `lock_battery.py` — LiPo state-of-charge via the MAX17048 fuel gauge
       (I2C @ 0x36 on the shared touch bus); receives the bus by injection and
@@ -60,9 +60,13 @@ to integrate with.
   sense button (`GPIO1`) and an override button (`GPIO10`); default override is
   25 presses within a timeout to unlock early.
 - **No SD card (2026-07-24 decision):** the product will not ship with a TF/SD
-  card. The on-device session-logging + focus-stats feature (`lock_log.py`,
-  the on-screen "stats" view, the BLE stats characteristic) has been removed
-  from the firmware. GPIO13–18 (formerly reserved for 4-bit SDIO) are free
+  card. The firmware has no on-screen "stats" view and no BLE stats
+  characteristic. `lock_log.py` is present and actively maintained: it
+  persists a best-effort session-history queue to NVM, feeding only the
+  companion app's history sync (see
+  `docs/rfcs/ios-call-greenlist-and-force-quit-logging-technical-design.md`
+  §3.1/§3.2), not an on-device stats view or its own BLE characteristic.
+  GPIO13–18 (formerly reserved for 4-bit SDIO) are free
   again. Session history/streaks were never one of the 7 fixed functions
   below, so this is a scope cut, not a cost-down substitution.
 

@@ -48,6 +48,12 @@ CPU_FAST = 240_000_000       # screen on: responsive touch + stable servo PWM
 CPU_SLOW = 80_000_000        # screen asleep: battery saving
 INACTIVITY_S = 20             # turn the screen off after this many idle seconds
 
+# How long code.py's main loop must run, past a first successful ctrl.update(),
+# before a normal boot clears safemode.py's brownout-retry counter -- long
+# enough to be past initial boot inrush and into a run where the servo could
+# plausibly have engaged. See code.py's run loop and safemode.py's 5-retry cap.
+BROWNOUT_CLEAR_AFTER_S = 3.0
+
 # ----- Touch -> screen mapping (panel is native 172x320) -----
 SWAP_XY = False
 INVERT_X = True
