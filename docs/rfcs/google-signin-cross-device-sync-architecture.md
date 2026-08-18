@@ -441,6 +441,20 @@ account's data lingers locally between sessions even without an intervening diff
 (`TIME_WINDOW_KEY`/`BEST_STREAK_KEY`) are outside this guard's scope — they were never part of the
 account-syncable data set in the first place (§3.1).
 
+`clearLocalAccountData()` and `syncSessions` (§4.2) both mirror their AsyncStorage write into
+`useStore.setSessions()` — the in-memory `sessions` array `StatsScreen`/`DashboardScreen`/
+`CalendarScreen` actually render, which `useStore.ts` otherwise only populates once at `init()`. Before
+this, storage was correctly scoped/cleared (the account-boundary property above held), but a device
+that stayed running across a sign-out → different-account sign-in (no app restart) kept showing the
+previous account's sessions on-screen until the process restarted or a BLE history event happened to
+overwrite the array — a UX staleness gap, not a data-isolation leak, since it never affected what was
+actually persisted or synced. `firestoreSync.ts`'s `syncSessions` also calls
+`sessionsSyncBridge.markSessionsSeen()` immediately before `setSessions()`: without it, that bridge's
+own push-on-change subscription would treat any session it hadn't personally observed (e.g. one merged
+in from another device) as newly-logged and re-upload it under this device's doc-id namespace
+(`sessionDocId` is deviceId-scoped), creating a second Firestore doc for the same session and
+permanently double-counting it in stats.
+
 ---
 
 ## 5. Threat model / security review checklist

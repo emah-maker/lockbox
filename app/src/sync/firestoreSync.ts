@@ -20,9 +20,11 @@ import {
 import { getDb, getFirebaseAuth } from '../auth/firebase';
 import { loadSessions, replaceSessions, MIN_LOGGED_SESSION_S, type LoggedSession } from '../stats/sessionHistory';
 import { useSettingsStore, type SyncableSettings } from '../store/useSettingsStore';
+import { useStore } from '../store/useStore';
 import { getJSON } from '../storage/storage';
 import { sessionDocId, mergeSessionsPreferLocalTopic } from './sessionMerge';
 import { ensureLocalDataScopedTo } from './localDataOwner';
+import { markSessionsSeen } from './sessionsSyncBridge';
 
 const LAST_DEVICE_KEY = 'lastDeviceId'; // mirrors useStore.ts's own AsyncStorage key
 const BATCH_LIMIT = 500; // Firestore's per-batch write limit
@@ -145,7 +147,16 @@ async function syncSessions(uid: string): Promise<void> {
 
   // Write the full reconciled set back to local storage (replace, not
   // append -- appendSessions would double-count sessions already present).
-  await replaceSessions(mergedList);
+  const stored = await replaceSessions(mergedList);
+  // Mirror into the live store too -- StatsScreen/DashboardScreen/
+  // CalendarScreen read useStore.sessions, not AsyncStorage directly, so
+  // without this they keep showing whichever account's data was in memory
+  // before this sync ran. markSessionsSeen must run first: it stops
+  // sessionsSyncBridge's push subscription from treating cross-device
+  // sessions it hasn't personally seen as newly-logged and re-uploading them
+  // under this device's doc-id namespace (see that function's own comment).
+  markSessionsSeen(stored);
+  useStore.getState().setSessions(stored);
 
   // Idempotent set() at each deterministic ID -- re-running after a crash or
   // retry never creates a duplicate. Chunked to Firestore's batch limit.

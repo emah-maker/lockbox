@@ -92,6 +92,16 @@ interface AppState {
    * CalendarScreen's per-day list. Identifies the session by the same
    * startedAt+plannedS+actualS triple sessionHistory.ts uses internally. */
   retagSession: (target: Pick<LoggedSession, 'startedAt' | 'plannedS' | 'actualS'>, topic: string | undefined) => Promise<void>;
+  /** Overwrites the in-memory session list without touching AsyncStorage --
+   * for callers that already persisted a new session set themselves
+   * (sync/localDataOwner.ts's clearLocalAccountData on sign-out/delete;
+   * sync/firestoreSync.ts's syncSessions after a cross-device/account merge)
+   * and need this store's live `sessions` -- what StatsScreen, DashboardScreen,
+   * and CalendarScreen actually render -- to stop reflecting whichever
+   * account was signed in before. Without this, those screens kept showing
+   * the previous account's session list until the next BLE history event or
+   * an app restart, since loadSessions() is otherwise only read at init(). */
+  setSessions: (sessions: LoggedSession[]) => void;
 }
 
 const client = new PhoneBoxClient();
@@ -407,5 +417,7 @@ export const useStore = create<AppState>((set, get) => {
       const sessions = await retagSession(get().sessions, target, topic);
       set({ sessions });
     },
+
+    setSessions: (sessions) => set({ sessions }),
   };
 });

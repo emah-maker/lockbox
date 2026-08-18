@@ -11,6 +11,7 @@ import { initFirebaseAuth, getFirebaseAuth } from './firebase';
 import { signInWithGoogle, signOutFully, deleteAccountFully } from './googleAuth';
 import { runMigrationAndSync, deleteAllUserData, beginAccountDeletion, endAccountDeletion } from '../sync/firestoreSync';
 import { clearLocalAccountData } from '../sync/localDataOwner';
+import { useStore } from '../store/useStore';
 import { getJSON, setJSON } from '../storage/storage';
 
 export interface AccountUser {
@@ -95,6 +96,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     // signed out, but ordering it this way makes that explicit rather than
     // relying on the no-op.
     await clearLocalAccountData();
+    // clearLocalAccountData() only wipes AsyncStorage -- useStore.sessions
+    // (what StatsScreen/DashboardScreen/CalendarScreen actually render) needs
+    // its own update or it keeps showing this account's sessions until the
+    // next BLE history event or an app restart.
+    useStore.getState().setSessions([]);
     set({ user: null, lastSyncedAt: null, syncError: null });
     await setJSON<number | null>(LAST_SYNCED_KEY, null);
   },
@@ -122,6 +128,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       endAccountDeletion();
     }
     await clearLocalAccountData();
+    // See signOut's identical call: clearLocalAccountData() only clears
+    // AsyncStorage, not the live store the Stats/Dashboard/Calendar screens read.
+    useStore.getState().setSessions([]);
     set({ user: null, lastSyncedAt: null, syncError: null });
     await setJSON<number | null>(LAST_SYNCED_KEY, null);
   },
