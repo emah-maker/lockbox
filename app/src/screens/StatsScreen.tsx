@@ -33,6 +33,7 @@ const TOP_N = 5;
 const TREND_BAR_MAX_H = 80;
 const HEATMAP_OPACITY = [0.08, 0.3, 0.5, 0.72, 1] as const; // index = HeatmapDay.level
 const BEST_STREAK_KEY = 'bestStreakSeen';
+const TIME_WINDOW_KEY = 'statsTimeWindow';
 
 const WINDOW_OPTIONS: { key: TimeWindow; label: string }[] = [
   { key: 'day', label: 'Day' },
@@ -41,6 +42,9 @@ const WINDOW_OPTIONS: { key: TimeWindow; label: string }[] = [
   { key: 'all', label: 'All time' },
 ];
 
+const isTimeWindow = (v: unknown): v is TimeWindow =>
+  v === 'day' || v === 'week' || v === 'month' || v === 'all';
+
 export default function StatsScreen() {
   const c = useTheme();
   const sessions = useStore((s) => s.sessions);
@@ -48,11 +52,29 @@ export default function StatsScreen() {
   const customLabels = useSettingsStore((s) => s.customLabels);
   const reducedMotion = useReducedMotion();
   const [timeWindow, setTimeWindow] = useState<TimeWindow>('all');
+  // Guards the mount load below against overwriting a selection the user
+  // already made while the AsyncStorage read was still in flight.
+  const userSelectedRef = useRef(false);
+
+  // Per-device view preference -- deliberately not part of useSettingsStore's
+  // SyncableSettings, since which window is selected shouldn't follow the
+  // user to another device (see that store's header comment).
+  useEffect(() => {
+    let cancelled = false;
+    getJSON<TimeWindow | null>(TIME_WINDOW_KEY, null).then((saved) => {
+      if (!cancelled && !userSelectedRef.current && isTimeWindow(saved)) setTimeWindow(saved);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const selectWindow = (w: TimeWindow) => {
+    userSelectedRef.current = true;
     if (w === timeWindow) return;
     configureLayoutAnimation(reducedMotion);
     setTimeWindow(w);
+    setJSON(TIME_WINDOW_KEY, w);
   };
 
   const windowedSessions = useMemo(() => filterByWindow(sessions, timeWindow), [sessions, timeWindow]);
@@ -84,6 +106,8 @@ export default function StatsScreen() {
           return (
             <AnimatedPressable
               key={opt.key}
+              accessibilityRole="button"
+              accessibilityState={{ selected: active }}
               style={[
                 styles.windowChip,
                 { borderColor: withAlpha(c.accent, 0.4) },
@@ -155,7 +179,16 @@ export default function StatsScreen() {
 
       <View style={[styles.card, { backgroundColor: c.surface }]}>
         <Text style={[styles.h2, { color: c.text }]}>Last 7 days</Text>
-        <View style={styles.trendRow}>
+        {/* The bars themselves are non-interactive and carry no text of their
+            own, so a screen reader previously skipped this chart's content
+            entirely (production readiness review, Low). One accessible
+            summary on the wrapping row reads the whole week at once, same
+            approach as the heatmap below. */}
+        <View
+          style={styles.trendRow}
+          accessible
+          accessibilityLabel={`Last 7 days: ${trend.map((d) => `${d.label} ${formatDuration(d.focusS)}`).join(', ')}`}
+        >
           {trend.map((d) => {
             const h = Math.max(3, Math.round((d.focusS / trendMax) * TREND_BAR_MAX_H));
             return (
@@ -172,7 +205,13 @@ export default function StatsScreen() {
 
       <View style={[styles.card, { backgroundColor: c.surface }]}>
         <Text style={[styles.h2, { color: c.text }]}>Last 5 weeks</Text>
-        <View style={styles.heatmapGrid}>
+        <View
+          style={styles.heatmapGrid}
+          accessible
+          accessibilityLabel={`Focus activity heatmap, last 5 weeks: ${
+            heatmap.filter((d) => d.level > 0).length
+          } of ${heatmap.length} days with focus time`}
+        >
           {heatmap.map((d) => (
             <View
               key={d.key}

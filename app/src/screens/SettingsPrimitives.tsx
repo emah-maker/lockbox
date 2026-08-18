@@ -17,7 +17,7 @@ import { useTheme } from '../theme/useTheme';
 import { withAlpha } from '../theme/theme';
 import { AnimatedPressable } from '../ui/AnimatedPressable';
 import { useReducedMotion } from '../ui/useReducedMotion';
-import { typeScale, elevation, springs } from '../theme/tokens';
+import { typeScale, elevation, springs, opacity } from '../theme/tokens';
 
 export function Button({
   label,
@@ -52,7 +52,7 @@ export function Button({
         filled
           ? { backgroundColor: color.accent, borderColor: color.accent }
           : { backgroundColor: 'transparent', borderColor: color.textDim },
-        disabled ? { opacity: 0.5 } : null,
+        disabled ? { opacity: opacity.disabled } : null,
       ]}
     >
       {loading ? (
@@ -151,6 +151,23 @@ export function SliderRow({
   const reducedMotion = useReducedMotion();
   const reducedMotionRef = React.useRef(reducedMotion);
   reducedMotionRef.current = reducedMotion;
+  // Same reasoning as onChangeRef/reducedMotionRef above, extended to
+  // min/max/step: snapValue/xToValue/valueToX below are plain functions
+  // re-created every render, but the PanResponder that calls them is built
+  // once via useRef(...).current (below), so it only ever closes over
+  // whichever snapValue/xToValue/valueToX existed at that first render --
+  // and those, in turn, closed over that render's min/max/step. Without these
+  // refs, a caller passing a dynamic range (this file's own doc comment flags
+  // this as latent, since today's single call site uses a constant range)
+  // would have every drag permanently snap/clamp against the *first-render*
+  // range forever (production readiness review, Medium: "SliderRow stale
+  // closure on min/max/step").
+  const minRef = React.useRef(min);
+  minRef.current = min;
+  const maxRef = React.useRef(max);
+  maxRef.current = max;
+  const stepRef = React.useRef(step);
+  stepRef.current = step;
 
   // Thumb/fill position in px along the track. While a finger is down this
   // follows the raw touch 1:1 (direct manipulation must not lag or stair-step
@@ -162,8 +179,11 @@ export function SliderRow({
   const restingXRef = React.useRef(0);
 
   const snapValue = (v: number) => {
-    const snapped = Math.round((v - min) / step) * step + min;
-    return Math.min(max, Math.max(min, snapped));
+    const mn = minRef.current;
+    const mx = maxRef.current;
+    const st = stepRef.current;
+    const snapped = Math.round((v - mn) / st) * st + mn;
+    return Math.min(mx, Math.max(mn, snapped));
   };
 
   // Soft edges while dragging: past either end, the thumb still follows the
@@ -180,14 +200,18 @@ export function SliderRow({
 
   const xToValue = (x: number) => {
     const w = trackWidthRef.current;
-    if (w <= 0) return min;
+    const mn = minRef.current;
+    const mx = maxRef.current;
+    if (w <= 0) return mn;
     const ratio = Math.min(1, Math.max(0, x / w));
-    return snapValue(min + ratio * (max - min));
+    return snapValue(mn + ratio * (mx - mn));
   };
 
   const valueToX = (v: number) => {
-    if (max === min) return 0;
-    return ((v - min) / (max - min)) * trackWidthRef.current;
+    const mn = minRef.current;
+    const mx = maxRef.current;
+    if (mx === mn) return 0;
+    return ((v - mn) / (mx - mn)) * trackWidthRef.current;
   };
 
   const track = (x: number) => {
@@ -286,7 +310,16 @@ export function SliderRow({
         <Text style={[styles.label, { color: color.text }]}>{label}</Text>
         <Text style={[styles.sliderValue, { color: color.text }]}>{format(displayValue)}</Text>
       </View>
-      <View style={styles.sliderTrackWrap} onLayout={onTrackLayout} {...panResponder.panHandlers}>
+      <View
+        style={styles.sliderTrackWrap}
+        onLayout={onTrackLayout}
+        // The drag surface is THUMB_SIZE (28px) tall -- under the ~44pt
+        // minimum touch target (production readiness review, Low). hitSlop
+        // extends the *touch* target without changing the visual track
+        // height/layout.
+        hitSlop={{ top: 8, bottom: 8, left: 0, right: 0 }}
+        {...panResponder.panHandlers}
+      >
         <View style={[styles.sliderTrack, styles.sliderTrackBg, { backgroundColor: withAlpha(color.textDim, 0.3) }]} />
         <Animated.View
           style={[
@@ -310,9 +343,29 @@ export function SliderRow({
   );
 }
 
+// Row-label / small-caption text styles -- exported since SettingsScreen.tsx
+// (and, via OverridePressSection.tsx, the Override-presses picker) need the
+// exact same look for their own rows/captions. Previously defined a second
+// time, byte-for-byte, in SettingsScreen.tsx's own StyleSheet; consolidated
+// to this one source once a third consumer needed it, rather than adding a
+// third copy.
+export const rowLabelStyle = {
+  fontSize: 15,
+  flexShrink: 1 as const,
+  paddingRight: 12,
+  letterSpacing: typeScale.sectionTitle.letterSpacing,
+  lineHeight: 20,
+};
+export const captionStyle = {
+  fontSize: 12,
+  marginTop: 2,
+  letterSpacing: typeScale.caption.letterSpacing,
+  lineHeight: typeScale.caption.lineHeight,
+};
+
 const styles = StyleSheet.create({
   h2: { ...typeScale.sectionTitle },
-  subtitle: { fontSize: 12, marginTop: 2, letterSpacing: typeScale.caption.letterSpacing, lineHeight: typeScale.caption.lineHeight },
+  subtitle: captionStyle,
   card: { borderRadius: 14, padding: 16, ...elevation.card },
   buttonLabel: { fontWeight: '600', letterSpacing: typeScale.body.letterSpacing, lineHeight: typeScale.body.lineHeight },
   button: {
@@ -325,7 +378,7 @@ const styles = StyleSheet.create({
     minWidth: 110,
   },
   row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  label: { fontSize: 15, flexShrink: 1, paddingRight: 12, letterSpacing: typeScale.sectionTitle.letterSpacing, lineHeight: 20 },
+  label: rowLabelStyle,
   sliderValue: { fontSize: 15, fontWeight: '600', letterSpacing: typeScale.sectionTitle.letterSpacing, lineHeight: 20 },
   sliderTrackWrap: { height: THUMB_SIZE, justifyContent: 'center', marginTop: 10 },
   sliderTrack: { position: 'absolute', left: 0, height: TRACK_HEIGHT, borderRadius: TRACK_HEIGHT / 2 },
@@ -337,10 +390,6 @@ const styles = StyleSheet.create({
     width: THUMB_SIZE,
     height: THUMB_SIZE,
     borderRadius: THUMB_SIZE / 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.25,
-    shadowRadius: 2,
-    elevation: 2,
+    ...elevation.thumb,
   },
 });

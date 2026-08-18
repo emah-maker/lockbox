@@ -15,27 +15,6 @@
   var reduceMotion = window.matchMedia &&
     window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-  /* ---------- Nav elevation on scroll ----------
-     Materials depth cue: the translucent nav becomes a touch more opaque
-     and gains a shadow once page content is scrolling underneath it,
-     instead of staying a flat constant translucency. Not gated on
-     reduceMotion -- it's a background/shadow change, not movement. */
-  var navEl = document.querySelector(".nav");
-  if (navEl) {
-    var navTicking = false;
-    var updateNav = function () {
-      navEl.classList.toggle("nav--scrolled", window.scrollY > 8);
-      navTicking = false;
-    };
-    updateNav();
-    window.addEventListener("scroll", function () {
-      if (!navTicking) {
-        window.requestAnimationFrame(updateNav);
-        navTicking = true;
-      }
-    }, { passive: true });
-  }
-
   /* ---------- Reveal-on-scroll ---------- */
   var revealEls = document.querySelectorAll(".reveal");
   if (reduceMotion || !("IntersectionObserver" in window)) {
@@ -50,6 +29,15 @@
       });
     }, { threshold: 0.12, rootMargin: "0px 0px -40px 0px" });
     revealEls.forEach(function (el) { io.observe(el); });
+
+    // Safety-reveal fallback: the <noscript> block in index.html covers the
+    // no-JS case, but this covers the JS-runs-but-something-goes-wrong case
+    // (an error earlier in this IIFE, a stalled/never-intersecting observer,
+    // etc.) -- without it a single thrown error above would leave the whole
+    // page permanently at opacity:0.
+    window.setTimeout(function () {
+      revealEls.forEach(function (el) { el.classList.add("in"); });
+    }, 2000);
   }
 
   /* ---------- FAQ accordion ---------- */
@@ -125,14 +113,45 @@
   paint();
 
   if (!reduceMotion && timeEl) {
-    setInterval(function () {
+    var countdownTimer = null;
+    var tick = function () {
       remaining -= 1;
       if (remaining < 0) {           // loop the demo
         remaining = TOTAL;
         if (lockEl) { lockEl.textContent = "LOCKED"; }
       }
       paint();
-    }, 1000);
+    };
+    var startCountdown = function () {
+      if (countdownTimer === null) { countdownTimer = setInterval(tick, 1000); }
+    };
+    var stopCountdown = function () {
+      if (countdownTimer !== null) { clearInterval(countdownTimer); countdownTimer = null; }
+    };
+
+    // Only run the tick while the tab is visible AND the device mockup is
+    // actually on screen -- a single 1s interval is cheap, but there's no
+    // reason to keep it ticking against a backgrounded tab or a hero
+    // scrolled far out of view.
+    var deviceEl = document.querySelector(".hero__device");
+    var deviceVisible = !deviceEl || !("IntersectionObserver" in window);
+    var updateRunState = function () {
+      if (document.visibilityState === "visible" && deviceVisible) {
+        startCountdown();
+      } else {
+        stopCountdown();
+      }
+    };
+
+    if (deviceEl && "IntersectionObserver" in window) {
+      var deviceIo = new IntersectionObserver(function (entries) {
+        deviceVisible = entries[entries.length - 1].isIntersecting;
+        updateRunState();
+      }, { threshold: 0 });
+      deviceIo.observe(deviceEl);
+    }
+    document.addEventListener("visibilitychange", updateRunState);
+    updateRunState();
   }
 
   /* ---------- Override press-demo: proves the mechanism, not just names it ---------- */

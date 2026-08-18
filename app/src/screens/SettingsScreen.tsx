@@ -4,30 +4,31 @@
 // useStore.pushBoxSettings, mirrored locally in useSettingsStore.boxSettings
 // so this screen has something to show even before a connection is made.
 import React from 'react';
-import { View, Text, StyleSheet, Switch, ScrollView, TextInput, Alert } from 'react-native';
+import { View, Text, StyleSheet, Switch, ScrollView, Alert } from 'react-native';
 import { useStore, CONN_LABELS } from '../store/useStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useAuthStore } from '../auth/useAuthStore';
 import { useTheme } from '../theme/useTheme';
 import { THEME_MODES, ACCENT_KEYS, ACCENT_LABELS, accentSwatch, ThemeMode, AccentKey } from '../theme/theme';
 import { CustomLabelsSection } from './CustomLabelsSection';
-import { Button, Section, SliderRow } from './SettingsPrimitives';
+import { Button, Section, rowLabelStyle, captionStyle } from './SettingsPrimitives';
+import { OverridePressPicker, OverrideCustomEntry } from './OverridePressSection';
 import { AnimatedPressable } from '../ui/AnimatedPressable';
 import { typeScale } from '../theme/tokens';
+import { OVR_MIN, OVR_MAX } from './overridePresses';
 
-// Mirrors Box-code/lib/lock_config.py -- keep these ranges in lockstep with
-// OVR_MIN/OVR_MAX/OVR_STEP and SLEEP_OPTIONS/BRIGHT_OPTIONS on the firmware
-// side. Override presses used to be a non-uniform 5/10/25/50 staircase
-// (OVR_OPTIONS) -- a slider gives every option an equal-width slice of the
-// track regardless of value, so the staircase made the same-size drag
-// distance mean a tiny nudge near one end and a huge jump near the other,
-// which read as "inconsistent". A flat step fixes that at the source.
-// OVR_MAX was 255 (a single NVM byte's ceiling) until raised to 500 (manager
-// request) -- lock_settings.Settings now persists override_presses across 2
-// NVM bytes to fit; see that file's save()/_load() comments.
-const OVR_MIN = 5;
-const OVR_MAX = 500;
-const OVR_STEP = 5;
+// Mirrors Box-code/lib/lock_config.py -- keep OVR_MIN/OVR_MAX/OVR_STEP
+// (overridePresses.ts) and SLEEP_OPTIONS/BRIGHT_OPTIONS below in lockstep
+// with the firmware side. Override presses used to be a non-uniform
+// 5/10/25/50 staircase (OVR_OPTIONS), then a flat-step slider (every option
+// an equal-width slice of the track, fixing the staircase's "same drag
+// distance, wildly different jump size" inconsistency) -- now a horizontal
+// wheel picker (`OverridePressPicker`, `OverrideCustomEntry` in
+// OverridePressSection.tsx) so scrubbing through values lands directly on
+// one instead of dragging a thumb. OVR_MAX was 255 (a single NVM byte's
+// ceiling) until raised to 500 (manager request) -- lock_settings.Settings
+// now persists override_presses across 2 NVM bytes to fit; see that file's
+// save()/_load() comments.
 const SLEEP_OPTIONS = [10, 20, 30, 60];
 const BRIGHT_OPTIONS = [10, 30, 50, 70, 100];
 
@@ -60,7 +61,7 @@ export default function SettingsScreen() {
 
       <Section title="App behaviors" color={c}>
         <Row label="Auto-connect to box" color={c}>
-          <Switch value={autoConnect} onValueChange={setAutoConnect} />
+          <Switch value={autoConnect} onValueChange={setAutoConnect} accessibilityLabel="Auto-connect to box" />
         </Row>
       </Section>
 
@@ -71,16 +72,12 @@ export default function SettingsScreen() {
           <Switch
             value={!!boxSettings.auto}
             onValueChange={(v) => pushBoxSettings({ auto: v ? 1 : 0 })}
+            accessibilityLabel="Auto-open when done"
           />
         </Row>
-        <SliderRow
-          label="Override presses"
+        <OverridePressPicker
           value={boxSettings.ovr}
-          min={OVR_MIN}
-          max={OVR_MAX}
-          step={OVR_STEP}
           onChange={(v) => pushBoxSettings({ ovr: v })}
-          caption={(v) => `${v} presses to force-unlock`}
           color={c}
         />
         <OverrideCustomEntry
@@ -110,12 +107,14 @@ export default function SettingsScreen() {
           <Switch
             value={!!boxSettings.unlk}
             onValueChange={(v) => pushBoxSettings({ unlk: v ? 1 : 0 })}
+            accessibilityLabel="Allow open/close from this phone"
           />
         </Row>
         <Row label="Unlock box when called" color={c}>
           <Switch
             value={!!boxSettings.ucal}
             onValueChange={(v) => pushBoxSettings({ ucal: v ? 1 : 0 })}
+            accessibilityLabel="Unlock box when called"
           />
         </Row>
       </Section>
@@ -183,15 +182,23 @@ function AccountSection({ color }: { color: ReturnType<typeof useTheme> }) {
 
   const [busy, setBusy] = React.useState(false);
   const [deleteError, setDeleteError] = React.useState<string | null>(null);
+  const [signInError, setSignInError] = React.useState<string | null>(null);
 
   const handleSignIn = async () => {
     setBusy(true);
+    setSignInError(null);
     try {
       await signIn();
-    } catch {
-      // useAuthStore.signIn/googleAuth already swallow/surface errors without
-      // logging the underlying credential -- a failed/cancelled sign-in just
-      // leaves the user signed out, nothing further to do here.
+    } catch (e: any) {
+      // Same "generic message only" discipline as syncError/deleteError below
+      // (design doc §5 checklist item 3 -- these thrown messages are static,
+      // credential-free strings, e.g. "Google Sign-In was cancelled.", never
+      // the underlying token/credential). A plain cancellation isn't worth
+      // surfacing as an error -- tapping Cancel on the account picker is a
+      // normal outcome, not a failure -- but every other failure previously
+      // vanished silently here, unlike handleDeleteAccount's own catch below.
+      const msg = typeof e?.message === 'string' ? e.message : 'Could not sign in. Please try again.';
+      if (!/cancel/i.test(msg)) setSignInError(msg);
     } finally {
       setBusy(false);
     }
@@ -257,7 +264,18 @@ function AccountSection({ color }: { color: ReturnType<typeof useTheme> }) {
               loading={syncing || busy}
               color={color}
             />
-            <Button label="Sign out" onPress={handleSignOut} disabled={busy} loading={busy} color={color} variant="outline" />
+            {/* Gated on the store's `syncing` flag too, not just local `busy`
+                -- signing out mid-sync used to be possible from here even
+                though useAuthStore.syncNow's own in-flight promise was still
+                running against the about-to-be-cleared user. */}
+            <Button
+              label="Sign out"
+              onPress={handleSignOut}
+              disabled={busy || syncing}
+              loading={busy}
+              color={color}
+              variant="outline"
+            />
           </View>
           <AnimatedPressable onPress={handleDeleteAccount} disabled={busy} style={{ marginTop: 12 }}>
             <Text style={[styles.subtitle, { color: color.danger }]}>Delete account</Text>
@@ -270,6 +288,7 @@ function AccountSection({ color }: { color: ReturnType<typeof useTheme> }) {
             fully without this.
           </Text>
           {syncError ? <Text style={[styles.subtitle, { color: color.danger }]}>{syncError}</Text> : null}
+          {signInError ? <Text style={[styles.subtitle, { color: color.danger }]}>{signInError}</Text> : null}
           <Button label="Sign in with Google" onPress={handleSignIn} disabled={busy} loading={busy} color={color} />
         </>
       )}
@@ -338,75 +357,6 @@ function PickerGroup({
   );
 }
 
-// Escape hatch below the Override-presses slider: the slider is a fast way
-// to pick a round-ish number, but has no way to land on an arbitrary exact
-// value without a lot of dragging. Cross-platform by construction (unlike
-// Alert.prompt, which is iOS-only) -- same TextInput pattern as
-// CustomLabelsSection's label-name field. Clamped to [min, max] here too,
-// not just relying on the box's own clamp in apply_ble_settings_json --
-// same "app clamps too" belt-and-suspenders as clampLockSeconds.
-function OverrideCustomEntry({
-  value,
-  min,
-  max,
-  onChange,
-  color,
-}: {
-  value: number;
-  min: number;
-  max: number;
-  onChange: (v: number) => void;
-  color: ReturnType<typeof useTheme>;
-}) {
-  const [open, setOpen] = React.useState(false);
-  const [draft, setDraft] = React.useState('');
-  const [error, setError] = React.useState<string | null>(null);
-
-  if (!open) {
-    return (
-      <AnimatedPressable
-        onPress={() => {
-          setDraft(String(value));
-          setError(null);
-          setOpen(true);
-        }}
-        style={{ marginTop: 4 }}
-      >
-        <Text style={[styles.customLink, { color: color.accent }]}>Enter a custom number...</Text>
-      </AnimatedPressable>
-    );
-  }
-
-  const commit = () => {
-    const n = Math.round(Number(draft));
-    if (!draft.trim() || !Number.isFinite(n)) {
-      setError('Enter a whole number.');
-      return;
-    }
-    onChange(Math.max(min, Math.min(max, n)));
-    setOpen(false);
-  };
-
-  return (
-    <View style={{ marginTop: 8, gap: 6 }}>
-      <View style={styles.customRow}>
-        <TextInput
-          value={draft}
-          onChangeText={setDraft}
-          keyboardType="number-pad"
-          autoFocus
-          style={[styles.customInput, { color: color.text, borderColor: color.textDim }]}
-        />
-        <Button label="Set" onPress={commit} color={color} />
-        <AnimatedPressable onPress={() => setOpen(false)}>
-          <Text style={{ color: color.textDim }}>Cancel</Text>
-        </AnimatedPressable>
-      </View>
-      {error ? <Text style={[styles.subtitle, { color: color.danger }]}>{error}</Text> : null}
-    </View>
-  );
-}
-
 function Chip({
   active,
   onPress,
@@ -426,6 +376,8 @@ function Chip({
   return (
     <AnimatedPressable
       onPress={onPress}
+      accessibilityRole="button"
+      accessibilityState={{ selected: active }}
       style={[
         styles.chip,
         {
@@ -454,15 +406,11 @@ const styles = StyleSheet.create({
   connDot: { width: 8, height: 8, borderRadius: 4 },
   connText: { ...typeScale.label },
   h1: { ...typeScale.title, marginBottom: 4 },
-  subtitle: { fontSize: 12, marginTop: 2, letterSpacing: typeScale.caption.letterSpacing, lineHeight: typeScale.caption.lineHeight },
+  // label/subtitle now come from SettingsPrimitives.tsx (rowLabelStyle/
+  // captionStyle) -- previously duplicated here byte-for-byte.
+  subtitle: captionStyle,
   row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  label: {
-    fontSize: 15,
-    flexShrink: 1,
-    paddingRight: 12,
-    letterSpacing: typeScale.sectionTitle.letterSpacing,
-    lineHeight: typeScale.sectionTitle.lineHeight,
-  },
+  label: rowLabelStyle,
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   chip: {
     flexDirection: 'row',
@@ -474,7 +422,4 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
   },
   chipSwatch: { width: 10, height: 10, borderRadius: 5, borderWidth: 1 },
-  customLink: { fontSize: 13, fontWeight: '600' },
-  customRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  customInput: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, fontSize: 15, minWidth: 70, textAlign: 'center' },
 });

@@ -23,6 +23,22 @@ function sessionKey(s: LoggedSession): string {
 }
 
 /**
+ * Marks sessions as already accounted for, without pushing them. Call this
+ * before firestoreSync.ts's syncSessions replaces useStore's live session
+ * list with a merged (possibly cross-device) set -- otherwise the subscribe
+ * callback below would treat any session it hasn't personally seen (e.g. one
+ * that another device originally uploaded) as newly-logged and re-upload it
+ * under *this* device's doc-id namespace (sessionDocId is deviceId-scoped),
+ * creating a second Firestore doc for the same session and permanently
+ * double-counting it in stats. syncSessions already uploads whatever is
+ * genuinely new in its own batch, correctly keyed -- this just stops that
+ * work from being redundantly (and incorrectly) repeated here.
+ */
+export function markSessionsSeen(sessions: LoggedSession[]): void {
+  for (const s of sessions) seen.add(sessionKey(s));
+}
+
+/**
  * Call once at app start (after initFirebaseAuth() has resolved -- see
  * App.tsx). Idempotent. Every subsequent growth of useStore's `sessions`
  * array (new sessions appended by handleHistory) triggers a best-effort

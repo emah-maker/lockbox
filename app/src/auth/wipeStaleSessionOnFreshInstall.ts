@@ -22,7 +22,14 @@ export async function wipeStaleSessionOnFreshInstall(): Promise<void> {
     // Proactively wipe any Keychain-resident auth state left over from a
     // previous install before Firebase Auth even initializes.
     for (const key of FIREBASE_AUTH_SECURE_STORE_KEYS) {
-      await SecureStore.deleteItemAsync(key, SECURE_STORE_OPTS).catch(() => {});
+      // These key *names* are derived from firebaseConfig.apiKey, not secret
+      // (see secureStoreKeys.ts) -- safe to log if a wipe ever fails, e.g.
+      // after an SDK version drift changes the internal key format this
+      // still assumes (production readiness review, Medium: previously
+      // silent `.catch(() => {})` gave no diagnostic at all).
+      await SecureStore.deleteItemAsync(key, SECURE_STORE_OPTS).catch((e) =>
+        console.warn('[wipeStaleSessionOnFreshInstall] failed to delete', key, e?.message),
+      );
     }
     await setJSON(MARKER_KEY, true);
   }

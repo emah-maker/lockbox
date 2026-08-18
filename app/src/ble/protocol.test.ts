@@ -39,6 +39,28 @@ describe('encodeSettings / parseSettings round-trip', () => {
     const parsed = parseSettings('{"ovr":25,"auto":1,"sleep":20,"bright":50,"unlk":0,"thm":7}');
     expect(parsed?.thm).toBe(0);
   });
+
+  // Production readiness review, Low: "asymmetric input clamping between BLE
+  // encode/parse paths" -- cmdStart/cmdSetDuration always clamped their
+  // numeric input, but encodeSettings used to JSON.stringify(s) verbatim. A
+  // NaN in any numeric field would serialize as a bare `NaN` token, which
+  // isn't valid JSON, aborting the box's parse of the entire settings write.
+  it('sanitizes NaN/non-finite numeric fields instead of emitting invalid JSON', () => {
+    const withNaN: Settings = { ...FULL, ovr: NaN, sleep: Infinity, bright: -Infinity };
+    const encoded = encodeSettings(withNaN);
+    expect(() => JSON.parse(encoded)).not.toThrow();
+    const parsed = parseSettings(encoded);
+    expect(parsed?.ovr).toBe(0);
+    expect(parsed?.sleep).toBe(0);
+    expect(parsed?.bright).toBe(0);
+  });
+
+  it('floors non-integer numeric fields the same way cmdStart/cmdSetDuration do', () => {
+    const encoded = encodeSettings({ ...FULL, ovr: 25.7, bright: 50.2 });
+    const parsed = parseSettings(encoded);
+    expect(parsed?.ovr).toBe(25);
+    expect(parsed?.bright).toBe(50);
+  });
 });
 
 describe('parseSettings defensive parsing', () => {

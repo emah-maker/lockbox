@@ -109,7 +109,10 @@ class Settings:
         self.save()
 
     # ----- called by the settings UI: swipe up/down / +/- (with hold-to-
-    # repeat) on a detail page -----
+    # repeat) on a detail page -- does NOT save(); a hold-repeat can call this
+    # 10+ times/second, so the caller (lock_controller._update_hold) only
+    # updates the live in-RAM value here and debounces the actual NVM write to
+    # once per release (lock_controller._handle_release) -----
     def adjust(self, idx, direction):
         # swipe up/down: direction +1 = up/increase, -1 = down/decrease (clamped)
         if idx == 0:
@@ -124,7 +127,6 @@ class Settings:
             self.allow_remote_unlock = direction > 0
         elif idx == 5:
             self.unlock_on_call = direction > 0
-        self.save()
 
     def toggle_remote_unlock(self):
         # "R Unlock" on the box's own Settings screen, "Remote unlock" in the

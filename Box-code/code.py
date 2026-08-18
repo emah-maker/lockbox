@@ -7,12 +7,6 @@ import microcontroller
 import supervisor
 import digitalio
 
-# A successful normal boot clears the brownout-retry counter used by safemode.py
-try:
-    microcontroller.nvm[0] = 0
-except Exception:
-    pass
-
 from axs5106l import AXS5106L
 from lock_ui import LockUI
 from lock_power import Backlight
@@ -20,7 +14,7 @@ from lock_controller import LockController
 from lock_ble import PhoneBoxBLE
 from lock_config import (INACTIVITY_S, BL_LEVEL, BL_LEVEL_USB,
                          BTN_LOCK_PIN, BTN_OVERRIDE_PIN,
-                         CPU_FAST, CPU_SLOW)
+                         CPU_FAST, CPU_SLOW, BROWNOUT_CLEAR_AFTER_S)
 
 # ----- Display + UI -----
 display = board.DISPLAY
@@ -57,6 +51,13 @@ _prev_override = True
 
 last_activity = time.monotonic()
 _cpu_target = 0
+_boot_mono = last_activity
+_brownout_cleared = False
+# BROWNOUT_CLEAR_AFTER_S (lock_config.py): clearing the counter on interpreter
+# start (the old behavior) meant every retry re-zeroed it before the board
+# ever reached the point of failure, so a servo-triggered brownout seconds
+# into a run could reset-loop forever instead of ever hitting safemode.py's
+# 5-retry cap.
 
 while True:
     now = time.monotonic()
@@ -126,6 +127,17 @@ while True:
     if ctrl.update(now):
         backlight.on()
         last_activity = now
+
+    # Proven-stable check: only clear the brownout-retry counter once the
+    # board has run past boot inrush and completed a real update() cycle --
+    # not on interpreter start -- so safemode.py's 5-retry cap still catches
+    # a brownout triggered later by the servo (see BROWNOUT_CLEAR_AFTER_S above).
+    if not _brownout_cleared and now - _boot_mono >= BROWNOUT_CLEAR_AFTER_S:
+        _brownout_cleared = True
+        try:
+            microcontroller.nvm[0] = 0
+        except Exception:
+            pass
 
     # BLE companion link is serviced LAST -- after touch, buttons, and update --
     # so radio work can never delay touch sampling or reorder a servo move. It is

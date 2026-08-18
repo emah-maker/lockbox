@@ -9,7 +9,9 @@ import { create } from 'zustand';
 import { onAuthStateChanged, type User } from 'firebase/auth';
 import { initFirebaseAuth, getFirebaseAuth } from './firebase';
 import { signInWithGoogle, signOutFully, deleteAccountFully } from './googleAuth';
-import { runMigrationAndSync, deleteAllUserData } from '../sync/firestoreSync';
+import { runMigrationAndSync, deleteAllUserData, beginAccountDeletion, endAccountDeletion } from '../sync/firestoreSync';
+import { clearLocalAccountData } from '../sync/localDataOwner';
+import { useStore } from '../store/useStore';
 import { getJSON, setJSON } from '../storage/storage';
 
 export interface AccountUser {
@@ -29,6 +31,18 @@ interface AuthState {
   ready: boolean; // Firebase Auth has finished its initial "do we have a session" check
   user: AccountUser | null;
   syncing: boolean;
+  // The uid syncNow's currently in-flight call was started for, or null when
+  // idle. Re-entrancy used to be guarded by a bare `syncing` boolean, so if
+  // user A's syncNow was still in flight when user B signed in, B's own
+  // syncNow call would no-op (seeing `syncing === true`), and A's stale
+  // promise would later settle and unconditionally overwrite whatever was
+  // now the *current* store state -- B could inherit A's error message or a
+  // bogus lastSyncedAt. Tying the guard (and the result-application check
+  // below) to the specific uid a call was started for closes that race: a
+  // different uid's syncNow is never blocked by another user's in-flight
+  // call, and a completing call only ever applies its result if its uid is
+  // still the signed-in user.
+  syncingUid: string | null;
   syncError: string | null;
   lastSyncedAt: number | null;
 
@@ -52,6 +66,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   ready: false,
   user: null,
   syncing: false,
+  syncingUid: null,
   syncError: null,
   lastSyncedAt: null,
 
@@ -76,6 +91,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   signOut: async () => {
     await signOutFully();
+    // After sign-out, not before: clearing settings triggers
+    // settingsSyncBridge's push subscription, which itself no-ops once
+    // signed out, but ordering it this way makes that explicit rather than
+    // relying on the no-op.
+    await clearLocalAccountData();
+    // clearLocalAccountData() only wipes AsyncStorage -- useStore.sessions
+    // (what StatsScreen/DashboardScreen/CalendarScreen actually render) needs
+    // its own update or it keeps showing this account's sessions until the
+    // next BLE history event or an app restart.
+    useStore.getState().setSessions([]);
     set({ user: null, lastSyncedAt: null, syncError: null });
     await setJSON<number | null>(LAST_SYNCED_KEY, null);
   },
@@ -84,28 +109,59 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const user = get().user;
     if (!user) return;
     // Order matters: Firestore data must go first, while still authenticated
-    // as this uid -- see deleteAllUserData's own header comment.
-    await deleteAllUserData(user.uid);
-    await deleteAccountFully();
+    // as this uid -- see deleteAllUserData's own header comment. Local data
+    // is cleared last, after the Auth user is gone, for the same reason
+    // signOut clears after signOutFully -- no lingering local data once
+    // nobody is signed in on this device.
+    //
+    // beginAccountDeletion/endAccountDeletion bracket the whole sequence so
+    // the best-effort push bridges (sessionsSyncBridge/settingsSyncBridge)
+    // can't re-create a doc deleteAllUserData just wiped -- deleteAccountFully
+    // re-authenticates via a fresh native Google sign-in, which can take a
+    // while, and a settings/session change landing in that window (still
+    // authenticated as this uid) would otherwise repush straight back in.
+    beginAccountDeletion(user.uid);
+    try {
+      await deleteAllUserData(user.uid);
+      await deleteAccountFully();
+    } finally {
+      endAccountDeletion();
+    }
+    await clearLocalAccountData();
+    // See signOut's identical call: clearLocalAccountData() only clears
+    // AsyncStorage, not the live store the Stats/Dashboard/Calendar screens read.
+    useStore.getState().setSessions([]);
     set({ user: null, lastSyncedAt: null, syncError: null });
     await setJSON<number | null>(LAST_SYNCED_KEY, null);
   },
 
   syncNow: async () => {
     const user = get().user;
-    if (!user || get().syncing) return;
-    set({ syncing: true, syncError: null });
+    if (!user) return;
+    const uid = user.uid;
+    // Only re-entrancy for this SAME uid is guarded -- a different uid's own
+    // call (e.g. B signing in right after A's syncNow started) must not be
+    // blocked just because some other user's sync happens to be in flight.
+    if (get().syncingUid === uid) return;
+    set({ syncing: true, syncingUid: uid, syncError: null });
     try {
-      await runMigrationAndSync(user.uid);
+      await runMigrationAndSync(uid);
       const now = Date.now();
-      set({ lastSyncedAt: now });
-      await setJSON(LAST_SYNCED_KEY, now);
+      // Apply the result only if `uid` is still the signed-in user -- a
+      // stale call for a since-signed-out (or since-switched) uid must not
+      // clobber whichever user is actually current by now.
+      if (get().user?.uid === uid) {
+        set({ lastSyncedAt: now });
+        await setJSON(LAST_SYNCED_KEY, now);
+      }
     } catch (e: any) {
-      // Generic message only -- never interpolate e's full payload in case a
-      // future error type ever carries more than a plain string message.
-      set({ syncError: typeof e?.message === 'string' ? e.message : 'Sync failed' });
+      if (get().user?.uid === uid) {
+        // Generic message only -- never interpolate e's full payload in case
+        // a future error type ever carries more than a plain string message.
+        set({ syncError: typeof e?.message === 'string' ? e.message : 'Sync failed' });
+      }
     } finally {
-      set({ syncing: false });
+      if (get().syncingUid === uid) set({ syncing: false, syncingUid: null });
     }
   },
 }));

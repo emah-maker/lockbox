@@ -5,7 +5,7 @@ from lock_config import (
     SWAP_XY, INVERT_X, INVERT_Y, CLOCK_FPS, SERVO_HOLD_S, OVERRIDE_PRESSES,
     OVERRIDE_TIMEOUT, DONE_ANIM_S, MIN_STEP, RELEASE_FRAMES,
     SERVO_LOCK_ANGLE, SERVO_UNLOCK_ANGLE, fmt_hm, fix, C_GREY,
-    OVR_MIN, OVR_MAX, BLE_CALL_ALERT_S, CALL_ALERT_BLINK_HZ,
+    OVR_MIN, OVR_MAX, SLEEP_OPTIONS, BLE_CALL_ALERT_S, CALL_ALERT_BLINK_HZ,
     HOLD_REPEAT_DELAY, HOLD_REPEAT_START, HOLD_REPEAT_MIN, HOLD_REPEAT_RAMP,
     STATUS_TAP_COOLDOWN_S, BUILTIN_TOPICS, BLE_LABEL_MAX_COUNT,
     BLE_LABEL_NAME_MAX_LEN, ACCENT_COLORS,
@@ -123,6 +123,13 @@ class LockController:
     # ----- view switching -----
     def set_view(self, view):
         self.view = view
+        if self._editing:
+            # A settings edit can be interrupted here (e.g. a BLE "lock"/
+            # "start" command forcing this view switch) instead of ending via
+            # _handle_release's own exit gesture -- save() now so the debounce
+            # in Settings.adjust doesn't silently drop the in-RAM value this
+            # edit was mid-way through applying.
+            self.settings.save()
         self._editing = False
         self._hold_dir = 0             # a view switch can't happen mid-hold, but be safe
         self._last_fkey = None        # force a clock-view refresh
@@ -502,8 +509,8 @@ class LockController:
             if self.state in ("idle", "done"):
                 self.go_closed(now)
         elif name == "unlock":
-            # a remote early-release path: ON by default (see lock_config.
-            # BLE_ALLOW_REMOTE_UNLOCK), toggleable off in Settings
+            # a remote early-release path: OFF by default (see lock_config.
+            # BLE_ALLOW_REMOTE_UNLOCK), toggleable on in Settings
             if self.settings.allow_remote_unlock and self.state in ("running", "closed"):
                 self.go_done(now, OVERRIDDEN)
         elif name == "historyAck":
@@ -521,32 +528,58 @@ class LockController:
         except (ValueError, ImportError):
             return
         st = self.settings
+        # Each field below is validated independently (its own try/except on
+        # the int() conversion) so one malformed field (e.g. a string or null
+        # where a number is expected) can't raise and skip st.save() for the
+        # rest of a payload's already-applied changes -- previously an
+        # unconvertible "sleep" alone could silently drop ovr/bright/etc.
+        # edits from the same BLE write.
         if "ovr" in d:
             # Clamp to [OVR_MIN, OVR_MAX] -- a BLE write now carries whatever
             # the app's slider or its custom-number entry sent, not a value
             # pre-snapped to a fixed option list, so this is the only thing
             # standing between a malformed/out-of-range payload and a stored
             # value the box's single NVM byte can't actually hold.
-            st.override_presses = max(OVR_MIN, min(OVR_MAX, int(d["ovr"])))
+            try:
+                st.override_presses = max(OVR_MIN, min(OVR_MAX, int(d["ovr"])))
+            except (ValueError, TypeError):
+                pass
         if "auto" in d:
             st.auto_open = bool(d["auto"])
         if "sleep" in d:
-            st.sleep_s = int(d["sleep"])
+            # Clamp to the SLEEP_OPTIONS range (10-60s) the on-box UI itself
+            # enforces -- same pattern as ovr/bright, so a malformed/
+            # out-of-range payload can't set an effectively-0 or
+            # multi-minute-oversized sleep timeout on the live in-RAM value
+            # code.py's sleep-timeout check reads immediately.
+            try:
+                st.sleep_s = max(min(SLEEP_OPTIONS), min(max(SLEEP_OPTIONS), int(d["sleep"])))
+            except (ValueError, TypeError):
+                pass
         if "bright" in d:
-            st.bright_pct = max(0, min(100, int(d["bright"])))
+            try:
+                st.bright_pct = max(0, min(100, int(d["bright"])))
+            except (ValueError, TypeError):
+                pass
         if "unlk" in d:
             st.allow_remote_unlock = bool(d["unlk"])
         if "ucal" in d:
             st.unlock_on_call = bool(d["ucal"])
         if "thm" in d:
-            st.theme_mode = max(0, min(1, int(d["thm"])))
+            try:
+                st.theme_mode = max(0, min(1, int(d["thm"])))
+            except (ValueError, TypeError):
+                pass
         if "acc" in d:
             # Was hardcoded to 5 (the old 6-accent set's last index) -- this
             # silently clamped the two new accents (teal=6, indigo=7) down to
             # rose the moment they were added. len(ACCENT_COLORS) tracks
             # whatever the current accent count actually is instead of a
             # second number that has to be remembered and kept in sync.
-            st.accent_idx = max(0, min(len(ACCENT_COLORS) - 1, int(d["acc"])))
+            try:
+                st.accent_idx = max(0, min(len(ACCENT_COLORS) - 1, int(d["acc"])))
+            except (ValueError, TypeError):
+                pass
         if "thm" in d or "acc" in d:
             self.ui.set_theme(st.theme_mode, st.accent_idx)
         st.save()
@@ -740,10 +773,13 @@ class LockController:
 
         # Per-setting detail page: a tap or hold on [-]/[+], or a held swipe,
         # was already applied live in _update_hold as the finger went down
-        # and stayed down -- so nothing further to do here except the
-        # horizontal "swipe left/right = back" exit gesture.
+        # and stayed down -- so nothing further to do here except persist the
+        # value once (debounced to this release, not every repeat tick --
+        # see Settings.adjust) and the horizontal "swipe left/right = back"
+        # exit gesture.
         if self._editing:
             self._hold_dir = 0
+            self.settings.save()
             if abs(dx) >= SWIPE_MIN_PX and abs(dx) > abs(dy):
                 self._editing = False
                 self.ui.show_view("settings")

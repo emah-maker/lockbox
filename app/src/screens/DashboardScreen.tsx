@@ -17,7 +17,7 @@ import { AnimatedPressable } from '../ui/AnimatedPressable';
 import { AnimatedFill } from '../ui/AnimatedFill';
 import { WheelPicker } from '../ui/WheelPicker';
 import { useReducedMotion, configureLayoutAnimation } from '../ui/useReducedMotion';
-import { typeScale, elevation } from '../theme/tokens';
+import { typeScale, elevation, opacity } from '../theme/tokens';
 
 const SPARK_MAX_H = 28;
 
@@ -32,7 +32,7 @@ function batteryColor(pct: number, t: ReturnType<typeof useTheme>): string {
   return t.danger;
 }
 
-const DISABLED_OPACITY = 0.35;
+const DISABLED_OPACITY = opacity.disabled;
 
 /** Fades a button's opacity between enabled/disabled instead of an instant
  * cut, so losing/gaining availability (e.g. Open as box state changes) reads
@@ -104,8 +104,17 @@ export default function DashboardScreen() {
   // Box-code/lib/lock_ui.py). Every stepper change pushes a live preview via
   // setDuration below (opcode "dur:<seconds>") so the box's clock reflects
   // the picked time immediately, ready for LOCK to be tapped on the box.
-  const [pickHours, setPickHours] = useState(0);
-  const [pickMinutes, setPickMinutes] = useState(25);
+  // Hours/minutes as one state object, not two separate useState calls --
+  // previously the box-sync effect below (mirroring a duration changed
+  // directly on the box) called setPickHours then setPickMinutes back to
+  // back, which is safe only as long as React batches both into a single
+  // render. If it ever didn't (a "speculative" finding in the production
+  // readiness review, Low), the first, partially-updated render could
+  // consume syncingFromBoxRef's guard before the second setState landed,
+  // leaving the push effect below free to fire an ordinary user-edit push
+  // for what was actually a box-driven sync. One state object makes that
+  // impossible regardless of batching.
+  const [pick, setPick] = useState({ hours: 0, minutes: 25 });
   // While a finger is down on the wheel pickers, the outer screen ScrollView
   // must not steal the vertical drag -- two nested vertical scrollers
   // competing for the same gesture is why swiping a wheel used to just
@@ -147,14 +156,14 @@ export default function DashboardScreen() {
   useEffect(() => () => {
     if (pickerSafetyTimer.current) clearTimeout(pickerSafetyTimer.current);
   }, []);
-  const pickSeconds = clampLockSeconds(pickHours, pickMinutes);
-  const minutesIndex = Math.max(0, MINUTE_VALUES.indexOf(pickMinutes));
+  const pickSeconds = clampLockSeconds(pick.hours, pick.minutes);
+  const minutesIndex = Math.max(0, MINUTE_VALUES.indexOf(pick.minutes));
 
   const onHoursIndexChange = (index: number) => {
-    setPickHours(HOUR_VALUES[index]);
+    setPick((p) => ({ ...p, hours: HOUR_VALUES[index] }));
   };
   const onMinutesIndexChange = (index: number) => {
-    setPickMinutes(MINUTE_VALUES[index]);
+    setPick((p) => ({ ...p, minutes: MINUTE_VALUES[index] }));
   };
 
   // Computed here, not read over BLE: the box keeps no long-term stats of its
@@ -246,8 +255,7 @@ export default function DashboardScreen() {
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.round((seconds % 3600) / 60 / MINUTE_STEP) * MINUTE_STEP;
     syncingFromBoxRef.current = true;
-    setPickHours(hours);
-    setPickMinutes(minutes);
+    setPick({ hours, minutes }); // one atomic update -- see the `pick` state's own comment above
   }, [status?.set, status?.st]);
 
   // Push the picked duration to the box as it changes. This is what lets the
@@ -369,10 +377,11 @@ export default function DashboardScreen() {
                   forever, reading as the whole screen freezing. */}
               <WheelPicker
                 labels={HOUR_LABELS}
-                selectedIndex={pickHours}
+                selectedIndex={pick.hours}
                 onChange={onHoursIndexChange}
                 onDragStart={lockOuterScroll}
                 onDragEnd={unlockOuterScroll}
+                accessibilityLabel="Lock duration, hours"
               />
               <WheelPicker
                 labels={MINUTE_LABELS}
@@ -380,6 +389,7 @@ export default function DashboardScreen() {
                 onChange={onMinutesIndexChange}
                 onDragStart={lockOuterScroll}
                 onDragEnd={unlockOuterScroll}
+                accessibilityLabel="Lock duration, minutes"
               />
             </View>
             <TopicPicker
@@ -448,7 +458,11 @@ export default function DashboardScreen() {
       <View style={s.card}>
         <View style={s.switchRow}>
           <Text style={s.label}>Alert box on incoming calls</Text>
-          <Switch value={callAlertsEnabled} onValueChange={setCallAlertsEnabled} />
+          <Switch
+            value={callAlertsEnabled}
+            onValueChange={setCallAlertsEnabled}
+            accessibilityLabel="Alert box on incoming calls"
+          />
         </View>
         {callAlertsEnabled && !callDetectionAvailable ? (
           <Text style={[s.sub, { color: theme.danger }]}>

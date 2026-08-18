@@ -20,8 +20,11 @@ import {
 import { getDb, getFirebaseAuth } from '../auth/firebase';
 import { loadSessions, replaceSessions, MIN_LOGGED_SESSION_S, type LoggedSession } from '../stats/sessionHistory';
 import { useSettingsStore, type SyncableSettings } from '../store/useSettingsStore';
+import { useStore } from '../store/useStore';
 import { getJSON } from '../storage/storage';
 import { sessionDocId, mergeSessionsPreferLocalTopic } from './sessionMerge';
+import { ensureLocalDataScopedTo } from './localDataOwner';
+import { markSessionsSeen } from './sessionsSyncBridge';
 
 const LAST_DEVICE_KEY = 'lastDeviceId'; // mirrors useStore.ts's own AsyncStorage key
 const BATCH_LIMIT = 500; // Firestore's per-batch write limit
@@ -46,6 +49,28 @@ function requireUid(uid: string): string {
   return uid;
 }
 
+// Guards the best-effort incremental push bridges (sessionsSyncBridge.ts,
+// settingsSyncBridge.ts) against re-creating a doc that deleteAllUserData just
+// wiped. deleteAccountFully()'s own re-authentication step (a fresh native
+// Google sign-in) can take a while, and a settings/session change landing in
+// that window -- still authenticated as the same uid, since the Auth user
+// isn't removed until deleteAccountFully finishes -- would otherwise repush
+// straight back into the account being deleted (production readiness review,
+// Medium: "deleteAccount race with concurrent settings/session push
+// bridges"). Module-local, in-memory only: this only ever needs to span one
+// in-flight deleteAccount call within the current app session.
+let deletingUid: string | null = null;
+
+/** Call at the start of useAuthStore.deleteAccount, before deleteAllUserData. */
+export function beginAccountDeletion(uid: string): void {
+  deletingUid = uid;
+}
+
+/** Call once deleteAccountFully() has settled (success or failure). */
+export function endAccountDeletion(): void {
+  deletingUid = null;
+}
+
 // Best-effort: the box's own BLE peripheral id, as last recorded by
 // useStore.ts on connect. Local session records don't currently carry a
 // per-session deviceId of their own, so this uses the most-recently-known
@@ -65,6 +90,10 @@ async function currentDeviceId(): Promise<string> {
  */
 export async function runMigrationAndSync(uid: string): Promise<void> {
   requireUid(uid);
+  // Must run before any read/write below: a device whose local storage still
+  // belongs to a different (or no) account can't be allowed to blend into
+  // uid's data -- see localDataOwner.ts.
+  await ensureLocalDataScopedTo(uid);
   const db = getDb();
   const auth = getFirebaseAuth();
   const user = auth.currentUser!;
@@ -118,7 +147,16 @@ async function syncSessions(uid: string): Promise<void> {
 
   // Write the full reconciled set back to local storage (replace, not
   // append -- appendSessions would double-count sessions already present).
-  await replaceSessions(mergedList);
+  const stored = await replaceSessions(mergedList);
+  // Mirror into the live store too -- StatsScreen/DashboardScreen/
+  // CalendarScreen read useStore.sessions, not AsyncStorage directly, so
+  // without this they keep showing whichever account's data was in memory
+  // before this sync ran. markSessionsSeen must run first: it stops
+  // sessionsSyncBridge's push subscription from treating cross-device
+  // sessions it hasn't personally seen as newly-logged and re-uploading them
+  // under this device's doc-id namespace (see that function's own comment).
+  markSessionsSeen(stored);
+  useStore.getState().setSessions(stored);
 
   // Idempotent set() at each deterministic ID -- re-running after a crash or
   // retry never creates a duplicate. Chunked to Firestore's batch limit.
@@ -190,7 +228,7 @@ export async function pushNewSessions(sessions: LoggedSession[]): Promise<void> 
   if (!sessions.length) return;
   const auth = getFirebaseAuth();
   const user = auth.currentUser;
-  if (!user) return;
+  if (!user || user.uid === deletingUid) return;
   const db = getDb();
   const deviceId = await currentDeviceId();
   const batch = writeBatch(db);
@@ -209,7 +247,7 @@ export async function pushNewSessions(sessions: LoggedSession[]): Promise<void> 
 export async function pushSettingsPatch(): Promise<void> {
   const auth = getFirebaseAuth();
   const user = auth.currentUser;
-  if (!user) return;
+  if (!user || user.uid === deletingUid) return;
   const db = getDb();
   const local = useSettingsStore.getState();
   await setDoc(doc(db, 'users', user.uid, 'settings', 'app'), localSettingsPayload(local));
