@@ -30,7 +30,8 @@
           "bluetoothAlwaysPermission": "Phone Box connects to your box over Bluetooth to show focus stats and alert it to important calls."
         }
       ],
-      "@react-native-google-signin/google-signin"
+      "@react-native-google-signin/google-signin",
+      "expo-font"
     ],
     "android": {
       "permissions": [
