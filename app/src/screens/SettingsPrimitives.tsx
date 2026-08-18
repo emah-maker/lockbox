@@ -343,9 +343,29 @@ export function SliderRow({
   );
 }
 
+// Row-label / small-caption text styles -- exported since SettingsScreen.tsx
+// (and, via OverridePressSection.tsx, the Override-presses picker) need the
+// exact same look for their own rows/captions. Previously defined a second
+// time, byte-for-byte, in SettingsScreen.tsx's own StyleSheet; consolidated
+// to this one source once a third consumer needed it, rather than adding a
+// third copy.
+export const rowLabelStyle = {
+  fontSize: 15,
+  flexShrink: 1 as const,
+  paddingRight: 12,
+  letterSpacing: typeScale.sectionTitle.letterSpacing,
+  lineHeight: 20,
+};
+export const captionStyle = {
+  fontSize: 12,
+  marginTop: 2,
+  letterSpacing: typeScale.caption.letterSpacing,
+  lineHeight: typeScale.caption.lineHeight,
+};
+
 const styles = StyleSheet.create({
   h2: { ...typeScale.sectionTitle },
-  subtitle: { fontSize: 12, marginTop: 2, letterSpacing: typeScale.caption.letterSpacing, lineHeight: typeScale.caption.lineHeight },
+  subtitle: captionStyle,
   card: { borderRadius: 14, padding: 16, ...elevation.card },
   buttonLabel: { fontWeight: '600', letterSpacing: typeScale.body.letterSpacing, lineHeight: typeScale.body.lineHeight },
   button: {
@@ -358,7 +378,7 @@ const styles = StyleSheet.create({
     minWidth: 110,
   },
   row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  label: { fontSize: 15, flexShrink: 1, paddingRight: 12, letterSpacing: typeScale.sectionTitle.letterSpacing, lineHeight: 20 },
+  label: rowLabelStyle,
   sliderValue: { fontSize: 15, fontWeight: '600', letterSpacing: typeScale.sectionTitle.letterSpacing, lineHeight: 20 },
   sliderTrackWrap: { height: THUMB_SIZE, justifyContent: 'center', marginTop: 10 },
   sliderTrack: { position: 'absolute', left: 0, height: TRACK_HEIGHT, borderRadius: TRACK_HEIGHT / 2 },
