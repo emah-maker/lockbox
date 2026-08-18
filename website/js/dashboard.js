@@ -7,6 +7,17 @@
    write back (a past session's label can only ever be retagged from the
    app -- see app/src/sync/sessionMerge.ts's comment on why that never syncs
    back to an already-created remote doc).
+
+   Motion decision (2026-08-17 audit): this page deliberately carries no
+   GSAP, unlike script.js's hero boot-in / override-tick pops. Per the
+   motion-and-animation skill's frequency gate, GSAP's "juicy" overshoot
+   pops are reserved for first-load/one-time persuade moments on the
+   marketing page; this is a data/utility surface a user returns to
+   repeatedly, where a repeated overshoot beat would read as noise rather
+   than delight. Its state changes already animate via the flat
+   .dash__fade / --ease / --ease-snap CSS transitions used elsewhere in this
+   file (showState, renderTrend, renderBreakdown) -- restraint here is a
+   deliberate call, not a gap left by drift.
    ========================================================================= */
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js';
 import {
@@ -128,9 +139,19 @@ function renderCalendar() {
     btn.type = 'button';
     btn.className = 'dash__cal-daynum';
     btn.textContent = String(date.getDate());
+    btn.setAttribute('aria-pressed', String(key === calSelectedKey));
+    if (key === todayKey) btn.setAttribute('aria-current', 'date');
+    const fullDate = date.toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' });
+    btn.setAttribute('aria-label', focusS > 0 ? `${fullDate}, ${formatDuration(focusS)} focused` : fullDate);
     if (focusS > 0) {
       const intensity = 0.25 + 0.75 * Math.min(1, focusS / maxFocus);
-      btn.style.background = `rgba(0, 192, 64, ${intensity.toFixed(2)})`;
+      // Darkened green, not --unlocked's bright mint: at intensity 1 (the
+      // month's highest-focus day) this fill is fully opaque with nothing
+      // blended in, so it alone sets the worst-case contrast for the fixed
+      // light text color in dashboard.css .dash__cal-cell--focus. Bright
+      // mint at full opacity fails 4.5:1 against light text; this shade
+      // passes at every intensity from 0.25 to 1.
+      btn.style.background = `rgba(0, 120, 45, ${intensity.toFixed(2)})`;
     }
     btn.addEventListener('click', () => {
       calSelectedKey = key;
@@ -389,24 +410,6 @@ async function loadDashboard(db, uid) {
     showError(err);
   }
 }
-
-// ---------- Nav elevation on scroll (same materials cue as script.js) ----------
-(function () {
-  var navEl = document.querySelector('.nav');
-  if (!navEl) return;
-  var ticking = false;
-  var update = function () {
-    navEl.classList.toggle('nav--scrolled', window.scrollY > 8);
-    ticking = false;
-  };
-  update();
-  window.addEventListener('scroll', function () {
-    if (!ticking) {
-      window.requestAnimationFrame(update);
-      ticking = true;
-    }
-  }, { passive: true });
-})();
 
 function init() {
   if (!isFirebaseConfigured()) {

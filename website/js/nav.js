@@ -1,13 +1,37 @@
 /* =========================================================================
-   nav.js -- shared mobile-nav toggle for index.html and dashboard.html.
-   Plain vanilla JS, no dependency, no bundler -- loaded via a <script> tag
-   on both pages ahead of the page-specific script (script.js / dashboard.js)
-   so the toggle works the same way regardless of which page it's on. CSS
-   (styles.css .nav__menu, reusing the .acc__panel grid-rows technique) does
-   the animating; this file only flips ARIA state and a class.
+   nav.js -- shared mobile-nav toggle + scroll-elevation cue for index.html
+   and dashboard.html. Plain vanilla JS, no dependency, no bundler -- loaded
+   via a <script> tag on both pages ahead of the page-specific script
+   (script.js / dashboard.js) so both behaviors work the same way regardless
+   of which page it's on. CSS (styles.css .nav__menu, reusing the
+   .acc__panel grid-rows technique) does the menu animating; this file only
+   flips ARIA state and classes.
    ========================================================================= */
 (function () {
   "use strict";
+
+  /* ---------- Nav elevation on scroll ----------
+     Materials depth cue: the translucent nav becomes a touch more opaque
+     and gains a shadow once page content is scrolling underneath it,
+     instead of staying a flat constant translucency. Not gated on
+     reduceMotion -- it's a background/shadow change, not movement.
+     Previously duplicated byte-for-byte in script.js and dashboard.js;
+     consolidated here since both pages already load this file first. */
+  var navEl = document.querySelector(".nav");
+  if (navEl) {
+    var navTicking = false;
+    var updateNav = function () {
+      navEl.classList.toggle("nav--scrolled", window.scrollY > 8);
+      navTicking = false;
+    };
+    updateNav();
+    window.addEventListener("scroll", function () {
+      if (!navTicking) {
+        window.requestAnimationFrame(updateNav);
+        navTicking = true;
+      }
+    }, { passive: true });
+  }
 
   var toggle = document.getElementById("navToggle");
   var menu = document.getElementById("navMenu");

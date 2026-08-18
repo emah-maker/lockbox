@@ -118,7 +118,14 @@
 .dash__cal-daynum:active { transform: scale(0.96); }
 .dash__cal-cell--selected .dash__cal-daynum { border: 2px solid var(--unlocked-2); color: var(--text); }
 .dash__cal-cell--today:not(.dash__cal-cell--selected) .dash__cal-daynum { border: 1px solid var(--text-3); }
-.dash__cal-cell--focus .dash__cal-daynum { color: #012a12; font-weight: 700; }
+/* Fixed, tested-contrast text over the whole 0.25-1.0 intensity range
+   dashboard.js paints via inline rgba(0, 120, 45, intensity): at intensity 1
+   the cell is exactly that base color with nothing blended in, so that RGB
+   is deliberately a muted/darkened green (not the bright --unlocked mint) --
+   keeps the worst-case (highest-focus day, intensity 1) background luminance
+   low enough that a single light text color clears WCAG AA 4.5:1 at every
+   intensity, instead of only at the low end. */
+.dash__cal-cell--focus .dash__cal-daynum { color: var(--text); font-weight: 700; }
 .dash__cal-dot { width: 5px; height: 5px; border-radius: 50%; }
 .dash__cal-day { margin-top: 14px; border-top: 1px solid var(--border-soft); padding-top: 14px; }
 .dash__cal-day h4 { font-size: 14px; color: var(--text); margin-bottom: 8px; }
@@ -132,5 +139,8 @@
 
 @media (max-width: 860px) {
   .dash__summary { grid-template-columns: repeat(2, 1fr); }
+  /* 5 tiles in 2 columns otherwise leaves the 5th tile alone in its own
+     row; span it across both columns instead of leaving it orphaned. */
+  .dash__tile:last-child { grid-column: 1 / -1; }
   .dash__grid { grid-template-columns: 1fr; }
 }
