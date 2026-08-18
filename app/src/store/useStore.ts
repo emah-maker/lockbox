@@ -40,6 +40,7 @@ const AUTO_CONNECT_KEY = 'autoConnect';
 const LAST_DEVICE_KEY = 'lastDeviceId';
 const PENDING_TOPIC_KEY = 'pendingTopicTag';
 const RECONNECT_DELAY_MS = 4000;
+const MAX_RECONNECT_DELAY_MS = 60000; // cap the exponential backoff below
 // Used for both the by-id (autoconnect) and scan-then-connect paths -- see
 // connect() below. The scan path previously had no timeout on the actual
 // device.connect() call at all, so a peripheral that accepted the GATT
@@ -107,6 +108,13 @@ export const useStore = create<AppState>((set, get) => {
   // lives in this closure rather than the store shape.
   let userDisconnected = false;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  // Consecutive failed-reconnect count, for the exponential backoff below --
+  // a fixed 4s retry forever (production readiness review, Low: "fixed-
+  // interval BLE reconnect with no backoff/cap") means a box that's been off
+  // for an hour still gets hammered with a scan/connect attempt every 4s the
+  // whole time. Reset to 0 on any successful connect (afterConnected) or a
+  // fresh user-initiated connect() call.
+  let reconnectAttempts = 0;
 
   const clearReconnectTimer = () => {
     if (reconnectTimer) {
@@ -117,10 +125,12 @@ export const useStore = create<AppState>((set, get) => {
 
   const scheduleReconnect = () => {
     if (userDisconnected || !get().autoConnect || reconnectTimer) return;
+    const delay = Math.min(MAX_RECONNECT_DELAY_MS, RECONNECT_DELAY_MS * 2 ** reconnectAttempts);
+    reconnectAttempts += 1;
     reconnectTimer = setTimeout(() => {
       reconnectTimer = null;
       get().connect();
-    }, RECONNECT_DELAY_MS);
+    }, delay);
   };
 
   // The box queues every finished session in RAM (see Box-code/lib/lock_log.py
@@ -138,7 +148,7 @@ export const useStore = create<AppState>((set, get) => {
   // is entirely app-side and only ever needs to survive to this hand-off.
   const handleHistory = (entries: HistoryEntry[]) => {
     if (!entries.length) return;
-    getJSON<PendingTopicTag | null>(PENDING_TOPIC_KEY, null).then((pending) => {
+    getJSON<PendingTopicTag | null>(PENDING_TOPIC_KEY, null).then(async (pending) => {
       // buildLoggedSessions drops sessions under MIN_LOGGED_SESSION_S
       // (accidental taps/instant overrides, not real focus time) so they
       // never reach the durable log/stats, not merely hidden from it later.
@@ -148,9 +158,21 @@ export const useStore = create<AppState>((set, get) => {
         PENDING_TOPIC_SLACK_MS,
         PENDING_TOPIC_PRE_SLACK_MS,
       );
-      if (consumedPendingTopic) {
-        setJSON<PendingTopicTag | null>(PENDING_TOPIC_KEY, null);
-        set({ currentTopic: null });
+      if (consumedPendingTopic && pending) {
+        // Compare-and-clear, not an unconditional clear: `onHistory`/
+        // `onStatus` both fire right after connect, so a fresh tag write for
+        // a just-started session (tagCurrentSession, or handleStatus's
+        // on-box tag echo below) can land in storage while this function's
+        // own PENDING_TOPIC_KEY read was still in flight. Clearing
+        // unconditionally would silently discard that newer tag instead of
+        // the stale one this call actually consumed (production readiness
+        // review, High: "handleHistory async-read-then-clear race"). Only
+        // clear if the stored tag is still the exact one just consumed.
+        const stillCurrent = await getJSON<PendingTopicTag | null>(PENDING_TOPIC_KEY, null);
+        if (stillCurrent && stillCurrent.at === pending.at && stillCurrent.topic === pending.topic) {
+          await setJSON<PendingTopicTag | null>(PENDING_TOPIC_KEY, null);
+          set((state) => (state.currentTopic === pending.topic ? { currentTopic: null } : {}));
+        }
       }
       // Ack by the original entry count once handled, whether or not any of
       // them were durably logged -- see Box-code/lib/lock_log.py's
@@ -165,10 +187,17 @@ export const useStore = create<AppState>((set, get) => {
         ack();
         return;
       }
-      appendSessions(logged).then((sessions) => {
-        set({ sessions });
-        ack();
-      });
+      appendSessions(logged)
+        .then((sessions) => {
+          set({ sessions });
+          ack();
+        })
+        .catch(() => {
+          // A failed local append must not ack -- the box only clears its
+          // own pending queue once it hears this back (see the comment
+          // above), so skipping ack() here leaves the batch queued for a
+          // resend next connection instead of silently losing it.
+        });
     });
   };
 
@@ -193,6 +222,7 @@ export const useStore = create<AppState>((set, get) => {
     });
 
   const afterConnected = async () => {
+    reconnectAttempts = 0; // a real connection succeeded -- the next drop starts backoff fresh
     set({ conn: 'connected' });
     monitor.start();
     if (client.deviceId) setJSON(LAST_DEVICE_KEY, client.deviceId);
@@ -309,20 +339,33 @@ export const useStore = create<AppState>((set, get) => {
       set({ conn: 'idle', status: null, error: null });
     },
 
+    // These four all write straight to CHAR.command with no connected-check
+    // or error handling -- unlike pushBoxSettings/pushLabels just below, a
+    // call while disconnected (or a mid-write disconnect) threw an unhandled
+    // rejection straight at whichever caller invoked them without its own
+    // .catch (closeBox/openBox's onPress handlers in DashboardScreen among
+    // them; production readiness review, Medium). Guarded and swallowed the
+    // same best-effort way pushBoxSettings already is: the box only matters
+    // here while actually connected, and a failed write just means the
+    // action didn't take, with no separate mirror state to leave stale.
     startLock: async (seconds) => {
-      await client.startLock(seconds);
+      if (!client.connected) return;
+      await client.startLock(seconds).catch(() => {});
     },
 
     setDuration: async (seconds) => {
-      await client.setDuration(seconds);
+      if (!client.connected) return;
+      await client.setDuration(seconds).catch(() => {});
     },
 
     closeBox: async () => {
-      await client.lock();
+      if (!client.connected) return;
+      await client.lock().catch(() => {});
     },
 
     openBox: async () => {
-      await client.unlock();
+      if (!client.connected) return;
+      await client.unlock().catch(() => {});
     },
 
     setAutoConnect: (on) => {
@@ -334,16 +377,21 @@ export const useStore = create<AppState>((set, get) => {
     // Optimistically mirrors the patch into useSettingsStore immediately, then
     // writes it to the box if connected. If the write fails the mirror stays
     // ahead of the box; the next connect()'s readSettings() reconciles it.
+    // The connected-check above doesn't cover a disconnect landing mid-write
+    // (Error('Not connected') from PhoneBoxClient.write, or the native write
+    // itself rejecting) -- callers here (SettingsScreen's Switch/slider
+    // handlers) never awaited or caught this promise, so that was an
+    // unhandled rejection (production readiness review, Medium).
     pushBoxSettings: async (patch) => {
       useSettingsStore.getState().setBoxSettings(patch);
       if (!client.connected) return;
       const next = useSettingsStore.getState().boxSettings;
-      await client.writeSettings(next);
+      await client.writeSettings(next).catch(() => {});
     },
 
     pushLabels: async () => {
       if (!client.connected) return;
-      await client.setLabels(useSettingsStore.getState().customLabels);
+      await client.setLabels(useSettingsStore.getState().customLabels).catch(() => {});
     },
 
     // Optimistic, like pushBoxSettings: shows the tag immediately and is

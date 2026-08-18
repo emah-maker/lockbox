@@ -15,6 +15,17 @@ import { CustomLabel, createCustomLabel, renameCustomLabel as renameCustomLabelI
 // first successful connection.
 const DEFAULT_BOX_SETTINGS: Settings = { ovr: 25, auto: 1, sleep: 20, bright: 50, unlk: 0, ucal: 0, thm: 0, acc: 0 };
 
+// Defaults for the four account-syncable fields -- what a signed-out device
+// (or a brand-new account) should show, and what sync/localDataOwner.ts
+// resets local storage to on sign-out/account-switch so no prior account's
+// preferences linger on the device.
+const SYNCABLE_SETTINGS_DEFAULTS: SyncableSettings = {
+  themeMode: 'dark',
+  accent: 'mint',
+  callAlertsEnabled: true,
+  customLabels: [],
+};
+
 // The account-syncable fields, per
 // docs/rfcs/google-signin-cross-device-sync-architecture.md §3.1/§4.2 --
 // cross-device last-write-wins settings, distinct from boxSettings (the
@@ -54,14 +65,16 @@ interface SettingsState {
    * `updatedAt` is the remote doc's own timestamp, preserved as-is so a
    * later comparison against another device's copy stays correct. */
   applyRemoteSettings: (remote: SyncableSettings, updatedAt: number) => void;
+  /** Resets the four account-syncable fields to their defaults and zeroes
+   * settingsUpdatedAt, so a signed-out device carries no prior account's
+   * preferences into whichever account (or none) signs in next -- see
+   * sync/localDataOwner.ts. Leaves boxSettings and hydrated untouched. */
+  resetSyncableSettings: () => void;
 }
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({
   hydrated: false,
-  themeMode: 'dark',
-  accent: 'mint',
-  callAlertsEnabled: true,
-  customLabels: [],
+  ...SYNCABLE_SETTINGS_DEFAULTS,
   boxSettings: DEFAULT_BOX_SETTINGS,
   settingsUpdatedAt: 0,
 
@@ -69,10 +82,10 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     if (get().hydrated) return;
     const [themeMode, accent, callAlertsEnabled, customLabels, boxSettings, settingsUpdatedAt] =
       await Promise.all([
-        getJSON<ThemeMode>('themeMode', 'dark'),
-        getJSON<AccentKey>('accent', 'mint'),
-        getJSON<boolean>('callAlertsEnabled', true),
-        getJSON<CustomLabel[]>('customLabels', []),
+        getJSON<ThemeMode>('themeMode', SYNCABLE_SETTINGS_DEFAULTS.themeMode),
+        getJSON<AccentKey>('accent', SYNCABLE_SETTINGS_DEFAULTS.accent),
+        getJSON<boolean>('callAlertsEnabled', SYNCABLE_SETTINGS_DEFAULTS.callAlertsEnabled),
+        getJSON<CustomLabel[]>('customLabels', SYNCABLE_SETTINGS_DEFAULTS.customLabels),
         getJSON<Settings>('boxSettings', DEFAULT_BOX_SETTINGS),
         getJSON<number>('settingsUpdatedAt', 0),
       ]);
@@ -147,5 +160,14 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     setJSON('callAlertsEnabled', remote.callAlertsEnabled);
     setJSON('customLabels', remote.customLabels);
     setJSON('settingsUpdatedAt', updatedAt);
+  },
+
+  resetSyncableSettings: () => {
+    set({ ...SYNCABLE_SETTINGS_DEFAULTS, settingsUpdatedAt: 0 });
+    setJSON('themeMode', SYNCABLE_SETTINGS_DEFAULTS.themeMode);
+    setJSON('accent', SYNCABLE_SETTINGS_DEFAULTS.accent);
+    setJSON('callAlertsEnabled', SYNCABLE_SETTINGS_DEFAULTS.callAlertsEnabled);
+    setJSON('customLabels', SYNCABLE_SETTINGS_DEFAULTS.customLabels);
+    setJSON('settingsUpdatedAt', 0);
   },
 }));

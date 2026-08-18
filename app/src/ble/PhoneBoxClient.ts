@@ -74,13 +74,23 @@ export class PhoneBoxClient {
   // just asked to tear down. See disconnect() below.
   private pendingDeviceId: string | null = null;
 
-  /** Resolve once Bluetooth is powered on (iOS asks for permission here). */
-  async waitForPoweredOn(): Promise<void> {
+  /** Resolve once Bluetooth is powered on (iOS asks for permission here).
+   * Rejects after `timeoutMs` if it never does -- previously had no timeout
+   * at all, so Bluetooth left off/denied left `conn` stuck on 'scanning'
+   * forever with no error surfaced and no way out short of a manual
+   * disconnect (see useStore.ts's connect(), which already treats any
+   * rejection here the same as a connect failure). */
+  async waitForPoweredOn(timeoutMs = 10000): Promise<void> {
     const state = await this.manager.state();
     if (state === State.PoweredOn) return;
-    await new Promise<void>((resolve) => {
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        sub.remove();
+        reject(new Error('Bluetooth did not turn on -- check that Bluetooth is enabled and permitted.'));
+      }, timeoutMs);
       const sub = this.manager.onStateChange((s) => {
         if (s === State.PoweredOn) {
+          clearTimeout(timer);
           sub.remove();
           resolve();
         }
@@ -118,25 +128,33 @@ export class PhoneBoxClient {
   // way to cancel via Disconnect either.
   async connect(device: Device, cb: ClientCallbacks, timeoutMs = 6000): Promise<void> {
     this.pendingDeviceId = device.id;
-    let d: Device;
     try {
-      d = await device.connect({ timeout: timeoutMs });
+      // pendingDeviceId must stay set through afterConnect too, not just the
+      // native connect() promise -- afterConnect doesn't assign `this.device`
+      // until after discoverAllServicesAndCharacteristics() resolves, so a
+      // disconnect() racing that window used to see neither `this.device` nor
+      // `pendingDeviceId` set and silently no-op, letting a user-cancelled
+      // connect complete anyway (production readiness review, Medium:
+      // "connect-cancel race"). Clearing pendingDeviceId only in this
+      // `finally` -- once the whole try, including afterConnect, has settled
+      // -- closes that window.
+      const d = await device.connect({ timeout: timeoutMs });
+      await this.afterConnect(d, cb);
     } finally {
       this.pendingDeviceId = null;
     }
-    await this.afterConnect(d, cb);
   }
 
   /** Connect straight to a remembered device id (no scan) -- the autoconnect path. */
   async connectById(deviceId: string, cb: ClientCallbacks, timeoutMs = 6000): Promise<void> {
     this.pendingDeviceId = deviceId;
-    let d: Device;
     try {
-      d = await this.manager.connectToDevice(deviceId, { timeout: timeoutMs });
+      // See connect()'s comment above -- same fix, same reason.
+      const d = await this.manager.connectToDevice(deviceId, { timeout: timeoutMs });
+      await this.afterConnect(d, cb);
     } finally {
       this.pendingDeviceId = null;
     }
-    await this.afterConnect(d, cb);
   }
 
   private async afterConnect(d: Device, cb: ClientCallbacks): Promise<void> {
@@ -167,6 +185,16 @@ export class PhoneBoxClient {
     if (cb.onStatus) {
       sessionSubs.push(
         d.monitorCharacteristicForService(SERVICE_UUID, CHAR.status, (err, c) => {
+          // A dropped notify subscription used to fail this silently, leaving
+          // the app sitting in 'connected' with no further status updates --
+          // indistinguishable from healthy in the UI (production readiness
+          // review, Medium: "silent BLE notify-subscription failures"). This
+          // doesn't attempt automatic recovery (the subscription itself is
+          // one-shot per connection -- a real fix is reconnecting, which
+          // onDisconnected/scheduleReconnect already handle for an actual
+          // disconnect); logging at least makes the failure observable
+          // instead of indistinguishable from a healthy, quiet connection.
+          if (err) console.warn('[PhoneBoxClient] status notify error:', err.message);
           if (err || !c) return;
           const s = parseStatus(fromB64(c.value));
           if (s) cb.onStatus!(s);
@@ -176,6 +204,7 @@ export class PhoneBoxClient {
     if (cb.onHistory) {
       sessionSubs.push(
         d.monitorCharacteristicForService(SERVICE_UUID, CHAR.history, (err, c) => {
+          if (err) console.warn('[PhoneBoxClient] history notify error:', err.message);
           if (err || !c) return;
           const entries = parseHistoryEntries(fromB64(c.value));
           if (entries.length) cb.onHistory!(entries);

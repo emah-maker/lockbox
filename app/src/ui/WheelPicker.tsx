@@ -32,11 +32,17 @@ export function WheelPicker({
   width = 90,
   onDragStart,
   onDragEnd,
+  accessibilityLabel,
 }: {
   labels: string[];
   selectedIndex: number;
   onChange: (index: number) => void;
   width?: number;
+  // The sole phone-side control for the Dashboard's lock duration, and had
+  // zero accessibility affordances at all -- completely inoperable via
+  // VoiceOver/TalkBack (production readiness review, High). Callers composing
+  // multiple wheels (hours + minutes) should pass a distinct label for each.
+  accessibilityLabel?: string;
   // Fire on the ScrollView's own drag lifecycle, not a wrapping View's raw
   // touch events -- once this wheel actually captures the gesture (which it
   // does the moment a real drag starts), the caller's wrapping View stops
@@ -101,9 +107,33 @@ export function WheelPicker({
     if (index !== selectedIndex) onChange(index);
   };
 
+  // VoiceOver/TalkBack's increment/decrement gestures on an "adjustable"
+  // element -- the accessible equivalent of a one-step drag. Scrolls the
+  // wheel to match, same as the external-value re-sync effect above, so a
+  // screen-reader user sees the same visual state a sighted drag would leave.
+  const changeBy = (delta: number) => {
+    const next = Math.max(0, Math.min(labels.length - 1, selectedIndex + delta));
+    if (next === selectedIndex) return;
+    settledIndexRef.current = next;
+    scrollRef.current?.scrollTo({ y: next * WHEEL_ITEM_HEIGHT, animated: true });
+    onChange(next);
+  };
+
   return (
-    <View style={{ width, height: WHEEL_ITEM_HEIGHT * VISIBLE_COUNT, overflow: 'hidden' }}>
+    <View
+      style={{ width, height: WHEEL_ITEM_HEIGHT * VISIBLE_COUNT, overflow: 'hidden' }}
+      accessible
+      accessibilityRole="adjustable"
+      accessibilityLabel={accessibilityLabel}
+      accessibilityValue={{ text: labels[selectedIndex] }}
+      accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]}
+      onAccessibilityAction={(event) => {
+        if (event.nativeEvent.actionName === 'increment') changeBy(1);
+        else if (event.nativeEvent.actionName === 'decrement') changeBy(-1);
+      }}
+    >
       <Animated.ScrollView
+        importantForAccessibility="no-hide-descendants"
         ref={scrollRef}
         showsVerticalScrollIndicator={false}
         snapToInterval={WHEEL_ITEM_HEIGHT}

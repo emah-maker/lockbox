@@ -60,7 +60,7 @@ export default function SettingsScreen() {
 
       <Section title="App behaviors" color={c}>
         <Row label="Auto-connect to box" color={c}>
-          <Switch value={autoConnect} onValueChange={setAutoConnect} />
+          <Switch value={autoConnect} onValueChange={setAutoConnect} accessibilityLabel="Auto-connect to box" />
         </Row>
       </Section>
 
@@ -71,6 +71,7 @@ export default function SettingsScreen() {
           <Switch
             value={!!boxSettings.auto}
             onValueChange={(v) => pushBoxSettings({ auto: v ? 1 : 0 })}
+            accessibilityLabel="Auto-open when done"
           />
         </Row>
         <SliderRow
@@ -110,12 +111,14 @@ export default function SettingsScreen() {
           <Switch
             value={!!boxSettings.unlk}
             onValueChange={(v) => pushBoxSettings({ unlk: v ? 1 : 0 })}
+            accessibilityLabel="Allow open/close from this phone"
           />
         </Row>
         <Row label="Unlock box when called" color={c}>
           <Switch
             value={!!boxSettings.ucal}
             onValueChange={(v) => pushBoxSettings({ ucal: v ? 1 : 0 })}
+            accessibilityLabel="Unlock box when called"
           />
         </Row>
       </Section>
@@ -183,15 +186,23 @@ function AccountSection({ color }: { color: ReturnType<typeof useTheme> }) {
 
   const [busy, setBusy] = React.useState(false);
   const [deleteError, setDeleteError] = React.useState<string | null>(null);
+  const [signInError, setSignInError] = React.useState<string | null>(null);
 
   const handleSignIn = async () => {
     setBusy(true);
+    setSignInError(null);
     try {
       await signIn();
-    } catch {
-      // useAuthStore.signIn/googleAuth already swallow/surface errors without
-      // logging the underlying credential -- a failed/cancelled sign-in just
-      // leaves the user signed out, nothing further to do here.
+    } catch (e: any) {
+      // Same "generic message only" discipline as syncError/deleteError below
+      // (design doc §5 checklist item 3 -- these thrown messages are static,
+      // credential-free strings, e.g. "Google Sign-In was cancelled.", never
+      // the underlying token/credential). A plain cancellation isn't worth
+      // surfacing as an error -- tapping Cancel on the account picker is a
+      // normal outcome, not a failure -- but every other failure previously
+      // vanished silently here, unlike handleDeleteAccount's own catch below.
+      const msg = typeof e?.message === 'string' ? e.message : 'Could not sign in. Please try again.';
+      if (!/cancel/i.test(msg)) setSignInError(msg);
     } finally {
       setBusy(false);
     }
@@ -257,7 +268,18 @@ function AccountSection({ color }: { color: ReturnType<typeof useTheme> }) {
               loading={syncing || busy}
               color={color}
             />
-            <Button label="Sign out" onPress={handleSignOut} disabled={busy} loading={busy} color={color} variant="outline" />
+            {/* Gated on the store's `syncing` flag too, not just local `busy`
+                -- signing out mid-sync used to be possible from here even
+                though useAuthStore.syncNow's own in-flight promise was still
+                running against the about-to-be-cleared user. */}
+            <Button
+              label="Sign out"
+              onPress={handleSignOut}
+              disabled={busy || syncing}
+              loading={busy}
+              color={color}
+              variant="outline"
+            />
           </View>
           <AnimatedPressable onPress={handleDeleteAccount} disabled={busy} style={{ marginTop: 12 }}>
             <Text style={[styles.subtitle, { color: color.danger }]}>Delete account</Text>
@@ -270,6 +292,7 @@ function AccountSection({ color }: { color: ReturnType<typeof useTheme> }) {
             fully without this.
           </Text>
           {syncError ? <Text style={[styles.subtitle, { color: color.danger }]}>{syncError}</Text> : null}
+          {signInError ? <Text style={[styles.subtitle, { color: color.danger }]}>{signInError}</Text> : null}
           <Button label="Sign in with Google" onPress={handleSignIn} disabled={busy} loading={busy} color={color} />
         </>
       )}
@@ -426,6 +449,8 @@ function Chip({
   return (
     <AnimatedPressable
       onPress={onPress}
+      accessibilityRole="button"
+      accessibilityState={{ selected: active }}
       style={[
         styles.chip,
         {

@@ -61,7 +61,12 @@ export async function signOutFully(): Promise<void> {
   await GoogleSignin.revokeAccess().catch(() => {}); // invalidates the grant at Google, not just the local session
   await GoogleSignin.signOut().catch(() => {});
   for (const key of FIREBASE_AUTH_SECURE_STORE_KEYS) {
-    await SecureStore.deleteItemAsync(key, SECURE_STORE_OPTS).catch(() => {});
+    // Key names only, never token contents -- see secureStoreKeys.ts (safe to
+    // log). Previously a bare `.catch(() => {})` gave no diagnostic at all if
+    // this wipe ever failed (production readiness review, Medium).
+    await SecureStore.deleteItemAsync(key, SECURE_STORE_OPTS).catch((e) =>
+      console.warn('[googleAuth] signOutFully: failed to delete', key, e?.message),
+    );
   }
 }
 
@@ -93,6 +98,8 @@ export async function deleteAccountFully(): Promise<void> {
   await GoogleSignin.revokeAccess().catch(() => {});
   await GoogleSignin.signOut().catch(() => {});
   for (const key of FIREBASE_AUTH_SECURE_STORE_KEYS) {
-    await SecureStore.deleteItemAsync(key, SECURE_STORE_OPTS).catch(() => {});
+    await SecureStore.deleteItemAsync(key, SECURE_STORE_OPTS).catch((e) =>
+      console.warn('[googleAuth] deleteAccountFully: failed to delete', key, e?.message),
+    );
   }
 }

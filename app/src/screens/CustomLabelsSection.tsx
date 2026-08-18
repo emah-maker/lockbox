@@ -101,39 +101,53 @@ function CustomLabelRow({
 }) {
   const [editing, setEditing] = React.useState(false);
   const [draft, setDraft] = React.useState(label.name);
+  const [error, setError] = React.useState<string | null>(null);
   const reducedMotion = useReducedMotion();
 
   const toggleEditing = (next: boolean) => {
     configureLayoutAnimation(reducedMotion);
+    setError(null);
     setEditing(next);
+  };
+
+  const handleSave = () => {
+    // Previously silently discarded the edit and closed the row with no
+    // feedback at all when the draft was blank (production readiness review,
+    // Medium: "silent-discard on empty label save"). Now it stays open and
+    // tells the user why, matching the create-label form's own validation
+    // just below (handleCreate).
+    if (!draft.trim()) {
+      setError('Name cannot be empty.');
+      return;
+    }
+    onRename(label.id, draft);
+    toggleEditing(false);
   };
 
   if (editing) {
     return (
-      <View style={styles.labelRow}>
-        <View style={[styles.swatch, { backgroundColor: label.color }]} />
-        <TextInput
-          value={draft}
-          onChangeText={setDraft}
-          style={[styles.textInput, { flex: 1, color: color.text, borderColor: color.textDim }]}
-          autoFocus
-        />
-        <AnimatedPressable
-          onPress={() => {
-            if (draft.trim()) onRename(label.id, draft);
-            toggleEditing(false);
-          }}
-        >
-          <Text style={[styles.rowAction, { color: color.accent, fontWeight: '600' }]}>Save</Text>
-        </AnimatedPressable>
-        <AnimatedPressable
-          onPress={() => {
-            setDraft(label.name);
-            toggleEditing(false);
-          }}
-        >
-          <Text style={[styles.rowAction, { color: color.textDim }]}>Cancel</Text>
-        </AnimatedPressable>
+      <View style={{ gap: 4 }}>
+        <View style={styles.labelRow}>
+          <View style={[styles.swatch, { backgroundColor: label.color }]} />
+          <TextInput
+            value={draft}
+            onChangeText={setDraft}
+            style={[styles.textInput, { flex: 1, color: color.text, borderColor: color.textDim }]}
+            autoFocus
+          />
+          <AnimatedPressable onPress={handleSave}>
+            <Text style={[styles.rowAction, { color: color.accent, fontWeight: '600' }]}>Save</Text>
+          </AnimatedPressable>
+          <AnimatedPressable
+            onPress={() => {
+              setDraft(label.name);
+              toggleEditing(false);
+            }}
+          >
+            <Text style={[styles.rowAction, { color: color.textDim }]}>Cancel</Text>
+          </AnimatedPressable>
+        </View>
+        {error ? <Text style={[styles.subtitle, { color: color.danger }]}>{error}</Text> : null}
       </View>
     );
   }
@@ -167,6 +181,13 @@ function ColorSwatchRow({
         <AnimatedPressable
           key={hex}
           onPress={() => onSelect(hex)}
+          accessibilityRole="button"
+          accessibilityLabel={`Color ${hex}`}
+          accessibilityState={{ selected: selected === hex }}
+          // swatch is 28x28 -- under the ~44pt minimum touch target
+          // (production readiness review, Medium); hitSlop extends the touch
+          // target without changing the visible swatch size/layout.
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           style={[
             styles.swatch,
             { backgroundColor: hex },

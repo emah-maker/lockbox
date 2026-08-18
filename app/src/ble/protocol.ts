@@ -137,7 +137,27 @@ export const cmdStart = (seconds: number) => `start:${Math.max(0, Math.floor(sec
 export const cmdSetDuration = (seconds: number) => `dur:${Math.max(0, Math.floor(seconds))}`;
 export const cmdLock = () => 'lock';
 export const cmdUnlock = () => 'unlock'; // ignored if the box's remote-unlock setting is off
-export const encodeSettings = (s: Settings) => JSON.stringify(s);
+// Unlike cmdStart/cmdSetDuration just above (both Math.max(0, Math.floor(...))
+// clamped), this used to JSON.stringify(s) verbatim with no validation at all
+// -- a NaN/Infinity slipping into any numeric field (e.g. a bad slider read)
+// would serialize as a bare `NaN`/`Infinity` token, which isn't valid JSON,
+// aborting the box's parse of the *entire* settings write with no
+// diagnostic (production readiness review, Low: "asymmetric input clamping
+// between BLE encode/parse paths"). Not currently exploitable end-to-end --
+// the firmware already clamps defensively -- but this is the app's own
+// belt-and-suspenders layer, same as clampLockSeconds/OverrideCustomEntry's
+// clamp elsewhere in this app.
+export const encodeSettings = (s: Settings) =>
+  JSON.stringify({
+    ovr: Number.isFinite(s.ovr) ? Math.floor(s.ovr) : 0,
+    auto: s.auto ? 1 : 0,
+    sleep: Number.isFinite(s.sleep) ? Math.floor(s.sleep) : 0,
+    bright: Number.isFinite(s.bright) ? Math.floor(s.bright) : 0,
+    unlk: s.unlk ? 1 : 0,
+    ucal: s.ucal ? 1 : 0,
+    thm: s.thm === 1 ? 1 : 0,
+    acc: Number.isFinite(s.acc) ? Math.floor(s.acc) : 0,
+  });
 export const encodeTime = (epochSeconds: number) => String(Math.floor(epochSeconds));
 
 // An "important call" alert. The nonce forces a distinct write each time so the

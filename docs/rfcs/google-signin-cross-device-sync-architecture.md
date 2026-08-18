@@ -420,6 +420,27 @@ Concretely, on every sign-in (first or Nth device):
 - No sync is required for the app to function — a network failure just means the next successful sync
   catches up, matching the box's own store's "connect() reconciles" precedent.
 
+### 4.4 Local storage account-boundary guard
+
+Local session history and the four `SyncableSettings` fields are tagged in AsyncStorage with the uid
+they currently belong to (`localDataOwnerUid`, `sync/localDataOwner.ts`), separately from the merge
+policy in §4.2. Before `runMigrationAndSync` runs any of the §4.2 union/LWW logic for a newly
+signed-in uid, it calls `ensureLocalDataScopedTo(uid)`: if the tag belongs to a different uid, or
+storage is untagged but non-empty (an install predating this guard), local session history is cleared
+and the four settings fields reset to their defaults before the merge proceeds; only then is storage
+re-tagged as belonging to the new uid. This is what makes §4.2's merge logic safe to run
+unconditionally on every sign-in — without it, `syncSessions`/`syncSettingsTwoWay` would blend
+whatever was already on the device into the newly signed-in uid's Firestore data, regardless of
+whether it actually belonged to that account (shared/resold/reset device, or a corrected wrong-account
+sign-in).
+
+`useAuthStore.signOut` and `deleteAccount` call the same `clearLocalAccountData()` primitive directly
+(session history cleared, settings reset, tag removed) once the account transition completes, so no
+account's data lingers locally between sessions even without an intervening different-uid sign-in.
+`boxSettings` (the per-physical-box BLE mirror) and the view-only local prefs
+(`TIME_WINDOW_KEY`/`BEST_STREAK_KEY`) are outside this guard's scope — they were never part of the
+account-syncable data set in the first place (§3.1).
+
 ---
 
 ## 5. Threat model / security review checklist
@@ -438,7 +459,8 @@ grep for, run, or inspect — not generic advice.
 | 7 | Field-level allowlisting is enforced, not just path-level | Rules-simulator test: owner attempts to write an extra/unexpected field (e.g. `isAdmin: true`) into `users/{uid}` or `settings/app` → denied by `hasOnly`. |
 | 8 | No Firebase service-account key or admin SDK credential exists in the repo | `git grep -i "private_key"`, `git grep -i "type.*service_account"`, and confirm no `*firebase-adminsdk*.json` file is tracked. This app has no backend — there is no legitimate reason for one to exist. |
 | 9 | No Firebase **API key** is treated as if it were secret in a way that causes other leaks | Confirm the `firebaseConfig` object (apiKey, authDomain, etc.) is not itself the problem (Firebase web API keys are not secret by design — they identify the project, not authorize access; access control lives entirely in the Firestore rules from §3.2) — but confirm nothing *else* sensitive (OAuth client secret, service-account key) is co-located with it in the same config file. |
-| 10 | Logout performs a full wipe | Manual test: sign in, sign out, inspect device Keychain (or re-launch and check `auth.currentUser`) to confirm no residual session; confirm `GoogleSignin.revokeAccess()` (not just `signOut()`) is called so the Google-side grant is actually revoked, not just the local cache cleared. |
+| 10 | Logout performs a full wipe | Manual test: sign in, sign out, inspect device Keychain (or re-launch and check `auth.currentUser`) to confirm no residual session; confirm `GoogleSignin.revokeAccess()` (not just `signOut()`) is called so the Google-side grant is actually revoked, not just the local cache cleared. **Also confirm local AsyncStorage is wiped, not just Keychain/Auth state**: after sign-out, `sessionHistory`'s stored session list is empty and `themeMode`/`accent`/`callAlertsEnabled`/`customLabels` have reverted to their defaults (`sync/localDataOwner.ts`'s `clearLocalAccountData()`, called from `useAuthStore.signOut`/`deleteAccount`) — this is what actually prevents a signed-out device from leaking one account's session/settings data into whichever account (or none) uses the device next. |
+| 17 | A wrong-account or shared-device sign-in cannot blend local data into the new account | Manual/code test: local session history and settings are tagged with the uid they belong to (`localDataOwnerUid` in AsyncStorage, `sync/localDataOwner.ts`). Confirm `runMigrationAndSync` calls `ensureLocalDataScopedTo(uid)` before any Firestore read/write, and that it wipes local storage whenever the stored tag doesn't match the newly signed-in uid (including the untagged case, e.g. a pre-existing install) — so `syncSessions`/`syncSettingsTwoWay` never union or LWW-merge a previous account's local data into the new uid's Firestore path. |
 | 11 | Reinstall does not silently resume a prior session | Manual test: sign in, uninstall the app, reinstall, launch — confirm the user lands signed out (validates the §2.5 install-marker wipe actually runs before Firebase Auth initializes). |
 | 12 | Account/session deletion path is complete | Manual test of "delete account": confirms (a) `deleteUser()` succeeds (re-authenticating first if Firebase requires a recent sign-in), (b) `users/{uid}` doc and all subcollections (`sessions`, `settings`, `devices`) are removed, (c) `GoogleSignin.revokeAccess()` is called, (d) local `SecureStore`/AsyncStorage auth state is wiped, (e) no orphaned data remains readable under that uid (rules-simulator: post-deletion, no path under the old uid is writable by anyone, including a re-registration with the same Google account — should just start a fresh empty `users/{uid}`). |
 | 13 | Redirect URI / custom scheme is exact-match, not wildcard (only applies if the §1.3 fallback is ever built) | If `expo-auth-session` PKCE is ever added, confirm the Google Cloud Console OAuth client's authorized redirect URI list contains exactly `phonebox://oauth2redirect` (or whatever exact value is used) and not a wildcard/prefix. |

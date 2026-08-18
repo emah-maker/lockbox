@@ -13,7 +13,7 @@ import { dayKey, groupByDay, LoggedSession } from '../stats/sessionHistory';
 import { dominantTopicWithCustom, resolveTopic, allLabelChoices, ResolvedTopic } from '../stats/customLabels';
 import { AnimatedPressable } from '../ui/AnimatedPressable';
 import { useReducedMotion, configureLayoutAnimation } from '../ui/useReducedMotion';
-import { typeScale, elevation, springs } from '../theme/tokens';
+import { typeScale, elevation, springs, overlay } from '../theme/tokens';
 
 const WEEKDAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 
@@ -111,12 +111,12 @@ export default function CalendarScreen() {
         <View style={styles.recentSection}>
           <Text style={[styles.h2, { color: c.text }]}>Recent sessions</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.recentRow}>
-            {recentSessions.map((sess, i) => {
+            {recentSessions.map((sess) => {
               const resolved = resolveTopic(sess.topic, customLabels, themeMode);
               const active = dayKey(sess.startedAt) === selectedKey;
               return (
                 <AnimatedPressable
-                  key={i}
+                  key={`${sess.startedAt}:${sess.plannedS}`}
                   style={[
                     styles.recentChip,
                     { backgroundColor: c.surface },
@@ -143,6 +143,9 @@ export default function CalendarScreen() {
       <View style={styles.monthHeader}>
         <AnimatedPressable
           style={styles.navBtn}
+          accessibilityRole="button"
+          accessibilityLabel="Previous month"
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           onPress={() => {
             configureLayoutAnimation(reducedMotion);
             animateMonthChange(-1);
@@ -156,6 +159,9 @@ export default function CalendarScreen() {
         </Text>
         <AnimatedPressable
           style={styles.navBtn}
+          accessibilityRole="button"
+          accessibilityLabel="Next month"
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           onPress={() => {
             configureLayoutAnimation(reducedMotion);
             animateMonthChange(1);
@@ -186,10 +192,21 @@ export default function CalendarScreen() {
           const selected = key === selectedKey;
           const isToday = key === todayKey;
           const dominant = dominantTopicWithCustom(daySessions, customLabels, themeMode);
+          // Selection/today/has-focus-time state was previously conveyed by
+          // border/background color alone (production readiness review,
+          // Medium: "day-cell state conveyed visually only").
+          const dayA11yLabel = `${date.toLocaleDateString(undefined, {
+            weekday: 'long',
+            month: 'long',
+            day: 'numeric',
+          })}${focusS > 0 ? `, ${formatDuration(focusS)} focused` : ', no focus time'}`;
           return (
             <AnimatedPressable
               key={i}
               style={styles.cell}
+              accessibilityRole="button"
+              accessibilityLabel={dayA11yLabel}
+              accessibilityState={{ selected }}
               onPress={() => {
                 configureLayoutAnimation(reducedMotion);
                 setSelectedKey(key);
@@ -224,10 +241,10 @@ export default function CalendarScreen() {
         {selectedSessions.length === 0 ? (
           <Text style={[styles.empty, { color: c.textDim }]}>No focus sessions logged this day.</Text>
         ) : (
-          selectedSessions.map((s, i) => {
+          selectedSessions.map((s) => {
             const resolved = resolveTopic(s.topic, customLabels, themeMode);
             return (
-              <View key={i} style={styles.sessionRow}>
+              <View key={`${s.startedAt}:${s.plannedS}`} style={styles.sessionRow}>
                 <Text style={[styles.sessionTime, { color: c.textDim }]}>
                   {new Date(s.startedAt).toLocaleTimeString(undefined, {
                     hour: 'numeric',
@@ -237,7 +254,12 @@ export default function CalendarScreen() {
                 <Text style={[styles.sessionDuration, { color: c.text }]}>
                   {formatDuration(s.actualS)}
                 </Text>
-                <AnimatedPressable style={styles.sessionTopic} onPress={() => setTaggingSession(s)}>
+                <AnimatedPressable
+                  style={styles.sessionTopic}
+                  onPress={() => setTaggingSession(s)}
+                  accessibilityRole="button"
+                  accessibilityLabel={resolved ? `Tagged: ${resolved.label}. Tap to change.` : 'Untagged. Tap to tag this session.'}
+                >
                   {resolved ? (
                     <>
                       <View style={[styles.topicDotInline, { backgroundColor: resolved.color }]} />
@@ -372,7 +394,7 @@ function LabelPickerModal({
               >
                 <View style={[modalStyles.dot, { backgroundColor: choice.color }]} />
                 <Text style={[modalStyles.rowLabel, { color: color.text }]}>{choice.label}</Text>
-                {current === choice.id && <Text style={{ color: color.accent }}>✓</Text>}
+                {current === choice.id && <Feather name="check" size={16} color={color.accent} />}
               </AnimatedPressable>
             ))}
           </ScrollView>
@@ -388,7 +410,7 @@ function LabelPickerModal({
 }
 
 const modalStyles = StyleSheet.create({
-  scrim: { ...StyleSheet.absoluteFillObject, backgroundColor: '#000' },
+  scrim: { ...StyleSheet.absoluteFillObject, backgroundColor: overlay.scrim },
   scrimTouch: { flex: 1 },
   sheetLayer: { ...StyleSheet.absoluteFillObject, justifyContent: 'flex-end' },
   sheet: {

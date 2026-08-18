@@ -47,9 +47,13 @@ export default function App() {
 
   useEffect(() => {
     // one-time capability log so a dev build surfaces missing native linkage
-    // (Expo Go / Android will report false; a dev-client iOS build reports true)
-    console.log('CallObserver available:', isCallObserverAvailable());
-    console.log('Launch reason:', getLaunchReason());
+    // (Expo Go / Android will report false; a dev-client iOS build reports
+    // true) -- gated behind __DEV__ so these don't ship as production log
+    // output (production readiness review, Low).
+    if (__DEV__) {
+      console.log('CallObserver available:', isCallObserverAvailable());
+      console.log('Launch reason:', getLaunchReason());
+    }
     init();
 
     // Account sign-in/sync (docs/rfcs/google-signin-cross-device-sync-architecture.md
@@ -104,7 +108,14 @@ export default function App() {
               const active = t.key === tab;
               const color = active ? theme.accent : theme.textDim;
               return (
-                <AnimatedPressable key={t.key} style={styles.tabBtn} onPress={() => selectTab(t.key)}>
+                <AnimatedPressable
+                  key={t.key}
+                  style={styles.tabBtn}
+                  onPress={() => selectTab(t.key)}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected: active }}
+                  accessibilityLabel={t.label}
+                >
                   <Feather name={t.icon} size={20} color={color} />
                   <Text style={[styles.tabLabel, { color, fontWeight: active ? '700' : '500' }]}>
                     {t.label}

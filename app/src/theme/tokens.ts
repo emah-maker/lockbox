@@ -34,6 +34,22 @@ export const typeScale = {
   caption: { fontSize: 12, fontWeight: '600', letterSpacing: 0.1, lineHeight: 15 } as const,
 } as const;
 
+// opacity -- shared disabled-state opacity, so "disabled" reads the same
+// everywhere instead of each screen picking its own number (Dashboard's
+// useDisabledFade used 0.35; SettingsPrimitives' Button used 0.5 -- an
+// inconsistency flagged in the production readiness review, Low). 0.35 is
+// the canonical value; Button now matches it too.
+export const opacity = {
+  disabled: 0.35,
+} as const;
+
+// overlay -- shared modal-scrim color, so a sheet/modal backdrop (e.g.
+// CalendarScreen's LabelPickerModal) draws from one place instead of a
+// hardcoded '#000' literal (production readiness review, Low).
+export const overlay = {
+  scrim: '#000',
+} as const;
+
 // elevation -- shared shadow so card-like surfaces read with a little depth
 // instead of a flat fill. Mirrors the shadow values already used on the
 // slider thumb in SettingsPrimitives.tsx.
@@ -43,6 +59,18 @@ export const elevation = {
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.18,
     shadowRadius: 6,
+    elevation: 2,
+  } as const,
+  // Tighter/smaller shadow than `card` above -- tuned for a small draggable
+  // control (SettingsPrimitives.tsx's SliderRow thumb) rather than a full
+  // surface, so it's kept as its own token instead of force-fitting `card`
+  // (production readiness review, Low: this shadow was previously
+  // hardcoded inline, bypassing tokens.ts entirely).
+  thumb: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.25,
+    shadowRadius: 2,
     elevation: 2,
   } as const,
 } as const;
