@@ -10,6 +10,7 @@
     "ios": {
       "bundleIdentifier": "com.emahmaker.phonebox",
       "supportsTablet": false,
+      "usesAppleSignIn": true,
       "infoPlist": {
         "UIBackgroundModes": [
           "bluetooth-central"
@@ -30,7 +31,8 @@
           "bluetoothAlwaysPermission": "Phone Box connects to your box over Bluetooth to show focus stats and alert it to important calls."
         }
       ],
-      "@react-native-google-signin/google-signin"
+      "@react-native-google-signin/google-signin",
+      "expo-apple-authentication"
     ],
     "android": {
       "permissions": [
@@ -38,7 +40,11 @@
         "android.permission.BLUETOOTH_ADMIN",
         "android.permission.BLUETOOTH_CONNECT"
       ],
-      "package": "com.phonebox.app"
+      "package": "com.phonebox.app",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0b0b0c"
+      }
     }
   }
 }
