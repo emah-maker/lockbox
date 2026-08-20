@@ -36,7 +36,9 @@
       "Bash(curl *)",
       "Bash(rm -rf skill-creator)",
       "Bash(mv .skill-creator-tmp/skills/skill-creator ./skill-creator)",
-      "Bash(rm -rf .skill-creator-tmp)"
+      "Bash(rm -rf .skill-creator-tmp)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(claude mcp *)"
     ]
   },
   "enableAllProjectMcpServers": true,
