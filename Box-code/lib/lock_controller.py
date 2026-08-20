@@ -71,6 +71,9 @@ class LockController:
         self._edit_idx = 0
         self._servo_relax_at = None
         self._servo_locked = False
+        self._done_force_open = False    # set by go_done(force_open=True) --
+                                          # an unlock that must take physical
+                                          # effect regardless of Settings.auto_open
         self._override = 0
         self._override_at = 0.0
         # last time the status-bar tap-to-toggle actually fired go_idle()/
@@ -220,13 +223,14 @@ class LockController:
         if self.view != "control":
             self.set_view("control")
 
-    def go_done(self, now, outcome=COMPLETED):
+    def go_done(self, now, outcome=COMPLETED, force_open=False):
         # Only a countdown that actually ran is a session -- go_done can also
         # be reached from "closed" (override/remote-unlock before LOCK was
         # ever pressed), which has no elapsed time worth logging.
+        opens_now = self.settings.auto_open or force_open
         if self.state == "running":
             lock_start = self.deadline - self.set_seconds
-            if self.settings.auto_open:
+            if opens_now:
                 actual_s = max(0.0, now - lock_start)
                 self.log.record(self.set_seconds, actual_s, outcome == COMPLETED,
                                  self.wall_time(now))
@@ -242,12 +246,13 @@ class LockController:
         self._clear_override()
         self.state = "done"
         self.done_start = now
-        if self.settings.auto_open:
-            self.release_lock()          # auto-open: servo releases now
+        self._done_force_open = force_open
+        if opens_now:
+            self.release_lock()          # auto-open (or forced): servo releases now
         else:
             self.engage_lock()           # stay shut: re-assert the lock and
             self._servo_relax_at = None  # hold it (no relax) until OPEN is tapped
-        self.ui.show_done(self.settings.auto_open)
+        self.ui.show_done(opens_now)
         if self.view != "control":  # return to control so the unlock anim shows
             self.set_view("control")
 
@@ -350,7 +355,8 @@ class LockController:
                 # to the next second themselves (see fmt_hm's docstring).
                 self.ui.set_clock_text(fmt_hm(left))
         elif self.state == "done":
-            if self.settings.auto_open and now - self.done_start >= DONE_ANIM_S:
+            if (self.settings.auto_open or self._done_force_open) \
+                    and now - self.done_start >= DONE_ANIM_S:
                 self.go_idle()             # auto-dismiss the unlock animation
             # No per-frame driving needed here anymore: the unlock animation
             # is now the OPEN button springing to the screen's center (see
@@ -608,7 +614,11 @@ class LockController:
             return
         self._call_event = True
         if self.settings.unlock_on_call:
-            self.go_done(now, OVERRIDDEN)
+            # force_open=True: an incoming call means nobody is standing at the
+            # box to tap OPEN, so this must physically release the servo even
+            # if the user separately prefers auto_open=False at normal timer
+            # expiry (see go_done) -- the two settings are otherwise unrelated.
+            self.go_done(now, OVERRIDDEN, force_open=True)
         else:
             self._call_alert_until = now + BLE_CALL_ALERT_S
             self._call_alert_started = now
