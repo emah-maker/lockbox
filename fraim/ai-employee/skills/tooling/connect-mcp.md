@@ -6,14 +6,16 @@
 # FRAIM Skill: connect-mcp
 
 ## Skill Input
-Exactly one of:
-- `provider`: A FRAIM-registered provider ID (for example, `github`, `gitlab`, `jira`) — uses the registry definition to determine the connection type and URL.
-- `serverName` + `serverUrl`: An arbitrary MCP server name and its URL — used for third-party MCPs not in the FRAIM registry (for example, Gmail MCP, Notion MCP).
+- `provider`, or `serverName` plus an official server URL or documentation entry point: the provider/server the user or calling job needs.
+- `targets` (optional): agent hosts or configured Hub agent profiles explicitly named by the user.
+- `scope` (optional): requested `user`, `project`, or profile-specific setup scope.
+- The current machine and active agent context.
 
 ## Skill Output
-- Confirmation that the MCP server entry has been added to all detected IDE configs.
-- A restart reminder naming which IDEs the user must restart.
-- Clear routing output: which path was taken (Remote OAuth, credential-based, or arbitrary URL) and why.
+- The resolved target list and one reviewed setup plan per target.
+- The official provider documentation and official agent/host MCP documentation used, with source URLs and access date.
+- One outcome per target: `verified`, `configured-restart-required`, `blocked`, or `unchanged`.
+- Redacted verification and recovery evidence; never credential values or configuration bodies.
 
 ---
 

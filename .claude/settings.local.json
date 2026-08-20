@@ -31,7 +31,12 @@
       "Read(//c/Users/emah/AppData/Local/Temp/claude/C--Users-emah-OneDrive---Northeastern-University-Summer-Projects-Phone-Box/201612de-fe90-439e-8c0c-53d94b482133/scratchpad/mobile-app-ui-design/**)",
       "Read(//c/Users/emah/AppData/Local/Temp/claude/C--Users-emah-OneDrive---Northeastern-University-Summer-Projects-Phone-Box/201612de-fe90-439e-8c0c-53d94b482133/scratchpad/expo-skills/**)",
       "Bash(find /c/Users/emah/AppData/Local/Temp/claude/C--Users-emah-OneDrive---Northeastern-University-Summer-Projects-Phone-Box/201612de-fe90-439e-8c0c-53d94b482133/scratchpad/gsap-skills -maxdepth 3 -not -path */.git*)",
-      "Bash(find /c/Users/emah/AppData/Local/Temp/claude/C--Users-emah-OneDrive---Northeastern-University-Summer-Projects-Phone-Box/201612de-fe90-439e-8c0c-53d94b482133/scratchpad/ui-ux-pro-max-skill -maxdepth 3 -not -path */.git*)"
+      "Bash(find /c/Users/emah/AppData/Local/Temp/claude/C--Users-emah-OneDrive---Northeastern-University-Summer-Projects-Phone-Box/201612de-fe90-439e-8c0c-53d94b482133/scratchpad/ui-ux-pro-max-skill -maxdepth 3 -not -path */.git*)",
+      "mcp__agensi__search_skills",
+      "Bash(curl *)",
+      "Bash(rm -rf skill-creator)",
+      "Bash(mv .skill-creator-tmp/skills/skill-creator ./skill-creator)",
+      "Bash(rm -rf .skill-creator-tmp)"
     ]
   },
   "enableAllProjectMcpServers": true,
