@@ -43,7 +43,7 @@
       "package": "com.phonebox.app",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#0b0b0c"
+        "backgroundColor": "#1a1a1c"
       }
     }
   }
