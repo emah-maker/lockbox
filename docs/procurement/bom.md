@@ -52,9 +52,11 @@ runtime allows — pick capacity by measured runtime need.
 
 ---
 
-## Battery meter — MAX17048 fuel gauge (optional add-on)
+## Battery meter — MAX17043 fuel gauge (installed)
 
-*Full analysis: [battery-fuel-gauge shortlist](battery-fuel-gauge/02-supplier-longlist-and-shortlist-2026-07-23.md).*
+*Full analysis: [battery-fuel-gauge shortlist](battery-fuel-gauge/02-supplier-longlist-and-shortlist-2026-07-23.md)
+(rows 6/8/9 cover the MAX17043 options below); wiring in
+[phone-box-wiring-diagram.svg](../hardware/phone-box-wiring-diagram.svg).*
 
 **Problem:** the current build doesn't measure battery percentage *accurately*.
 It reads VBAT through a resistor divider and maps voltage → % with a static
@@ -63,24 +65,27 @@ curve (`BAT_CURVE` in `lock_config.py`). The LiPo discharge curve is flat across
 by ~±10–20% and reads low under load. No firmware tweak removes this — it is a
 hardware limitation of voltage-only sensing.
 
-**Fix:** add a **MAX17048 fuel-gauge board** — a ModelGauge IC that fuses coulomb
+**Fix:** add a **MAX17043 fuel-gauge board** — a ModelGauge IC that fuses coulomb
 tracking + voltage + temperature and reports state-of-charge directly (~±1–2%),
 with **no sense resistor**. Talks I2C at 0x36 (shares the existing touch bus or a
-spare `busio.I2C`; frees GPIO12). CircuitPython support via `adafruit_max1704x`
-(`monitor.cell_percent`). At 25.7×20.3×7.2 mm it drops into the battery bay.
+spare `busio.I2C`; frees GPIO12). The firmware uses its own minimal register-level
+driver (`Box-code/lib/max17043.py`, reading only VCELL/SOC/VERSION) rather than
+Adafruit's `adafruit_max1704x` library, so no external CircuitPython dependency
+is needed either way.
 
 | Option | Part | Unit $ | Note |
 |---|---|---|---|
-| Ready breakout | Adafruit MAX17048 #5580 (JST-PH in/out + Qwiic) | 5.95 | sourced; also Pi Hut / Pimoroni |
-| Cheaper breakout | 7Semi MAX17048 mini | ~2–4 (est.) | no Qwiic connectors |
-| Cheapest board | Generic MAX17048 module (marketplace) | ~2 (est.) | QC / lead-time risk |
-| Volume | Bare MAX17048 IC on custom board | ~1–2 (est.) | production only |
+| Installed | HiLetgo MAX17043 module | ~7 (unconf.) | bare module, no plug connector; see wiring diagram note 3 for the JST-PH pigtail needed |
+| Alternative breakout | SparkFun LiPo Fuel Gauge MAX17043 (TOL-20680) | ~11 (unconf.) | Qwiic |
+| Alternative breakout | DFRobot Gravity Li Battery Fuel Gauge (DFR0563) | ~6–7 (unconf.) | Gravity/Grove-compatible connector; screw terminal for cell |
 
-> **This is an accuracy upgrade, not a cost cut** — it *adds* ~$2–6/unit. Take it
+> **This is an accuracy upgrade, not a cost cut** — it *adds* ~$2–7/unit. Take it
 > only if accurate % is a product requirement; otherwise the $0 fallback is a
 > firmware-only OCV improvement (smoothing + settle-when-idle), which helps but
 > cannot fix load sag or the flat curve. Replaces `LC709203F` as the modern pick
-> — that chip is EOL (discontinued).
+> — that chip is EOL (discontinued). (Originally speced as the pin/register-compatible
+> **MAX17048** — see the shortlist doc for that comparison — before settling on the
+> MAX17043 modules actually sourced.)
 
 ---
 

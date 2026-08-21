@@ -1,5 +1,5 @@
-# lock_battery.py -- reads the onboard LiPo via the Adafruit MAX17048 fuel gauge
-# (I2C @ 0x36 on the shared touch bus). The MAX17048's ModelGauge reports a load-
+# lock_battery.py -- reads the onboard LiPo via the MAX17043 fuel gauge
+# (I2C @ 0x36 on the shared touch bus). The MAX17043's ModelGauge reports a load-
 # and temperature-compensated state of charge and cell voltage directly, so this
 # replaces the old ADC voltage-divider + voltage-curve estimate. Because the gauge
 # already compensates in hardware, we do NOT re-smooth or charge-correct the value.
@@ -7,7 +7,7 @@
 # power (unchanged) and watts is a rough discharge-rate estimate from the trend.
 import supervisor
 
-from max17048 import MAX17048
+from max17043 import MAX17043
 from lock_config import BAT_GAUGE_ADDR, BAT_CAPACITY_MAH
 
 
@@ -32,7 +32,7 @@ class Battery:
         self._gauge = None
         try:
             if i2c is not None:
-                gauge = MAX17048(i2c, address=BAT_GAUGE_ADDR)
+                gauge = MAX17043(i2c, address=BAT_GAUGE_ADDR)
                 if gauge.present():
                     self._gauge = gauge
         except Exception:

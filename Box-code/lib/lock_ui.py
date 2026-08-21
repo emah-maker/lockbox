@@ -1038,7 +1038,7 @@ class LockUI:
             self.bat_volts.text = "no gauge"
             self.bat_chg.text = ""
             self.bat_watts.text = ""
-            self.bat_diag.text = "MAX17048 @0x36 not found"
+            self.bat_diag.text = "MAX17043 @0x36 not found"
             key = None
         else:
             self.bat_volts.text = "{:.2f} V".format(r.volts)

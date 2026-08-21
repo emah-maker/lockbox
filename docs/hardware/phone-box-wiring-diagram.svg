@@ -216,11 +216,11 @@
   <text x="596" y="1059" font-size="11.5" fill="#111318">   this is the small capacitor already costed as a BOM line item.</text>
   <text x="586" y="1081" font-size="11.5" fill="#111318">6. Battery/TP4056/fuel-gauge tie point: the fuel gauge's BATT +/- is drawn as a direct parallel tap on the same raw-cell</text>
   <text x="596" y="1097" font-size="11.5" fill="#111318">   node as TP4056's B+/B- and OUT+/OUT- — not a series pass-through (this generic module has no BAT-OUT to pass through).</text>
-  <text x="586" y="1119" font-size="11.5" fill="#111318">7. Part-vs-driver naming: the on-device driver file is named Box-code/lib/max17048.py, but per the project's own fuel-gauge</text>
-  <text x="596" y="1135" font-size="11.5" fill="#111318">   procurement research the MAX17043 shares the MAX17048's I2C address (0x36) and VCELL/SOC/VERSION register layout — so</text>
-  <text x="596" y="1151" font-size="11.5" fill="#111318">   this part swap needs no firmware change, only this diagram/BOM update. Leave the MAX17043's QST pin floating (grounding</text>
-  <text x="596" y="1167" font-size="11.5" fill="#111318">   it holds the gauge in reset) and its ALRT pin NC unless you add interrupt-driven low-battery handling to the firmware.</text>
+  <text x="586" y="1119" font-size="11.5" fill="#111318">7. Part-vs-driver naming (resolved): the on-device driver was Box-code/lib/max17048.py; it shared the MAX17043's I2C address</text>
+  <text x="596" y="1135" font-size="11.5" fill="#111318">   (0x36) and VCELL/SOC/VERSION register layout, so it has now been renamed to Box-code/lib/max17043.py with no functional</text>
+  <text x="596" y="1151" font-size="11.5" fill="#111318">   change (bom.md updated to match). Leave the MAX17043's QST pin floating (grounding it holds the gauge in reset) and its</text>
+  <text x="596" y="1167" font-size="11.5" fill="#111318">   ALRT pin NC unless you add interrupt-driven low-battery handling to the firmware.</text>
 
-  <text x="30" y="1205" font-size="10.5" fill="#8a8f96">Source: Box-code/lib/lock_config.py, lock_battery.py, max17048.py, axs5106l.py, lock_servo.py; docs/procurement/bom.md; docs/procurement/battery-fuel-gauge/02-fuel-gauge-longlist-and-shortlist-2026-07-23.md (rows 6/8/9 — SparkFun/DFRobot/HiLetgo MAX17043 options)</text>
+  <text x="30" y="1205" font-size="10.5" fill="#8a8f96">Source: Box-code/lib/lock_config.py, lock_battery.py, max17043.py, axs5106l.py, lock_servo.py; docs/procurement/bom.md; docs/procurement/battery-fuel-gauge/02-fuel-gauge-longlist-and-shortlist-2026-07-23.md (rows 6/8/9 — SparkFun/DFRobot/HiLetgo MAX17043 options)</text>
   <text x="30" y="1223" font-size="10.5" fill="#8a8f96">This is a functional wiring/block diagram (not a KiCad schematic) for build/assembly reference.</text>
 </svg>

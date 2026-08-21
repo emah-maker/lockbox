@@ -136,14 +136,14 @@ def lerp_color(c0, c1, t):
     return (r << 16) | (g << 8) | b
 
 
-# ----- Battery (Adafruit MAX17048 fuel gauge, I2C @ 0x36 on the shared touch bus)
-# State of charge is read straight off the MAX17048's ModelGauge algorithm --
+# ----- Battery (MAX17043 fuel gauge, I2C @ 0x36 on the shared touch bus)
+# State of charge is read straight off the MAX17043's ModelGauge algorithm --
 # no ADC divider and no voltage curve. The gauge is compensated for load and
 # temperature in hardware, so we do NOT re-smooth or charge-compensate the value.
 # It sits on the AXS5106L touch I2C bus (GPIO41/42/47/48) at a distinct address,
-# so it consumes zero additional GPIO. See Box-code/lib/max17048.py for the
+# so it consumes zero additional GPIO. See Box-code/lib/max17043.py for the
 # register-level driver and decode.
-BAT_GAUGE_ADDR = 0x36        # MAX17048 I2C address (fixed in silicon)
+BAT_GAUGE_ADDR = 0x36        # MAX17043 I2C address (fixed in silicon)
 BAT_CAPACITY_MAH = 5000      # battery pack size (set to your cell) -- watt estimate only
 
 # Backlight brightness (0.0-1.0). On battery -> dimmer to save power; on USB ->
