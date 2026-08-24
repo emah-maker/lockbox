@@ -120,6 +120,12 @@ class LockController:
         # at most one row can be mid-hold at a time.
         self._tp_hold_row = None
         self._tp_hold_start = 0.0
+        # hold-to-confirm on SKIP (see _start_tag_hold/_update_tag_skip_hold)
+        # -- an accidental tap here used to start an untagged session
+        # immediately, same problem the row hold above already fixes.
+        # Shares _tp_hold_start's timer since only one hold (a row or SKIP)
+        # can ever be active on this single-touch device.
+        self._tp_skip_holding = False
         # ----- deferred logging for auto-open-off sessions -----
         # When Settings.auto_open is False, the box stays shut at timer
         # expiry (see go_done) until OPEN is tapped or override forces it --
@@ -817,17 +823,25 @@ class LockController:
                                        self._hold_interval * HOLD_REPEAT_RAMP)
             self._hold_next_at = now + self._hold_interval
 
-    # ----- pre-session tag picker: hold-to-confirm on a row -----
+    # ----- pre-session tag picker: hold-to-confirm on a row or SKIP -----
     def _start_tag_hold(self, pt, now):
         """Touch-down on the tag picker (see process()): arms a hold if the
-        point landed on a topic row, so _update_tag_hold can start growing
-        that row's green fill. SKIP/MORE stay single-tap (handled entirely in
-        _handle_release), so a hit there -- or a miss -- leaves no row armed.
-        A touch that starts here can still turn into a swipe-up-cancel if it
-        moves enough -- see _update_tag_picker_touch, which arbitrates."""
+        point landed on a topic row (green fill, _update_tag_hold) or SKIP
+        (grey fill, _update_tag_skip_hold) -- both need a TAG_HOLD_S press
+        now, so an accidental tap can't start a session, tagged or untagged,
+        any more than it could before. MORE stays a plain single tap (it
+        only pages the list, nothing to accidentally commit). A touch that
+        starts here can still turn into a swipe-up-cancel if it moves
+        enough -- see _update_tag_picker_touch, which arbitrates."""
         x, y = pt
-        if self.ui.tag_picker_nav_at(x, y) is not None:
+        nav = self.ui.tag_picker_nav_at(x, y)
+        if nav == 'skip':
+            self._tp_skip_holding = True
+            self._tp_hold_start = now
+            self.ui.start_tag_picker_skip_hold()
             return
+        if nav is not None:
+            return  # 'more' -- still a plain single tap
         row = self.ui.tag_picker_row_at(y)
         if row is None:
             return
@@ -863,6 +877,9 @@ class LockController:
             if self._tp_hold_row is not None:
                 self.ui.cancel_tag_picker_hold()
                 self._tp_hold_row = None
+            if self._tp_skip_holding:
+                self.ui.cancel_tag_picker_skip_hold()
+                self._tp_skip_holding = False
             self._update_tag_swipe(now, dy)
         else:
             self.ui.clear_tag_picker_swipe()  # e.g. the drag reversed back down
@@ -899,18 +916,28 @@ class LockController:
     def _update_tag_hold(self, now):
         """Continuous-touch polling tick for the armed hold (same loop tier
         as _update_hold's settings auto-repeat, but a single discrete
-        threshold -- TAG_HOLD_S -- rather than a repeating step). Canceled if
-        the finger drifts off the held row (checked against the row under
-        the current point, the same "still over the same control" test
-        _drag_direction/in_button's release check apply elsewhere) so a
-        wandering touch can't accidentally finish a fill it never meant to
-        hold. Reaching the threshold commits immediately, without waiting for
-        release -- go_running() changes self.state away from "picking", so
-        process()'s `elif self.state == "picking"` guard naturally stops
-        calling this again for the rest of the same touch."""
+        threshold -- TAG_HOLD_S -- rather than a repeating step). Canceled
+        only if the finger drifts onto a DIFFERENT valid row -- landing in
+        the dead zone between rows, or past the first/last row's outer edge
+        (no row above row 0 or below the last row to catch a stray reading),
+        no longer cancels. It used to: comparing against None (this touch
+        matches no row at all) as well as an actual different row meant the
+        last row -- the one with open dead zone below it and nothing to
+        drift onto instead -- lost its hold on any small downward jitter,
+        while the interior rows had a neighbor to land back on. Reaching the
+        threshold commits immediately, without waiting for release --
+        go_running() changes self.state away from "picking", so process()'s
+        `elif self.state == "picking"` guard naturally stops calling this
+        again for the rest of the same touch. Dispatches to
+        _update_tag_skip_hold instead when SKIP (not a row) is what's
+        armed."""
+        if self._tp_skip_holding:
+            self._update_tag_skip_hold(now)
+            return
         if self._tp_hold_row is None:
             return
-        if self.ui.tag_picker_row_at(self._last[1]) != self._tp_hold_row:
+        current_row = self.ui.tag_picker_row_at(self._last[1])
+        if current_row is not None and current_row != self._tp_hold_row:
             self.ui.cancel_tag_picker_hold()
             self._tp_hold_row = None
             return
@@ -922,6 +949,27 @@ class LockController:
             self.go_running(now, topic=topic)
         else:
             self.ui.step_tag_picker_hold(self._tp_hold_row, progress)
+
+    def _update_tag_skip_hold(self, now):
+        """SKIP's hold-to-confirm tick, mirroring _update_tag_hold: canceled
+        only when the touch lands on a different valid nav target (MORE) --
+        landing in the dead zone between SKIP and MORE, or outside the nav
+        row's y-band entirely, is forgiven the same way a row hold forgives
+        drifting into the dead zone between rows. Reaching the threshold
+        starts an untagged session immediately, without waiting for
+        release."""
+        nav = self.ui.tag_picker_nav_at(*self._last)
+        if nav is not None and nav != 'skip':
+            self.ui.cancel_tag_picker_skip_hold()
+            self._tp_skip_holding = False
+            return
+        progress = (now - self._tp_hold_start) / TAG_HOLD_S
+        if progress >= 1.0:
+            self._tp_skip_holding = False
+            self.ui.cancel_tag_picker_skip_hold()
+            self.go_running(now, topic=None)
+        else:
+            self.ui.step_tag_picker_skip_hold(progress)
 
     def _handle_release(self):
         dx = self._last[0] - self._start[0]
@@ -962,6 +1010,9 @@ class LockController:
             if self._tp_hold_row is not None:
                 self.ui.cancel_tag_picker_hold()
                 self._tp_hold_row = None
+            if self._tp_skip_holding:
+                self.ui.cancel_tag_picker_skip_hold()
+                self._tp_skip_holding = False
             self.ui.clear_tag_picker_swipe()
             if abs(dy) >= SWIPE_MIN_PX and abs(dy) > abs(dx):
                 # Swipe up = cancel: back out to whichever screen was active
@@ -984,15 +1035,14 @@ class LockController:
                 return
             if abs(dx) < SWIPE_MIN_PX and abs(dy) < SWIPE_MIN_PX:
                 nav = self.ui.tag_picker_nav_at(*self._start)
-                if nav == 'skip':
-                    self.go_running(self._now, topic=None)
-                elif nav == 'more':
+                if nav == 'more':
                     self._picker_page = (self._picker_page + 1) % self._picker_page_count()
                     self.ui.show_tag_picker(self._picker_page_topics(self._picker_page))
-                # else: a plain tap on a row no longer tags/starts a session
-                # by itself -- tagging is hold-to-confirm now (see
-                # _start_tag_hold/_update_tag_hold above), and any in-progress
-                # hold on this row was already cleared above.
+                # else (a row, or SKIP): a plain tap no longer starts a
+                # session by itself -- both are hold-to-confirm now (see
+                # _start_tag_hold/_update_tag_hold/_update_tag_skip_hold
+                # above), and any in-progress hold was already cleared
+                # above.
             return
 
         # Horizontal swipe -> switch views. INVERT_X is on, so a physical

@@ -329,15 +329,16 @@ HOLD_REPEAT_RAMP = 0.85       # interval *= this factor after each repeat
 # finger landed) -- press a row and hold; a green fill (LockUI.
 # step_tag_picker_hold) grows to cover the row over this duration, then
 # LockController._update_tag_hold auto-commits go_running(topic=...)).
-# Releasing before it fills cancels with no tag. 0.6s sits in the middle of
-# the requested 500-800ms band -- long enough that a quick accidental tap
-# can't complete it, short enough not to feel like a stuck button.
+# Releasing before it fills cancels with no tag. Raised from 0.6s to 1.0s
+# (manager request, after hardware testing) -- long enough that a quick
+# accidental tap can't complete it, short enough not to feel like a stuck
+# button.
 #
 # The swipe-up-cancel gesture doesn't have its own duration constant: its
 # red bar (LockUI.step_tag_picker_swipe_progress) tracks live drag distance
 # against the existing SWIPE_MIN_PX threshold instead of elapsed time, so
 # there's no separate animation length to tune here.
-TAG_HOLD_S = 0.6
+TAG_HOLD_S = 1.0
 
 # ----- Custom label sync (app -> box), best-effort -----
 # The box has no independent concept of a "label" -- it just holds whatever
