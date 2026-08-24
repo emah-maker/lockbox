@@ -62,6 +62,7 @@ class LockController:
         self.servo = Servo()
         self.settings = Settings()
         self.ui.set_theme(self.settings.theme_mode, self.settings.accent_idx)
+        self.ui.set_screen_flipped(self.settings.screen_flipped)
         # Previously only ever called on navigating to the settings view --
         # left the control view's small override-count indicator blank from
         # boot until the user happened to visit Settings first.
@@ -161,9 +162,17 @@ class LockController:
         x, y = p
         if SWAP_XY:
             x, y = y, x
-        if INVERT_X:
+        # screen_flipped rotates the rendered content 180° (LockUI.
+        # set_screen_flipped) without touching the touch chip's raw axes, so
+        # a 180° flip has to invert both axes on top of whatever INVERT_X/
+        # INVERT_Y calibration this panel already needed -- XOR (`!=` on
+        # bools), not OR/replace, so toggling the setting still flips
+        # correctly regardless of the base calibration.
+        invert_x = INVERT_X != self.settings.screen_flipped
+        invert_y = INVERT_Y != self.settings.screen_flipped
+        if invert_x:
             x = self.ui.W - x
-        if INVERT_Y:
+        if invert_y:
             y = self.ui.H - y
         return x, y
 
@@ -470,10 +479,11 @@ class LockController:
 
     def ble_settings_json(self):
         st = self.settings
-        return '{{"ovr":{},"auto":{},"sleep":{},"bright":{},"unlk":{},"ucal":{},"thm":{},"acc":{}}}'.format(
+        return '{{"ovr":{},"auto":{},"sleep":{},"bright":{},"unlk":{},"ucal":{},"thm":{},"acc":{},"flip":{}}}'.format(
             st.override_presses, 1 if st.auto_open else 0, st.sleep_s,
             st.bright_pct, 1 if st.allow_remote_unlock else 0,
-            1 if st.unlock_on_call else 0, st.theme_mode, st.accent_idx)
+            1 if st.unlock_on_call else 0, st.theme_mode, st.accent_idx,
+            1 if st.screen_flipped else 0)
 
     def apply_ble_command(self, cmd, now):
         # opcodes: "start:<seconds>", "dur:<seconds>" (live duration preview --
@@ -586,8 +596,12 @@ class LockController:
                 st.accent_idx = max(0, min(len(ACCENT_COLORS) - 1, int(d["acc"])))
             except (ValueError, TypeError):
                 pass
+        if "flip" in d:
+            st.screen_flipped = bool(d["flip"])
         if "thm" in d or "acc" in d:
             self.ui.set_theme(st.theme_mode, st.accent_idx)
+        if "flip" in d:
+            self.ui.set_screen_flipped(st.screen_flipped)
         st.save()
         if self.view == "settings":
             self.ui.update_settings(st)

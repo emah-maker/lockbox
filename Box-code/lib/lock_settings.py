@@ -8,10 +8,16 @@ from lock_config import (
     OVERRIDE_PRESSES, INACTIVITY_S, BL_LEVEL, BLE_ALLOW_REMOTE_UNLOCK,
     BLE_UNLOCK_ON_CALL, OVR_MIN, OVR_MAX, OVR_STEP, SLEEP_OPTIONS,
     BRIGHT_OPTIONS, DEFAULT_MODE_IDX, DEFAULT_ACCENT_IDX, ACCENT_COLORS,
+    SCREEN_FLIPPED_DEFAULT,
 )
 
-_MAGIC = 0x61        # bump when the NVM layout changes (forces defaults once);
-                     # bumped from 0x60 to add the override_presses high byte
+_MAGIC = 0x62        # bump when the NVM layout changes (forces defaults once);
+                     # bumped from 0x61 to 0x62 to add screen_flipped at a new
+                     # offset (_BASE+10) -- same reasoning as the 0x60->0x61
+                     # bump below: a box flashed before this change would
+                     # otherwise read whatever stray byte happens to sit at
+                     # that never-before-written offset as a bogus flip flag.
+                     # 0x60->0x61 was for the override_presses high byte
                      # (OVR_MAX raised from 255 to 500 -- a single NVM byte
                      # can't hold that, see Settings.save/_load) so a box
                      # flashed before this change doesn't read a stray erased
@@ -57,6 +63,10 @@ class Settings:
         # characteristic, applied via LockUI.set_theme.
         self.theme_mode = DEFAULT_MODE_IDX
         self.accent_idx = DEFAULT_ACCENT_IDX
+        # Mounts the box upside-down while keeping the on-screen content
+        # right-side-up -- toggled from the app's Settings screen, applied
+        # via LockUI.set_screen_flipped and LockController._map (touch).
+        self.screen_flipped = SCREEN_FLIPPED_DEFAULT
         self._load()
 
     def _load(self):
@@ -73,6 +83,7 @@ class Settings:
                 self.unlock_on_call = bool(nvm[_BASE + 6])
                 self.theme_mode = nvm[_BASE + 7]
                 self.accent_idx = nvm[_BASE + 8]
+                self.screen_flipped = bool(nvm[_BASE + 10])
         except Exception:
             pass
 
@@ -97,6 +108,7 @@ class Settings:
             nvm[_BASE + 6] = 1 if self.unlock_on_call else 0
             nvm[_BASE + 7] = max(0, min(1, int(self.theme_mode)))
             nvm[_BASE + 8] = max(0, min(len(ACCENT_COLORS) - 1, int(self.accent_idx)))
+            nvm[_BASE + 10] = 1 if self.screen_flipped else 0
         except Exception:
             pass
 

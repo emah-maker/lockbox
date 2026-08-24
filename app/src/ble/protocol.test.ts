@@ -8,19 +8,25 @@ import {
   BLE_LABEL_NAME_MAX_LEN,
 } from './protocol';
 
-const FULL: Settings = { ovr: 25, auto: 1, sleep: 20, bright: 50, unlk: 0, ucal: 1, thm: 1, acc: 3 };
+const FULL: Settings = { ovr: 25, auto: 1, sleep: 20, bright: 50, unlk: 0, ucal: 1, thm: 1, acc: 3, flip: 1 };
 
 describe('encodeSettings / parseSettings round-trip', () => {
-  it('round-trips every field, including ucal, thm, and acc', () => {
+  it('round-trips every field, including ucal, thm, acc, and flip', () => {
     const parsed = parseSettings(encodeSettings(FULL));
     expect(parsed).toEqual(FULL);
   });
 
-  it('defaults ucal, thm, and acc to 0 when the firmware payload omits them (pre-upgrade box)', () => {
+  it('defaults ucal, thm, acc, and flip to 0 when the firmware payload omits them (pre-upgrade box)', () => {
     const parsed = parseSettings('{"ovr":25,"auto":1,"sleep":20,"bright":50,"unlk":0}');
     expect(parsed?.ucal).toBe(0);
     expect(parsed?.thm).toBe(0);
     expect(parsed?.acc).toBe(0);
+    expect(parsed?.flip).toBe(0);
+  });
+
+  it('coerces a truthy flip to exactly 1', () => {
+    const parsed = parseSettings('{"ovr":25,"auto":1,"sleep":20,"bright":50,"unlk":0,"flip":1}');
+    expect(parsed?.flip).toBe(1);
   });
 
   it('coerces a truthy ucal to exactly 1', () => {

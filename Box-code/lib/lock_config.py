@@ -59,6 +59,14 @@ SWAP_XY = False
 INVERT_X = True
 INVERT_Y = False
 
+# Seed default for Settings.screen_flipped -- lets the box be physically
+# mounted upside-down while still reading right-side-up, toggled from the
+# app's Settings screen (Settings > Box behaviors > "Flip screen"). Rotates
+# the panel 180° (LockUI.set_screen_flipped) and XORs both touch axes on top
+# of the INVERT_X/INVERT_Y calibration above (LockController._map) so taps
+# still land where the rotated content actually is.
+SCREEN_FLIPPED_DEFAULT = False
+
 
 # This panel's init has color INVERSION on (red->cyan, white->black).
 # fix() sends the inverse so colors render correctly.

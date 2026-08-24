@@ -1,6 +1,6 @@
 // SettingsScreen.tsx -- app behaviors + box behaviors + appearance. The box
-// behaviors (override presses / auto-open / sleep / brightness / remote
-// unlock / unlock when called) round-trip over BLE via
+// behaviors (override presses / auto-open / sleep / brightness / screen flip
+// / remote unlock / unlock when called) round-trip over BLE via
 // useStore.pushBoxSettings, mirrored locally in useSettingsStore.boxSettings
 // so this screen has something to show even before a connection is made.
 import React from 'react';
@@ -104,6 +104,13 @@ export default function SettingsScreen() {
           onSelect={(v) => pushBoxSettings({ bright: v })}
           color={c}
         />
+        <Row label="Flip screen upside down" color={c}>
+          <Switch
+            value={!!boxSettings.flip}
+            onValueChange={(v) => pushBoxSettings({ flip: v ? 1 : 0 })}
+            accessibilityLabel="Flip screen upside down"
+          />
+        </Row>
         <Row label="Allow open/close from this phone" color={c}>
           <Switch
             value={!!boxSettings.unlk}

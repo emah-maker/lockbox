@@ -66,6 +66,10 @@ export interface Settings {
   // (list + detail page), and the elapsed-clock style's time text (see
   // Box-code/lib/lock_ui.py set_theme/_accent_widgets) -- but never recolors
   // lock/closed/unlocked status indicators.
+  flip: 0 | 1; // rotate the box's own screen 180° -- lets it be mounted
+  // upside-down and still read right-side-up. Off by default. Applied via
+  // Box-code/lib/lock_ui.py LockUI.set_screen_flipped (display rotation) and
+  // LockController._map (touch coordinate correction).
 }
 
 // ----- parsers (defensive: the radio can hand us partial/garbled JSON) -----
@@ -121,6 +125,7 @@ export function parseSettings(json: string): Settings | null {
       // ACCENT_KEYS/Box-code/lib/lock_config.py's ACCENT_COLORS_DARK/LIGHT
       // if the accent count ever changes again.
       acc: Math.max(0, Math.min(7, Number(d.acc) || 0)),
+      flip: d.flip ? 1 : 0,
     };
   } catch {
     return null;
@@ -157,6 +162,7 @@ export const encodeSettings = (s: Settings) =>
     ucal: s.ucal ? 1 : 0,
     thm: s.thm === 1 ? 1 : 0,
     acc: Number.isFinite(s.acc) ? Math.floor(s.acc) : 0,
+    flip: s.flip ? 1 : 0,
   });
 export const encodeTime = (epochSeconds: number) => String(Math.floor(epochSeconds));
 

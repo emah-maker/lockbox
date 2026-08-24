@@ -53,6 +53,16 @@ class LockUI:
         self.display = display
         self.W = W = display.width
         self.H = H = display.height
+        # Whatever rotation the board support package already set up (its
+        # native "right-side-up" orientation) -- set_screen_flipped rotates
+        # 180° from *this*, not from a hardcoded 0, so it works regardless of
+        # what the board default happens to be. Guarded like every other
+        # board-shape assumption here: an unexpected display object with no
+        # .rotation attribute falls back to 0 instead of failing UI init.
+        try:
+            self._base_rotation = display.rotation
+        except AttributeError:
+            self._base_rotation = 0
 
         # ----- theme-tracking registries, populated by the _build_* calls
         # below (see set_theme). Bucketed by role, not by widget type, so
@@ -130,6 +140,18 @@ class LockUI:
         # registered itself; LockController re-applies the persisted theme
         # (if different) right after this once Settings() has loaded.
         self.set_theme(DEFAULT_MODE_IDX, DEFAULT_ACCENT_IDX)
+
+    # =================== orientation ===================
+    def set_screen_flipped(self, flipped):
+        """Rotate the panel 180° from its native orientation so the box can
+        be mounted upside-down and still read right-side-up. Width/height are
+        unaffected (180° never swaps them, unlike 90/270), so no widget needs
+        rebuilding -- only the touch coordinates need a matching correction,
+        done separately in LockController._map."""
+        try:
+            self.display.rotation = (self._base_rotation + 180) % 360 if flipped else self._base_rotation
+        except AttributeError:
+            pass
 
     # =================== theme ===================
     def set_theme(self, mode_idx, accent_idx):
