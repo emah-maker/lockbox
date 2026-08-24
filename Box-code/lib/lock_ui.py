@@ -1614,6 +1614,18 @@ class LockUI:
         # this fixes both by giving each direction its own small, explicit,
         # theme-colored affordance instead of one long unreadable caption.
         self.tp_nav_y = 308
+
+        # SKIP hold-to-confirm fill (see start_tag_picker_skip_hold/
+        # step_tag_picker_skip_hold/cancel_tag_picker_skip_hold): grey, not
+        # green/red -- SKIP doesn't tag a topic or cancel the picker, it
+        # starts an untagged session, so it gets its own neutral color
+        # rather than reusing either existing meaning. Appended before the
+        # arrow/label below so the fill paints behind them, same z-order
+        # convention as tp_hold_fill_group/tp_swipe_fill_group.
+        self.tp_skip_fill_group = displayio.Group()
+        group.append(self.tp_skip_fill_group)
+        self._tp_skip_last_key = None
+
         self._tp_arrow_left = Triangle(20, self.tp_nav_y - 5, 20, self.tp_nav_y + 5,
                                        12, self.tp_nav_y, fill=C_WHITE)
         group.append(self._tp_arrow_left)
@@ -1640,6 +1652,7 @@ class LockUI:
         """page_topics: [(id, name, color), ...], up to 6 entries for this page."""
         self._tp_ids = [t[0] for t in page_topics]
         self.cancel_tag_picker_hold()  # clear any residual fill from before this page swap
+        self.cancel_tag_picker_skip_hold()
         self.clear_tag_picker_swipe()
         for i, (lbl, dot) in enumerate(zip(self.tp_row_labels, self.tp_row_dots)):
             if i < len(page_topics):
@@ -1668,6 +1681,7 @@ class LockUI:
         # picker never reopens still showing a stale red/green bar.
         self.clear_tag_picker_swipe()
         self.cancel_tag_picker_hold()
+        self.cancel_tag_picker_skip_hold()
         # restore whatever top-level view was active before the picker
         self.show_view(self.view)
 
@@ -1730,6 +1744,39 @@ class LockUI:
         self._tp_hold_last_key = None
         while len(self.tp_hold_fill_group):
             self.tp_hold_fill_group.pop()
+
+    # ----- pre-session tag picker: hold-to-confirm SKIP fill -----
+    def start_tag_picker_skip_hold(self):
+        """Touch-down on SKIP (see LockController._start_tag_hold): primes
+        the grey fill at zero width, same priming/growth split as
+        start_tag_picker_hold/step_tag_picker_hold."""
+        self._tp_skip_last_key = None
+        self.step_tag_picker_skip_hold(0.0)
+
+    def step_tag_picker_skip_hold(self, progress):
+        """Grows a grey Rect across SKIP's left-half hit area as `progress`
+        (0..1) advances -- same rebuild-only-on-change idiom as
+        step_tag_picker_hold, just spanning the fixed SKIP region instead of
+        a per-row one since there's only ever one SKIP control."""
+        w = max(0, int(round((self.W // 2 - 12) * min(1.0, max(0.0, progress)))))
+        key = w
+        if key == self._tp_skip_last_key:
+            return
+        self._tp_skip_last_key = key
+        while len(self.tp_skip_fill_group):
+            self.tp_skip_fill_group.pop()
+        if w > 0:
+            self.tp_skip_fill_group.append(Rect(6, self.tp_nav_y - 14, w, 28, fill=C_GREY))
+
+    def cancel_tag_picker_skip_hold(self):
+        """Clears whatever SKIP fill is currently showing (released early,
+        drifted off SKIP onto MORE, or committed and about to hide the
+        picker)."""
+        if self._tp_skip_last_key is None:
+            return
+        self._tp_skip_last_key = None
+        while len(self.tp_skip_fill_group):
+            self.tp_skip_fill_group.pop()
 
     # ----- pre-session tag picker: live swipe-up-cancel bar -----
     def step_tag_picker_swipe_progress(self, progress):
