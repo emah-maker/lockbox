@@ -35,6 +35,14 @@ export const LABEL_SWATCHES: string[] = [
   '#2563eb', '#7c3aed', '#c026d3', '#db2777', '#78716c', '#334155',
 ];
 
+/** Neutral color for a one-time free-text tag typed via DashboardScreen's
+ * TopicPicker "Type a label for this session..." field (see resolveTopic
+ * below) -- these are never added to customLabels, so there's no user-picked
+ * color to look up. Reuses LABEL_SWATCHES's own warm-gray swatch rather than
+ * inventing a new hex, since it's already this app's "no strong color"
+ * choice. */
+const ONE_TIME_TAG_COLOR = '#78716c';
+
 export function makeCustomLabelId(): string {
   return `${CUSTOM_ID_PREFIX}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -66,12 +74,20 @@ export interface ResolvedTopic {
   color: string;
   textColor: string;
   isCustom: boolean;
+  /** True for a one-time free-text tag (DashboardScreen's TopicPicker
+   * "Type a label..." field) -- a raw session-scoped string that was never
+   * saved to customLabels, as distinct from isCustom's "a saved CustomLabel
+   * catalog entry". Never true at the same time as isCustom. */
+  isOneTime: boolean;
 }
 
-/** Resolves a session's stored topic id (a built-in TopicKey or a custom
- * label's id) to a display name + color. Returns null when untagged, or
- * when a custom label was since deleted -- its past sessions keep the id,
- * but there's nothing left to render for it. */
+/** Resolves a session's stored topic id (a built-in TopicKey, a saved
+ * custom label's id, or a one-time free-text tag typed directly into
+ * DashboardScreen's TopicPicker) to a display name + color. Returns null
+ * only when untagged, or when a *saved* custom label was since deleted --
+ * its past sessions keep the id, but there's nothing left to render for it.
+ * A one-time tag has no catalog entry to go stale, so it always resolves
+ * back to the exact string the user typed. */
 export function resolveTopic(
   topic: string | undefined,
   customLabels: CustomLabel[],
@@ -81,11 +97,16 @@ export function resolveTopic(
   if (topic in TOPIC_LABELS) {
     const key = topic as TopicKey;
     const color = topicColor(key, mode);
-    return { id: key, label: TOPIC_LABELS[key], color, textColor: readableTextColor(color), isCustom: false };
+    return { id: key, label: TOPIC_LABELS[key], color, textColor: readableTextColor(color), isCustom: false, isOneTime: false };
   }
   const custom = customLabels.find((l) => l.id === topic);
-  if (!custom) return null;
-  return { id: custom.id, label: custom.name, color: custom.color, textColor: readableTextColor(custom.color), isCustom: true };
+  if (custom) {
+    return { id: custom.id, label: custom.name, color: custom.color, textColor: readableTextColor(custom.color), isCustom: true, isOneTime: false };
+  }
+  if (isCustomLabelId(topic)) return null; // saved custom label, since deleted -- nothing left to render
+  // A one-time free-text tag: not a built-in key, not a saved custom label
+  // (or its id), so the raw string itself is the only thing to show.
+  return { id: topic, label: topic, color: ONE_TIME_TAG_COLOR, textColor: readableTextColor(ONE_TIME_TAG_COLOR), isCustom: false, isOneTime: true };
 }
 
 /** Every selectable label for (re)tagging a session: built-ins in their

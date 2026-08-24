@@ -1548,6 +1548,29 @@ class LockUI:
         group.append(cancel_hint)
         self._dim_widgets.append((cancel_hint, 'color'))
 
+        # Live swipe-up-cancel bar (see LockController.process()'s per-frame
+        # drag tracking + step_tag_picker_swipe_progress below): a thin red
+        # bar just under the "swipe up = cancel" hint that fills left-to-
+        # right as the drag approaches SWIPE_MIN_PX, same Rect-rebuild idiom
+        # as tp_hold_fill_group (below) so the two read as one consistent
+        # "progress toward committing a gesture" visual language, just red
+        # for canceling instead of green for confirming.
+        self.tp_swipe_fill_group = displayio.Group()
+        group.append(self.tp_swipe_fill_group)
+        self._tp_swipe_last_key = None
+
+        # Hold-to-confirm fill (see start_tag_picker_hold/step_tag_picker_hold
+        # /cancel_tag_picker_hold): a single shared Rect group, same
+        # rebuild-on-change idiom as bat_fill_group/ov_bar_fill_group -- only
+        # one row can ever be mid-hold at a time on this single-touch device.
+        # Appended BEFORE the row dot/label loop below so the fill paints
+        # behind them (same z-order convention as the press-feedback rings in
+        # _build_control): the row's dot and text stay readable through the
+        # green wash instead of being covered by it.
+        self.tp_hold_fill_group = displayio.Group()
+        group.append(self.tp_hold_fill_group)
+        self._tp_hold_last_key = None
+
         # Dot at a fixed x, name left-anchored just after it -- was a single
         # centered label per row until each row needed its own topic color
         # (built-in or synced-custom, see lock_config.BUILTIN_TOPICS /
@@ -1572,7 +1595,12 @@ class LockUI:
             self.tp_row_labels.append(lbl)
         self._tp_ids = []
 
-        hint = label.Label(terminalio.FONT, text="tap = tag & start", color=C_GREY)
+        # "hold = tag & start" (not "tap") -- see LockController._start_tag_hold
+        # /_update_tag_hold: a row now needs a TAG_HOLD_S-long press (green
+        # fill grows to cover the row) to commit, so a tap alone no longer
+        # starts anything (manager report: an accidental tap used to commit
+        # instantly with no way to back out).
+        hint = label.Label(terminalio.FONT, text="hold = tag & start", color=C_GREY)
         hint.anchor_point = (0.5, 0.5)
         hint.anchored_position = (W // 2, 288)
         group.append(hint)
@@ -1611,6 +1639,8 @@ class LockUI:
     def show_tag_picker(self, page_topics):
         """page_topics: [(id, name, color), ...], up to 6 entries for this page."""
         self._tp_ids = [t[0] for t in page_topics]
+        self.cancel_tag_picker_hold()  # clear any residual fill from before this page swap
+        self.clear_tag_picker_swipe()
         for i, (lbl, dot) in enumerate(zip(self.tp_row_labels, self.tp_row_dots)):
             if i < len(page_topics):
                 # 9 chars, not 12 -- at this row's scale=2 (12px/glyph), the
@@ -1631,15 +1661,31 @@ class LockUI:
         self.display.root_group = self.tag_picker_group
 
     def hide_tag_picker(self):
+        # The universal chokepoint for leaving this screen -- go_running
+        # (tap/skip/more/hold-commit paths) and the live swipe-up-cancel
+        # commit (LockController.process()'s per-frame drag tracking) both
+        # call this, so clearing any in-progress fill here guarantees the
+        # picker never reopens still showing a stale red/green bar.
+        self.clear_tag_picker_swipe()
+        self.cancel_tag_picker_hold()
         # restore whatever top-level view was active before the picker
         self.show_view(self.view)
 
-    def tag_picker_topic_at(self, y):
+    def tag_picker_row_at(self, y):
         # Same tolerance convention as settings_row_at.
         for i, ry in enumerate(self.tp_rows_y):
             if abs(y - ry) <= 19 and i < len(self._tp_ids):
-                return self._tp_ids[i]
+                return i
         return None
+
+    def tag_picker_topic_at(self, y):
+        row = self.tag_picker_row_at(y)
+        return self._tp_ids[row] if row is not None else None
+
+    def tag_picker_topic_for_row(self, row_idx):
+        if row_idx is None or row_idx >= len(self._tp_ids):
+            return None
+        return self._tp_ids[row_idx]
 
     def tag_picker_nav_at(self, x, y):
         """'skip' / 'more' if (x, y) landed on that arrow+label control,
@@ -1648,6 +1694,70 @@ class LockUI:
         if abs(y - self.tp_nav_y) > 18:
             return None
         return 'skip' if x < self.W // 2 else 'more'
+
+    # ----- pre-session tag picker: hold-to-confirm row fill -----
+    def start_tag_picker_hold(self, row_idx):
+        """Touch-down on a topic row (see LockController._start_tag_hold):
+        primes the green fill at zero width -- step_tag_picker_hold grows it
+        from here as the hold continues."""
+        self._tp_hold_last_key = None
+        self.step_tag_picker_hold(row_idx, 0.0)
+
+    def step_tag_picker_hold(self, row_idx, progress):
+        """Grows a green Rect leftward-to-rightward across the row as
+        `progress` (0..1) advances -- same rebuild-only-on-change idiom as
+        update_battery_view/update_override_timeout's fill bars (a fresh
+        Rect is cheap; rebuilding one on every unchanged frame is what
+        actually costs heap churn, per those functions' comments)."""
+        w = max(0, int(round((self.W - 12) * min(1.0, max(0.0, progress)))))
+        key = (row_idx, w)
+        if key == self._tp_hold_last_key:
+            return
+        self._tp_hold_last_key = key
+        while len(self.tp_hold_fill_group):
+            self.tp_hold_fill_group.pop()
+        if w > 0:
+            y_top = self.tp_rows_y[row_idx] - 16
+            self.tp_hold_fill_group.append(Rect(6, y_top, w, 32, fill=C_GREEN))
+
+    def cancel_tag_picker_hold(self):
+        """Clears whatever fill is currently showing (hold released early,
+        drifted off the row, or committed and about to hide the picker) --
+        only one row can be mid-hold at a time on this single-touch device,
+        so nothing else needs to know which row it was."""
+        if self._tp_hold_last_key is None:
+            return
+        self._tp_hold_last_key = None
+        while len(self.tp_hold_fill_group):
+            self.tp_hold_fill_group.pop()
+
+    # ----- pre-session tag picker: live swipe-up-cancel bar -----
+    def step_tag_picker_swipe_progress(self, progress):
+        """Grows a red Rect under the "swipe up = cancel" hint as `progress`
+        (0..1, live |dy|/SWIPE_MIN_PX from LockController.process()) tracks
+        the drag itself -- not a scripted post-release flash. Same rebuild-
+        only-on-change idiom as step_tag_picker_hold, just red and anchored
+        under the hint instead of green and per-row, so the two gestures
+        read as one consistent "progress toward committing" language."""
+        w = max(0, int(round((self.W - 12) * min(1.0, max(0.0, progress)))))
+        key = w
+        if key == self._tp_swipe_last_key:
+            return
+        self._tp_swipe_last_key = key
+        while len(self.tp_swipe_fill_group):
+            self.tp_swipe_fill_group.pop()
+        if w > 0:
+            self.tp_swipe_fill_group.append(Rect(6, 20, w, 6, fill=C_RED))
+
+    def clear_tag_picker_swipe(self):
+        """Clears the red bar -- drag reversed/released below threshold, or
+        the picker is closing (commit or otherwise) and needs a clean slate
+        for the next time it's shown."""
+        if self._tp_swipe_last_key is None:
+            return
+        self._tp_swipe_last_key = None
+        while len(self.tp_swipe_fill_group):
+            self.tp_swipe_fill_group.pop()
 
     # =================== hit testing ===================
     def in_button(self, x, y):

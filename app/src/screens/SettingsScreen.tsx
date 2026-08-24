@@ -14,6 +14,7 @@ import { THEME_MODES, ACCENT_KEYS, ACCENT_LABELS, accentSwatch, ThemeMode, Accen
 import { CustomLabelsSection } from './CustomLabelsSection';
 import { Button, Section, rowLabelStyle, captionStyle } from './SettingsPrimitives';
 import { OverridePressPicker, OverrideCustomEntry } from './OverridePressSection';
+import { AngleCustomEntry } from './ServoAngleSection';
 import { AnimatedPressable } from '../ui/AnimatedPressable';
 import { typeScale } from '../theme/tokens';
 import { OVR_MIN, OVR_MAX } from './overridePresses';
@@ -102,6 +103,18 @@ export default function SettingsScreen() {
           value={boxSettings.bright}
           format={(v) => `${v}%`}
           onSelect={(v) => pushBoxSettings({ bright: v })}
+          color={c}
+        />
+        <AngleCustomEntry
+          label="Lock angle"
+          value={boxSettings.langle}
+          onChange={(v) => pushBoxSettings({ langle: v })}
+          color={c}
+        />
+        <AngleCustomEntry
+          label="Unlock angle"
+          value={boxSettings.uangle}
+          onChange={(v) => pushBoxSettings({ uangle: v })}
           color={c}
         />
         <Row label="Flip screen upside down" color={c}>

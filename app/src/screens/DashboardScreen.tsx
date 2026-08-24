@@ -9,7 +9,7 @@ import { useSettingsStore } from '../store/useSettingsStore';
 import { useTheme } from '../theme/useTheme';
 import { withAlpha } from '../theme/theme';
 import { aggregate, formatDuration, completionRate, clampLockSeconds, MAX_LOCK_HOURS, MAX_LOCK_SECONDS } from '../stats/stats';
-import { allLabelChoices, resolveTopic } from '../stats/customLabels';
+import { TopicPicker } from './TopicPicker';
 import { lastNDays } from '../stats/trend';
 import { filterByWindow } from '../stats/sessionHistory';
 import type { Status } from '../ble/protocol';
@@ -398,7 +398,6 @@ export default function DashboardScreen() {
               customLabels={customLabels}
               themeMode={themeMode}
               theme={theme}
-              s={s}
               onSelect={tagCurrentSession}
             />
           </View>
@@ -411,7 +410,6 @@ export default function DashboardScreen() {
             customLabels={customLabels}
             themeMode={themeMode}
             theme={theme}
-            s={s}
             onSelect={tagCurrentSession}
           />
         )}
@@ -476,57 +474,6 @@ export default function DashboardScreen() {
   );
 }
 
-// Shared by the pre-session picker (canClose, above) and the in-session chip
-// row (status.st === 'running') so both tagging moments render identically
-// and stay backed by the same custom-label catalog.
-function TopicPicker({
-  heading,
-  currentTopic,
-  customLabels,
-  themeMode,
-  theme,
-  s,
-  onSelect,
-}: {
-  heading: string;
-  currentTopic: string | null;
-  customLabels: ReturnType<typeof useSettingsStore.getState>['customLabels'];
-  themeMode: ReturnType<typeof useSettingsStore.getState>['themeMode'];
-  theme: ReturnType<typeof useTheme>;
-  s: ReturnType<typeof styles>;
-  onSelect: (topic: string) => void;
-}) {
-  return (
-    <View style={{ marginTop: 8 }}>
-      <Text style={s.label}>
-        {currentTopic
-          ? `Tagged: ${resolveTopic(currentTopic, customLabels, themeMode)?.label ?? currentTopic}`
-          : heading}
-      </Text>
-      <View style={s.topicChipRow}>
-        {allLabelChoices(customLabels, themeMode).map((choice) => {
-          const active = currentTopic === choice.id;
-          return (
-            <AnimatedPressable
-              key={choice.id}
-              style={[
-                s.topicChip,
-                { borderColor: choice.color },
-                active && { backgroundColor: choice.color },
-              ]}
-              onPress={() => onSelect(choice.id)}
-            >
-              <Text style={[s.topicChipText, { color: active ? choice.textColor : theme.text }]}>
-                {choice.label}
-              </Text>
-            </AnimatedPressable>
-          );
-        })}
-      </View>
-    </View>
-  );
-}
-
 const styles = (t: ReturnType<typeof useTheme>) =>
   StyleSheet.create({
     // paddingTop replaces the old h1 title's marginTop:40 for top clearance
@@ -564,12 +511,9 @@ const styles = (t: ReturnType<typeof useTheme>) =>
     pickerRow: { flexDirection: 'row', gap: 16, marginTop: 6 },
     meterTrack: { height: 8, borderRadius: 4, overflow: 'hidden', marginTop: 2 },
     meterFill: { height: '100%', borderRadius: 4 },
-    topicChipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 },
-    topicChip: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 16, borderWidth: 1.5 },
     sparkRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: 10, gap: 4 },
     sparkCol: { alignItems: 'center', gap: 4, flex: 1 },
     sparkTrack: { width: 12, height: SPARK_MAX_H, borderRadius: 6, justifyContent: 'flex-end', overflow: 'hidden' },
     sparkBar: { width: '100%', borderRadius: 6 },
     sparkLabel: { ...typeScale.caption, color: t.textDim },
-    topicChipText: { ...typeScale.label },
   });

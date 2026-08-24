@@ -163,8 +163,15 @@ BL_LEVEL_USB = 1.0
 # Any free GPIO works for PWM. Avoid strapping pins (GPIO0/3/45/46) and pins
 # already used (GPIO12 battery, 41/42/47/48 touch, 13-18 SD, LCD pins).
 SERVO_PIN = "GPIO5"
-SERVO_LOCK_ANGLE = 45        # degrees (-90..90): locked position (fixed)
-SERVO_UNLOCK_ANGLE = 0       # unlocked position (fixed)
+SERVO_LOCK_ANGLE = 45        # degrees (-90..90): seed default for
+                             # Settings.lock_angle (see lock_settings.py) --
+                             # no longer read directly by LockController,
+                             # which now uses the (app-adjustable) setting
+SERVO_UNLOCK_ANGLE = 0       # seed default for Settings.unlock_angle, ditto
+SERVO_ANGLE_MIN = -90        # servo's real range (see lock_servo.Servo._write_angle,
+SERVO_ANGLE_MAX = 90         # which already clamps to this) -- shared clamp
+                             # bounds for Settings.lock_angle/unlock_angle and
+                             # their BLE fields ("langle"/"uangle")
 SERVO_MIN_US = 500           # pulse width at -90 deg (servo calibration)
 SERVO_MAX_US = 2500          # pulse width at +90 deg
 SERVO_HOLD_S = 1.0           # keep PWM on this long after a move, then relax
@@ -315,6 +322,22 @@ HOLD_REPEAT_DELAY = 0.4       # seconds held before auto-repeat kicks in
 HOLD_REPEAT_START = 0.35      # seconds between the first few repeats
 HOLD_REPEAT_MIN = 0.08        # fastest repeat interval once ramped up
 HOLD_REPEAT_RAMP = 0.85       # interval *= this factor after each repeat
+
+# ----- Pre-session tag picker: hold-to-confirm row -----
+# Hold-to-confirm replaced tap-to-tag (manager report: an accidental tap on a
+# row used to commit to a session instantly, no way to back out once the
+# finger landed) -- press a row and hold; a green fill (LockUI.
+# step_tag_picker_hold) grows to cover the row over this duration, then
+# LockController._update_tag_hold auto-commits go_running(topic=...)).
+# Releasing before it fills cancels with no tag. 0.6s sits in the middle of
+# the requested 500-800ms band -- long enough that a quick accidental tap
+# can't complete it, short enough not to feel like a stuck button.
+#
+# The swipe-up-cancel gesture doesn't have its own duration constant: its
+# red bar (LockUI.step_tag_picker_swipe_progress) tracks live drag distance
+# against the existing SWIPE_MIN_PX threshold instead of elapsed time, so
+# there's no separate animation length to tune here.
+TAG_HOLD_S = 0.6
 
 # ----- Custom label sync (app -> box), best-effort -----
 # The box has no independent concept of a "label" -- it just holds whatever

@@ -8,22 +8,28 @@ from lock_config import (
     OVERRIDE_PRESSES, INACTIVITY_S, BL_LEVEL, BLE_ALLOW_REMOTE_UNLOCK,
     BLE_UNLOCK_ON_CALL, OVR_MIN, OVR_MAX, OVR_STEP, SLEEP_OPTIONS,
     BRIGHT_OPTIONS, DEFAULT_MODE_IDX, DEFAULT_ACCENT_IDX, ACCENT_COLORS,
-    SCREEN_FLIPPED_DEFAULT,
+    SCREEN_FLIPPED_DEFAULT, SERVO_LOCK_ANGLE, SERVO_UNLOCK_ANGLE,
+    SERVO_ANGLE_MIN, SERVO_ANGLE_MAX,
 )
 
-_MAGIC = 0x62        # bump when the NVM layout changes (forces defaults once);
-                     # bumped from 0x61 to 0x62 to add screen_flipped at a new
-                     # offset (_BASE+10) -- same reasoning as the 0x60->0x61
-                     # bump below: a box flashed before this change would
-                     # otherwise read whatever stray byte happens to sit at
-                     # that never-before-written offset as a bogus flip flag.
-                     # 0x60->0x61 was for the override_presses high byte
-                     # (OVR_MAX raised from 255 to 500 -- a single NVM byte
-                     # can't hold that, see Settings.save/_load) so a box
-                     # flashed before this change doesn't read a stray erased
-                     # byte as a garbage high byte and reconstruct a bogus
-                     # override count
+_MAGIC = 0x63        # bump when the NVM layout changes (forces defaults once);
+                     # bumped from 0x62 to 0x63 to add lock_angle/unlock_angle
+                     # at new offsets (_BASE+11/_BASE+12) -- same reasoning as
+                     # the 0x61->0x62 bump below: a box flashed before this
+                     # change would otherwise read whatever stray byte happens
+                     # to sit at those never-before-written offsets as a
+                     # bogus servo angle.
+                     # 0x61->0x62 was for screen_flipped (_BASE+10); 0x60->
+                     # 0x61 was for the override_presses high byte (OVR_MAX
+                     # raised from 255 to 500 -- a single NVM byte can't hold
+                     # that, see Settings.save/_load) so a box flashed before
+                     # that change doesn't read a stray erased byte as a
+                     # garbage high byte and reconstruct a bogus override
+                     # count
 _BASE = 8            # NVM offset for settings (byte 0 = brownout counter)
+# lock_angle/unlock_angle are stored as (angle + 90) so the -90..90 range
+# fits an unsigned NVM byte (0..180) without needing signed-byte handling.
+_ANGLE_BYTE_OFFSET = 90
 
 
 def _step_in(options, value, direction):
@@ -67,6 +73,15 @@ class Settings:
         # right-side-up -- toggled from the app's Settings screen, applied
         # via LockUI.set_screen_flipped and LockController._map (touch).
         self.screen_flipped = SCREEN_FLIPPED_DEFAULT
+        # Servo lock/unlock angles -- app-adjustable (phone Settings screen),
+        # applied via LockController.engage_lock/release_lock instead of the
+        # fixed SERVO_LOCK_ANGLE/SERVO_UNLOCK_ANGLE constants. Defaulting to
+        # those same constants keeps behavior unchanged until a user edits
+        # them. Pushed/pulled over BLE as "langle"/"uangle" (see
+        # LockController.ble_settings_json/apply_ble_settings_json) -- that
+        # exact key contract is shared with the phone app, do not rename.
+        self.lock_angle = SERVO_LOCK_ANGLE
+        self.unlock_angle = SERVO_UNLOCK_ANGLE
         self._load()
 
     def _load(self):
@@ -84,6 +99,8 @@ class Settings:
                 self.theme_mode = nvm[_BASE + 7]
                 self.accent_idx = nvm[_BASE + 8]
                 self.screen_flipped = bool(nvm[_BASE + 10])
+                self.lock_angle = nvm[_BASE + 11] - _ANGLE_BYTE_OFFSET
+                self.unlock_angle = nvm[_BASE + 12] - _ANGLE_BYTE_OFFSET
         except Exception:
             pass
 
@@ -109,6 +126,10 @@ class Settings:
             nvm[_BASE + 7] = max(0, min(1, int(self.theme_mode)))
             nvm[_BASE + 8] = max(0, min(len(ACCENT_COLORS) - 1, int(self.accent_idx)))
             nvm[_BASE + 10] = 1 if self.screen_flipped else 0
+            lock_angle = max(SERVO_ANGLE_MIN, min(SERVO_ANGLE_MAX, int(self.lock_angle)))
+            unlock_angle = max(SERVO_ANGLE_MIN, min(SERVO_ANGLE_MAX, int(self.unlock_angle)))
+            nvm[_BASE + 11] = lock_angle + _ANGLE_BYTE_OFFSET
+            nvm[_BASE + 12] = unlock_angle + _ANGLE_BYTE_OFFSET
         except Exception:
             pass
 
