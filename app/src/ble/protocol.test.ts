@@ -8,19 +8,49 @@ import {
   BLE_LABEL_NAME_MAX_LEN,
 } from './protocol';
 
-const FULL: Settings = { ovr: 25, auto: 1, sleep: 20, bright: 50, unlk: 0, ucal: 1, thm: 1, acc: 3 };
+const FULL: Settings = { ovr: 25, auto: 1, sleep: 20, bright: 50, unlk: 0, ucal: 1, thm: 1, acc: 3, flip: 1, langle: 45, uangle: 0 };
 
 describe('encodeSettings / parseSettings round-trip', () => {
-  it('round-trips every field, including ucal, thm, and acc', () => {
+  it('round-trips every field, including ucal, thm, acc, and flip', () => {
     const parsed = parseSettings(encodeSettings(FULL));
     expect(parsed).toEqual(FULL);
   });
 
-  it('defaults ucal, thm, and acc to 0 when the firmware payload omits them (pre-upgrade box)', () => {
+  it('defaults ucal, thm, acc, and flip to 0 when the firmware payload omits them (pre-upgrade box)', () => {
     const parsed = parseSettings('{"ovr":25,"auto":1,"sleep":20,"bright":50,"unlk":0}');
     expect(parsed?.ucal).toBe(0);
     expect(parsed?.thm).toBe(0);
     expect(parsed?.acc).toBe(0);
+    expect(parsed?.flip).toBe(0);
+  });
+
+  it('defaults langle/uangle to the box\'s fixed pre-upgrade constants (45/0) when the payload omits them', () => {
+    const parsed = parseSettings('{"ovr":25,"auto":1,"sleep":20,"bright":50,"unlk":0}');
+    expect(parsed?.langle).toBe(45);
+    expect(parsed?.uangle).toBe(0);
+  });
+
+  it('preserves a legitimate 0 langle instead of falling back to the 45 default', () => {
+    const parsed = parseSettings('{"ovr":25,"auto":1,"sleep":20,"bright":50,"unlk":0,"langle":0}');
+    expect(parsed?.langle).toBe(0);
+  });
+
+  it('round-trips negative angles', () => {
+    const encoded = encodeSettings({ ...FULL, langle: -90, uangle: -45 });
+    const parsed = parseSettings(encoded);
+    expect(parsed?.langle).toBe(-90);
+    expect(parsed?.uangle).toBe(-45);
+  });
+
+  it('clamps an out-of-range langle/uangle to [-90, 90] instead of forwarding garbage to the box', () => {
+    const parsed = parseSettings('{"ovr":25,"auto":1,"sleep":20,"bright":50,"unlk":0,"langle":200,"uangle":-200}');
+    expect(parsed?.langle).toBe(90);
+    expect(parsed?.uangle).toBe(-90);
+  });
+
+  it('coerces a truthy flip to exactly 1', () => {
+    const parsed = parseSettings('{"ovr":25,"auto":1,"sleep":20,"bright":50,"unlk":0,"flip":1}');
+    expect(parsed?.flip).toBe(1);
   });
 
   it('coerces a truthy ucal to exactly 1', () => {
@@ -53,6 +83,21 @@ describe('encodeSettings / parseSettings round-trip', () => {
     expect(parsed?.ovr).toBe(0);
     expect(parsed?.sleep).toBe(0);
     expect(parsed?.bright).toBe(0);
+  });
+
+  it('sanitizes a non-finite langle/uangle to their own defaults (45/0), not 0 for both', () => {
+    const withNaN: Settings = { ...FULL, langle: NaN, uangle: Infinity };
+    const encoded = encodeSettings(withNaN);
+    const parsed = parseSettings(encoded);
+    expect(parsed?.langle).toBe(45);
+    expect(parsed?.uangle).toBe(0);
+  });
+
+  it('clamps an out-of-range langle/uangle at encode time too', () => {
+    const encoded = encodeSettings({ ...FULL, langle: 500, uangle: -500 });
+    const parsed = parseSettings(encoded);
+    expect(parsed?.langle).toBe(90);
+    expect(parsed?.uangle).toBe(-90);
   });
 
   it('floors non-integer numeric fields the same way cmdStart/cmdSetDuration do', () => {

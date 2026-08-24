@@ -7,11 +7,14 @@
 
 ## Skill Input
 - The files this run created, updated, or moved (with their paths).
+- The backend action plan for every backend touched by this run.
+- Manager-level file review material captured during apply: prior content availability, final content or diff, action taken, backend type, and manager-home-relative label when available.
 - The retention-cleanup summary (what was deleted or moved).
 
 ## Skill Output
 - `reviewHandoff`: the object the calling job sets as `evidence.reviewHandoff`.
 - A one-sentence summary of what changed.
+- The user-facing submit report sections `## Backend action plan` and, when Manager-level files changed, `## Manager-level file changes`.
 
 ---
 

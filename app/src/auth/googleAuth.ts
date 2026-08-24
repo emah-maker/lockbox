@@ -1,5 +1,11 @@
 // googleAuth.ts -- native Google Sign-In -> Firebase credential exchange
-// (§1.2), and the full secure sign-out (§2.4).
+// (§1.2), and the full secure sign-out (§2.4). signInWithGoogle() routes
+// through accountLinking.ts's signInDetectingLinkConflict() so a user who
+// already has an Apple-linked account under this email gets a clear
+// "sign in with Apple to link" prompt instead of a fatal
+// auth/account-exists-with-different-credential throw -- see
+// accountLinking.ts for the shared conflict-handling logic appleAuth.ts uses
+// too.
 //
 // Security note (design doc §5 checklist item 1): the raw Google ID token
 // returned by GoogleSignin.signIn() is held only in the local `idToken`
@@ -14,6 +20,7 @@ import * as SecureStore from 'expo-secure-store';
 import { getFirebaseAuth } from './firebase';
 import { SECURE_STORE_OPTS, FIREBASE_AUTH_SECURE_STORE_KEYS } from './secureStoreKeys';
 import { GOOGLE_WEB_CLIENT_ID, GOOGLE_IOS_CLIENT_ID } from './firebaseConfig';
+import { signInDetectingLinkConflict } from './accountLinking';
 
 let configured = false;
 function ensureConfigured(): void {
@@ -44,7 +51,9 @@ export async function signInWithGoogle(): Promise<User> {
     throw new Error('Google Sign-In did not return an ID token.');
   }
   const credential = GoogleAuthProvider.credential(idToken);
-  const userCredential = await signInWithCredential(getFirebaseAuth(), credential);
+  const userCredential = await signInDetectingLinkConflict('google', credential, () =>
+    signInWithCredential(getFirebaseAuth(), credential),
+  );
   // `idToken` and `credential` fall out of scope here -- used once, never persisted.
   return userCredential.user;
 }

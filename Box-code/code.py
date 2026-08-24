@@ -29,7 +29,7 @@ except AttributeError:
 reset_pin = getattr(board, "TOUCH_RST", None)
 touch = AXS5106L(i2c, reset_pin=reset_pin)
 
-# The MAX17048 fuel gauge shares this same I2C bus (@ 0x36), so hand the bus to
+# The MAX17043 fuel gauge shares this same I2C bus (@ 0x36), so hand the bus to
 # the controller -> Battery. A second busio.I2C on the same pins would conflict.
 ctrl = LockController(ui, touch, i2c)
 ble = PhoneBoxBLE()

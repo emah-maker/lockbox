@@ -1,10 +1,11 @@
 // SettingsScreen.tsx -- app behaviors + box behaviors + appearance. The box
-// behaviors (override presses / auto-open / sleep / brightness / remote
-// unlock / unlock when called) round-trip over BLE via
+// behaviors (override presses / auto-open / sleep / brightness / screen flip
+// / remote unlock / unlock when called) round-trip over BLE via
 // useStore.pushBoxSettings, mirrored locally in useSettingsStore.boxSettings
 // so this screen has something to show even before a connection is made.
 import React from 'react';
 import { View, Text, StyleSheet, Switch, ScrollView, Alert } from 'react-native';
+import * as AppleAuthentication from 'expo-apple-authentication';
 import { useStore, CONN_LABELS } from '../store/useStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useAuthStore } from '../auth/useAuthStore';
@@ -13,6 +14,7 @@ import { THEME_MODES, ACCENT_KEYS, ACCENT_LABELS, accentSwatch, ThemeMode, Accen
 import { CustomLabelsSection } from './CustomLabelsSection';
 import { Button, Section, rowLabelStyle, captionStyle } from './SettingsPrimitives';
 import { OverridePressPicker, OverrideCustomEntry } from './OverridePressSection';
+import { AngleCustomEntry } from './ServoAngleSection';
 import { AnimatedPressable } from '../ui/AnimatedPressable';
 import { typeScale } from '../theme/tokens';
 import { OVR_MIN, OVR_MAX } from './overridePresses';
@@ -103,6 +105,25 @@ export default function SettingsScreen() {
           onSelect={(v) => pushBoxSettings({ bright: v })}
           color={c}
         />
+        <AngleCustomEntry
+          label="Lock angle"
+          value={boxSettings.langle}
+          onChange={(v) => pushBoxSettings({ langle: v })}
+          color={c}
+        />
+        <AngleCustomEntry
+          label="Unlock angle"
+          value={boxSettings.uangle}
+          onChange={(v) => pushBoxSettings({ uangle: v })}
+          color={c}
+        />
+        <Row label="Flip screen upside down" color={c}>
+          <Switch
+            value={!!boxSettings.flip}
+            onValueChange={(v) => pushBoxSettings({ flip: v ? 1 : 0 })}
+            accessibilityLabel="Flip screen upside down"
+          />
+        </Row>
         <Row label="Allow open/close from this phone" color={c}>
           <Switch
             value={!!boxSettings.unlk}
@@ -175,7 +196,9 @@ function AccountSection({ color }: { color: ReturnType<typeof useTheme> }) {
   const syncing = useAuthStore((s) => s.syncing);
   const syncError = useAuthStore((s) => s.syncError);
   const lastSyncedAt = useAuthStore((s) => s.lastSyncedAt);
-  const signIn = useAuthStore((s) => s.signIn);
+  const pendingLink = useAuthStore((s) => s.pendingLink);
+  const signInWithGoogle = useAuthStore((s) => s.signInWithGoogle);
+  const signInWithApple = useAuthStore((s) => s.signInWithApple);
   const signOut = useAuthStore((s) => s.signOut);
   const deleteAccount = useAuthStore((s) => s.deleteAccount);
   const syncNow = useAuthStore((s) => s.syncNow);
@@ -183,8 +206,22 @@ function AccountSection({ color }: { color: ReturnType<typeof useTheme> }) {
   const [busy, setBusy] = React.useState(false);
   const [deleteError, setDeleteError] = React.useState<string | null>(null);
   const [signInError, setSignInError] = React.useState<string | null>(null);
+  // Runtime capability check (not Platform.OS): false on Android, and on iOS
+  // devices/OS versions where Sign in with Apple isn't available -- keeps
+  // the button from ever being shown somewhere it would just fail.
+  const [appleAvailable, setAppleAvailable] = React.useState(false);
 
-  const handleSignIn = async () => {
+  React.useEffect(() => {
+    let cancelled = false;
+    AppleAuthentication.isAvailableAsync().then((available) => {
+      if (!cancelled) setAppleAvailable(available);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleSignIn = async (signIn: () => Promise<void>) => {
     setBusy(true);
     setSignInError(null);
     try {
@@ -197,8 +234,11 @@ function AccountSection({ color }: { color: ReturnType<typeof useTheme> }) {
       // surfacing as an error -- tapping Cancel on the account picker is a
       // normal outcome, not a failure -- but every other failure previously
       // vanished silently here, unlike handleDeleteAccount's own catch below.
+      // AccountExistsError's own message is generic/credential-free too
+      // (see accountLinking.ts) -- pendingLink (rendered below) carries the
+      // "sign in with your other provider" prompt, so it isn't duplicated here.
       const msg = typeof e?.message === 'string' ? e.message : 'Could not sign in. Please try again.';
-      if (!/cancel/i.test(msg)) setSignInError(msg);
+      if (!/cancel/i.test(msg) && e?.name !== 'AccountExistsError') setSignInError(msg);
     } finally {
       setBusy(false);
     }
@@ -289,7 +329,32 @@ function AccountSection({ color }: { color: ReturnType<typeof useTheme> }) {
           </Text>
           {syncError ? <Text style={[styles.subtitle, { color: color.danger }]}>{syncError}</Text> : null}
           {signInError ? <Text style={[styles.subtitle, { color: color.danger }]}>{signInError}</Text> : null}
-          <Button label="Sign in with Google" onPress={handleSignIn} disabled={busy} loading={busy} color={color} />
+          {pendingLink ? (
+            <Text style={[styles.subtitle, { color: color.danger, marginBottom: 8 }]}>
+              {pendingLink.email ? `An account already exists for ${pendingLink.email}` : 'An account already exists for this email'}
+              {' '}with a different sign-in method. Sign in with{' '}
+              {pendingLink.linkWithProvider === 'google' ? 'Google' : 'Apple'} to link your accounts.
+            </Text>
+          ) : null}
+          <View style={styles.chipRow}>
+            <Button
+              label="Sign in with Google"
+              onPress={() => handleSignIn(signInWithGoogle)}
+              disabled={busy}
+              loading={busy}
+              color={color}
+            />
+            {appleAvailable ? (
+              <Button
+                label="Sign in with Apple"
+                onPress={() => handleSignIn(signInWithApple)}
+                disabled={busy}
+                loading={busy}
+                color={color}
+                variant="outline"
+              />
+            ) : null}
+          </View>
         </>
       )}
     </Section>

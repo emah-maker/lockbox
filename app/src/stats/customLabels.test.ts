@@ -94,12 +94,18 @@ describe('resolveTopic', () => {
     expect(resolved).toMatchObject({ id: 'custom:abc', label: 'Deep Work', color: '#123456', isCustom: true });
   });
 
-  it('returns null for an unknown or deleted custom label id', () => {
+  it('returns null for a since-deleted saved custom label id', () => {
     expect(resolveTopic('custom:gone', customLabels, 'dark')).toBeNull();
   });
 
   it('returns null for an untagged session', () => {
     expect(resolveTopic(undefined, customLabels, 'dark')).toBeNull();
+  });
+
+  it('resolves a one-time free-text tag to the raw string, not null', () => {
+    const resolved = resolveTopic('Client call prep', customLabels, 'dark');
+    expect(resolved).toMatchObject({ id: 'Client call prep', label: 'Client call prep', isCustom: false, isOneTime: true });
+    expect(resolved?.color).toBeTruthy();
   });
 });
 
@@ -126,6 +132,11 @@ describe('topicBreakdownWithCustom / dominantTopicWithCustom', () => {
   it('excludes sessions tagged with a since-deleted custom label', () => {
     const breakdown = topicBreakdownWithCustom([s('custom:gone', 100)], [], 'dark');
     expect(breakdown).toEqual([]);
+  });
+
+  it('includes a session tagged with a one-time free-text label, grouped by its own text', () => {
+    const breakdown = topicBreakdownWithCustom([s('Client call prep', 100)], [], 'dark');
+    expect(breakdown).toMatchObject([{ key: 'Client call prep', label: 'Client call prep', focusS: 100, n: 1 }]);
   });
 
   it('dominantTopicWithCustom picks the highest-focus entry, or null when untagged', () => {

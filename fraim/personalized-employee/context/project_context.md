@@ -29,11 +29,11 @@ to integrate with.
     - `lock_ui.py` — display rendering (timer view, clock/countdown, settings,
       unlock animation). Largest module (1763 lines).
     - `lock_servo.py` — servo lock actuator driver (PWM, hold-then-relax).
-    - `lock_battery.py` — LiPo state-of-charge via the MAX17048 fuel gauge
+    - `lock_battery.py` — LiPo state-of-charge via the MAX17043 fuel gauge
       (I2C @ 0x36 on the shared touch bus); receives the bus by injection and
       exposes the same `BatteryReading` shape. Replaced the old ADC
       voltage-divider + voltage-curve estimate.
-    - `max17048.py` — minimal raw-`busio` driver for the Maxim MAX17048 fuel
+    - `max17043.py` — minimal raw-`busio` driver for the Maxim MAX17043 fuel
       gauge (VCELL/SOC register reads); no external dependency, mirrors the
       `axs5106l.py` shared-bus `try_lock` convention.
     - `lock_power.py` — backlight / power management.
@@ -53,7 +53,7 @@ to integrate with.
 - **Lock actuator:** external hobby **servo** on a free GPIO (default `GPIO5`),
   locked angle 45°, unlocked 0°.
 - **Power:** single-cell **LiPo (~1000 mAh)**. State of charge is read from an
-  add-on **Adafruit MAX17048 fuel gauge** (I2C @ 0x36, shares the touch bus, no
+  add-on **MAX17043 fuel gauge** (I2C @ 0x36, shares the touch bus, no
   new GPIO); the board's own `GPIO12` 3:1 divider is no longer used by firmware.
   USB-power-aware brightness & sleep.
 - **Inputs:** capacitive touchscreen + two physical buttons — a lock/box-state

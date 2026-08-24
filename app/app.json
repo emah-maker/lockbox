@@ -10,6 +10,7 @@
     "ios": {
       "bundleIdentifier": "com.emahmaker.phonebox",
       "supportsTablet": false,
+      "usesAppleSignIn": true,
       "infoPlist": {
         "UIBackgroundModes": [
           "bluetooth-central"
@@ -31,6 +32,7 @@
         }
       ],
       "@react-native-google-signin/google-signin",
+      "expo-apple-authentication",
       "expo-font"
     ],
     "android": {
@@ -39,7 +41,11 @@
         "android.permission.BLUETOOTH_ADMIN",
         "android.permission.BLUETOOTH_CONNECT"
       ],
-      "package": "com.phonebox.app"
+      "package": "com.phonebox.app",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#1a1a1c"
+      }
     }
   }
 }

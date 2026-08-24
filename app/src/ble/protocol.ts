@@ -66,6 +66,17 @@ export interface Settings {
   // (list + detail page), and the elapsed-clock style's time text (see
   // Box-code/lib/lock_ui.py set_theme/_accent_widgets) -- but never recolors
   // lock/closed/unlocked status indicators.
+  flip: 0 | 1; // rotate the box's own screen 180° -- lets it be mounted
+  // upside-down and still read right-side-up. Off by default. Applied via
+  // Box-code/lib/lock_ui.py LockUI.set_screen_flipped (display rotation) and
+  // LockController._map (touch coordinate correction).
+  langle: number; // servo angle (degrees) the box drives to when locking.
+  // Was a fixed lock_servo.py constant (45°); now phone-adjustable. Range
+  // [-90, 90] -- mirrors app/src/screens/servoAngle.ts's SERVO_ANGLE_MIN/MAX
+  // and the box's own clamp; keep both in lockstep with lock_config.py.
+  uangle: number; // servo angle (degrees) the box drives to when unlocking.
+  // Was a fixed lock_servo.py constant (0°); now phone-adjustable. Same
+  // [-90, 90] range/clamp as langle above.
 }
 
 // ----- parsers (defensive: the radio can hand us partial/garbled JSON) -----
@@ -106,6 +117,13 @@ export function parseHistoryEntries(json: string): HistoryEntry[] {
 export function parseSettings(json: string): Settings | null {
   try {
     const d = JSON.parse(json);
+    // langle/uangle default to the box's own fixed pre-upgrade constants
+    // (45/0, see lock_servo.py) rather than 0 for both -- unlike every other
+    // field here, 0 is a legitimate in-range angle, so `Number(d.x) || 0`
+    // would silently overwrite a real, intentional 0° with a fallback. Only
+    // an actually missing/non-finite value should fall back at all.
+    const langleRaw = Number(d.langle);
+    const uangleRaw = Number(d.uangle);
     return {
       ovr: Number(d.ovr) || 0,
       auto: d.auto ? 1 : 0,
@@ -121,6 +139,12 @@ export function parseSettings(json: string): Settings | null {
       // ACCENT_KEYS/Box-code/lib/lock_config.py's ACCENT_COLORS_DARK/LIGHT
       // if the accent count ever changes again.
       acc: Math.max(0, Math.min(7, Number(d.acc) || 0)),
+      flip: d.flip ? 1 : 0,
+      // -90/90 hardcoded here (not imported from screens/servoAngle.ts) for
+      // the same "wire-parsing module stays UI-independent" reason as the
+      // acc bound above -- keep in lockstep with SERVO_ANGLE_MIN/MAX there.
+      langle: Math.max(-90, Math.min(90, Number.isFinite(langleRaw) ? Math.round(langleRaw) : 45)),
+      uangle: Math.max(-90, Math.min(90, Number.isFinite(uangleRaw) ? Math.round(uangleRaw) : 0)),
     };
   } catch {
     return null;
@@ -157,6 +181,11 @@ export const encodeSettings = (s: Settings) =>
     ucal: s.ucal ? 1 : 0,
     thm: s.thm === 1 ? 1 : 0,
     acc: Number.isFinite(s.acc) ? Math.floor(s.acc) : 0,
+    flip: s.flip ? 1 : 0,
+    // Fallbacks are the box's own pre-upgrade fixed constants (45/0), not 0
+    // for both -- see parseSettings's comment on the same asymmetry.
+    langle: Number.isFinite(s.langle) ? Math.max(-90, Math.min(90, Math.floor(s.langle))) : 45,
+    uangle: Number.isFinite(s.uangle) ? Math.max(-90, Math.min(90, Math.floor(s.uangle))) : 0,
   });
 export const encodeTime = (epochSeconds: number) => String(Math.floor(epochSeconds));
 

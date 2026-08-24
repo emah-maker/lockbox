@@ -59,6 +59,14 @@ SWAP_XY = False
 INVERT_X = True
 INVERT_Y = False
 
+# Seed default for Settings.screen_flipped -- lets the box be physically
+# mounted upside-down while still reading right-side-up, toggled from the
+# app's Settings screen (Settings > Box behaviors > "Flip screen"). Rotates
+# the panel 180° (LockUI.set_screen_flipped) and XORs both touch axes on top
+# of the INVERT_X/INVERT_Y calibration above (LockController._map) so taps
+# still land where the rotated content actually is.
+SCREEN_FLIPPED_DEFAULT = False
+
 
 # This panel's init has color INVERSION on (red->cyan, white->black).
 # fix() sends the inverse so colors render correctly.
@@ -136,14 +144,14 @@ def lerp_color(c0, c1, t):
     return (r << 16) | (g << 8) | b
 
 
-# ----- Battery (Adafruit MAX17048 fuel gauge, I2C @ 0x36 on the shared touch bus)
-# State of charge is read straight off the MAX17048's ModelGauge algorithm --
+# ----- Battery (MAX17043 fuel gauge, I2C @ 0x36 on the shared touch bus)
+# State of charge is read straight off the MAX17043's ModelGauge algorithm --
 # no ADC divider and no voltage curve. The gauge is compensated for load and
 # temperature in hardware, so we do NOT re-smooth or charge-compensate the value.
 # It sits on the AXS5106L touch I2C bus (GPIO41/42/47/48) at a distinct address,
-# so it consumes zero additional GPIO. See Box-code/lib/max17048.py for the
+# so it consumes zero additional GPIO. See Box-code/lib/max17043.py for the
 # register-level driver and decode.
-BAT_GAUGE_ADDR = 0x36        # MAX17048 I2C address (fixed in silicon)
+BAT_GAUGE_ADDR = 0x36        # MAX17043 I2C address (fixed in silicon)
 BAT_CAPACITY_MAH = 5000      # battery pack size (set to your cell) -- watt estimate only
 
 # Backlight brightness (0.0-1.0). On battery -> dimmer to save power; on USB ->
@@ -155,8 +163,15 @@ BL_LEVEL_USB = 1.0
 # Any free GPIO works for PWM. Avoid strapping pins (GPIO0/3/45/46) and pins
 # already used (GPIO12 battery, 41/42/47/48 touch, 13-18 SD, LCD pins).
 SERVO_PIN = "GPIO5"
-SERVO_LOCK_ANGLE = 45        # degrees (-90..90): locked position (fixed)
-SERVO_UNLOCK_ANGLE = 0       # unlocked position (fixed)
+SERVO_LOCK_ANGLE = 45        # degrees (-90..90): seed default for
+                             # Settings.lock_angle (see lock_settings.py) --
+                             # no longer read directly by LockController,
+                             # which now uses the (app-adjustable) setting
+SERVO_UNLOCK_ANGLE = 0       # seed default for Settings.unlock_angle, ditto
+SERVO_ANGLE_MIN = -90        # servo's real range (see lock_servo.Servo._write_angle,
+SERVO_ANGLE_MAX = 90         # which already clamps to this) -- shared clamp
+                             # bounds for Settings.lock_angle/unlock_angle and
+                             # their BLE fields ("langle"/"uangle")
 SERVO_MIN_US = 500           # pulse width at -90 deg (servo calibration)
 SERVO_MAX_US = 2500          # pulse width at +90 deg
 SERVO_HOLD_S = 1.0           # keep PWM on this long after a move, then relax
@@ -307,6 +322,22 @@ HOLD_REPEAT_DELAY = 0.4       # seconds held before auto-repeat kicks in
 HOLD_REPEAT_START = 0.35      # seconds between the first few repeats
 HOLD_REPEAT_MIN = 0.08        # fastest repeat interval once ramped up
 HOLD_REPEAT_RAMP = 0.85       # interval *= this factor after each repeat
+
+# ----- Pre-session tag picker: hold-to-confirm row -----
+# Hold-to-confirm replaced tap-to-tag (manager report: an accidental tap on a
+# row used to commit to a session instantly, no way to back out once the
+# finger landed) -- press a row and hold; a green fill (LockUI.
+# step_tag_picker_hold) grows to cover the row over this duration, then
+# LockController._update_tag_hold auto-commits go_running(topic=...)).
+# Releasing before it fills cancels with no tag. 0.6s sits in the middle of
+# the requested 500-800ms band -- long enough that a quick accidental tap
+# can't complete it, short enough not to feel like a stuck button.
+#
+# The swipe-up-cancel gesture doesn't have its own duration constant: its
+# red bar (LockUI.step_tag_picker_swipe_progress) tracks live drag distance
+# against the existing SWIPE_MIN_PX threshold instead of elapsed time, so
+# there's no separate animation length to tune here.
+TAG_HOLD_S = 0.6
 
 # ----- Custom label sync (app -> box), best-effort -----
 # The box has no independent concept of a "label" -- it just holds whatever

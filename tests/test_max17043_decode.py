@@ -1,21 +1,21 @@
-"""Host tests for the pure logic in Box-code/lib/max17048.py.
+"""Host tests for the pure logic in Box-code/lib/max17043.py.
 
 The register-decode math (VCELL/SOC raw -> volts/percent), the MSB-first byte
 assembly, the register-pointer selection, and the try_lock()/unlock() discipline
 are all hardware-independent, so they run off-device against a fake I2C bus that
 returns programmed register bytes. The actual bus transaction is on-device-only.
 
-max17048.py imports no hardware modules (the bus is injected), so importing it
+max17043.py imports no hardware modules (the bus is injected), so importing it
 under CPython exercises the real production driver -- no reimplementation.
 
-Run: python tests/test_max17048_decode.py
+Run: python tests/test_max17043_decode.py
 """
 import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "Box-code", "lib"))
 
-from max17048 import MAX17048, decode_voltage, decode_percent, _REG_VCELL, _REG_SOC
+from max17043 import MAX17043, decode_voltage, decode_percent, _REG_VCELL, _REG_SOC
 
 _passed = 0
 _failed = 0
@@ -67,7 +67,9 @@ class FakeI2C:
 
 # --- decode math against datasheet anchors ---
 check("voltage: 0 raw -> 0 V", decode_voltage(0) == 0.0)
-# 4.20 V full cell -> 0xD200 (53760); LSB = 78.125 uV
+# 4.20 V full cell -> 0xD200 (53760); LSB = 78.125 uV (top 12 bits of the
+# register hold the 1.25 mV/step ADC value, bottom 4 bits read 0 -- same
+# formula as the MAX17048 the driver's decode math was ported from)
 check("voltage: 0xD200 -> 4.20 V", approx(decode_voltage(0xD200), 4.20))
 # full-scale 0xFFFF -> ~5.12 V (0-5 V range)
 check("voltage: 0xFFFF -> ~5.12 V", approx(decode_voltage(0xFFFF), 5.11992, 1e-2))
@@ -77,13 +79,13 @@ check("percent: 0x6400 -> 100 %", decode_percent(0x6400) == 100.0)
 check("percent: 12800 -> 50 %", decode_percent(12800) == 50.0)
 
 # --- driver reads the right register and assembles MSB-first ---
-gauge = MAX17048(FakeI2C({_REG_VCELL: (0xD2, 0x00), _REG_SOC: (0x64, 0x00)}))
+gauge = MAX17043(FakeI2C({_REG_VCELL: (0xD2, 0x00), _REG_SOC: (0x64, 0x00)}))
 check("cell_voltage reads VCELL (0x02) -> 4.20 V", approx(gauge.cell_voltage, 4.20))
 check("cell_percent reads SOC (0x04) -> 100 %", gauge.cell_percent == 100.0)
 
 # byte order: 0x1234 must decode as 4660, not 0x3412
 bus = FakeI2C({_REG_VCELL: (0x12, 0x34)})
-g2 = MAX17048(bus)
+g2 = MAX17043(bus)
 check("MSB-first assembly (0x1234 -> 4660)", approx(g2.cell_voltage, decode_voltage(0x1234)))
 check("selected the VCELL register pointer", bus.last_reg == _REG_VCELL)
 
@@ -94,9 +96,9 @@ check("bus left unlocked after read", bus.locked is False)
 
 # --- present(): ACK -> True, bus error -> False, and still unlocks on failure ---
 ok_bus = FakeI2C({0x08: (0x00, 0x12)})
-check("present() True when gauge ACKs", MAX17048(ok_bus).present() is True)
+check("present() True when gauge ACKs", MAX17043(ok_bus).present() is True)
 bad_bus = FakeI2C(fail=True)
-check("present() False when bus errors", MAX17048(bad_bus).present() is False)
+check("present() False when bus errors", MAX17043(bad_bus).present() is False)
 check("bus unlocked even after a failed read",
       bad_bus.locked is False and bad_bus.unlock_calls == bad_bus.lock_calls)
 
