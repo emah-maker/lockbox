@@ -850,14 +850,21 @@ class LockController:
         self.ui.start_tag_picker_hold(row)
 
     # Minimum |dy| before a held touch is even considered a swipe-cancel
-    # candidate -- a finger held still on a row still reads a pixel or two
-    # of jitter frame to frame, and without this floor that alone would flip
-    # _update_tag_picker_touch's dominance test, clear the in-progress row
-    # hold, and (since _start_tag_hold only re-arms on a fresh touch-down)
-    # permanently drop a hold the user never meant to let go of. SWIPE_MIN_PX
-    # itself is still what actually commits the cancel (_update_tag_swipe);
-    # this is only the "is this even a candidate drag yet" gate.
-    _TP_SWIPE_JITTER_GUARD_PX = 4
+    # candidate -- a finger held on a row or SKIP still drifts a few pixels
+    # frame to frame, and without a generous floor that alone flips
+    # _update_tag_picker_touch's dominance test, clears the in-progress hold,
+    # and (since _start_tag_hold only re-arms on a fresh touch-down)
+    # permanently drops a hold the user never meant to let go of -- worse
+    # near the bottom of the screen (the last row, SKIP, MORE), where
+    # sustained pressure naturally drifts upward more than elsewhere and a
+    # tight guard here (previously 4px, manager report: hold-to-confirm
+    # "still isn't working" on both the last row and SKIP after the
+    # dead-zone fix) hijacked the hold into swipe-mode before the timer
+    # could complete. SWIPE_MIN_PX (35px) is still what actually commits the
+    # cancel (_update_tag_swipe); this is only the "is this even a candidate
+    # drag yet" gate, so raising it just delays when the live red bar starts
+    # rendering, not the distance needed to actually cancel.
+    _TP_SWIPE_JITTER_GUARD_PX = 15
 
     def _update_tag_picker_touch(self, now):
         """Per-frame touch-poll dispatch while state == 'picking' (see
@@ -990,12 +997,12 @@ class LockController:
                 self.ui.update_settings(self.settings)
             return
 
-        # Pre-session tag picker (see go_picking): tap a row to start tagged,
-        # tap/swipe the SKIP or MORE control to start untagged or page
-        # through synced labels (see LockUI's tag_picker_nav_at -- explicit
-        # arrow+label controls, not swipe-only). Handled here, before the
-        # generic horizontal-swipe view-switch below, since the picker
-        # occupies the control view's screen without being one of the
+        # Pre-session tag picker (see go_picking): hold a row or SKIP to
+        # start tagged/untagged, tap/swipe MORE to page through synced
+        # labels (see LockUI's tag_picker_nav_at -- explicit arrow+label
+        # controls, not swipe-only). Handled here, before the generic
+        # horizontal-swipe view-switch below, since the picker occupies the
+        # control view's screen without being one of the
         # top-level VIEWS.
         if self.state == "picking":
             # Any release while still in "picking" means neither the row's
@@ -1016,12 +1023,11 @@ class LockController:
             self.ui.clear_tag_picker_swipe()
             if abs(dy) >= SWIPE_MIN_PX and abs(dy) > abs(dx):
                 # Swipe up = cancel: back out to whichever screen was active
-                # before LOCK was tapped, with no session started at all --
-                # distinct from SKIP/swipe-left, which still starts an
-                # untagged session. This was previously a dead end: entering
-                # the picker (even by accident) forced starting SOME session.
-                # Fallback only -- the live tick above already commits at
-                # this same threshold before release is normally reached.
+                # before LOCK was tapped, with no session started at all.
+                # This was previously a dead end: entering the picker (even
+                # by accident) forced starting SOME session. Fallback only --
+                # the live tick above already commits at this same threshold
+                # before release is normally reached.
                 if dy < 0:
                     self._commit_tag_picker_cancel(self._now)
                 return
@@ -1030,8 +1036,14 @@ class LockController:
                 if right:
                     self._picker_page = (self._picker_page + 1) % self._picker_page_count()
                     self.ui.show_tag_picker(self._picker_page_topics(self._picker_page))
-                else:
-                    self.go_running(self._now, topic=None)
+                # else (swipe-left): used to be a second way to instantly
+                # skip with no hold at all (manager report: "swipe to the
+                # skip and it goes" -- a real bypass of the hold-to-confirm
+                # requirement, found by testing). SKIP is now reachable only
+                # through _start_tag_hold/_update_tag_skip_hold's press-and-
+                # hold, so a swipe-left here is just a no-op -- paging
+                # (swipe-right/MORE) is unaffected since it doesn't commit
+                # anything.
                 return
             if abs(dx) < SWIPE_MIN_PX and abs(dy) < SWIPE_MIN_PX:
                 nav = self.ui.tag_picker_nav_at(*self._start)

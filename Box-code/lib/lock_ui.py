@@ -1077,8 +1077,10 @@ class LockUI:
             else:
                 pct = max(0, min(100, r.percent))
                 self.bat_pct.text = "{}%".format(pct)
-                self.bat_chg.text = "On battery"
-                self.bat_chg.color = C_AMBER
+                # No "On battery" label here (manager request) -- the percent
+                # readout above already implies it whenever bat_chg isn't
+                # showing "Charging", so the extra line was redundant.
+                self.bat_chg.text = ""
                 self.bat_watts.text = "~{:.1f} W (est)".format(r.watts)
                 if pct >= 50:
                     col = C_GREEN
@@ -1595,17 +1597,6 @@ class LockUI:
             self.tp_row_labels.append(lbl)
         self._tp_ids = []
 
-        # "hold = tag & start" (not "tap") -- see LockController._start_tag_hold
-        # /_update_tag_hold: a row now needs a TAG_HOLD_S-long press (green
-        # fill grows to cover the row) to commit, so a tap alone no longer
-        # starts anything (manager report: an accidental tap used to commit
-        # instantly with no way to back out).
-        hint = label.Label(terminalio.FONT, text="hold = tag & start", color=C_GREY)
-        hint.anchor_point = (0.5, 0.5)
-        hint.anchored_position = (W // 2, 288)
-        group.append(hint)
-        self._dim_widgets.append((hint, 'color'))
-
         # SKIP/MORE controls -- an arrow plus a short label on each side,
         # both tappable (see tag_picker_nav_at) and still swipe-compatible.
         # The old single hint2 line ("swipe: left = skip, right = more", 34
@@ -1626,20 +1617,24 @@ class LockUI:
         group.append(self.tp_skip_fill_group)
         self._tp_skip_last_key = None
 
-        self._tp_arrow_left = Triangle(20, self.tp_nav_y - 5, 20, self.tp_nav_y + 5,
-                                       12, self.tp_nav_y, fill=C_WHITE)
-        group.append(self._tp_arrow_left)
-        self._fg_widgets.append((self._tp_arrow_left, 'fill'))
-
-        skip_lbl = label.Label(terminalio.FONT, text="SKIP", color=C_WHITE)
-        skip_lbl.anchor_point = (0.0, 0.5)
-        skip_lbl.anchored_position = (28, self.tp_nav_y)
+        # No left arrow here (unlike MORE's, below) -- SKIP dropped its
+        # swipe-left shortcut (manager report: it bypassed the hold-to-
+        # confirm requirement entirely) and is only reachable by holding the
+        # label itself now, so an arrow implying "swipe this way" would be
+        # actively misleading.
+        # scale=2 (12px/glyph) to match the row labels/title's weight instead
+        # of this screen's default caption size, and centered within each
+        # half of the screen (W//4, 3*W//4) rather than pinned to the outer
+        # edges, now that SKIP no longer needs edge clearance for an arrow.
+        skip_lbl = label.Label(terminalio.FONT, text="SKIP", color=C_WHITE, scale=2)
+        skip_lbl.anchor_point = (0.5, 0.5)
+        skip_lbl.anchored_position = (W // 4, self.tp_nav_y)
         group.append(skip_lbl)
         self._fg_widgets.append((skip_lbl, 'color'))
 
-        more_lbl = label.Label(terminalio.FONT, text="MORE", color=C_WHITE)
-        more_lbl.anchor_point = (1.0, 0.5)
-        more_lbl.anchored_position = (W - 28, self.tp_nav_y)
+        more_lbl = label.Label(terminalio.FONT, text="MORE", color=C_WHITE, scale=2)
+        more_lbl.anchor_point = (0.5, 0.5)
+        more_lbl.anchored_position = (3 * W // 4, self.tp_nav_y)
         group.append(more_lbl)
         self._fg_widgets.append((more_lbl, 'color'))
 
