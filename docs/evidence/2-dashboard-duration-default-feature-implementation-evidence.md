@@ -104,6 +104,17 @@ Time:        2.629 s
 Ran all test suites.
 ```
 
+## Bug Bash Findings
+UI polish check: N/A — no UI changes detected (`uiValidationRequired: No`; literal default value only, no rendering/layout/interaction change).
+
+Edge cases and adjacent flows manually traced against the diff:
+- `MINUTE_VALUES` (`[0, 5, 10, ..., 55]`, step `MINUTE_STEP = 5`) contains `5`, so `minutesIndex = MINUTE_VALUES.indexOf(pick.minutes)` resolves to index `1` on mount — the minutes wheel parks on a valid, in-range position, not `-1`/fallback.
+- `onHoursIndexChange`/`onMinutesIndexChange`'s "reject 0h00m" guard is unaffected — `pick.minutes` starts at `5`, never `0`, so the zero-floor guard simply never has to fire on mount (previously it also never fired at `25`; behavior there is unchanged).
+- `pickSeconds = clampLockSeconds(0, 5) = 300`, which is exactly `MIN_LOCK_SECONDS` and exactly the box's `DEFAULT_SECONDS` — the box-sync push effect (`setDuration(pickSeconds)`) now sends the box's own default back to it unchanged on first connect, instead of overriding it to 1500s.
+- The box-sync-from-box effect (external duration changes reflected into `pick`) reads `status.set` from the box and is independent of this initial literal; not affected.
+
+0 Critical/High issues found after this edge-case, boundary, and adjacent-flow exploration.
+
 ## New Files/Functions Created
 None (this evidence file itself is process documentation, not application code).
 
