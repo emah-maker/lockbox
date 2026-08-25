@@ -2,8 +2,8 @@
 // open/close. Navigation lives in App.tsx as a trivial tab switcher; this
 // stays the default landing tab.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, View, Text, StyleSheet, Switch, ScrollView, Platform, UIManager } from 'react-native';
-import { Feather } from '@expo/vector-icons';
+import { Animated, View, Text, StyleSheet, ScrollView, Platform, UIManager } from 'react-native';
+import { BatteryIcon } from '../ui/BatteryIcon';
 import { useStore, CONN_LABELS } from '../store/useStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useTheme } from '../theme/useTheme';
@@ -79,9 +79,7 @@ export default function DashboardScreen() {
     error,
     status,
     sessions,
-    lastAlert,
     currentTopic,
-    callDetectionAvailable,
     connect,
     disconnect,
     setDuration,
@@ -89,8 +87,6 @@ export default function DashboardScreen() {
     openBox,
     tagCurrentSession,
   } = useStore();
-  const callAlertsEnabled = useSettingsStore((st) => st.callAlertsEnabled);
-  const setCallAlertsEnabled = useSettingsStore((st) => st.setCallAlertsEnabled);
   const remoteUnlockOn = useSettingsStore((st) => !!st.boxSettings.unlk);
   const themeMode = useSettingsStore((st) => st.themeMode);
   const customLabels = useSettingsStore((st) => st.customLabels);
@@ -315,7 +311,7 @@ export default function DashboardScreen() {
         </View>
 
         <View style={s.battRow}>
-          <Feather name="battery" size={14} color={status ? batteryColor(status.bat, theme) : theme.textDim} />
+          <BatteryIcon pct={status ? status.bat : -1} color={status ? batteryColor(status.bat, theme) : theme.textDim} />
           <Text style={s.sub}>Battery {status && status.bat >= 0 ? `${status.bat}%` : '—'}</Text>
         </View>
 
@@ -452,24 +448,6 @@ export default function DashboardScreen() {
           <Text style={s.sub}>Start a session to see focus stats here.</Text>
         )}
       </View>
-
-      <View style={s.card}>
-        <View style={s.switchRow}>
-          <Text style={s.label}>Alert box on incoming calls</Text>
-          <Switch
-            value={callAlertsEnabled}
-            onValueChange={setCallAlertsEnabled}
-            accessibilityLabel="Alert box on incoming calls"
-          />
-        </View>
-        {callAlertsEnabled && !callDetectionAvailable ? (
-          <Text style={[s.sub, { color: theme.danger }]}>
-            Call detection isn't available in this build -- it needs a dev-client build
-            (npx expo prebuild + run:ios), not Expo Go, so calls won't be seen yet.
-          </Text>
-        ) : null}
-        {lastAlert ? <Text style={s.sub}>Last alert sent: {lastAlert}</Text> : null}
-      </View>
     </ScrollView>
   );
 }
@@ -497,7 +475,6 @@ const styles = (t: ReturnType<typeof useTheme>) =>
     connRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     connDot: { width: 8, height: 8, borderRadius: 4 },
     battRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-    switchRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
     controlRow: { flexDirection: 'row', gap: 10, marginTop: 8 },
     controlBtn: {
       flex: 1,

@@ -27,6 +27,7 @@ import { useReducedMotion, configureLayoutAnimation } from '../ui/useReducedMoti
 import { AnimatedFill } from '../ui/AnimatedFill';
 import { AnimatedPressable } from '../ui/AnimatedPressable';
 import { TopicDonut } from '../ui/TopicDonut';
+import { CustomLabelsSection } from './CustomLabelsSection';
 import { typeScale, elevation, springs } from '../theme/tokens';
 
 const TOP_N = 5;
@@ -253,6 +254,8 @@ export default function StatsScreen() {
           </>
         )}
       </View>
+
+      <CustomLabelsSection color={c} />
     </ScrollView>
   );
 }

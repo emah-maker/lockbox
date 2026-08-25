@@ -26,6 +26,7 @@ export function Button({
   loading,
   color,
   variant = 'filled',
+  icon,
 }: {
   label: string;
   onPress: () => void;
@@ -41,6 +42,10 @@ export function Button({
   loading?: boolean;
   color: ReturnType<typeof useTheme>;
   variant?: 'filled' | 'outline';
+  // Optional leading glyph (e.g. Ionicons "logo-google"/"logo-apple" for the
+  // sign-in buttons, manager request) -- every other Button call site omits
+  // this and renders exactly as before.
+  icon?: React.ReactNode;
 }) {
   const filled = variant === 'filled';
   return (
@@ -58,9 +63,32 @@ export function Button({
       {loading ? (
         <ActivityIndicator size="small" color={filled ? color.accentText : color.text} />
       ) : (
-        <Text style={[styles.buttonLabel, { color: filled ? color.accentText : color.text }]}>{label}</Text>
+        <View style={styles.buttonContent}>
+          {icon}
+          <Text style={[styles.buttonLabel, { color: filled ? color.accentText : color.text }]}>{label}</Text>
+        </View>
       )}
     </AnimatedPressable>
+  );
+}
+
+// Generic "label on the left, control on the right" row -- shared by
+// SettingsScreen.tsx's own rows and (via AccountSection.tsx) the Account
+// section, so both read as the same list style.
+export function Row({
+  label,
+  color,
+  children,
+}: {
+  label: string;
+  color: ReturnType<typeof useTheme>;
+  children: React.ReactNode;
+}) {
+  return (
+    <View style={styles.row}>
+      <Text style={[styles.label, { color: color.text }]}>{label}</Text>
+      {children}
+    </View>
   );
 }
 
@@ -368,6 +396,7 @@ const styles = StyleSheet.create({
   subtitle: captionStyle,
   card: { borderRadius: 14, padding: 16, ...elevation.card },
   buttonLabel: { fontWeight: '600', letterSpacing: typeScale.body.letterSpacing, lineHeight: typeScale.body.lineHeight },
+  buttonContent: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   button: {
     paddingVertical: 10,
     paddingHorizontal: 16,
