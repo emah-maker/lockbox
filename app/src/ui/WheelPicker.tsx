@@ -8,6 +8,7 @@
 // x-axis instead (e.g. Settings' Override-presses picker) -- one component,
 // since the interaction (drag, momentum-snap, VoiceOver increment/decrement)
 // is identical either way and only the scroll axis changes.
+import * as Haptics from 'expo-haptics';
 import React, { useEffect, useRef } from 'react';
 import {
   Animated,
@@ -103,12 +104,20 @@ export function WheelPicker({
   // Re-park the wheel when `selectedIndex` changes from outside a drag (e.g.
   // the hours wheel hitting the 9h cap forces minutes back to 0) -- mirrors
   // SliderRow's own external-value re-sync in SettingsPrimitives.tsx.
+  // Deliberately has no dependency array: a caller can *reject* a drag by
+  // feeding back the same `selectedIndex` value it already had (see
+  // DashboardScreen's 0h00m guard), in which case this must still run to
+  // correct the ref, because commit() below has already speculatively set
+  // settledIndexRef.current to the rejected index before onChange/rejection
+  // happens. Gating on `[selectedIndex]` would skip that render entirely
+  // since the *value* never changed -- the ref comparison below is what
+  // actually needs to run on every render; it already no-ops cheaply once
+  // the two agree, so this isn't a behavior change for the normal case.
   useEffect(() => {
     if (settledIndexRef.current === selectedIndex) return;
     settledIndexRef.current = selectedIndex;
     scrollToIndex(selectedIndex, true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedIndex]);
+  });
 
   const onScroll = Animated.event(
     [{ nativeEvent: { contentOffset: horizontal ? { x: scrollPos } : { y: scrollPos } } }],
@@ -138,7 +147,10 @@ export function WheelPicker({
       scrollToIndex(index, true);
     }
     settledIndexRef.current = index;
-    if (index !== selectedIndex) onChange(index);
+    if (index !== selectedIndex) {
+      Haptics.selectionAsync();
+      onChange(index);
+    }
   };
 
   // VoiceOver/TalkBack's increment/decrement gestures on an "adjustable"
@@ -150,6 +162,7 @@ export function WheelPicker({
     if (next === selectedIndex) return;
     settledIndexRef.current = next;
     scrollToIndex(next, true);
+    Haptics.selectionAsync();
     onChange(next);
   };
 

@@ -5,6 +5,13 @@ MAX_HOURS = 9                 # hours selectable (0..9)
 MAX_SECONDS = MAX_HOURS * 3600 + 55 * 60   # cap is 9h55m, not a clean 9h
 DEFAULT_SECONDS = 5 * 60      # time shown on boot (5:00)
 MIN_STEP = 5                  # minutes change per swipe on the M column
+# Floor for a settable lock duration -- one MIN_STEP (the smallest unit the
+# box's own H/M editing UI can express), so the timer can never be armed at
+# an unusable 0h00m. Applied everywhere set_seconds can be written to a
+# user/app-chosen value (LockController.adjust, apply_ble_command's "start"/
+# "dur" handlers) -- go_running() already no-ops at set_seconds<=0, but that
+# was only ever a silent-failure backstop, not a floor on the value itself.
+MIN_SECONDS = MIN_STEP * 60
 SWIPE_MIN_PX = 35             # min vertical travel to count as a swipe
 RELEASE_FRAMES = 2            # consecutive empty touch reads before a "release"
 DONE_ANIM_S = 2.0             # auto-dismiss the unlock animation after this (auto-open)

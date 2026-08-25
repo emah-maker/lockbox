@@ -1,5 +1,5 @@
 // Unit tests for the pure stats helpers. Run with `npm test` (jest-expo).
-import { aggregate, formatDuration, completionRate, clampLockSeconds, MAX_LOCK_SECONDS, SessionRecord } from './stats';
+import { aggregate, formatDuration, completionRate, clampLockSeconds, MAX_LOCK_SECONDS, MIN_LOCK_SECONDS, SessionRecord } from './stats';
 import { parseStatus, parseHistoryEntries } from '../ble/protocol';
 
 describe('aggregate', () => {
@@ -62,9 +62,13 @@ describe('clampLockSeconds', () => {
     expect(clampLockSeconds(20, 0)).toBe(MAX_LOCK_SECONDS);
   });
 
-  it('floors negative or fractional input at 0', () => {
-    expect(clampLockSeconds(-1, -5)).toBe(0);
-    expect(clampLockSeconds(0.9, 0.9)).toBe(0);
+  it('floors negative or fractional input at the MIN_LOCK_SECONDS minimum, not 0', () => {
+    expect(clampLockSeconds(-1, -5)).toBe(MIN_LOCK_SECONDS);
+    expect(clampLockSeconds(0.9, 0.9)).toBe(MIN_LOCK_SECONDS);
+  });
+
+  it('floors an explicit 0h00m selection at MIN_LOCK_SECONDS', () => {
+    expect(clampLockSeconds(0, 0)).toBe(MIN_LOCK_SECONDS);
   });
 });
 

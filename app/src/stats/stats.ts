@@ -63,9 +63,13 @@ export function completionRate(st: Stats): number {
 // is intentionally not just MAX_LOCK_HOURS * 3600.
 export const MAX_LOCK_HOURS = 9;
 export const MAX_LOCK_SECONDS = MAX_LOCK_HOURS * 3600 + 55 * 60;
+// Mirrors Box-code/lib/lock_config.py MIN_STEP*60 (MIN_SECONDS) -- the
+// smallest step the H/M picker can express, so a duration can never be
+// floored down to an unusable 0h00m on either side of the BLE link.
+export const MIN_LOCK_SECONDS = 5 * 60;
 
 /** Combine an H/MM duration-picker selection into seconds for startLock(). */
 export function clampLockSeconds(hours: number, minutes: number): number {
   const total = Math.max(0, Math.floor(hours)) * 3600 + Math.max(0, Math.floor(minutes)) * 60;
-  return Math.max(0, Math.min(MAX_LOCK_SECONDS, total));
+  return Math.max(MIN_LOCK_SECONDS, Math.min(MAX_LOCK_SECONDS, total));
 }

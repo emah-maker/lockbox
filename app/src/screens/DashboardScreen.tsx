@@ -155,11 +155,31 @@ export default function DashboardScreen() {
   const pickSeconds = clampLockSeconds(pick.hours, pick.minutes);
   const minutesIndex = Math.max(0, MINUTE_VALUES.indexOf(pick.minutes));
 
+  // Neither wheel may land on 0h00m -- mirrors the box's own adjust() floor
+  // (lock_controller.py), which bumps a decrement-to-zero up to one MIN_STEP
+  // instead. Enforced on `pick` itself (not just the derived pickSeconds
+  // below) so the wheels' displayed value never disagrees with what actually
+  // gets pushed to the box.
   const onHoursIndexChange = (index: number) => {
-    setPick((p) => ({ ...p, hours: HOUR_VALUES[index] }));
+    setPick((p) => {
+      const hours = HOUR_VALUES[index];
+      const minutes = hours === 0 && p.minutes === 0 ? MINUTE_STEP : p.minutes;
+      return { hours, minutes };
+    });
   };
   const onMinutesIndexChange = (index: number) => {
-    setPick((p) => ({ ...p, minutes: MINUTE_VALUES[index] }));
+    setPick((p) => {
+      const minutes = MINUTE_VALUES[index];
+      // Reject 0 while hours is 0 -- must return a *new* object even when
+      // rejecting, not the same `p` reference: WheelPicker's own external-
+      // resync effect (see WheelPicker.tsx) only re-parks the wheel when its
+      // `selectedIndex` prop changes between renders, and returning the same
+      // reference here makes React bail the re-render entirely, so that prop
+      // never changes and the wheel silently stays wherever the drag left it
+      // (visually 0) instead of snapping back.
+      if (p.hours === 0 && minutes === 0) return { ...p };
+      return { ...p, minutes };
+    });
   };
 
   // Computed here, not read over BLE: the box keeps no long-term stats of its

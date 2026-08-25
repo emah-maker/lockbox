@@ -1,7 +1,7 @@
 # lock_controller.py -- the timer state machine and gesture handling.
 import gc
 from lock_config import (
-    MAX_SECONDS, MAX_HOURS, SWIPE_MIN_PX, DEFAULT_SECONDS,
+    MAX_SECONDS, MAX_HOURS, MIN_SECONDS, SWIPE_MIN_PX, DEFAULT_SECONDS,
     SWAP_XY, INVERT_X, INVERT_Y, CLOCK_FPS, SERVO_HOLD_S, OVERRIDE_PRESSES,
     OVERRIDE_TIMEOUT, DONE_ANIM_S, MIN_STEP, RELEASE_FRAMES,
     SERVO_ANGLE_MIN, SERVO_ANGLE_MAX, fmt_hm, fix, C_GREY,
@@ -62,6 +62,15 @@ class LockController:
         self.servo = Servo()
         self.settings = Settings()
         self.ui.set_theme(self.settings.theme_mode, self.settings.accent_idx)
+        # Recover the display's true native rotation before touching it --
+        # see LockUI.establish_base_rotation's docstring: board.DISPLAY
+        # survives a soft reload, so if a previous run left the screen
+        # flipped, LockUI's raw boot-time rotation capture caught the
+        # *flipped* value, not the native one. Must run before
+        # set_screen_flipped below (which would otherwise flip relative to
+        # the wrong baseline) and before anything reads self.ui.is_flipped
+        # (e.g. the first touch event).
+        self.ui.establish_base_rotation(self.settings.screen_flipped)
         self.ui.set_screen_flipped(self.settings.screen_flipped)
         # Previously only ever called on navigating to the settings view --
         # left the control view's small override-count indicator blank from
@@ -180,8 +189,19 @@ class LockController:
         # INVERT_Y calibration this panel already needed -- XOR (`!=` on
         # bools), not OR/replace, so toggling the setting still flips
         # correctly regardless of the base calibration.
-        invert_x = INVERT_X != self.settings.screen_flipped
-        invert_y = INVERT_Y != self.settings.screen_flipped
+        #
+        # Reads self.ui.is_flipped (the display's own live rotation state),
+        # not self.settings.screen_flipped, even though the two are supposed
+        # to always agree -- manager report: on real hardware, touch stayed
+        # mapped as if unflipped even while the screen was visibly flipped,
+        # meaning those two had gone out of sync (root cause not pinned down
+        # from source alone). Deriving the touch correction from the same
+        # live value that actually drives the visual rotation makes that
+        # disagreement structurally impossible from here on, regardless of
+        # what was causing it.
+        flipped = self.ui.is_flipped
+        invert_x = INVERT_X != flipped
+        invert_y = INVERT_Y != flipped
         if invert_x:
             x = self.ui.W - x
         if invert_y:
@@ -343,7 +363,12 @@ class LockController:
             m += direction * MIN_STEP
         h = max(0, min(MAX_HOURS, h))
         m = max(0, min(59, m))
-        self.set_seconds = max(0, min(MAX_SECONDS, h * 3600 + m * 60 + s))
+        if h == 0 and m == 0:
+            # Decrementing to 0h00m would arm an unusable timer -- land on
+            # the smallest real step instead (MIN_SECONDS floor, see
+            # lock_config.py).
+            m = MIN_STEP
+        self.set_seconds = max(MIN_SECONDS, min(MAX_SECONDS, h * 3600 + m * 60 + s))
         self.ui.set_clock(self.set_seconds)
 
     # ----- per-frame updates; returns True if it just finished -----
@@ -515,7 +540,10 @@ class LockController:
                     secs = int(op[1])
                 except ValueError:
                     return
-                self.set_seconds = max(0, min(MAX_SECONDS, secs))
+                # Belt-and-suspenders MIN_SECONDS floor -- the app clamps its
+                # own picker too, but a BLE write carries whatever the app
+                # sent, not a value pre-guaranteed to be >=MIN_SECONDS.
+                self.set_seconds = max(MIN_SECONDS, min(MAX_SECONDS, secs))
                 self.ui.set_clock(self.set_seconds)
             if self.state in ("idle", "closed"):
                 self.go_running(now)
@@ -531,7 +559,10 @@ class LockController:
                 secs = int(op[1])
             except ValueError:
                 return
-            self.set_seconds = max(0, min(MAX_SECONDS, secs))
+            # Belt-and-suspenders MIN_SECONDS floor, same as "start" above --
+            # this is a live preview only, but it still drives the on-screen
+            # clock text and must never show/arm 0h00m.
+            self.set_seconds = max(MIN_SECONDS, min(MAX_SECONDS, secs))
             if self.state != "running":
                 self.ui.set_clock(self.set_seconds)
         elif name == "lock":
@@ -1032,7 +1063,7 @@ class LockController:
                     self._commit_tag_picker_cancel(self._now)
                 return
             if abs(dx) >= SWIPE_MIN_PX and abs(dx) > abs(dy):
-                right = (dx < 0) if INVERT_X else (dx > 0)
+                right = (dx < 0) if (INVERT_X != self.ui.is_flipped) else (dx > 0)
                 if right:
                     self._picker_page = (self._picker_page + 1) % self._picker_page_count()
                     self.ui.show_tag_picker(self._picker_page_topics(self._picker_page))
@@ -1058,14 +1089,19 @@ class LockController:
             return
 
         # Horizontal swipe -> switch views. INVERT_X is on, so a physical
-        # swipe-right corresponds to a negative mapped dx. While actually
-        # locked (state == "running"), only clock and battery are reachable
-        # (LOCKED_VIEWS) -- control/settings stay blocked until go_done
-        # returns to "control". clock and battery aren't adjacent in the
-        # full VIEWS order (control sits between them), so this swipes
-        # within LOCKED_VIEWS's own order instead of VIEWS's while running.
+        # swipe-right corresponds to a negative mapped dx -- XORed with
+        # is_flipped, same as _map's own invert_x, since a flipped screen's
+        # dx sign relative to the raw touch has flipped too (manager report:
+        # swipe direction was still reversed after the tap/position fix,
+        # because this check -- unlike _map -- was still reading the plain
+        # INVERT_X constant). While actually locked (state == "running"),
+        # only clock and battery are reachable (LOCKED_VIEWS) -- control/
+        # settings stay blocked until go_done returns to "control". clock and
+        # battery aren't adjacent in the full VIEWS order (control sits
+        # between them), so this swipes within LOCKED_VIEWS's own order
+        # instead of VIEWS's while running.
         if abs(dx) >= SWIPE_MIN_PX and abs(dx) > abs(dy):
-            right = (dx < 0) if INVERT_X else (dx > 0)
+            right = (dx < 0) if (INVERT_X != self.ui.is_flipped) else (dx > 0)
             if self.state == "running":
                 if self.view in LOCKED_VIEWS:
                     idx = LOCKED_VIEWS.index(self.view)
