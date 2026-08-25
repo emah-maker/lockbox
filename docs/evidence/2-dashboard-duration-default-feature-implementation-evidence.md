@@ -128,6 +128,55 @@ None. See "Decisions" above for rationale (would be a tautological test against 
 | `app/` TypeScript build (`npx tsc --noEmit`) | Yes | None | N/A |
 | Box-code Python (firmware) | No - this change is app-only; `Box-code/lib/*.py` files are unrelated pre-existing uncommitted changes from other sessions and were not touched or executed | N/A | N/A |
 
+## Security Review
+
+### Executive Summary
+0 Critical, 0 High, 0 Medium, 0 Low findings. No escalation items. No further security action needed for this diff.
+
+### Review Scope
+- `reviewType`: embedded-diff-review
+- `reviewScope`: diff
+- Target: branch `feature/2-dashboard-duration-default` vs `master`, commit `d6e1e78` (+ evidence-only follow-up `3614227`)
+- `surfaceAreaPaths`: `app/src/screens/DashboardScreen.tsx` (the only source file in the diff; the evidence markdown file itself is process documentation, not reviewed as code)
+
+### Threat Surface Summary
+No heuristic-matched surface (`web`, `api`, `llm-app`, `data-pipeline`, `mobile`, `capability-authoring`, `docs-only`) applies: the changed file is a React Native/Expo screen component under `app/src/screens/`, which does not match `public/**`, `src/**/pages/**`, `src/**/views/**`, any API-router pattern, any LLM-SDK import, any DB-driver import, `ios/**`/`android/**`/`.swift`/`.kt`, or `.md`. Per `threat-surface-classification`'s "no heuristic matches" case: `surfaces: []`. OWASP web/API/LLM/capability-authoring playbooks are therefore not triggered. `secrets-in-code-check` and `privacy-and-pii-review` were still run, per the non-`docs-only` mandate.
+
+### Coverage Matrix
+| Category | Result | Notes |
+|---|---|---|
+| OWASP Top 10 (Web) | N/A | `web` surface not detected in diff |
+| OWASP API Top 10 | N/A | `api` surface not detected in diff |
+| OWASP LLM Top 10 | N/A | `llm-app` surface not detected in diff |
+| Capability-authoring review | N/A | no capability-authoring `.md` files in diff |
+| Secrets in code (`secrets-in-code-check`) | Pass | diff scanned line-by-line against full detector table; the only change is a numeric literal (`25` → `5`) inside a `useState` call - no secret-shaped pattern present |
+| Privacy / PII (`privacy-and-pii-review`) | Pass | diff scanned for PRIV01-PRIV05; the changed line carries no logging, no data collection, no third-party egress, no retention, and no field exposure - it is a local UI default value with no PII contact at all |
+
+### Findings
+None.
+
+### Prioritized Remediation Queue
+Empty - no findings to remediate.
+
+### Verification Evidence
+No findings, so no before/after fix proof applies. The diff itself (`git diff master -- app/src/screens/DashboardScreen.tsx`) is the full reviewed artifact and is quoted in full under "Decisions" / the PR body.
+
+### Applied Fixes and Filed Work Items
+None filed; none needed.
+
+### Accepted / Deferred / Blocked
+None.
+
+### Compliance Control Mapping
+N/A - no compliance framework is active for this project/issue.
+
+### Run Metadata
+- Run date: 2026-08-25
+- Commit reviewed: `d6e1e78` (code) / `3614227` (evidence-only)
+- Skill load errors: none
+- Auto-fix cap hit: no (0 findings)
+- Environment notes: reviewed by direct manual inspection of the diff against the two loaded skill detector tables (`secrets-in-code-check.md`, `privacy-and-pii-review.md`); no automated scanner tool was invoked since the entire diff is a single one-line numeric literal change, fully readable in one pass.
+
 ## Pre-Completion Reflection
 
 **Reflection Phase 1 (Claim Verification)**: Re-read the actual diff (`git diff`) after editing - confirmed it is exactly the one line the requester specified, no other lines changed. Re-ran `tsc --noEmit` and `jest` and captured real output above (not asserted from memory).
