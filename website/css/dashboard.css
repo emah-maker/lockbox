@@ -40,6 +40,20 @@
   --radius: 14px;
   --radius-sm: 12px;
 }
+/* --steel (styles.css's global :focus-visible color) resolves fine on this
+   page too -- it's set unconditionally in styles.css's :root, which
+   dashboard.html loads before this file -- so this is not a fix for a
+   broken or undefined token. It's a deliberate palette choice: scope this
+   surface's focus color to its own app-native palette instead of the
+   inherited marketing-chrome tone, so it stays visually distinct from
+   --locked, which the new save/error flashes below also use. */
+.dash :focus-visible { outline-color: var(--unlocked); }
+
+/* Only .dash .btn had no disabled treatment before this pass -- the add-label
+   submit button below now starts disabled by default (no color picked yet),
+   unlike the always-enabled button it replaces. */
+.dash .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
 /* De-stencils styles.css's global uppercase/display h1-h3 rule for this
    surface only -- app headings are normal-case system-bold, not a marquee
    stencil face. */
@@ -103,6 +117,19 @@
    including #dashContent which carries no other .dash__state styling. */
 .dash__fade { opacity: 0; transform: translateY(10px); transition: opacity 0.28s var(--ease-snap), transform 0.28s var(--ease-snap); }
 .dash__fade.is-in { opacity: 1; transform: none; }
+
+/* Smaller-scale sibling of .dash__fade above -- same curve/technique, a
+   shorter distance/duration because this fades a one-line inline status
+   message (#dashWriteError, #dashLabelsMsg), not a whole panel. */
+.dash__msg { opacity: 0; transform: translateY(-4px); transition: opacity 0.2s var(--ease-snap), transform 0.2s var(--ease-snap); }
+.dash__msg.is-in { opacity: 1; transform: none; }
+
+/* Another .dash__fade sibling, scaled for an inline pill-sized swap: the
+   label chip<->picker swap, the recolor-popover swatches, and the
+   add-form<->at-capacity-message toggle all reuse this one class rather
+   than inventing a third fade variant per surface. */
+.dash__pick-fade { opacity: 0; transform: scale(0.94); transition: opacity 0.15s var(--ease-snap), transform 0.15s var(--ease-snap); }
+.dash__pick-fade.is-in { opacity: 1; transform: none; }
 
 .dash__hint { color: var(--text-2); font-size: 14.5px; margin: -6px 0 28px; }
 
@@ -224,6 +251,148 @@
 }
 .dash__cal-daylist .dash__cal-dot { flex: none; }
 .dash__cal-empty { color: var(--text-2); font-size: 14px; }
+
+/* ---------- Manage labels (catalog CRUD + per-session relabel picker) ---------- */
+.dash__labels-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
+.dash__labels-row { display: flex; align-items: center; gap: 10px; }
+.dash__labels-row-main { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; }
+.dash__labels-name {
+  flex: 1; min-width: 0; padding: 8px 12px; font-size: 14px; font-family: var(--font-body);
+  color: var(--text); background: var(--bg); border: 1px solid var(--border-soft); border-radius: var(--radius-sm);
+}
+.dash__labels-empty { color: var(--text-2); font-size: 14px; }
+.dash__label-delete {
+  flex: none; width: 30px; height: 30px; border-radius: 50%; border: none; cursor: pointer;
+  background: transparent; color: var(--text-2); font-size: 16px; line-height: 1;
+  transition: background 0.15s var(--ease-snap), color 0.15s var(--ease-snap);
+}
+.dash__label-delete:hover { background: rgba(239, 68, 68, 0.12); color: var(--locked); }
+.dash__label-add { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.dash__label-add input[type="text"] {
+  flex: 1; min-width: 160px; padding: 10px 14px; font-size: 14px; font-family: var(--font-body);
+  color: var(--text); background: var(--bg); border: 1px solid var(--border-soft); border-radius: var(--radius-sm);
+}
+.dash__labels-cap-msg { color: var(--text-2); }
+
+/* ---------- Swatch picker (replaces the old native <input type=color>) ----------
+   Same LABEL_SWATCHES set and selected-border treatment as the app's own
+   CustomLabelsSection.tsx ColorSwatchRow, so choosing a label color feels
+   identical between the app and this page. Two presentations of the same
+   .dash__swatch-opt button: always-visible in the add-form (.dash__swatch-row),
+   compact-popover for an existing row's recolor (.dash__swatch-pop) -- showing
+   all 12 swatches inline per row would be visually heavy once several labels
+   exist. */
+.dash__swatch-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.dash__swatch-row .dash__swatch-opt { width: 26px; height: 26px; }
+
+.dash__labels-swatch-wrap { position: relative; flex: none; }
+.dash__labels-swatch {
+  width: 28px; height: 28px; padding: 0; border: none; border-radius: 50%; cursor: pointer;
+  transition: transform 0.12s var(--ease-snap);
+}
+.dash__labels-swatch:hover { transform: scale(1.08); }
+/* Anchored to its trigger via `position: absolute` -- safe today since no
+   ancestor (.dash__labels-row -> .dash__labels-list -> .dash .card) sets
+   overflow: hidden/auto, but flag this in code if that ever changes: an
+   overflow-clipping ancestor would clip this popover, and it would need
+   `position: fixed` + getBoundingClientRect() anchoring instead.
+
+   One `left: 0` anchor holds at every width, deliberately not switched by a
+   media query: .dash__labels-swatch-wrap is always the FIRST child of
+   .dash__labels-row-main (swatch, then name, then delete), and styles.css's
+   .wrap/.card margins+padding put that trigger a fixed ~46px from the
+   viewport edge regardless of viewport width (the outer .wrap's 22px side
+   margin only shrinks once the viewport is wide enough for its `min(100% -
+   44px, ...)` clamp to stop binding, at which point there's ample room
+   anyway). This popover's own width (178px at 6 columns) plus that fixed
+   46px offset fits inside every real viewport width, including 320-375px,
+   so no narrower breakpoint variant is needed -- a `right: 0` anchor would
+   actively break this, since it measures from the trigger's *right* edge
+   while the trigger itself sits near the viewport's *left* edge. */
+.dash__swatch-pop {
+  position: absolute; top: 100%; left: 0; margin-top: 6px; z-index: 5;
+  display: grid; grid-template-columns: repeat(6, 22px); gap: 6px;
+  padding: 8px; background: var(--card-2); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm); box-shadow: 0 8px 20px -8px rgba(0, 0, 0, 0.4);
+}
+.dash__swatch-opt {
+  width: 22px; height: 22px; padding: 0; border-radius: 50%; cursor: pointer;
+  border: 2px solid transparent;
+  transition: transform 0.1s var(--ease-snap), border-color 0.1s var(--ease-snap);
+}
+.dash__swatch-opt:hover { transform: scale(1.1); }
+.dash__swatch-opt[aria-pressed="true"] { border-color: var(--text); }
+
+/* ---------- Inline delete confirmation (replaces window.confirm) ---------- */
+.dash__labels-confirm { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.dash__labels-confirm-text { color: var(--text-2); font-size: 13.5px; flex: 1 1 220px; }
+.dash__labels-confirm-delete {
+  background: var(--locked); color: #fff; border: none; border-radius: 12px;
+  font-family: var(--font-body); font-weight: 600; padding: 9px 18px; font-size: 14px;
+  cursor: pointer; transition: transform 0.12s var(--ease-snap), box-shadow 0.2s;
+}
+.dash__labels-confirm-delete:hover { box-shadow: 0 8px 20px -8px var(--locked); }
+.dash__labels-confirm-delete:active { transform: scale(0.97); }
+/* Unlike its cancelBtn sibling (which carries .btn and already gets
+   .dash .btn:disabled above), this button has no shared .btn class, so the
+   disable-during-write treatment in labelsPanel.js's deleteBtn handler
+   needs its own rule here. */
+.dash__labels-confirm-delete:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Per-session relabel chip-button + <select>, swapped in for each other on
+   click (sessionLabelPicker.js's createLabelPicker) -- sized to sit inline in
+   a table cell or the calendar day list without disturbing row height.
+   Always paired with .dash__chip in the markup (resolved, one-time-tag, and
+   "Untagged" states) so this only resets button chrome (border/background/
+   cursor/font) and never touches padding/border-radius -- .dash__chip alone
+   owns those, so cascade order between the two classes can't fight over them. */
+.dash__label-picker { position: relative; display: inline-flex; align-items: center; min-height: 24px; }
+.dash__chip-btn {
+  border: none; background: none; cursor: pointer; font: inherit;
+  display: inline-flex; align-items: center; gap: 5px;
+  max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  transition: filter 0.15s var(--ease-snap);
+}
+/* Small caret affordance -- same Feather-outline icon language as
+   .dash__cal-navbtn's chevrons, not a new icon system -- so a static-looking
+   pill reads as clickable. */
+.dash__chip-btn::after {
+  content: "";
+  width: 8px; height: 8px; flex: none;
+  background: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpolyline points='6 9 12 15 18 9' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpolyline points='6 9 12 15 18 9' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
+  opacity: 0.55;
+  transition: opacity 0.15s var(--ease-snap);
+}
+.dash__chip-btn:hover, .dash__chip-btn:focus-visible { filter: brightness(1.08); }
+.dash__chip-btn:hover::after, .dash__chip-btn:focus-visible::after { opacity: 0.9; }
+.dash__chip-select {
+  font-size: 12.5px; font-weight: 600; font-family: var(--font-body);
+  color: var(--text); background: var(--card-2); border: 1px solid var(--border-soft);
+  border-radius: 999px; padding: 3px 8px;
+}
+/* Generic "this control is mid-write" dimming -- applied to the relabel
+   <select> while its updateDoc is in flight, and reused as-is (not
+   reinvented) for the rename <input> during its own write in labelsPanel.js. */
+.dash__chip-select--saving { opacity: 0.6; cursor: wait; }
+
+/* One-shot save/error flash -- fire-and-forget @keyframes rather than a
+   transition+class-removal pair, since there's no persistent "flashed" end
+   state to toggle back from. Still plain CSS, consistent with this file's
+   NO-GSAP header comment: a single low-key 2px ring is not the repeated
+   overshoot beat that decision was written against. Both durations are
+   covered by styles.css's existing global prefers-reduced-motion rule. */
+.dash__save-flash { animation: dashSaveFlash 0.9s var(--ease) forwards; }
+@keyframes dashSaveFlash {
+  0% { box-shadow: 0 0 0 2px var(--unlocked); }
+  100% { box-shadow: 0 0 0 0 rgba(0, 0, 0, 0); }
+}
+.dash__save-flash--err { animation-name: dashSaveFlashErr; animation-duration: 1.4s; }
+@keyframes dashSaveFlashErr {
+  0% { box-shadow: 0 0 0 2px var(--locked); }
+  100% { box-shadow: 0 0 0 0 rgba(0, 0, 0, 0); }
+}
 
 @media (max-width: 860px) {
   .dash__grid { grid-template-columns: 1fr; }

@@ -124,6 +124,25 @@ Serif, Outfit, Plus Jakarta Sans, Instrument Sans, etc.).
   small torn claim-tag corner fold (bold shapes only, no fine barcode lines,
   so it survives down to a 16px launcher icon) tying the icon to the same
   world as the website.
+- **Manage labels panel** (`.dash__labels-list`, `.dash__label-add`,
+  dashboard.html's "Manage labels" card): catalog CRUD for the dashboard's
+  custom labels -- add via the same 12-swatch `LABEL_SWATCHES` set as the
+  app's own `CustomLabelsSection.tsx` `ColorSwatchRow`, inline rename, a
+  compact per-row recolor popover (`.dash__swatch-pop`) rather than a full
+  form, and an inline delete confirmation (`.dash__labels-confirm`) that
+  swaps in for the row instead of a `window.confirm` dialog -- a visible,
+  in-place record of the action rather than a silent native prompt.
+- **Session relabel chip↔picker** (`.dash__label-picker`, `.dash__chip-btn`,
+  `.dash__chip-select`): the sessions table and calendar day list's label
+  cell is now a click target -- a `.dash__chip` pill (resolved label,
+  one-time typed tag shown dashed, or dashed "Untagged") swaps for a native
+  `<select>` on click; Escape reverts without committing. Reuses `.dash__chip`'s
+  existing pill shape unchanged; only adds the caret affordance and the swap.
+- **Save/error flash** (`.dash__save-flash`, `.dash__save-flash--err`): a
+  one-shot `--unlocked`/`--locked` outline ring on a control once its write
+  settles -- fire-and-forget, not a persistent state, and still covered by
+  styles.css's existing `prefers-reduced-motion` rule rather than a new
+  exception to it.
 
 ## Motion
 
@@ -134,6 +153,15 @@ Serif, Outfit, Plus Jakarta Sans, Instrument Sans, etc.).
 - Perforation dividers (`.tear`, and the manifest's per-row `::before`) are
   static punch-hole cuts, not animated; the world's motion budget stays
   spent on the reveal/press mechanics rather than a new signature move.
+- The dashboard's label-management pass added two more `.dash__fade`
+  siblings, scaled for smaller swaps rather than a whole panel:
+  `.dash__msg` (inline status-message fade) and `.dash__pick-fade`
+  (chip↔picker, swatch-popover, and add-form↔cap-message swaps). Same curve
+  and technique as `.dash__fade`, not a new idiom. The one actually new
+  technique is the save/error flash (`.dash__save-flash` /
+  `.dash__save-flash--err`, see Signature components): a fire-and-forget
+  `@keyframes` ring instead of a transition+class-removal pair, since there
+  is no persistent "flashed" end state to hold open or reverse.
 
 ## Known accepted findings
 
@@ -165,6 +193,69 @@ Serif, Outfit, Plus Jakarta Sans, Instrument Sans, etc.).
   Contrast was spot-checked by computation for `--text-3` (the one color
   actually near the floor) and by eye elsewhere across desktop + mobile
   screenshots in `.impeccable/review/`.
+- **No visual confirmation exists for the dashboard label-management pass.**
+  Zero screenshots were captured — the Browser pane did not composite frames
+  in this environment (reproduced independently; an environment limit, not
+  an agent failure). Every check on the new "Manage labels" panel, the
+  swatch picker, and the session relabel chip↔picker used `read_page`
+  (accessibility tree), computed-style inspection, and real keyboard events
+  against the shipped modules loaded live — never a rendered capture. That
+  establishes structure and behavior, not appearance. Accepted because the
+  environment could not produce the missing evidence this session; treat
+  this UI as visually unconfirmed until someone recaptures it where the pane
+  composites.
+- **The write-success path was never exercised.** Signing in is prohibited
+  for these agents (no entering credentials), so every relabel/recolor/
+  rename/delete/add write this pass ran against injected mock data with no
+  live Firestore behind it — confirming the error path (the red
+  `.dash__save-flash--err` ring, the write-error banner) but not the success
+  path (the green `.dash__save-flash` ring, the real post-write rerender).
+  The backend (firestore.rules' write shapes) was proved separately and is
+  already deployed, which narrows the risk, but "this UI successfully
+  writes to Firestore" is not something this pass established. Accepted
+  because live sign-in is out of reach for this pipeline; verify manually
+  with a real account before relying on the success path.
+- **`website/js/focusStats.js` was NOT modified by this pass.** An earlier
+  draft of this review recorded it as an off-limits-file violation; that was
+  wrong, and the finding is retracted here rather than deleted, so the
+  correction is on the record. The `+58` lines the diff shows
+  (`createCustomLabel`/`renameCustomLabel`/`recolorCustomLabel`/
+  `deleteCustomLabel`, `LABEL_SWATCHES`, `MAX_CUSTOM_LABELS`,
+  `MAX_LABEL_NAME_LENGTH`, `allLabelChoices`) are uncommitted work from the
+  *preceding backend pass*, which ported them from
+  `app/src/stats/customLabels.ts` and explicitly handed them to this build to
+  consume. `labelsPanel.js` and `sessionLabelPicker.js` import them, as
+  intended. The mistake was measuring the diff against `HEAD` instead of
+  against the working tree as it stood when this pass began — this tree
+  carries uncommitted work from more than one pass, so a HEAD-relative diff
+  cannot tell them apart. Worth remembering for the next review.
+- **The `.dash :focus-visible` change is a deliberate palette choice, not a
+  bug fix.** `--steel` (styles.css's global focus-ring color) resolves
+  correctly on the dashboard too — it's set unconditionally in styles.css's
+  `:root`, which dashboard.html loads before dashboard.css — so focus rings
+  here were never actually broken. This pass scopes the dashboard's focus
+  color to `--unlocked` instead, to keep it visually distinct from the
+  `--locked` save/error flash introduced in this same pass, not to repair an
+  undefined-token defect. An earlier in-progress code comment stated the
+  inaccurate "undefined token" framing; corrected during this review
+  (dashboard.css, near the `:focus-visible` rule).
+- **`dashboard.js`'s line count (683) is over the ~500-line convention**,
+  including net of an unrelated, concurrent "focus goals" feature threaded
+  through it (`goals.js`; roughly 60 of those lines) that is not part of
+  this task's scope and is not further described here. To be accurate about
+  direction of travel: this pass *reduced* the file, 763 → 683, while moving
+  641 lines into three new focused modules. It did not bloat it. (An earlier
+  draft cited "+155 vs. 528", measured from `HEAD` — that span includes the
+  preceding backend pass and the concurrent goals work, not this build.) The
+  file is nonetheless still over budget after this pass's own contribution —
+  the ctx/getter wiring for the two extracted modules, the `els` additions,
+  `currentSettings` tracking, the `mountLabelsPanel` call, the table/calendar
+  integration points, plus an unrelated load-timeout robustness fix. The bulk of
+  the new logic was properly split into three new focused files
+  (`labelsPanel.js`, 379 lines; `sessionLabelPicker.js`, 198 lines;
+  `dashMessage.js`, 64 lines); `dashboard.js` itself would benefit from a
+  further extraction in a follow-up pass (the calendar-rendering block is
+  the largest remaining candidate).
 
 ## Process note
 
@@ -181,3 +272,19 @@ per the skill's substitution-disclosure rule. The review ran two full rounds
 ceiling; the verdict's two remaining open items (pictorial-device coverage,
 icon alpha) are recorded above under Known accepted findings rather than
 spent on a third round.
+
+A later pass added the dashboard's label-management feature (Manage labels
+panel, session relabel chip↔picker) through the same four-agent pipeline
+(designer → implementer → verifier → finisher), each a fresh subagent
+substituting for the harness's own unregistered named roles, disclosed here
+on the same basis as above. Two evidence gaps carry across every stage of
+that pipeline into this review and must not be read past: **no screenshot of
+this feature exists** (the Browser pane would not composite frames in this
+environment; verification instead used the accessibility tree, computed
+styles, and real keyboard events against the live modules), and **the
+Firestore write-success path was never exercised** (sign-in is off-limits to
+these agents, so every write ran against injected mock data and only the
+error path is proven). Both are recorded in full under Known accepted
+findings above. The verdict for this pass is ship with noted findings, not a
+clean ship — the checklist above is clean, but it is not a substitute for
+someone actually looking at the rendered page and signing in as a real user.

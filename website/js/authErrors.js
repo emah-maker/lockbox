@@ -10,6 +10,7 @@ const MESSAGES = {
   'auth/popup-blocked': 'Your browser blocked the sign-in popup. Allow popups for this site and try again.',
   'permission-denied': 'Your account doesn’t have access to this data.',
   unavailable: 'Couldn’t reach the server -- check your connection and try again.',
+  timeout: 'This is taking too long. Make sure Firestore Database is created for this project (Firebase console → Build → Firestore Database) and that nothing is blocking requests to firestore.googleapis.com.',
 };
 
 // User-initiated popup dismissals aren't failures worth an error screen.

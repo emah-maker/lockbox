@@ -1,12 +1,19 @@
 /* =========================================================================
    dashboard.js -- wires dashboard.html to Firebase Auth (Google sign-in) +
-   Firestore, reading the exact documents app/src/sync/firestoreSync.ts
-   writes (users/{uid}/sessions, users/{uid}/settings/app), and rendering
-   them with the pure helpers in focusStats.js. Read-only: firestore.rules
-   makes session docs create-only, so there is nothing for this page to
-   write back (a past session's label can only ever be retagged from the
-   app -- see app/src/sync/sessionMerge.ts's comment on why that never syncs
-   back to an already-created remote doc).
+   Firestore, reading and writing the exact documents app/src/sync/
+   firestoreSync.ts uses (users/{uid}/sessions, users/{uid}/settings/app),
+   and rendering them with the pure helpers in focusStats.js.
+
+   Writable, as of the sessions `update` rule in firestore.rules: a session's
+   `topic` can now be changed here (click a label chip in the sessions table
+   or the calendar day list) as a scoped Firestore update, and the
+   customLabels catalog can be added to/renamed/recolored/deleted (already
+   covered by settings/app's existing whole-doc write rule). Every other
+   session field stays immutable, enforced by the rules, not just by this
+   file's own restraint. app/src/sync/sessionMerge.ts's last-write-wins merge
+   (keyed on topicUpdatedAt) is what stops a relabel made here from being
+   silently clobbered -- or silently clobbering an in-app retag -- on the
+   next app sync.
 
    Gated: this page is for signed-in users only. Sign-in itself happens on
    login.html (login.js) -- this file only checks auth state and redirects
@@ -33,6 +40,7 @@ import {
   getFirestore,
   doc,
   getDoc,
+  setDoc,
   collection,
   getDocs,
   query,
@@ -50,7 +58,6 @@ import {
   groupByDay,
   bestDay,
   lastNDays,
-  resolveTopic,
   topicBreakdownWithCustom,
   dominantTopicWithCustom,
   topComparisons,
@@ -59,6 +66,10 @@ import {
   buildMonthGrid,
   readableTextColor,
 } from './focusStats.js';
+import { showMessage, describeWriteError } from './dashMessage.js';
+import { createLabelPicker } from './sessionLabelPicker.js';
+import { mountLabelsPanel, renderLabelsList } from './labelsPanel.js';
+import { sanitizeRemoteGoals, computeGoalProgress, pruneArchivedGoals } from './goals.js';
 
 const TOP_FACTS = 5;
 // Defensive cap, not a product window: the summary tiles/streak/calendar all
@@ -92,7 +103,62 @@ const els = {
   calGrid: document.getElementById('dashCalGrid'),
   calDayTitle: document.getElementById('dashCalDayTitle'),
   calDayList: document.getElementById('dashCalDayList'),
+  writeError: document.getElementById('dashWriteError'),
+  labelsMsg: document.getElementById('dashLabelsMsg'),
+  labelsList: document.getElementById('dashLabelsList'),
+  labelAddForm: document.getElementById('dashLabelAddForm'),
+  labelAddSwatches: document.getElementById('dashLabelAddSwatches'),
+  labelAddName: document.getElementById('dashLabelAddName'),
+  labelAddSubmit: document.getElementById('dashLabelAddSubmit'),
+  labelsCapMsg: document.getElementById('dashLabelsCapMsg'),
 };
+
+// ---------- Write state (populated once loadDashboard resolves) ----------
+// dashDb/dashUid: needed by every write below, set once per sign-in. Named
+// distinctly from loadDashboard's own (db, uid) parameters below, which
+// would otherwise shadow these module-level bindings inside that function.
+// currentSettings holds the three settings/app fields a label-catalog write
+// doesn't touch -- settings/app's rule is a whole-document `allow write` (not
+// a scoped `update`), so writeCustomLabels below must resend them unchanged
+// alongside the new customLabels array, exactly like the app's own
+// localSettingsPayload() does.
+let dashDb = null;
+let dashUid = null;
+let currentSettings = { themeMode: DEFAULT_THEME_MODE, accent: DEFAULT_ACCENT, callAlertsEnabled: true };
+
+function showWriteError(err) {
+  console.error(err);
+  showMessage(els.writeError, describeWriteError(err), { kind: 'err', autoDismissMs: 6000 });
+}
+
+// ---------- Manage-labels panel wiring (labelsPanel.js owns render + writes) ----------
+// getDb/getUid are getters, not static values, because mountLabelsPanel below
+// is wired once at module init -- before sign-in has resolved dashDb/dashUid
+// -- so a captured value would be stale/null forever; labelsPanel.js reads
+// these live at write time instead.
+const labelsCtx = {
+  getDb: () => dashDb,
+  getUid: () => dashUid,
+  getSettings: () => currentSettings,
+  getCustomLabels: () => calCustomLabels,
+  onWritten: (next) => renderDataViews(calSessions, next),
+};
+
+// ---------- Per-session relabel picker ctx (sessionLabelPicker.js owns render + writes) ----------
+// Rebuilt fresh on every call (renderCalDayList/renderSessionsTable both run
+// inside renderDataViews, so dashDb/dashUid/calCustomLabels/themeMode are
+// always current at call time) -- unlike labelsCtx above, no getter
+// indirection is needed here.
+function labelPickerCtx() {
+  return {
+    db: dashDb,
+    uid: dashUid,
+    customLabels: calCustomLabels,
+    themeMode,
+    onCommitted: () => renderDataViews(calSessions, calCustomLabels),
+    onError: showWriteError,
+  };
+}
 
 const STATES = ['notConfigured', 'loading', 'error', 'content'];
 // Was a flat `hidden` swap (an instant snap between states); now the
@@ -153,6 +219,15 @@ let calCursor = startOfMonth(new Date());
 let calSelectedKey = dayKey(Date.now());
 let calSessions = [];
 let calCustomLabels = [];
+
+// ---------- Focus goals (data-only for now -- see goals.js; no UI yet) ----------
+// calGoals/goalsProgress are threaded through renderAll/renderDataViews the
+// same way calCustomLabels is above, so the follow-up goals UI has both the
+// sanitized array and its current-period progress ready to render without
+// re-deriving either from scratch. Nothing below actually paints them yet --
+// per this task's scope, the visible goals UI is a separate follow-up.
+let calGoals = [];
+let goalsProgress = [];
 
 function renderCalendar() {
   const byDay = groupByDay(calSessions);
@@ -234,26 +309,12 @@ function renderCalDayList(daySessions) {
   }
   for (const s of daySessions.slice().sort((a, b) => a.startedAt - b.startedAt)) {
     const li = document.createElement('li');
+    li.dataset.sessionId = s.id;
     const time = document.createElement('span');
     time.textContent = new Date(s.startedAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
     const dur = document.createElement('span');
     dur.textContent = formatDuration(s.actualS);
-    const label = document.createElement('span');
-    label.style.display = 'inline-flex';
-    label.style.alignItems = 'center';
-    label.style.gap = '6px';
-    const resolved = resolveTopic(s.topic, calCustomLabels, themeMode);
-    if (resolved) {
-      const dot = document.createElement('span');
-      dot.className = 'dash__cal-dot';
-      dot.style.background = resolved.color;
-      label.appendChild(dot);
-      const nameSpan = document.createElement('span');
-      nameSpan.textContent = resolved.label;
-      label.appendChild(nameSpan);
-    } else {
-      label.textContent = 'Untagged';
-    }
+    const label = createLabelPicker(s, labelPickerCtx());
     const outcome = document.createElement('span');
     outcome.textContent = s.outcome === 'completed' ? 'Completed' : 'Ended early';
     li.append(time, dur, label, outcome);
@@ -402,11 +463,12 @@ function renderBreakdown(topics) {
 
 // ---------- Recent sessions table ----------
 const RECENT_LIMIT = 25;
-function renderSessionsTable(sessions, customLabels) {
+function renderSessionsTable(sessions) {
   clear(els.sessionsBody);
   const recent = sessions.slice().sort((a, b) => b.startedAt - a.startedAt).slice(0, RECENT_LIMIT);
   for (const s of recent) {
     const tr = document.createElement('tr');
+    tr.dataset.sessionId = s.id;
 
     const date = document.createElement('td');
     date.textContent = new Date(s.startedAt).toLocaleString(undefined, {
@@ -414,17 +476,7 @@ function renderSessionsTable(sessions, customLabels) {
     });
 
     const label = document.createElement('td');
-    const resolved = resolveTopic(s.topic, customLabels, themeMode);
-    if (resolved) {
-      const chip = document.createElement('span');
-      chip.className = 'dash__chip';
-      chip.style.background = resolved.color;
-      chip.style.color = resolved.textColor;
-      chip.textContent = resolved.label;
-      label.appendChild(chip);
-    } else {
-      label.textContent = '—';
-    }
+    label.appendChild(createLabelPicker(s, labelPickerCtx()));
 
     const planned = document.createElement('td');
     planned.textContent = formatDuration(s.plannedS);
@@ -440,7 +492,18 @@ function renderSessionsTable(sessions, customLabels) {
   }
 }
 
-function renderAll(sessions, customLabels) {
+/** Re-renders every data view from the current (sessions, customLabels,
+ * goals) state, without touching the calendar's month cursor/selected day --
+ * used after a write (a relabel, a labels-catalog edit, or a goals write --
+ * see writeGoals below) so e.g. renaming a label doesn't also silently snap
+ * the calendar back to today's month. See renderAll below for the
+ * initial-load path, which does reset those.
+ *
+ * `goals` defaults to the last-loaded set so every existing call site
+ * (sessionLabelPicker.js's commit() via onCommitted, labelsPanel.js's writes
+ * via onWritten) keeps working unchanged -- none of them touch goals, so
+ * they shouldn't have to pass calGoals through by hand on every call. */
+function renderDataViews(sessions, customLabels, goals = calGoals) {
   const stats = aggregate(sessions);
   const trend = lastNDays(sessions);
   const topics = topicBreakdownWithCustom(sessions, customLabels, themeMode);
@@ -452,14 +515,68 @@ function renderAll(sessions, customLabels) {
   renderFacts(sessions, stats.foc);
   renderTrend(trend);
   renderBreakdown(topics);
-  renderSessionsTable(sessions, customLabels);
+  renderSessionsTable(sessions);
+  renderLabelsList(customLabels, els, labelsCtx);
 
   calSessions = sessions;
   calCustomLabels = customLabels;
-  calCursor = startOfMonth(new Date());
-  calSelectedKey = dayKey(Date.now());
+  calGoals = goals;
+  // No rendering consumes this yet (see the calGoals/goalsProgress comment
+  // above) -- computed here anyway so it's already correct and available the
+  // moment a goals UI lands, rather than that follow-up also having to find
+  // and thread this call.
+  goalsProgress = computeGoalProgress(goals, sessions);
   renderCalendar();
 }
+
+function renderAll(sessions, customLabels, goals = []) {
+  calCursor = startOfMonth(new Date());
+  calSelectedKey = dayKey(Date.now());
+  renderDataViews(sessions, customLabels, goals);
+}
+
+// ---------- Per-session relabel picker ----------
+// Ownership moved to sessionLabelPicker.js (imported above) -- see that
+// file's header comment. dashboard.js keeps only the two call sites
+// (renderCalDayList, renderSessionsTable, both above) plus labelPickerCtx().
+
+// ---------- Focus goals persistence ----------
+// No UI calls this yet (goals UI is a separate follow-up, per this task's
+// scope) -- this exists now so that follow-up only has to call
+// writeGoals(goals.js's createGoal/updateGoal/archiveGoal(calGoals, ...))
+// rather than also inventing the write path.
+/** Writes the full goals array to users/{uid}/goals/config. Unlike
+ * labelsPanel.js's writeCustomLabels, this doc has no *other* fields to
+ * resend -- `{ goals, updatedAt }` is its entire shape (contract §1) -- so
+ * this is a plain whole-document overwrite, not a merge; still a full setDoc
+ * rather than updateDoc for the same reason writeCustomLabels uses one:
+ * there's no scoped Firestore `update` rule for this doc (see
+ * app/firestore.rules' settings/app rule, the pattern this doc's own rule
+ * mirrors). `updatedAt` is stamped as a client logical clock via Date.now(),
+ * exactly like writeCustomLabels/localSettingsPayload() do -- never
+ * serverTimestamp(), so it stays comparable against the app's own goals doc
+ * clock. Tombstones are
+ * pruned right before the write lands (see goals.js's pruneArchivedGoals),
+ * not on every read, so a fresh tombstone still gets its full propagation
+ * window before it can be dropped by whichever side happens to write next. */
+async function writeGoals(next) {
+  const pruned = pruneArchivedGoals(next, Date.now());
+  try {
+    await setDoc(doc(dashDb, 'users', dashUid, 'goals', 'config'), {
+      goals: pruned,
+      updatedAt: Date.now(),
+    });
+  } catch (err) {
+    showWriteError(err);
+    throw err;
+  }
+  renderDataViews(calSessions, calCustomLabels, pruned);
+}
+
+// ---------- Manage labels panel ----------
+// Ownership moved to labelsPanel.js (imported above) -- see that file's
+// header comment. dashboard.js keeps only labelsCtx (above) and the
+// mountLabelsPanel(...) one-time wiring call in init() below.
 
 // ---------- Firebase wiring ----------
 function showError(err) {
@@ -468,30 +585,66 @@ function showError(err) {
   showState('error');
 }
 
+// Firestore's SDK can retry a stuck connection (missing database, blocked
+// request) silently instead of rejecting, which left this screen stuck on
+// "Loading..." forever with no error. Race it against a timeout so a stall
+// always surfaces as an actionable error instead of hanging indefinitely.
+const LOAD_TIMEOUT_MS = 15000;
+function withTimeout(promise, ms) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      setTimeout(() => reject(Object.assign(new Error('Dashboard load timed out'), { code: 'timeout' })), ms);
+    }),
+  ]);
+}
+
 async function loadDashboard(db, uid) {
   showState('loading');
+  dashDb = db;
+  dashUid = uid;
   try {
-    const [sessionsSnap, settingsSnap] = await Promise.all([
+    const [sessionsSnap, settingsSnap, goalsSnap] = await withTimeout(Promise.all([
       getDocs(query(
         collection(db, 'users', uid, 'sessions'),
         orderBy('startedAt', 'desc'),
         limit(SESSIONS_QUERY_LIMIT),
       )),
       getDoc(doc(db, 'users', uid, 'settings', 'app')),
-    ]);
+      // users/{uid}/goals/config -- see goals.js's header. A missing doc here
+      // is the normal first-run case (no goals set yet), not an error, same
+      // as settings/app potentially not existing for a brand-new account --
+      // handled below via goalsSnap.exists(), not a catch.
+      getDoc(doc(db, 'users', uid, 'goals', 'config')),
+    ]), LOAD_TIMEOUT_MS);
     // Back to oldest-first -- the query above reads newest-first so the cap
     // keeps the *most recent* sessions, but every render/aggregate helper
-    // below expects oldest-first input.
-    const sessions = sessionsSnap.docs.map((d) => d.data()).reverse();
+    // below expects oldest-first input. Keeps its own doc id (unlike the
+    // previous read-only version, which discarded it) -- createLabelPicker
+    // needs it to address the doc for a relabel `update`.
+    const sessions = sessionsSnap.docs.map((d) => ({ id: d.id, ...d.data() })).reverse();
     const settings = settingsSnap.exists() ? settingsSnap.data() : {};
     const customLabels = settings.customLabels || [];
+    // sanitizeRemoteGoals is the untrusted-input boundary for this doc (see
+    // its own comment in goals.js) -- run before anything else (including
+    // computeGoalProgress in renderAll/renderDataViews) ever sees it, same
+    // as customLabels above being trusted only because settings/app's own
+    // write rule already bounds its shape.
+    const goals = sanitizeRemoteGoals(goalsSnap.exists() ? goalsSnap.data().goals : []);
     // Same themeMode/accent fields useSettingsStore.ts syncs from the app
     // (SyncableSettings) -- resolving them here is what makes this page look
-    // like *this user's* app, not just a fixed website palette.
+    // like *this user's* app, not just a fixed website palette. Also kept
+    // around (currentSettings) so writeCustomLabels can resend them unchanged
+    // on a labels-catalog write, since settings/app has no scoped update rule.
     themeMode = settings.themeMode === 'light' ? 'light' : DEFAULT_THEME_MODE;
     theme = resolveTheme(themeMode, settings.accent || DEFAULT_ACCENT);
+    currentSettings = {
+      themeMode,
+      accent: settings.accent || DEFAULT_ACCENT,
+      callAlertsEnabled: settings.callAlertsEnabled !== undefined ? settings.callAlertsEnabled : true,
+    };
     applyTheme(theme);
-    renderAll(sessions, customLabels);
+    renderAll(sessions, customLabels, goals);
     showState('content');
   } catch (err) {
     showError(err);
@@ -499,6 +652,8 @@ async function loadDashboard(db, uid) {
 }
 
 function init() {
+  mountLabelsPanel(els, labelsCtx);
+
   if (!isFirebaseConfigured()) {
     showState('notConfigured');
     return;

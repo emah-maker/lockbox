@@ -64,6 +64,64 @@ export function readableTextColor(hex) {
   return whiteContrast >= blackContrast ? '#ffffff' : '#0b0b0b';
 }
 
+const CUSTOM_ID_PREFIX = 'custom:';
+
+// Mirrors app/src/stats/customLabels.ts's own constants -- kept in sync so a
+// rejected write here never surfaces as a confusing remote permission error
+// (firestore.rules' settings/app write rule caps customLabels.size() at 40)
+// instead of this module's own validation message.
+export const MAX_CUSTOM_LABELS = 40;
+export const MAX_LABEL_NAME_LENGTH = 40;
+
+/** Same starting-point swatches as app/src/stats/customLabels.ts's
+ * LABEL_SWATCHES, for the dashboard's own label-creation UI. */
+export const LABEL_SWATCHES = [
+  '#e11d48', '#f97316', '#ca8a04', '#65a30d', '#059669', '#0891b2',
+  '#2563eb', '#7c3aed', '#c026d3', '#db2777', '#78716c', '#334155',
+];
+
+export function makeCustomLabelId() {
+  return `${CUSTOM_ID_PREFIX}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/** Port of app/src/stats/customLabels.ts's createCustomLabel/renameCustomLabel/
+ * deleteCustomLabel -- same validation, same shape, so a label created here
+ * round-trips through the app exactly like one created there. */
+export function createCustomLabel(labels, name, color) {
+  const trimmed = (name || '').trim();
+  if (!trimmed) throw new Error('Label name is required.');
+  if (trimmed.length > MAX_LABEL_NAME_LENGTH) throw new Error(`Label name must be ${MAX_LABEL_NAME_LENGTH} characters or fewer.`);
+  if (!color) throw new Error('Label color is required.');
+  if (labels.length >= MAX_CUSTOM_LABELS) throw new Error(`You can have at most ${MAX_CUSTOM_LABELS} custom labels.`);
+  return [...labels, { id: makeCustomLabelId(), name: trimmed, color }];
+}
+
+export function renameCustomLabel(labels, id, name) {
+  const trimmed = (name || '').trim();
+  if (!trimmed) throw new Error('Label name is required.');
+  if (trimmed.length > MAX_LABEL_NAME_LENGTH) throw new Error(`Label name must be ${MAX_LABEL_NAME_LENGTH} characters or fewer.`);
+  return labels.map((l) => (l.id === id ? { ...l, name: trimmed } : l));
+}
+
+export function recolorCustomLabel(labels, id, color) {
+  if (!color) throw new Error('Label color is required.');
+  return labels.map((l) => (l.id === id ? { ...l, color } : l));
+}
+
+export function deleteCustomLabel(labels, id) {
+  return labels.filter((l) => l.id !== id);
+}
+
+/** Every selectable label for (re)tagging a session: built-ins in their fixed
+ * order, then custom labels in creation order. Mirrors app/src/stats/
+ * customLabels.ts's allLabelChoices, used to populate the dashboard's
+ * per-session relabel dropdown. */
+export function allLabelChoices(customLabels, mode = 'dark') {
+  const builtins = TOPIC_KEYS.map((k) => resolveTopic(k, customLabels, mode));
+  const customs = (customLabels || []).map((l) => resolveTopic(l.id, customLabels, mode));
+  return [...builtins, ...customs];
+}
+
 /** Resolves a session's stored topic id (a built-in key or a `custom:`-prefixed
  * label id) to a display name + color. Returns null when untagged, or when a
  * custom label was since deleted. Mirrors app/src/stats/customLabels.ts's
