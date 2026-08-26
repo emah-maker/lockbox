@@ -44,17 +44,39 @@ export function topicTextColor(key: TopicKey, mode: ThemeMode): string {
   return readableTextColor(TOPIC_HEX[key][mode]);
 }
 
-/** Same binary black/white contrast pick as topicTextColor, but for any hex
- * fill -- shared with stats/customLabels.ts so a user-picked custom label
- * color gets the same readable-text treatment as a built-in topic's. */
+/** WCAG relative luminance (sRGB, gamma-corrected) -- what the 4.5:1
+ * contrast-ratio formula is actually defined against, unlike a perceptual
+ * luma weighting. */
+function relativeLuminance(hex: string): number {
+  const chan = (c: number) => {
+    const v = c / 255;
+    return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+  };
+  const r = chan(parseInt(hex.slice(1, 3), 16));
+  const g = chan(parseInt(hex.slice(3, 5), 16));
+  const b = chan(parseInt(hex.slice(5, 7), 16));
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+function contrastRatio(l1: number, l2: number): number {
+  const hi = Math.max(l1, l2);
+  const lo = Math.min(l1, l2);
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+/** Picks whichever of black/white clears WCAG AA (4.5:1) against `hex`, or
+ * the higher-contrast of the two if neither does -- shared with
+ * stats/customLabels.ts so a user-picked custom label color gets the same
+ * readable-text treatment as a built-in topic's. Previously used a
+ * perceptual-luma threshold that picked white text for work/study/reading/
+ * creative/exercise even though it measures 3.1-4.0:1 against those fills,
+ * below the 4.5:1 floor -- same fix applied to the website's port of this
+ * function (website/js/focusStats.js). */
 export function readableTextColor(hex: string): string {
-  const r = parseInt(hex.slice(1, 3), 16);
-  const g = parseInt(hex.slice(3, 5), 16);
-  const b = parseInt(hex.slice(5, 7), 16);
-  // Relative luminance (sRGB, gamma-approximated) -- good enough for a
-  // binary black/white text pick, not color-managed rendering.
-  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-  return luminance > 0.6 ? '#0b0b0b' : '#ffffff';
+  const luminance = relativeLuminance(hex);
+  const whiteContrast = contrastRatio(1, luminance);
+  const blackContrast = contrastRatio(luminance, 0);
+  return whiteContrast >= blackContrast ? '#ffffff' : '#0b0b0b';
 }
 
 export interface TopicStat {

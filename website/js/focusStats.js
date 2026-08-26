@@ -18,34 +18,62 @@ export const TOPIC_LABELS = {
   other: 'Other',
 };
 
-// Dark-mode variants only -- the dashboard page is dark-themed like the rest
-// of the site (website/css/styles.css), unlike the app which supports both.
+// Light/dark variants, matching app/src/stats/topics.ts's TOPIC_HEX exactly --
+// the dashboard now resolves the signed-in user's actual themeMode (synced to
+// users/{uid}/settings/app) rather than assuming dark, so topic colors need
+// to follow it the same way the app's own screens do.
 const TOPIC_HEX = {
-  work: '#3987e5',
-  study: '#d95926',
-  reading: '#199e70',
-  creative: '#c98500',
-  exercise: '#d55181',
-  other: '#008300',
+  work: { light: '#2a78d6', dark: '#3987e5' },
+  study: { light: '#eb6834', dark: '#d95926' },
+  reading: { light: '#1baf7a', dark: '#199e70' },
+  creative: { light: '#eda100', dark: '#c98500' },
+  exercise: { light: '#e87ba4', dark: '#d55181' },
+  other: { light: '#008300', dark: '#008300' },
 };
 
-/** Same binary black/white contrast pick as the app's readableTextColor. */
+/** WCAG relative luminance (sRGB, gamma-corrected) -- unlike a perceptual
+ * luma weighting, this is what the 4.5:1 contrast-ratio formula is actually
+ * defined against. */
+function relativeLuminance(hex) {
+  const chan = (c) => {
+    const v = c / 255;
+    return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+  };
+  const r = chan(parseInt(hex.slice(1, 3), 16));
+  const g = chan(parseInt(hex.slice(3, 5), 16));
+  const b = chan(parseInt(hex.slice(5, 7), 16));
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+function contrastRatio(l1, l2) {
+  const [hi, lo] = l1 > l2 ? [l1, l2] : [l2, l1];
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+/** Same black/white contrast pick as the app's readableTextColor: picks
+ * whichever of black/white clears WCAG AA (4.5:1) against `hex`, or the
+ * higher-contrast of the two if neither does. Same fix applied to
+ * app/src/stats/topics.ts's readableTextColor -- both copies shared the
+ * same bug (a perceptual-luma threshold instead of real WCAG contrast),
+ * which picked white text for work/study/reading/creative/exercise even
+ * though it measures 3.1-4.0:1 against those fills, below the 4.5:1 floor. */
 export function readableTextColor(hex) {
-  const r = parseInt(hex.slice(1, 3), 16);
-  const g = parseInt(hex.slice(3, 5), 16);
-  const b = parseInt(hex.slice(5, 7), 16);
-  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-  return luminance > 0.6 ? '#0b0b0b' : '#ffffff';
+  const luminance = relativeLuminance(hex);
+  const whiteContrast = contrastRatio(1, luminance);
+  const blackContrast = contrastRatio(luminance, 0);
+  return whiteContrast >= blackContrast ? '#ffffff' : '#0b0b0b';
 }
 
 /** Resolves a session's stored topic id (a built-in key or a `custom:`-prefixed
  * label id) to a display name + color. Returns null when untagged, or when a
  * custom label was since deleted. Mirrors app/src/stats/customLabels.ts's
- * resolveTopic. */
-export function resolveTopic(topic, customLabels) {
+ * resolveTopic. `mode` picks the built-in topic's light/dark hex the same way
+ * the app's topicColor(key, mode) does; a custom label's color is user-picked
+ * and mode-independent, same as the app. */
+export function resolveTopic(topic, customLabels, mode = 'dark') {
   if (!topic) return null;
   if (topic in TOPIC_LABELS) {
-    const color = TOPIC_HEX[topic];
+    const color = TOPIC_HEX[topic][mode] || TOPIC_HEX[topic].dark;
     return { id: topic, label: TOPIC_LABELS[topic], color, textColor: readableTextColor(color), isCustom: false };
   }
   const custom = (customLabels || []).find((l) => l.id === topic);
@@ -115,6 +143,22 @@ export function groupByDay(sessions) {
 
 const WEEKDAY_INITIALS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 
+/** The single calendar day (across all logged history, not just the last 7)
+ * with the most total focus time -- a real personal-record fact for the "Fun
+ * facts" card, computed from the same session log as every other stat here.
+ * Mirrors app/src/stats/trend.ts's bestDay. Null on an empty/all-zero log. */
+export function bestDay(sessions) {
+  const byDay = groupByDay(sessions);
+  let best = null;
+  for (const [key, daySessions] of byDay) {
+    const focusS = daySessions.reduce((sum, s) => sum + s.actualS, 0);
+    if (focusS > 0 && (!best || focusS > best.focusS)) {
+      best = { key, dateMs: daySessions[0].startedAt, focusS };
+    }
+  }
+  return best;
+}
+
 /** Oldest-to-newest focus totals for the last `days` calendar days (including
  * today). Mirrors app/src/stats/trend.ts's lastNDays. */
 export function lastNDays(sessions, days = 7, nowMs = Date.now()) {
@@ -133,10 +177,10 @@ export function lastNDays(sessions, days = 7, nowMs = Date.now()) {
 /** Focus time + session count per resolvable label (built-in or custom),
  * sorted highest focus first. Untagged/deleted-label sessions are excluded --
  * mirrors app/src/stats/customLabels.ts's topicBreakdownWithCustom. */
-export function topicBreakdownWithCustom(sessions, customLabels) {
+export function topicBreakdownWithCustom(sessions, customLabels, mode = 'dark') {
   const totals = new Map();
   for (const s of sessions) {
-    const resolved = resolveTopic(s.topic, customLabels);
+    const resolved = resolveTopic(s.topic, customLabels, mode);
     if (!resolved) continue;
     const cur = totals.get(resolved.id) || { focusS: 0, n: 0 };
     cur.focusS += s.actualS;
@@ -145,7 +189,7 @@ export function topicBreakdownWithCustom(sessions, customLabels) {
   }
   const stats = [];
   for (const [id, agg] of totals) {
-    const resolved = resolveTopic(id, customLabels);
+    const resolved = resolveTopic(id, customLabels, mode);
     stats.push({ key: id, label: resolved.label, color: resolved.color, focusS: agg.focusS, n: agg.n });
   }
   return stats.sort((a, b) => b.focusS - a.focusS);
@@ -155,8 +199,8 @@ export function topicBreakdownWithCustom(sessions, customLabels) {
  * calendar day's sessions), or null if none of them are tagged. Mirrors
  * app/src/stats/customLabels.ts's dominantTopicWithCustom -- used by the
  * dashboard's calendar grid to pick each day's dot color. */
-export function dominantTopicWithCustom(sessions, customLabels) {
-  return topicBreakdownWithCustom(sessions, customLabels)[0] || null;
+export function dominantTopicWithCustom(sessions, customLabels, mode = 'dark') {
+  return topicBreakdownWithCustom(sessions, customLabels, mode)[0] || null;
 }
 
 // ---------- app/src/stats/comparisons.ts port ("fun facts" card) ----------

@@ -1,25 +1,99 @@
 /* ============================================================
-   dashboard.css -- focus-tracking dashboard page (dashboard.html).
+   dashboard.css -- focus-tracking dashboard page (dashboard.html), plus the
+   .dash__state/.dash__fade/.dash__head/.dash scaffolding also used by the
+   sign-in gate (login.html) so the two pages share one visual language
+   instead of forking a second stylesheet for a single small page.
    Extends styles.css's tokens/components (--card, --border-soft, .card,
    .btn, .table-scroll, .eyebrow, .section-sub) rather than redefining them.
+
+   App-native palette, deliberately breaking from index.html's Checkpoint
+   Claim-Ticket chrome: this surface shows the exact same data the companion
+   app's Stats/Calendar screens do, so it borrows the app's own dark-mode
+   colors, flat-card shape, and system type (app/src/theme/theme.ts's
+   MODES.dark + ACCENTS.dark.mint, tokens.ts's radius/elevation) instead of
+   the marketing site's stencil/steel/thermal-paper materials -- consistency
+   with the software this page mirrors outranks matching the rest of the
+   website here. dashboard.js overrides these custom properties with the
+   signed-in user's *actual* themeMode/accent (website/js/theme.js resolves
+   the same MODES/ACCENTS table); login.html (pre-auth, no user settings yet)
+   always shows this default, matching useSettingsStore.ts's own
+   SYNCABLE_SETTINGS_DEFAULTS (dark/mint).
    ============================================================ */
+:root {
+  --bg: #0b0b0c;
+  --bg-2: #0b0b0c;
+  --card: #17181b;
+  --card-2: #17181b;
+  --border-soft: rgba(255, 255, 255, 0.07);
+  --text: #ffffff;
+  --text-2: #9aa0a6;
+  --text-3: #9aa0a6;
+  --unlocked: #22c55e;
+  --unlocked-2: #22c55e;
+  --locked: #ef4444;
+  --locked-2: #ef4444;
+  --closed: #f2b84b;
+  --accent-text: #04210f;
+  --accent-soft: #1d2a20;
+  --font-display: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --radius: 14px;
+  --radius-sm: 12px;
+}
+/* De-stencils styles.css's global uppercase/display h1-h3 rule for this
+   surface only -- app headings are normal-case system-bold, not a marquee
+   stencil face. */
+.dash h1, .dash h2, .dash h3 {
+  text-transform: none;
+  font-weight: 700;
+  letter-spacing: -0.3px;
+}
+/* Flat fill + soft shadow instead of styles.css's gradient+border card --
+   matches tokens.ts's `elevation.card` (shadowOpacity .18, shadowRadius 6,
+   offset 0/2) rather than a bordered gradient panel. */
+.dash .card {
+  background: var(--card);
+  border: none;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18);
+}
+/* Rounded pill buttons with a flat accent fill, replacing styles.css's
+   uppercase stamped-press button for this surface -- matches the app's own
+   AnimatedPressable buttons (flat accent fill, no 3D press shadow). */
+.dash .btn {
+  text-transform: none;
+  font-family: var(--font-body);
+  font-weight: 600;
+  letter-spacing: 0;
+  border-radius: 12px;
+}
+.dash .btn--primary {
+  background: var(--unlocked);
+  color: var(--accent-text);
+  border: none;
+  box-shadow: none;
+}
+.dash .btn--primary:hover { box-shadow: 0 8px 20px -8px var(--unlocked); }
+.dash .btn--primary:active { transform: scale(0.97); box-shadow: none; }
+.dash .btn--ghost { border-radius: 12px; }
 
 .dash { padding-top: clamp(40px, 6vw, 72px); }
 .dash__head { max-width: 640px; margin-bottom: clamp(28px, 4vw, 44px); }
-.dash__head h1 { font-size: clamp(2rem, 4vw, 2.8rem); margin-top: 10px; }
+.dash__head h1 { font-size: clamp(1.75rem, 3vw, 2rem); margin-top: 10px; }
 .dash__head .section-sub { margin-top: 14px; }
 
-.dash__state { padding: 30px 26px; }
-.dash__state h3 { font-size: 1.2rem; margin-bottom: 10px; }
+.dash__state { padding: 24px 20px; }
+.dash__state h2 { font-size: 1.1rem; margin-bottom: 10px; }
 .dash__state p { color: var(--text-2); font-size: 15px; max-width: 60ch; }
 .dash__state code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   background: rgba(255, 255, 255, 0.08); padding: 2px 6px; border-radius: 6px; font-size: 0.92em;
 }
-.dash__state--error { border-color: rgba(224, 16, 16, 0.4); }
-.dash__state--error h3 { color: var(--locked); }
-#dashSignedOut .btn { margin-top: 18px; }
+/* A left accent bar reads as "this card is an alert" without needing the
+   all-around border the flat/shadow card system above just removed. */
+.dash__state--error { border-left: 3px solid var(--locked); padding-left: 17px; }
+.dash__state--error h2 { color: var(--locked); }
 #dashLoading p { color: var(--text-2); }
+.dash__state .btn { margin-top: 18px; }
 
 /* State crossfade -- was an instant `hidden`-attribute swap between five
    mutually-exclusive containers (dashboard.js showState()); now settles in
@@ -32,48 +106,55 @@
 
 .dash__hint { color: var(--text-2); font-size: 14.5px; margin: -6px 0 28px; }
 
-/* ---------- Summary tiles ---------- */
-.dash__summary { display: grid; grid-template-columns: repeat(5, 1fr); gap: 16px; margin-bottom: 28px; }
-.dash__tile {
-  background: linear-gradient(180deg, var(--card), var(--card-2));
-  border: 1px solid var(--border-soft); border-radius: var(--radius-sm);
-  padding: 18px 18px 16px;
+/* ---------- Summary card (mirrors StatsScreen.tsx's "Total focus time" card) ---------- */
+.dash__summary-card { margin-bottom: 18px; }
+.dash__summary-label { color: var(--text-2); font-size: 13px; font-weight: 600; }
+.dash__summary-total {
+  font-weight: 800; letter-spacing: -0.5px; color: var(--unlocked);
+  font-size: clamp(1.8rem, 4vw, 2.5rem); margin-top: 2px;
 }
-.dash__tile-label { color: var(--text-3); font-size: 12.5px; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; }
-.dash__tile-value {
-  font-family: var(--font-display); font-weight: 700; color: var(--unlocked-2);
-  font-size: clamp(1.3rem, 2.2vw, 1.7rem); margin-top: 6px;
-}
+.dash__summary-sub { color: var(--text-2); font-size: 14px; margin-top: 2px; }
+.dash__mini-row { display: flex; gap: 20px; margin-top: 12px; }
+.dash__mini-stat { display: flex; flex-direction: column; align-items: flex-start; }
+.dash__mini-value { font-size: 18px; font-weight: 700; color: var(--text); }
+.dash__mini-label { font-size: 12px; color: var(--text-2); margin-top: 2px; }
 
 /* ---------- Two-panel grid ---------- */
 .dash__grid { display: grid; grid-template-columns: 1.2fr 1fr; gap: 18px; margin-bottom: 18px; align-items: stretch; }
-.dash__panel h3 { font-size: 1.05rem; margin-bottom: 18px; }
+.dash__panel h2 { font-size: 1.05rem; margin-bottom: 18px; }
 
-/* ---------- Trend bars ---------- */
+/* ---------- Trend bars (mirrors StatsScreen.tsx's pill-shaped accent bars
+   over an accent-tinted track, not a flat gray/gradient bar) ---------- */
 .dash__trend { display: flex; align-items: flex-end; gap: 10px; height: 140px; }
 .dash__trend-day { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; gap: 8px; }
-.dash__trend-track { position: relative; width: 100%; max-width: 30px; flex: 1; }
+.dash__trend-track {
+  position: relative; width: 100%; max-width: 18px; flex: 1;
+  border-radius: 9px; overflow: hidden; background: var(--accent-soft);
+}
 /* A full-height bar scaled with transform, not an animated `height` --
    transform/opacity are the only properties that skip layout on change. */
 .dash__trend-bar {
   position: absolute; left: 0; right: 0; bottom: 0; height: 100%;
-  border-radius: 5px 5px 3px 3px;
-  background: linear-gradient(180deg, var(--unlocked-2), var(--unlocked));
+  border-radius: 9px;
+  background: var(--unlocked);
   transform-origin: bottom; transform: scaleY(var(--h, 0.04));
   transition: transform 0.4s var(--ease);
 }
-.dash__trend-label { color: var(--text-3); font-size: 12px; font-weight: 600; }
+.dash__trend-label { color: var(--text-2); font-size: 12px; font-weight: 600; }
 
-/* ---------- Label breakdown ---------- */
+/* ---------- Label breakdown (same pill/tint language as the trend bars
+   above, for one consistent "meter" idiom across the page) ---------- */
 .dash__breakdown { display: flex; flex-direction: column; gap: 12px; }
 .dash__breakdown-row { display: grid; grid-template-columns: 14px 1fr auto; align-items: center; gap: 10px; }
 .dash__breakdown-swatch { width: 12px; height: 12px; border-radius: 50%; }
 .dash__breakdown-meta { display: flex; justify-content: space-between; gap: 10px; font-size: 14px; }
-.dash__breakdown-name { color: var(--text); }
+.dash__breakdown-name { color: var(--text); font-weight: 600; }
 .dash__breakdown-value { color: var(--text-2); white-space: nowrap; }
-.dash__breakdown-track { grid-column: 1 / -1; height: 6px; border-radius: 4px; background: rgba(255, 255, 255, 0.06); overflow: hidden; }
+/* background is set per-row inline by dashboard.js, tinted with that row's
+   own topic color -- this is a pre-JS fallback only. */
+.dash__breakdown-track { grid-column: 1 / -1; height: 6px; border-radius: 3px; background: rgba(255, 255, 255, 0.06); overflow: hidden; }
 .dash__breakdown-fill {
-  height: 100%; width: 100%; border-radius: 4px;
+  height: 100%; width: 100%; border-radius: 3px;
   transform-origin: left; transform: scaleX(var(--w, 0));
   transition: transform 0.5s var(--ease);
 }
@@ -81,7 +162,7 @@
 /* ---------- Sessions table ---------- */
 .dash__table { width: 100%; border-collapse: collapse; min-width: 560px; }
 .dash__table th, .dash__table td { text-align: left; padding: 11px 16px; font-size: 14.5px; border-bottom: 1px solid var(--border-soft); }
-.dash__table th { color: var(--text-3); font-size: 12.5px; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; }
+.dash__table th { color: var(--text-2); font-size: 12.5px; font-weight: 600; }
 .dash__table tbody tr:last-child td { border-bottom: none; }
 .dash__chip {
   display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: 999px; font-size: 12.5px; font-weight: 600;
@@ -89,28 +170,39 @@
 .dash__outcome--completed { color: var(--unlocked); }
 .dash__outcome--overridden { color: var(--closed); }
 
-/* ---------- Fun facts ---------- */
+/* ---------- Fun facts (best-day banner + icon rows, mirrors StatsScreen.tsx) ---------- */
 .dash__facts-card { margin-bottom: 18px; }
 .dash__facts { display: flex; flex-direction: column; gap: 6px; }
-.dash__facts p { font-size: 15px; color: var(--text); padding: 3px 0; }
 .dash__facts-empty { color: var(--text-2); font-size: 14.5px; }
+.dash__best-day {
+  display: flex; align-items: center; gap: 8px; border-radius: 10px; padding: 10px;
+  margin-bottom: 6px; background: var(--accent-soft); color: var(--unlocked);
+}
+.dash__best-day span { color: var(--text); font-weight: 600; font-size: 15px; }
+.dash__fact-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; color: var(--text-2); }
+.dash__fact-row span { color: var(--text); font-size: 15px; }
 
 /* ---------- Calendar ---------- */
 .dash__cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
-.dash__cal-nav { display: flex; align-items: center; gap: 12px; }
+.dash__cal-nav { display: flex; align-items: center; gap: 4px; }
+/* Bare icon buttons, no visible box -- matches the app's chevron-only month
+   nav (Feather icons, accent-colored, no background/border square). A
+   generous hit area (44px) replaces the app's native hitSlop for the same
+   comfortable tap target without a visible button shape. */
 .dash__cal-navbtn {
-  background: rgba(255, 255, 255, 0.06); border: 1px solid var(--border-soft); color: var(--text);
-  width: 30px; height: 30px; border-radius: 8px; cursor: pointer; font-size: 15px; line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+  background: transparent; border: none; color: var(--unlocked); padding: 0;
+  width: 44px; height: 44px; border-radius: 50%; cursor: pointer;
   transition: background 0.15s var(--ease-snap), transform 0.08s var(--ease-snap);
 }
-.dash__cal-navbtn:hover { background: rgba(255, 255, 255, 0.12); }
-.dash__cal-navbtn:active { transform: scale(0.96); }
-.dash__cal-month { font-weight: 600; color: var(--text); min-width: 140px; text-align: center; }
+.dash__cal-navbtn:hover { background: rgba(255, 255, 255, 0.06); }
+.dash__cal-navbtn:active { transform: scale(0.9); }
+.dash__cal-month { font-size: 17px; font-weight: 600; color: var(--text); min-width: 140px; text-align: center; }
 .dash__cal-weekdays, .dash__cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); }
 .dash__cal-weekdays span { text-align: center; color: var(--text-3); font-size: 12px; padding-bottom: 8px; }
 .dash__cal-cell { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 3px 0 10px; }
 .dash__cal-daynum {
-  width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
   font-size: 13px; color: var(--text-2); background: transparent; border: none; cursor: pointer; font-family: inherit;
   transition: background 0.15s var(--ease-snap), transform 0.08s var(--ease-snap);
 }
@@ -118,17 +210,13 @@
 .dash__cal-daynum:active { transform: scale(0.96); }
 .dash__cal-cell--selected .dash__cal-daynum { border: 2px solid var(--unlocked-2); color: var(--text); }
 .dash__cal-cell--today:not(.dash__cal-cell--selected) .dash__cal-daynum { border: 1px solid var(--text-3); }
-/* Fixed, tested-contrast text over the whole 0.25-1.0 intensity range
-   dashboard.js paints via inline rgba(0, 120, 45, intensity): at intensity 1
-   the cell is exactly that base color with nothing blended in, so that RGB
-   is deliberately a muted/darkened green (not the bright --unlocked mint) --
-   keeps the worst-case (highest-focus day, intensity 1) background luminance
-   low enough that a single light text color clears WCAG AA 4.5:1 at every
-   intensity, instead of only at the low end. */
-.dash__cal-cell--focus .dash__cal-daynum { color: var(--text); font-weight: 700; }
+/* Background + text color are both set inline by dashboard.js (accent
+   alpha-composited per day's intensity, text picked by measured contrast
+   against the resulting shade) -- this is a fallback only. */
+.dash__cal-cell--focus .dash__cal-daynum { font-weight: 700; }
 .dash__cal-dot { width: 5px; height: 5px; border-radius: 50%; }
 .dash__cal-day { margin-top: 14px; border-top: 1px solid var(--border-soft); padding-top: 14px; }
-.dash__cal-day h4 { font-size: 14px; color: var(--text); margin-bottom: 8px; }
+.dash__cal-day h3 { font-size: 14px; color: var(--text); margin-bottom: 8px; }
 .dash__cal-daylist { display: flex; flex-direction: column; gap: 8px; }
 .dash__cal-daylist li {
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
@@ -138,9 +226,5 @@
 .dash__cal-empty { color: var(--text-2); font-size: 14px; }
 
 @media (max-width: 860px) {
-  .dash__summary { grid-template-columns: repeat(2, 1fr); }
-  /* 5 tiles in 2 columns otherwise leaves the 5th tile alone in its own
-     row; span it across both columns instead of leaving it orphaned. */
-  .dash__tile:last-child { grid-column: 1 / -1; }
   .dash__grid { grid-template-columns: 1fr; }
 }
