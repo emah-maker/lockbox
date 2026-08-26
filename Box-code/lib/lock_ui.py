@@ -54,6 +54,9 @@ class LockUI:
         self.display = display
         self.W = W = display.width
         self.H = H = display.height
+        # Whether the call-alert overlay currently owns the display -- see
+        # show_call_alert/hide_call_alert/show_view.
+        self._call_alert_active = False
         # The display's native orientation -- NATIVE_ROTATION (lock_config.py)
         # is a hardcoded constant verified against this board's own
         # CircuitPython board.c, not a value read off display.rotation.
@@ -942,15 +945,19 @@ class LockUI:
         self._clock_hints(group, W)
 
     # ----- view switching -----
-    def show_view(self, view, apply=True):
-        """apply=False updates which view is considered active without
-        touching the live root_group -- for a caller that needs the
-        bookkeeping (e.g. for _refresh_clock_view/hide_call_alert to later
-        restore the right thing) but must not fight something else currently
-        owning the display, like the call-alert overlay (see
-        LockController.set_view)."""
+    def show_view(self, view):
+        """Tracks which view is active either way, but while the call-alert
+        overlay owns the display (self._call_alert_active, see
+        show_call_alert/hide_call_alert) does NOT touch the live root_group --
+        every caller (LockController.set_view, hide_override, hide_tag_picker,
+        etc.) would otherwise unconditionally stomp the overlay out from under
+        it (e.g. a countdown finishing, or an override timing out, mid-flash
+        on an incoming call), silently defeating the "insistent by design"
+        alert before its own timeout. hide_call_alert()'s show_view(self.view)
+        restore then applies whatever the latest intended view turned out to
+        be while it was masked."""
         self.view = view
-        if not apply:
+        if self._call_alert_active:
             return
         if view == "clock":
             self.display.root_group = self.clock_groups[self.clock_style_idx]
@@ -1354,6 +1361,7 @@ class LockUI:
         group.append(hint)
 
     def show_call_alert(self, who):
+        self._call_alert_active = True
         self.call_who.text = (who or "Call")[:16]
         self.call_bg.pixel_shader[0] = C_ALERT_RED
         self.call_border.outline = C_ALERT_AMBER
@@ -1370,6 +1378,7 @@ class LockUI:
             self.call_border.outline = C_ALERT_RED
 
     def hide_call_alert(self):
+        self._call_alert_active = False
         self.show_view(self.view)      # restore whatever view was active
 
     # =================== settings view ===================

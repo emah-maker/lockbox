@@ -105,9 +105,25 @@ class SessionLog:
         a real epoch (LockController.wall_time, bound to the sync just
         established). Entries with no remembered `mono` (already synced at
         record time, or reloaded from NVM after a reboot -- see record())
-        are left untouched."""
+        are left untouched.
+
+        Also skips the first `self._sent_seq` entries -- these are already
+        in flight to the app (sent via mark_sent(), not yet ack()'d).
+        lock_ble._push_outbound resends the `history` characteristic
+        whenever to_json()'s text changes, so correcting one of these now
+        would change its content and trigger a second notify for content the
+        app may already be mid-processing from the first one. The app's own
+        dedupe keys off a timestamp it derives from the entry itself
+        (sessionHistory.ts), which is exactly the field this rewrites --
+        so a resend with a different epoch there is not recognized as the
+        same session and gets double-counted instead of deduped. Leaving an
+        in-flight entry uncorrected (it simply ships as still-unsynced, same
+        as it would have without this feature) is the safe fallback; only
+        entries not yet sent get backfilled before their first transmission."""
         changed = False
         for i, entry in enumerate(self._pending):
+            if i < self._sent_seq:
+                continue
             planned_s, actual_s, completed, epoch, mono = entry
             if epoch < 0 and mono is not None:
                 self._pending[i] = (planned_s, actual_s, completed,

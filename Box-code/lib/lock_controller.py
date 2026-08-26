@@ -160,15 +160,11 @@ class LockController:
         self._hold_dir = 0             # a view switch can't happen mid-hold, but be safe
         self._last_fkey = None        # force a clock-view refresh
         self._last_bkey = None        # force a battery-view refresh
-        # Don't actually swap the visible root_group while the call-alert
-        # overlay is up -- show_call_alert() sets display.root_group directly
-        # (bypassing LockUI.view), and this call would otherwise unconditionally
-        # stomp it (e.g. go_done() calling set_view("control") right as an
-        # incoming-call alert is mid-flash), silently defeating the "insistent
-        # by design" alert before its timeout. self.ui.view still gets tracked
-        # via apply=False so hide_call_alert()'s restore (in update(), once
-        # _call_alert_until elapses) shows the right view once it's safe to.
-        self.ui.show_view(view, apply=self._call_alert_until is None)
+        # LockUI.show_view itself declines to touch the live root_group while
+        # the call-alert overlay is up (self.ui._call_alert_active), so this
+        # can't stomp an in-progress "insistent by design" call notification --
+        # see LockUI.show_view/show_call_alert/hide_call_alert.
+        self.ui.show_view(view)
         if view == "clock":
             self._refresh_clock_view(self._now)
         elif view == "battery":
@@ -351,6 +347,17 @@ class LockController:
             lid = str(item.get("i", ""))[:40]
             name = str(item.get("n", ""))[:BLE_LABEL_NAME_MAX_LEN]
             color = _parse_hex_color(item.get("c", ""))
+            # lid (never name) gets echoed back verbatim, unescaped, into
+            # ble_status_json's "tp" field -- a '"' or '\' in it would break
+            # that JSON's structure, freezing the app's live status parsing
+            # for the whole session (parseStatus returns null on a parse
+            # error). Not reachable via the shipped app today (customLabels.ts
+            # only ever generates base36 ids), but a malformed/adversarial id
+            # from anywhere else that can write BLE_UUID_LABELS shouldn't be
+            # able to do this -- same "don't crash/wedge on bad input"
+            # standard already applied to every other BLE-sourced field here.
+            if '"' in lid or "\\" in lid:
+                continue
             # A synced id colliding with a BUILTIN_TOPICS id would put two
             # tag-picker rows under the same id -- ble_status_json's "tp"
             # field can then only echo back the shared id, not which row was
@@ -699,7 +706,16 @@ class LockController:
             self.ui.set_screen_flipped(st.screen_flipped)
         st.save()
         if self.view == "settings":
-            self.ui.update_settings(st)
+            # self.view stays "settings" for both the row list AND the
+            # per-item detail sub-screen (_editing tracks which one, not
+            # self.view) -- refresh whichever is actually on screen, or a
+            # BLE settings push while the detail page is open would leave
+            # its big on-screen value stale relative to the just-changed
+            # Settings object.
+            if self._editing:
+                self.ui.update_setting_detail(self._edit_idx, st)
+            else:
+                self.ui.update_settings(st)
 
     def set_wall_time(self, epoch, now):
         # A non-positive value can't be a real "now" -- reject it rather than
@@ -1095,10 +1111,7 @@ class LockController:
             self.settings.save()
             if abs(dx) >= SWIPE_MIN_PX and abs(dx) > abs(dy):
                 self._editing = False
-                # apply=False while a call alert is up -- same reasoning as
-                # set_view (this bypasses set_view, so needs the same guard
-                # applied directly here).
-                self.ui.show_view("settings", apply=self._call_alert_until is None)
+                self.ui.show_view("settings")
                 self.ui.update_settings(self.settings)
             return
 
