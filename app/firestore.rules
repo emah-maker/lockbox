@@ -73,7 +73,12 @@ service cloud.firestore {
         // read (rules errors evaluate to deny), which is why the dashboard's
         // getDoc() on this doc always came back permission-denied.
         allow read: if isOwner(uid);
-        allow write: if isOwner(uid)
+        // create/update are split from delete for the same reason: request.resource
+        // is null on delete, so a shape-validated condition can never cover that verb
+        // (it would raise and rules errors evaluate to deny). That silently made this
+        // doc undeletable, breaking deleteAllUserData()'s settings cleanup on account
+        // deletion (firestoreSync.ts).
+        allow create, update: if isOwner(uid)
                      && request.resource.data.keys().hasOnly(
                           ['themeMode', 'accent', 'callAlertsEnabled', 'customLabels', 'updatedAt'])
                      && request.resource.data.updatedAt is int
@@ -81,6 +86,7 @@ service cloud.firestore {
                      // iteration over list-of-maps), so this bounds the catalog size;
                      // per-label name length is capped client-side (customLabels.ts).
                      && request.resource.data.customLabels.size() <= 40;
+        allow delete: if isOwner(uid);
       }
 
       match /devices/{deviceId} {
