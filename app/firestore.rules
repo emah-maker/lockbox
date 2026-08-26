@@ -28,25 +28,59 @@ service cloud.firestore {
 
       match /sessions/{sessionId} {
         allow read: if isOwner(uid);
-        // Create-only: session history is an immutable, append-only event log.
+        // Create-only for the event-log fields: startedAt/plannedS/actualS/outcome
+        // describe something that already happened and must never be rewritten.
+        // `topic` (the session's label) is the one exception -- see the scoped
+        // `update` rule below, which is the backend for relabeling a session
+        // from the dashboard or the app's own CalendarScreen retag flow.
         allow create: if isOwner(uid)
-                      && request.resource.data.keys().hasOnly(['startedAt', 'plannedS', 'actualS', 'outcome', 'topic'])
+                      && request.resource.data.keys().hasOnly(['startedAt', 'plannedS', 'actualS', 'outcome', 'topic', 'topicUpdatedAt'])
                       && request.resource.data.outcome in ['completed', 'overridden']
                       && request.resource.data.startedAt is int && request.resource.data.startedAt >= 0
                       && request.resource.data.plannedS is int && request.resource.data.plannedS >= 0
                       && request.resource.data.actualS is int && request.resource.data.actualS >= 0
-                      && (!('topic' in request.resource.data) || request.resource.data.topic is string);
-        allow update, delete: if false; // integrity: never edited or erased by a client, even the owner
+                      // 200-char cap mirrors TopicPicker.tsx's TextInput maxLength -- without it
+                      // a client could pad this field arbitrarily (resource-exhaustion risk).
+                      && (!('topic' in request.resource.data)
+                          || (request.resource.data.topic is string && request.resource.data.topic.size() <= 200))
+                      && (!('topicUpdatedAt' in request.resource.data) || request.resource.data.topicUpdatedAt is int);
+        // Relabel-only: every other field of an already-created session doc
+        // stays immutable (diff().affectedKeys() catches an attempt to sneak
+        // a change to startedAt/plannedS/actualS/outcome in alongside a
+        // legitimate topic edit). topicUpdatedAt is a client logical clock
+        // (same pattern as settings/app's updatedAt below) used by
+        // sync/sessionMerge.ts's last-write-wins merge, so a dashboard edit
+        // and an in-app retag of the same session resolve deterministically
+        // instead of one silently clobbering the other on next sync; it must
+        // strictly increase so a client can't replay a stale edit over a
+        // newer one.
+        allow update: if isOwner(uid)
+                      && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['topic', 'topicUpdatedAt'])
+                      && (!('topic' in request.resource.data)
+                          || (request.resource.data.topic is string && request.resource.data.topic.size() <= 200))
+                      && request.resource.data.topicUpdatedAt is int
+                      && request.resource.data.topicUpdatedAt > (('topicUpdatedAt' in resource.data) ? resource.data.topicUpdatedAt : -1);
+        allow delete: if false; // integrity: a session can be relabeled, never erased, even by the owner
       }
 
       match /settings/app {
         // updatedAt is a client-side logical clock (see firestoreSync.ts's
         // last-write-wins compare), not a server timestamp -- type-check it
         // rather than pinning it to request.time.
-        allow read, write: if isOwner(uid)
-                            && request.resource.data.keys().hasOnly(
-                                 ['themeMode', 'accent', 'callAlertsEnabled', 'customLabels', 'updatedAt'])
-                            && request.resource.data.updatedAt is int;
+        //
+        // read and write are split because request.resource only exists on
+        // writes -- referencing it in a combined read+write rule denies every
+        // read (rules errors evaluate to deny), which is why the dashboard's
+        // getDoc() on this doc always came back permission-denied.
+        allow read: if isOwner(uid);
+        allow write: if isOwner(uid)
+                     && request.resource.data.keys().hasOnly(
+                          ['themeMode', 'accent', 'callAlertsEnabled', 'customLabels', 'updatedAt'])
+                     && request.resource.data.updatedAt is int
+                     // Rules can't validate each array element's field lengths (no
+                     // iteration over list-of-maps), so this bounds the catalog size;
+                     // per-label name length is capped client-side (customLabels.ts).
+                     && request.resource.data.customLabels.size() <= 40;
       }
 
       match /devices/{deviceId} {
