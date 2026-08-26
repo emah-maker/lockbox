@@ -11,12 +11,12 @@
    ========================================================================= */
 
 export const firebaseConfig = {
-  apiKey: 'REPLACE_ME_FIREBASE_API_KEY',
-  authDomain: 'REPLACE_ME.firebaseapp.com',
-  projectId: 'REPLACE_ME_PROJECT_ID',
-  storageBucket: 'REPLACE_ME.appspot.com',
-  messagingSenderId: 'REPLACE_ME_SENDER_ID',
-  appId: 'REPLACE_ME_FIREBASE_APP_ID',
+  apiKey: 'REDACTED_FIREBASE_WEB_API_KEY',
+  authDomain: 'phonebox-d14b7.firebaseapp.com',
+  projectId: 'phonebox-d14b7',
+  storageBucket: 'phonebox-d14b7.firebasestorage.app',
+  messagingSenderId: '1003347406984',
+  appId: '1:1003347406984:web:0ebbe4dae8fc61dd65ef3d',
 };
 
 export function isFirebaseConfigured() {
