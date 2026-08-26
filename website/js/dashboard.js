@@ -69,6 +69,7 @@ import {
 import { showMessage, describeWriteError } from './dashMessage.js';
 import { createLabelPicker } from './sessionLabelPicker.js';
 import { mountLabelsPanel, renderLabelsList } from './labelsPanel.js';
+import { mountGoalsPanel, renderGoalsList } from './goalsPanel.js';
 import { sanitizeRemoteGoals, computeGoalProgress, pruneArchivedGoals } from './goals.js';
 
 const TOP_FACTS = 5;
@@ -111,6 +112,10 @@ const els = {
   labelAddName: document.getElementById('dashLabelAddName'),
   labelAddSubmit: document.getElementById('dashLabelAddSubmit'),
   labelsCapMsg: document.getElementById('dashLabelsCapMsg'),
+  goalsMsg: document.getElementById('dashGoalsMsg'),
+  goalsList: document.getElementById('dashGoalsList'),
+  goalFormSlot: document.getElementById('dashGoalFormSlot'),
+  goalsCapMsg: document.getElementById('dashGoalsCapMsg'),
 };
 
 // ---------- Write state (populated once loadDashboard resolves) ----------
@@ -142,6 +147,27 @@ const labelsCtx = {
   getSettings: () => currentSettings,
   getCustomLabels: () => calCustomLabels,
   onWritten: (next) => renderDataViews(calSessions, next),
+};
+
+// ---------- Focus goals panel wiring (goalsPanel.js owns render + writes) ----------
+// Same live-getter shape as labelsCtx above, and for the same reason: this
+// object is built once at module init, before sign-in resolves dashDb/dashUid
+// or the first load populates calGoals/calCustomLabels.
+//
+// `writeGoals` is handed over rather than re-implemented in the panel --
+// dashboard.js already owns this doc's write path (see writeGoals below), and
+// it is deliberately the ONLY place users/{uid}/goals/config is written.
+// `rerender` exists because two of the panel's states (an open add/edit form,
+// a cancelled one) change nothing in Firestore but still need the list
+// rebuilt -- routed through renderDataViews rather than the panel poking its
+// own DOM, so a re-render from a write and a re-render from a UI toggle take
+// the identical path.
+const goalsCtx = {
+  getGoals: () => calGoals,
+  getCustomLabels: () => calCustomLabels,
+  getThemeMode: () => themeMode,
+  writeGoals: (next) => writeGoals(next),
+  rerender: () => renderDataViews(calSessions, calCustomLabels),
 };
 
 // ---------- Per-session relabel picker ctx (sessionLabelPicker.js owns render + writes) ----------
@@ -220,12 +246,16 @@ let calSelectedKey = dayKey(Date.now());
 let calSessions = [];
 let calCustomLabels = [];
 
-// ---------- Focus goals (data-only for now -- see goals.js; no UI yet) ----------
+// ---------- Focus goals (see goals.js for the model, goalsPanel.js for the UI) ----------
 // calGoals/goalsProgress are threaded through renderAll/renderDataViews the
-// same way calCustomLabels is above, so the follow-up goals UI has both the
-// sanitized array and its current-period progress ready to render without
-// re-deriving either from scratch. Nothing below actually paints them yet --
-// per this task's scope, the visible goals UI is a separate follow-up.
+// same way calCustomLabels is above. Both are now consumed: renderDataViews
+// hands them to goalsPanel.js's renderGoalsList, and goalsCtx.getGoals()
+// reads calGoals live so every createGoal/updateGoal/archiveGoal call in the
+// panel operates on the current array rather than a captured snapshot.
+// calGoals holds the SANITIZED array (sanitizeRemoteGoals runs at the
+// Firestore boundary in loadDashboard) and still contains archived
+// tombstones -- goalsPanel.js filters those out for display, exactly as
+// computeGoalProgress already does for progress.
 let calGoals = [];
 let goalsProgress = [];
 
@@ -521,11 +551,13 @@ function renderDataViews(sessions, customLabels, goals = calGoals) {
   calSessions = sessions;
   calCustomLabels = customLabels;
   calGoals = goals;
-  // No rendering consumes this yet (see the calGoals/goalsProgress comment
-  // above) -- computed here anyway so it's already correct and available the
-  // moment a goals UI lands, rather than that follow-up also having to find
-  // and thread this call.
+  // Computed once here and passed into the panel, rather than letting
+  // goalsPanel.js call computeGoalProgress itself -- both would read their
+  // own Date.now(), so a render straddling a local-midnight (or Sunday-
+  // midnight) window boundary could show a row's bar computed against one
+  // window and its "Week of ..." caption against the next.
   goalsProgress = computeGoalProgress(goals, sessions);
+  renderGoalsList(goals, goalsProgress, els, goalsCtx);
   renderCalendar();
 }
 
@@ -541,10 +573,14 @@ function renderAll(sessions, customLabels, goals = []) {
 // (renderCalDayList, renderSessionsTable, both above) plus labelPickerCtx().
 
 // ---------- Focus goals persistence ----------
-// No UI calls this yet (goals UI is a separate follow-up, per this task's
-// scope) -- this exists now so that follow-up only has to call
-// writeGoals(goals.js's createGoal/updateGoal/archiveGoal(calGoals, ...))
-// rather than also inventing the write path.
+// Called only from goalsPanel.js, via goalsCtx.writeGoals above -- the panel
+// composes the next array with goals.js's createGoal/updateGoal/archiveGoal
+// against calGoals and hands the result here. Kept in this file (not moved
+// into the panel alongside labelsPanel.js's own writeCustomLabels) so
+// dashboard.js remains the single module that touches Firestore for this doc.
+// Re-throws after surfacing the banner so the panel can tell a failed write
+// from a successful one (it restores its open form and re-enables its
+// buttons on failure).
 /** Writes the full goals array to users/{uid}/goals/config. Unlike
  * labelsPanel.js's writeCustomLabels, this doc has no *other* fields to
  * resend -- `{ goals, updatedAt }` is its entire shape (contract §1) -- so
@@ -653,6 +689,7 @@ async function loadDashboard(db, uid) {
 
 function init() {
   mountLabelsPanel(els, labelsCtx);
+  mountGoalsPanel();
 
   if (!isFirebaseConfigured()) {
     showState('notConfigured');

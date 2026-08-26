@@ -10,6 +10,12 @@
 // they read consistently no matter which window is selected. The topic
 // breakdown is a no-op on an untagged history -- it just shows a hint instead
 // of an empty chart.
+//
+// The Focus goals + Custom labels sections at the bottom are the two
+// write-capable cards on this screen; both live here (rather than in
+// Settings) because a goal's progress and a label's breakdown only mean
+// anything next to the session data above them. See GoalsSection.tsx's own
+// header for that placement decision.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, View, Text, StyleSheet, ScrollView } from 'react-native';
 import { Feather } from '@expo/vector-icons';
@@ -28,6 +34,7 @@ import { AnimatedFill } from '../ui/AnimatedFill';
 import { AnimatedPressable } from '../ui/AnimatedPressable';
 import { TopicDonut } from '../ui/TopicDonut';
 import { CustomLabelsSection } from './CustomLabelsSection';
+import { GoalsSection } from './GoalsSection';
 import { typeScale, elevation, springs } from '../theme/tokens';
 
 const TOP_N = 5;
@@ -56,6 +63,29 @@ export default function StatsScreen() {
   // Guards the mount load below against overwriting a selection the user
   // already made while the AsyncStorage read was still in flight.
   const userSelectedRef = useRef(false);
+  // GoalsSection's H/M target wheels are vertical scrollers nested inside
+  // this screen's own ScrollView, so this screen has to surrender the drag
+  // while a finger is down on one -- the identical problem (and the identical
+  // state-driven `scrollEnabled` fix, deliberately NOT setNativeProps)
+  // DashboardScreen.tsx solves for its lock-duration wheels; see its
+  // pickerActive comment for why a ref + setNativeProps was rejected there.
+  const [wheelActive, setWheelActive] = useState(false);
+  // Belt-and-suspenders against a lost release (WheelPicker's onDragEnd not
+  // firing while the ScrollView is still elastically bouncing at a wheel's
+  // hard limit) leaving this screen permanently unscrollable -- same guard,
+  // same 600ms, as DashboardScreen's pickerSafetyTimer.
+  const wheelSafetyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const onWheelActiveChange = (active: boolean) => {
+    if (wheelSafetyTimer.current) {
+      clearTimeout(wheelSafetyTimer.current);
+      wheelSafetyTimer.current = null;
+    }
+    setWheelActive(active);
+    if (active) wheelSafetyTimer.current = setTimeout(() => setWheelActive(false), 600);
+  };
+  useEffect(() => () => {
+    if (wheelSafetyTimer.current) clearTimeout(wheelSafetyTimer.current);
+  }, []);
 
   // Per-device view preference -- deliberately not part of useSettingsStore's
   // SyncableSettings, since which window is selected shouldn't follow the
@@ -98,7 +128,11 @@ export default function StatsScreen() {
   const trendMax = Math.max(1, ...trend.map((d) => d.focusS));
 
   return (
-    <ScrollView style={{ backgroundColor: c.bg }} contentContainerStyle={styles.container}>
+    <ScrollView
+      scrollEnabled={!wheelActive}
+      style={{ backgroundColor: c.bg }}
+      contentContainerStyle={styles.container}
+    >
       <Text style={[styles.h1, { color: c.text }]}>Stats</Text>
 
       <View style={styles.windowRow}>
@@ -254,6 +288,8 @@ export default function StatsScreen() {
           </>
         )}
       </View>
+
+      <GoalsSection color={c} onWheelActiveChange={onWheelActiveChange} />
 
       <CustomLabelsSection color={c} />
     </ScrollView>

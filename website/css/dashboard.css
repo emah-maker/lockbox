@@ -394,6 +394,106 @@
   100% { box-shadow: 0 0 0 0 rgba(0, 0, 0, 0); }
 }
 
+/* ---------- Focus goals (goalsPanel.js) ----------
+   Reuses the page's existing "meter" idiom rather than introducing a third
+   one: the same track/fill pair, the same transform-not-width scaling via
+   --w, and the same transition timing as .dash__breakdown-fill above, so a
+   goal's progress bar and a label's share bar read as one system. Row
+   chrome (empty state, inline delete confirm, action buttons) is likewise
+   shared with the Manage-labels rules above wherever the class is identical
+   -- only the goal-specific pieces are new here. */
+.dash__goals-list { display: flex; flex-direction: column; gap: 18px; margin-bottom: 14px; }
+.dash__goals-row-main { display: flex; flex-direction: column; gap: 7px; }
+.dash__goals-head { display: flex; align-items: center; gap: 8px; }
+.dash__goals-swatch { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.dash__goals-name {
+  color: var(--text); font-weight: 600; font-size: 14.5px;
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.dash__goals-period {
+  flex: none; font-size: 11.5px; font-weight: 600; color: var(--text-2);
+  background: rgba(255, 255, 255, 0.07); border-radius: 8px; padding: 2px 8px;
+}
+/* position: relative anchors .dash__goals-notch, which is the one thing this
+   track has that .dash__breakdown-track doesn't. overflow: hidden still
+   clips the fill to the rounded ends -- the notch is always strictly inside
+   the track (targetPct < 100 whenever it's drawn at all, see
+   goalsPanel.js's barGeometry), so nothing legitimate gets clipped by it. */
+.dash__goals-track {
+  position: relative; height: 8px; border-radius: 4px; overflow: hidden;
+  background: rgba(255, 255, 255, 0.09);
+}
+/* background is set per-row inline by goalsPanel.js (the goal's own topic
+   color) except when the goal is met, where --unlocked below takes over --
+   this is the pre-JS fallback only, same arrangement as
+   .dash__breakdown-fill's. */
+.dash__goals-fill {
+  height: 100%; width: 100%; border-radius: 4px; background: var(--text-3);
+  transform-origin: left; transform: scaleX(var(--w, 0));
+  transition: transform 0.5s var(--ease);
+}
+/* A met goal switches to the page's "good" status color rather than staying
+   on its own topic color, so "target hit" is legible at a glance down a list
+   of several goals -- the same semantic use of --unlocked as
+   .dash__outcome--completed. */
+.dash__goals-fill--met { background: var(--unlocked); }
+/* The target line on an over-target bar. Punched in the panel's own card
+   background so it reads as a GAP in the bar at the target, not as a third
+   colored segment competing with the fill. translateX centers it on the
+   percentage goalsPanel.js sets as `left`. */
+.dash__goals-notch {
+  position: absolute; top: 0; bottom: 0; width: 2px;
+  background: var(--card); transform: translateX(-1px);
+}
+.dash__goals-meta { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; font-size: 13px; color: var(--text-2); }
+.dash__goals-pct { font-weight: 700; color: var(--text-2); flex: none; }
+.dash__goals-pct--met { color: var(--unlocked); }
+.dash__goals-actions { display: flex; align-items: center; gap: 14px; }
+.dash__goals-window { flex: 1; min-width: 0; color: var(--text-3); font-size: 12.5px; }
+/* Text-only affordances, matching the app row's "Edit"/"Delete" links rather
+   than the page's filled .btn -- two filled buttons per goal would out-weigh
+   the progress bar they sit under. */
+.dash__goals-action {
+  flex: none; border: none; background: none; cursor: pointer;
+  font: inherit; font-size: 13px; font-weight: 600; padding: 2px 0;
+  color: var(--unlocked); transition: filter 0.15s var(--ease-snap);
+}
+.dash__goals-action:hover { filter: brightness(1.15); }
+.dash__goals-action--danger { color: var(--locked); }
+.dash__goals-confirm { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+/* The add/edit form, built by goalsPanel.js's buildGoalForm and mounted
+   either in #dashGoalFormSlot (create) or in place of a row (edit) -- one
+   ruleset covers both, since it is literally the same DOM either way. */
+.dash__goal-form-slot { display: flex; }
+.dash__goal-form {
+  display: flex; align-items: flex-end; flex-wrap: wrap; gap: 12px;
+  width: 100%; padding: 14px; border: 1px solid var(--border-soft); border-radius: var(--radius-sm);
+  background: var(--bg);
+}
+.dash__goal-field { display: flex; flex-direction: column; gap: 6px; }
+.dash__goal-field-label { color: var(--text-2); font-size: 12px; font-weight: 600; }
+/* The selects inherit .dash__chip-select (the relabel dropdown's pill), but
+   that one is sized for a table cell -- these sit in a form row, so they get
+   the form controls' own padding/size without redefining color or chrome. */
+.dash__goal-form .dash__chip-select { font-size: 13.5px; padding: 8px 12px; border-radius: var(--radius-sm); }
+.dash__goal-target-row { display: flex; align-items: center; gap: 6px; }
+.dash__goal-num {
+  width: 66px; padding: 8px 10px; font-size: 13.5px; font-family: var(--font-body);
+  color: var(--text); background: var(--card-2); border: 1px solid var(--border-soft); border-radius: var(--radius-sm);
+}
+.dash__goal-unit { color: var(--text-2); font-size: 13px; font-weight: 600; }
+.dash__goal-form-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+/* Full-width so a validation message from goals.js (which can be a full
+   sentence, e.g. "Goal target must be between 60 and 604800 seconds for a
+   weekly goal.") wraps under the fields instead of squeezing them. */
+.dash__goal-form .form-msg { flex: 1 0 100%; order: 99; margin: 0; }
+
 @media (max-width: 860px) {
   .dash__grid { grid-template-columns: 1fr; }
+  /* Stack the goal form's fields once the row can no longer hold them side
+     by side -- the selects/number inputs would otherwise each shrink below a
+     usable tap width. */
+  .dash__goal-form { flex-direction: column; align-items: stretch; }
+  .dash__goal-form-actions { margin-left: 0; }
 }

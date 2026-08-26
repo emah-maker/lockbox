@@ -106,6 +106,26 @@
             </div>
           </div>
 
+          <!-- Focus goals -- goalsPanel.js owns this panel's render + writes
+               end-to-end (see its header); dashboard.js only resolves these
+               ids into `els` and calls renderGoalsList from renderDataViews.
+               The list rows, the add/edit form, and the "New goal" button are
+               all built in JS, so the markup here is just the panel shell +
+               the two message slots. Placed with the data views (above the
+               calendar, not next to "Manage labels") because a goal is read
+               as progress against the trend/breakdown just above it, and only
+               secondarily as something you configure -- the same reasoning
+               that puts GoalsSection.tsx on the app's Stats tab. -->
+          <div class="card dash__panel">
+            <h2>Focus goals</h2>
+            <p id="dashGoalsMsg" class="form-msg dash__msg" role="status"></p>
+            <ul class="dash__goals-list" id="dashGoalsList"></ul>
+            <div class="dash__goal-form-slot" id="dashGoalFormSlot"></div>
+            <p class="dash__labels-cap-msg form-msg dash__pick-fade" id="dashGoalsCapMsg" hidden>
+              You've reached the 20-goal limit. Delete one to add another.
+            </p>
+          </div>
+
           <div class="card dash__panel">
             <div class="dash__cal-head">
               <h2>Focus calendar</h2>
