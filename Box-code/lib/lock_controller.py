@@ -4,26 +4,20 @@ from lock_config import (
     MAX_SECONDS, MAX_HOURS, MIN_SECONDS, SWIPE_MIN_PX, DEFAULT_SECONDS,
     SWAP_XY, INVERT_X, INVERT_Y, CLOCK_FPS, SERVO_HOLD_S, OVERRIDE_PRESSES,
     OVERRIDE_TIMEOUT, DONE_ANIM_S, MIN_STEP, RELEASE_FRAMES,
-    SERVO_ANGLE_MIN, SERVO_ANGLE_MAX, fmt_hm, fix, C_GREY,
-    OVR_MIN, OVR_MAX, SLEEP_OPTIONS, BRIGHT_OPTIONS, snap_to_option,
+    fmt_hm,
     BLE_CALL_ALERT_S, CALL_ALERT_BLINK_HZ,
     HOLD_REPEAT_DELAY, HOLD_REPEAT_START, HOLD_REPEAT_MIN, HOLD_REPEAT_RAMP,
-    STATUS_TAP_COOLDOWN_S, BUILTIN_TOPICS, BLE_LABEL_MAX_COUNT,
-    BLE_LABEL_NAME_MAX_LEN, ACCENT_COLORS, TAG_HOLD_S,
+    STATUS_TAP_COOLDOWN_S, BUILTIN_TOPICS,
 )
+import lock_protocol
 from lock_battery import Battery
 from lock_servo import Servo
 from lock_settings import Settings
 from lock_log import SessionLog
+from lock_tag_picker import TagPicker, Select, Cancel
 
 COMPLETED = "completed"
 OVERRIDDEN = "overridden"
-
-# Reserved ids a synced custom label must not be allowed to reuse -- see
-# apply_ble_labels_json. A plain tuple, not a set/frozenset -- frozenset is
-# disabled on some smaller CircuitPython board builds for space reasons, and
-# `in` on a 6-element tuple is plenty fast for this.
-_BUILTIN_TOPIC_IDS = tuple(t[0] for t in BUILTIN_TOPICS)
 
 # ordered top-level views; horizontal swipe moves between them
 VIEWS = ("clock", "control", "battery", "settings")
@@ -31,22 +25,6 @@ VIEWS = ("clock", "control", "battery", "settings")
 # branch) -- control/settings are blocked while actually locked, but battery
 # should still be checkable without waiting for the countdown to finish.
 LOCKED_VIEWS = ("clock", "battery")
-
-
-def _parse_hex_color(s):
-    """'#rrggbb' (app/src/stats/customLabels.ts's LABEL_SWATCHES format,
-    leading '#' optional, case-insensitive) -> a fix()-applied int, the same
-    encoding every other color in lock_config.py already uses as a displayio
-    fill. Falls back to C_GREY on anything malformed, same "don't crash the
-    run loop on garbage BLE input" philosophy as apply_ble_labels_json's
-    other fields."""
-    try:
-        h = str(s).lstrip("#")
-        if len(h) != 6:
-            return C_GREY
-        return fix(int(h, 16))
-    except (ValueError, TypeError):
-        return C_GREY
 
 
 class LockController:
@@ -117,25 +95,16 @@ class LockController:
                                     # id we echo back (ble_status_json's "tp"
                                     # field) -- this copy only drives the box's
                                     # own on-screen picker.
-        self._picker_page = 0
+        # Owns the picker's own touch/hold/swipe state -- see
+        # lock_tag_picker.TagPicker.on_touch, which go_picking/process/
+        # _handle_release below drive with a single method call each.
+        self.tag_picker = TagPicker(self.ui, self._all_topics)
         self._picking_from = "idle"  # "idle" or "closed" -- which state to
                                       # cancel back to from the tag picker
-                                      # (see go_picking / _handle_release's
-                                      # "picking" branch swipe-up handling)
+                                      # (see go_picking / _apply_tag_picker_
+                                      # result's Cancel handling)
         self._session_topic = None  # topic tagged to the session in progress
                                      # (set by go_running's topic= argument)
-        # hold-to-confirm on a tag-picker row (see _start_tag_hold/
-        # _update_tag_hold) -- _tp_hold_row is the row index currently being
-        # held, or None; there is exactly one touch point on this device, so
-        # at most one row can be mid-hold at a time.
-        self._tp_hold_row = None
-        self._tp_hold_start = 0.0
-        # hold-to-confirm on SKIP (see _start_tag_hold/_update_tag_skip_hold)
-        # -- an accidental tap here used to start an untagged session
-        # immediately, same problem the row hold above already fixes.
-        # Shares _tp_hold_start's timer since only one hold (a row or SKIP)
-        # can ever be active on this single-touch device.
-        self._tp_skip_holding = False
         # ----- deferred logging for auto-open-off sessions -----
         # When Settings.auto_open is False, the box stays shut at timer
         # expiry (see go_done) until OPEN is tapped or override forces it --
@@ -227,16 +196,16 @@ class LockController:
         from the LOCK tap in idle/closed, so the chosen topic can ride along
         in the session's log entry. See _handle_release's "picking" branch
         for the tap/swipe handling on this screen."""
-        self._picking_from = self.state   # "idle" or "closed" -- see the
-                                           # swipe-up cancel handling below,
-                                           # which must return to whichever
-                                           # one was actually true rather than
-                                           # assume idle (closed means the lid
-                                           # sensor already latched the servo;
-                                           # cancelling must not lose that).
+        self._picking_from = self.state   # "idle" or "closed" -- see
+                                           # _apply_tag_picker_result's Cancel
+                                           # handling below, which must return
+                                           # to whichever one was actually true
+                                           # rather than assume idle (closed
+                                           # means the lid sensor already
+                                           # latched the servo; cancelling
+                                           # must not lose that).
         self.state = "picking"
-        self._picker_page = 0
-        self.ui.show_tag_picker(self._picker_page_topics(0))
+        self.tag_picker.show(0)
 
     def go_running(self, now, topic=None):
         if self.set_seconds <= 0:
@@ -319,53 +288,15 @@ class LockController:
     def _all_topics(self):
         return list(BUILTIN_TOPICS) + self._synced_labels
 
-    def _picker_page_count(self):
-        n = len(self._all_topics())
-        return max(1, (n + 5) // 6)   # 6 rows per page
-
-    def _picker_page_topics(self, page):
-        all_t = self._all_topics()
-        start = page * 6
-        return all_t[start:start + 6]
-
     def apply_ble_labels_json(self, text):
         """Best-effort custom-label sync from the app (app/src/ble/protocol.ts's
-        cmdSetLabels) -- feeds the on-box pre-session tag picker only. Compact
-        keys ("i"/"n"/"c") to save BLE payload bytes; malformed input just
-        leaves the previous list in place rather than crashing the run loop."""
-        try:
-            import json
-            d = json.loads(text)
-        except (ValueError, ImportError):
-            return
-        if not isinstance(d, list):
-            return
-        labels = []
-        for item in d[:BLE_LABEL_MAX_COUNT]:
-            if not isinstance(item, dict):
-                continue
-            lid = str(item.get("i", ""))[:40]
-            name = str(item.get("n", ""))[:BLE_LABEL_NAME_MAX_LEN]
-            color = _parse_hex_color(item.get("c", ""))
-            # lid (never name) gets echoed back verbatim, unescaped, into
-            # ble_status_json's "tp" field -- a '"' or '\' in it would break
-            # that JSON's structure, freezing the app's live status parsing
-            # for the whole session (parseStatus returns null on a parse
-            # error). Not reachable via the shipped app today (customLabels.ts
-            # only ever generates base36 ids), but a malformed/adversarial id
-            # from anywhere else that can write BLE_UUID_LABELS shouldn't be
-            # able to do this -- same "don't crash/wedge on bad input"
-            # standard already applied to every other BLE-sourced field here.
-            if '"' in lid or "\\" in lid:
-                continue
-            # A synced id colliding with a BUILTIN_TOPICS id would put two
-            # tag-picker rows under the same id -- ble_status_json's "tp"
-            # field can then only echo back the shared id, not which row was
-            # actually tapped, so the app can't tell them apart when it
-            # re-resolves display/color from its own customLabels catalog.
-            if lid and name and lid not in _BUILTIN_TOPIC_IDS:
-                labels.append((lid, name, color))
-        self._synced_labels = labels
+        cmdSetLabels) -- feeds the on-box pre-session tag picker only. See
+        lock_protocol.decode_labels for the parsing/validation; malformed
+        input just leaves the previous list in place rather than crashing
+        the run loop."""
+        labels = lock_protocol.decode_labels(text)
+        if labels is not None:
+            self._synced_labels = labels
 
     def adjust(self, unit, direction):
         # Box editing is Hours + Minutes only (unit 0/1) -- seconds were
@@ -529,20 +460,14 @@ class LockController:
         # fixed 9 bytes with no room for a topic id, and widening it is a
         # separate NVM-migration task, intentionally not attempted here.
         topic = self._session_topic if self.state == "running" and self._session_topic else ""
-        return '{{"st":"{}","rem":{},"set":{},"bat":{},"tp":"{}","fw":"1.0"}}'.format(
+        return lock_protocol.encode_status(
             self.state, rem, int(self.set_seconds), self._battery_pct(now), topic)
 
     def ble_history_json(self):
         return self.log.to_json()
 
     def ble_settings_json(self):
-        st = self.settings
-        return ('{{"ovr":{},"auto":{},"sleep":{},"bright":{},"unlk":{},"ucal":{},'
-                 '"thm":{},"acc":{},"flip":{},"langle":{},"uangle":{}}}').format(
-            st.override_presses, 1 if st.auto_open else 0, st.sleep_s,
-            st.bright_pct, 1 if st.allow_remote_unlock else 0,
-            1 if st.unlock_on_call else 0, st.theme_mode, st.accent_idx,
-            1 if st.screen_flipped else 0, st.lock_angle, st.unlock_angle)
+        return lock_protocol.encode_settings(self.settings)
 
     def apply_ble_command(self, cmd, now):
         # opcodes: "start:<seconds>", "dur:<seconds>" (live duration preview --
@@ -552,9 +477,14 @@ class LockController:
         # "historyAck:<seq>" (app has durably stored a drained `history`
         # batch -- see lock_log.SessionLog.ack and
         # docs/rfcs/ios-call-greenlist-and-force-quit-logging-technical-design.md
-        # §3.2; reuses this characteristic instead of adding a new BLE UUID)
-        op = cmd.split(":", 1)
-        name = op[0]
+        # §3.2; reuses this characteristic instead of adding a new BLE UUID).
+        # See lock_protocol.decode_command for the opcode parsing/clamping;
+        # decode_command doesn't know about self.state, so it's decoded
+        # unconditionally up front and this method switches on the result.
+        decoded = lock_protocol.decode_command(cmd)
+        if decoded is None:
+            return
+        name = decoded.name
         if name == "start":
             # Guard the whole op on state, not just go_running below -- a
             # "start" arriving while already running/done must not touch
@@ -563,16 +493,8 @@ class LockController:
             # that changed mid-session, corrupting the logged duration and
             # the countdown ring's remaining/total fraction).
             if self.state in ("idle", "closed"):
-                if len(op) == 2:
-                    try:
-                        secs = int(op[1])
-                    except ValueError:
-                        return
-                    # Belt-and-suspenders MIN_SECONDS floor -- the app clamps
-                    # its own picker too, but a BLE write carries whatever
-                    # the app sent, not a value pre-guaranteed to be
-                    # >=MIN_SECONDS.
-                    self.set_seconds = max(MIN_SECONDS, min(MAX_SECONDS, secs))
+                if decoded.seconds is not None:
+                    self.set_seconds = decoded.seconds
                     self.ui.set_clock(self.set_seconds)
                 self.go_running(now)
         elif name == "dur":
@@ -586,16 +508,7 @@ class LockController:
             # lock_start for the session log.
             if self.state == "running":
                 return
-            if len(op) != 2:
-                return
-            try:
-                secs = int(op[1])
-            except ValueError:
-                return
-            # Belt-and-suspenders MIN_SECONDS floor, same as "start" above --
-            # this is a live preview only, but it still drives the on-screen
-            # clock text and must never show/arm 0h00m.
-            self.set_seconds = max(MIN_SECONDS, min(MAX_SECONDS, secs))
+            self.set_seconds = decoded.seconds
             self.ui.set_clock(self.set_seconds)
         elif name == "lock":
             if self.state in ("idle", "done"):
@@ -606,92 +519,43 @@ class LockController:
             if self.settings.allow_remote_unlock and self.state in ("running", "closed"):
                 self.go_done(now, OVERRIDDEN)
         elif name == "historyAck":
-            if len(op) == 2:
-                try:
-                    seq = int(op[1])
-                except ValueError:
-                    return
-                self.log.ack(seq)
+            self.log.ack(decoded.seq)
 
     def apply_ble_settings_json(self, text):
-        try:
-            import json
-            d = json.loads(text)
-        except (ValueError, ImportError):
+        # See lock_protocol.decode_settings for the JSON parse + per-field
+        # validation/clamping/snapping. None means the payload wasn't even
+        # parseable JSON -- leave everything untouched (no save, no
+        # refresh), same as the original single early return. Otherwise
+        # `updates` holds only the keys that were present AND valid (one
+        # malformed field can't skip applying/saving the rest of an
+        # otherwise valid payload).
+        updates = lock_protocol.decode_settings(text)
+        if updates is None:
             return
         st = self.settings
-        # Each field below is validated independently (its own try/except on
-        # the int() conversion) so one malformed field (e.g. a string or null
-        # where a number is expected) can't raise and skip st.save() for the
-        # rest of a payload's already-applied changes -- previously an
-        # unconvertible "sleep" alone could silently drop ovr/bright/etc.
-        # edits from the same BLE write.
-        if "ovr" in d:
-            # Clamp to [OVR_MIN, OVR_MAX] -- a BLE write now carries whatever
-            # the app's slider or its custom-number entry sent, not a value
-            # pre-snapped to a fixed option list, so this is the only thing
-            # standing between a malformed/out-of-range payload and a stored
-            # value the box's single NVM byte can't actually hold.
-            try:
-                st.override_presses = max(OVR_MIN, min(OVR_MAX, int(d["ovr"])))
-            except (ValueError, TypeError):
-                pass
-        if "auto" in d:
-            st.auto_open = bool(d["auto"])
-        if "sleep" in d:
-            # Snap to the nearest SLEEP_OPTIONS member, not just clamp into
-            # its min/max range -- lock_settings._step_in (the on-box
-            # stepper) does `options.index(value)`, which raises for any
-            # value that isn't an exact option member and silently resets
-            # the stepper to the first option on the next swipe instead of
-            # stepping from wherever the phone left it.
-            try:
-                st.sleep_s = snap_to_option(SLEEP_OPTIONS, int(d["sleep"]))
-            except (ValueError, TypeError):
-                pass
-        if "bright" in d:
-            # Same snap-to-option reasoning as "sleep" above.
-            try:
-                st.bright_pct = snap_to_option(BRIGHT_OPTIONS, int(d["bright"]))
-            except (ValueError, TypeError):
-                pass
-        if "unlk" in d:
-            st.allow_remote_unlock = bool(d["unlk"])
-        if "ucal" in d:
-            st.unlock_on_call = bool(d["ucal"])
-        if "thm" in d:
-            try:
-                st.theme_mode = max(0, min(1, int(d["thm"])))
-            except (ValueError, TypeError):
-                pass
-        if "acc" in d:
-            # Was hardcoded to 5 (the old 6-accent set's last index) -- this
-            # silently clamped the two new accents (teal=6, indigo=7) down to
-            # rose the moment they were added. len(ACCENT_COLORS) tracks
-            # whatever the current accent count actually is instead of a
-            # second number that has to be remembered and kept in sync.
-            try:
-                st.accent_idx = max(0, min(len(ACCENT_COLORS) - 1, int(d["acc"])))
-            except (ValueError, TypeError):
-                pass
-        if "flip" in d:
-            st.screen_flipped = bool(d["flip"])
-        if "langle" in d:
-            # Clamp to [SERVO_ANGLE_MIN, SERVO_ANGLE_MAX] -- the servo's real
-            # range (lock_servo.Servo._write_angle already clamps here too,
-            # but this keeps the persisted/reported value honest rather than
-            # relying on that as the only backstop). Same per-field
-            # try/except pattern as ovr/sleep/bright above.
-            try:
-                st.lock_angle = max(SERVO_ANGLE_MIN, min(SERVO_ANGLE_MAX, int(d["langle"])))
-            except (ValueError, TypeError):
-                pass
-        if "uangle" in d:
-            try:
-                st.unlock_angle = max(SERVO_ANGLE_MIN, min(SERVO_ANGLE_MAX, int(d["uangle"])))
-            except (ValueError, TypeError):
-                pass
-        if "thm" in d or "acc" in d:
+        if "ovr" in updates:
+            st.override_presses = updates["ovr"]
+        if "auto" in updates:
+            st.auto_open = updates["auto"]
+        if "sleep" in updates:
+            st.sleep_s = updates["sleep"]
+        if "bright" in updates:
+            st.bright_pct = updates["bright"]
+        if "unlk" in updates:
+            st.allow_remote_unlock = updates["unlk"]
+        if "ucal" in updates:
+            st.unlock_on_call = updates["ucal"]
+        if "thm" in updates:
+            st.theme_mode = updates["thm"]
+        if "acc" in updates:
+            st.accent_idx = updates["acc"]
+        if "flip" in updates:
+            st.screen_flipped = updates["flip"]
+        if "langle" in updates:
+            st.lock_angle = updates["langle"]
+        if "uangle" in updates:
+            st.unlock_angle = updates["uangle"]
+        if "thm" in updates or "acc" in updates:
             self.ui.set_theme(st.theme_mode, st.accent_idx)
             # set_theme only repaints registered widgets -- the clock view's
             # time labels/gauge/override-ring live outside that registry (see
@@ -702,7 +566,7 @@ class LockController:
             # push doesn't leave stale colors up until something else changes.
             self._last_fkey = None
             self._refresh_clock_view(self._now)
-        if "flip" in d:
+        if "flip" in updates:
             self.ui.set_screen_flipped(st.screen_flipped)
         st.save()
         if self.view == "settings":
@@ -865,14 +729,17 @@ class LockController:
                                self._now - self._last_status_toggle_at < STATUS_TAP_COOLDOWN_S)
                 if not in_cooldown:
                     self.ui.on_touch_down(*pt)   # cosmetic only -- see LockUI.on_touch_down
-                if self.state == "picking":
-                    self._start_tag_hold(pt, now)
             self._last = pt
             self._was_down = True
             if self._editing:
                 self._update_hold(now)
             elif self.state == "picking":
-                self._update_tag_picker_touch(now)
+                # TagPicker.on_touch infers "fresh touch-down" from its own
+                # _active flag, so a single call here both arms (on the first
+                # frame) and ticks (every frame) -- see its docstring for why
+                # that same-call double-duty matters.
+                result = self.tag_picker.on_touch(pt, now, released=False)
+                self._apply_tag_picker_result(result, now)
         elif self._was_down:
             # The AXS5106L occasionally drops a frame mid-touch; require a few
             # consecutive empty reads before treating it as a real release so
@@ -895,8 +762,8 @@ class LockController:
     # while deliberately holding a drag still) flaps direction between 0 and
     # +-1 on a pixel or two of touch-sensor noise, each flap firing an extra
     # unintended adjust() step and resetting the repeat ramp back to
-    # HOLD_REPEAT_START/HOLD_REPEAT_DELAY. Same class of bug the tag picker's
-    # _TP_SWIPE_JITTER_GUARD_PX exists for.
+    # HOLD_REPEAT_START/HOLD_REPEAT_DELAY. Same class of bug
+    # lock_tag_picker.TagPicker._SWIPE_JITTER_GUARD_PX exists for.
     _HOLD_DRAG_RELEASE_PX = 20
 
     def _drag_direction(self):
@@ -941,160 +808,22 @@ class LockController:
                                        self._hold_interval * HOLD_REPEAT_RAMP)
             self._hold_next_at = now + self._hold_interval
 
-    # ----- pre-session tag picker: hold-to-confirm on a row or SKIP -----
-    def _start_tag_hold(self, pt, now):
-        """Touch-down on the tag picker (see process()): arms a hold if the
-        point landed on a topic row (green fill, _update_tag_hold) or SKIP
-        (grey fill, _update_tag_skip_hold) -- both need a TAG_HOLD_S press
-        now, so an accidental tap can't start a session, tagged or untagged,
-        any more than it could before. MORE stays a plain single tap (it
-        only pages the list, nothing to accidentally commit). A touch that
-        starts here can still turn into a swipe-up-cancel if it moves
-        enough -- see _update_tag_picker_touch, which arbitrates."""
-        x, y = pt
-        nav = self.ui.tag_picker_nav_at(x, y)
-        if nav == 'skip':
-            self._tp_skip_holding = True
-            self._tp_hold_start = now
-            self.ui.start_tag_picker_skip_hold()
-            return
-        if nav is not None:
-            return  # 'more' -- still a plain single tap
-        row = self.ui.tag_picker_row_at(y)
-        if row is None:
-            return
-        self._tp_hold_row = row
-        self._tp_hold_start = now
-        self.ui.start_tag_picker_hold(row)
-
-    # Minimum |dy| before a held touch is even considered a swipe-cancel
-    # candidate -- a finger held on a row or SKIP still drifts a few pixels
-    # frame to frame, and without a generous floor that alone flips
-    # _update_tag_picker_touch's dominance test, clears the in-progress hold,
-    # and (since _start_tag_hold only re-arms on a fresh touch-down)
-    # permanently drops a hold the user never meant to let go of -- worse
-    # near the bottom of the screen (the last row, SKIP, MORE), where
-    # sustained pressure naturally drifts upward more than elsewhere and a
-    # tight guard here (previously 4px, manager report: hold-to-confirm
-    # "still isn't working" on both the last row and SKIP after the
-    # dead-zone fix) hijacked the hold into swipe-mode before the timer
-    # could complete. SWIPE_MIN_PX (35px) is still what actually commits the
-    # cancel (_update_tag_swipe); this is only the "is this even a candidate
-    # drag yet" gate, so raising it just delays when the live red bar starts
-    # rendering, not the distance needed to actually cancel.
-    _TP_SWIPE_JITTER_GUARD_PX = 15
-
-    def _update_tag_picker_touch(self, now):
-        """Per-frame touch-poll dispatch while state == 'picking' (see
-        process()). A touch can start on a topic row (arming _start_tag_
-        hold's green fill) and then turn into a vertical drag -- the moment
-        the drag is vertical-dominant, upward, and past the small jitter
-        guard above, the swipe-up-cancel gesture takes priority: any in-
-        progress row hold is cleared so a green fill and the red cancel bar
-        are never both showing for the same touch. Same dx-vs-dy dominance
-        test _drag_direction uses elsewhere in this file, applied here
-        instead of there since the tag picker has its own release handling
-        (_handle_release's "picking" branch)."""
-        x, y = self._last
-        dx = x - self._start[0]
-        dy = y - self._start[1]
-        if abs(dy) >= self._TP_SWIPE_JITTER_GUARD_PX and abs(dy) > abs(dx) and dy < 0:
-            if self._tp_hold_row is not None:
-                self.ui.cancel_tag_picker_hold()
-                self._tp_hold_row = None
-            if self._tp_skip_holding:
-                self.ui.cancel_tag_picker_skip_hold()
-                self._tp_skip_holding = False
-            self._update_tag_swipe(now, dy)
-        else:
-            self.ui.clear_tag_picker_swipe()  # e.g. the drag reversed back down
-            self._update_tag_hold(now)
-
-    def _update_tag_swipe(self, now, dy):
-        """Live swipe-up-cancel progress: `progress` tracks how far the
-        current drag has traveled toward SWIPE_MIN_PX (the same threshold
-        _handle_release's release-time fallback and every other swipe in
-        this file already uses), growing LockUI's red bar every frame
-        instead of waiting for release and playing a scripted animation.
-        Reaching 1.0 commits the cancel immediately -- mirrors
-        _update_tag_hold's green fill auto-committing at TAG_HOLD_S rather
-        than waiting for release."""
-        progress = min(1.0, abs(dy) / SWIPE_MIN_PX)
-        if progress >= 1.0:
-            self.ui.clear_tag_picker_swipe()
-            self._commit_tag_picker_cancel(now)
-        else:
-            self.ui.step_tag_picker_swipe_progress(progress)
-
-    def _commit_tag_picker_cancel(self, now):
-        """Backs out of the pre-session tag picker with no session started
-        -- shared by the live swipe-up-cancel commit (_update_tag_swipe) and
-        _handle_release's release-time fallback below (which should rarely
-        fire: by release time, self.state would already have left "picking"
-        if the live drag ever reached the threshold first)."""
-        self.ui.hide_tag_picker()
-        if self._picking_from == "closed":
-            self.go_closed(now)
-        else:
-            self.go_idle()
-
-    def _update_tag_hold(self, now):
-        """Continuous-touch polling tick for the armed hold (same loop tier
-        as _update_hold's settings auto-repeat, but a single discrete
-        threshold -- TAG_HOLD_S -- rather than a repeating step). Canceled
-        only if the finger drifts onto a DIFFERENT valid row -- landing in
-        the dead zone between rows, or past the first/last row's outer edge
-        (no row above row 0 or below the last row to catch a stray reading),
-        no longer cancels. It used to: comparing against None (this touch
-        matches no row at all) as well as an actual different row meant the
-        last row -- the one with open dead zone below it and nothing to
-        drift onto instead -- lost its hold on any small downward jitter,
-        while the interior rows had a neighbor to land back on. Reaching the
-        threshold commits immediately, without waiting for release --
-        go_running() changes self.state away from "picking", so process()'s
-        `elif self.state == "picking"` guard naturally stops calling this
-        again for the rest of the same touch. Dispatches to
-        _update_tag_skip_hold instead when SKIP (not a row) is what's
-        armed."""
-        if self._tp_skip_holding:
-            self._update_tag_skip_hold(now)
-            return
-        if self._tp_hold_row is None:
-            return
-        current_row = self.ui.tag_picker_row_at(self._last[1])
-        if current_row is not None and current_row != self._tp_hold_row:
-            self.ui.cancel_tag_picker_hold()
-            self._tp_hold_row = None
-            return
-        progress = (now - self._tp_hold_start) / TAG_HOLD_S
-        if progress >= 1.0:
-            topic = self.ui.tag_picker_topic_for_row(self._tp_hold_row)
-            self._tp_hold_row = None
-            self.ui.cancel_tag_picker_hold()  # clear the fill before hide_tag_picker swaps the view away
-            self.go_running(now, topic=topic)
-        else:
-            self.ui.step_tag_picker_hold(self._tp_hold_row, progress)
-
-    def _update_tag_skip_hold(self, now):
-        """SKIP's hold-to-confirm tick, mirroring _update_tag_hold: canceled
-        only when the touch lands on a different valid nav target (MORE) --
-        landing in the dead zone between SKIP and MORE, or outside the nav
-        row's y-band entirely, is forgiven the same way a row hold forgives
-        drifting into the dead zone between rows. Reaching the threshold
-        starts an untagged session immediately, without waiting for
-        release."""
-        nav = self.ui.tag_picker_nav_at(*self._last)
-        if nav is not None and nav != 'skip':
-            self.ui.cancel_tag_picker_skip_hold()
-            self._tp_skip_holding = False
-            return
-        progress = (now - self._tp_hold_start) / TAG_HOLD_S
-        if progress >= 1.0:
-            self._tp_skip_holding = False
-            self.ui.cancel_tag_picker_skip_hold()
-            self.go_running(now, topic=None)
-        else:
-            self.ui.step_tag_picker_skip_hold(progress)
+    # ----- pre-session tag picker: apply a TagPicker.on_touch result -----
+    def _apply_tag_picker_result(self, result, now):
+        """Reacts to whatever lock_tag_picker.TagPicker.on_touch just
+        returned -- called after every on_touch call, from both process()
+        (mid-touch) and _handle_release (on release). Select/Cancel/Page are
+        the only real outcomes; None means nothing further to do (the
+        picker already handled its own live UI feedback internally)."""
+        if isinstance(result, Select):
+            self.go_running(now, topic=result.topic)   # already hides the picker
+        elif isinstance(result, Cancel):
+            self.ui.hide_tag_picker()
+            if self._picking_from == "closed":
+                self.go_closed(now)
+            else:
+                self.go_idle()
+        # Page: the picker already redrew itself with show_tag_picker; nothing else to do.
 
     def _handle_release(self):
         dx = self._last[0] - self._start[0]
@@ -1117,62 +846,14 @@ class LockController:
 
         # Pre-session tag picker (see go_picking): hold a row or SKIP to
         # start tagged/untagged, tap/swipe MORE to page through synced
-        # labels (see LockUI's tag_picker_nav_at -- explicit arrow+label
-        # controls, not swipe-only). Handled here, before the generic
-        # horizontal-swipe view-switch below, since the picker occupies the
-        # control view's screen without being one of the
+        # labels, swipe up to cancel (see lock_tag_picker.TagPicker.on_touch
+        # for the full gesture arbitration). Handled here, before the
+        # generic horizontal-swipe view-switch below, since the picker
+        # occupies the control view's screen without being one of the
         # top-level VIEWS.
         if self.state == "picking":
-            # Any release while still in "picking" means neither the row's
-            # hold nor the swipe-up-cancel bar ever reached its threshold --
-            # both auto-commit from process()'s per-frame tick
-            # (_update_tag_hold/_update_tag_swipe) the instant they fill,
-            # which moves self.state off "picking" before release is even
-            # detected. Clear whatever partial fill is showing so a plain
-            # tap (or a swipe/SKIP/MORE that happened to start on a row)
-            # doesn't leave a stale widget for the next time this picker is
-            # shown.
-            if self._tp_hold_row is not None:
-                self.ui.cancel_tag_picker_hold()
-                self._tp_hold_row = None
-            if self._tp_skip_holding:
-                self.ui.cancel_tag_picker_skip_hold()
-                self._tp_skip_holding = False
-            self.ui.clear_tag_picker_swipe()
-            if abs(dy) >= SWIPE_MIN_PX and abs(dy) > abs(dx):
-                # Swipe up = cancel: back out to whichever screen was active
-                # before LOCK was tapped, with no session started at all.
-                # This was previously a dead end: entering the picker (even
-                # by accident) forced starting SOME session. Fallback only --
-                # the live tick above already commits at this same threshold
-                # before release is normally reached.
-                if dy < 0:
-                    self._commit_tag_picker_cancel(self._now)
-                return
-            if abs(dx) >= SWIPE_MIN_PX and abs(dx) > abs(dy):
-                right = (dx < 0) if (INVERT_X != self.ui.is_flipped) else (dx > 0)
-                if right:
-                    self._picker_page = (self._picker_page + 1) % self._picker_page_count()
-                    self.ui.show_tag_picker(self._picker_page_topics(self._picker_page))
-                # else (swipe-left): used to be a second way to instantly
-                # skip with no hold at all (manager report: "swipe to the
-                # skip and it goes" -- a real bypass of the hold-to-confirm
-                # requirement, found by testing). SKIP is now reachable only
-                # through _start_tag_hold/_update_tag_skip_hold's press-and-
-                # hold, so a swipe-left here is just a no-op -- paging
-                # (swipe-right/MORE) is unaffected since it doesn't commit
-                # anything.
-                return
-            if abs(dx) < SWIPE_MIN_PX and abs(dy) < SWIPE_MIN_PX:
-                nav = self.ui.tag_picker_nav_at(*self._start)
-                if nav == 'more':
-                    self._picker_page = (self._picker_page + 1) % self._picker_page_count()
-                    self.ui.show_tag_picker(self._picker_page_topics(self._picker_page))
-                # else (a row, or SKIP): a plain tap no longer starts a
-                # session by itself -- both are hold-to-confirm now (see
-                # _start_tag_hold/_update_tag_hold/_update_tag_skip_hold
-                # above), and any in-progress hold was already cleared
-                # above.
+            result = self.tag_picker.on_touch(self._last, self._now, released=True)
+            self._apply_tag_picker_result(result, self._now)
             return
 
         # Horizontal swipe -> switch views. INVERT_X is on, so a physical
