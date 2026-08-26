@@ -8,7 +8,7 @@ import React from 'react';
 import { View, Text, StyleSheet, TextInput } from 'react-native';
 import { useTheme } from '../theme/useTheme';
 import { useSettingsStore } from '../store/useSettingsStore';
-import { allLabelChoices, resolveTopic } from '../stats/customLabels';
+import { allLabelChoices, resolveTopic, MAX_TOPIC_LENGTH } from '../stats/customLabels';
 import { AnimatedPressable } from '../ui/AnimatedPressable';
 import { typeScale } from '../theme/tokens';
 
@@ -76,6 +76,7 @@ export function TopicPicker({
           placeholderTextColor={theme.textDim}
           onSubmitEditing={commitTag}
           returnKeyType="done"
+          maxLength={MAX_TOPIC_LENGTH}
           accessibilityLabel="Type a one-time label for this session"
           style={[styles.tagOnceInput, { color: theme.text, borderColor: theme.textDim }]}
         />

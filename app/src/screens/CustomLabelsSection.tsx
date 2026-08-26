@@ -10,7 +10,7 @@ import { View, Text, StyleSheet, TextInput, Alert } from 'react-native';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useStore } from '../store/useStore';
 import { useTheme } from '../theme/useTheme';
-import { LABEL_SWATCHES } from '../stats/customLabels';
+import { LABEL_SWATCHES, MAX_LABEL_NAME_LENGTH } from '../stats/customLabels';
 import { Section, Button } from './SettingsPrimitives';
 import { AnimatedPressable } from '../ui/AnimatedPressable';
 import { useReducedMotion, configureLayoutAnimation } from '../ui/useReducedMotion';
@@ -78,6 +78,7 @@ export function CustomLabelsSection({ color }: { color: ReturnType<typeof useThe
           onChangeText={setNewName}
           placeholder="New label name"
           placeholderTextColor={color.textDim}
+          maxLength={MAX_LABEL_NAME_LENGTH}
           style={[styles.textInput, { color: color.text, borderColor: color.textDim }]}
         />
         <ColorSwatchRow selected={newColor} onSelect={setNewColor} color={color} />
@@ -132,6 +133,7 @@ function CustomLabelRow({
           <TextInput
             value={draft}
             onChangeText={setDraft}
+            maxLength={MAX_LABEL_NAME_LENGTH}
             style={[styles.textInput, { flex: 1, color: color.text, borderColor: color.textDim }]}
             autoFocus
           />

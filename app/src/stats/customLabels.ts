@@ -25,6 +25,16 @@ export interface CustomLabel {
 
 const CUSTOM_ID_PREFIX = 'custom:';
 
+// Mirrors firestore.rules' settings/app write rule (customLabels.size() <= 40) --
+// keep these in sync so a rejected write here never surfaces as a confusing
+// remote permission error instead of this module's own validation message.
+export const MAX_CUSTOM_LABELS = 40;
+export const MAX_LABEL_NAME_LENGTH = 40;
+
+// Mirrors firestore.rules' sessions/{sessionId} create rule (topic.size() <= 200) --
+// bounds TopicPicker.tsx's free-text one-time tag the same way.
+export const MAX_TOPIC_LENGTH = 200;
+
 /** A palette of starting-point swatches for the label-creation UI. Distinct
  * from topics.ts's TOPIC_HEX so a custom label never visually reads as a
  * built-in topic when both appear in the same breakdown. Purely a UI
@@ -54,13 +64,16 @@ export function isCustomLabelId(topic: string | undefined | null): boolean {
 export function createCustomLabel(labels: CustomLabel[], name: string, color: string): CustomLabel[] {
   const trimmed = name.trim();
   if (!trimmed) throw new Error('Label name is required.');
+  if (trimmed.length > MAX_LABEL_NAME_LENGTH) throw new Error(`Label name must be ${MAX_LABEL_NAME_LENGTH} characters or fewer.`);
   if (!color) throw new Error('Label color is required.');
+  if (labels.length >= MAX_CUSTOM_LABELS) throw new Error(`You can have at most ${MAX_CUSTOM_LABELS} custom labels.`);
   return [...labels, { id: makeCustomLabelId(), name: trimmed, color }];
 }
 
 export function renameCustomLabel(labels: CustomLabel[], id: string, name: string): CustomLabel[] {
   const trimmed = name.trim();
   if (!trimmed) throw new Error('Label name is required.');
+  if (trimmed.length > MAX_LABEL_NAME_LENGTH) throw new Error(`Label name must be ${MAX_LABEL_NAME_LENGTH} characters or fewer.`);
   return labels.map((l) => (l.id === id ? { ...l, name: trimmed } : l));
 }
 

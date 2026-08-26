@@ -11,6 +11,8 @@ import {
   topicBreakdownWithCustom,
   dominantTopicWithCustom,
   CustomLabel,
+  MAX_CUSTOM_LABELS,
+  MAX_LABEL_NAME_LENGTH,
 } from './customLabels';
 import { TOPIC_LABELS, topicColor } from './topics';
 import { LoggedSession } from './sessionHistory';
@@ -72,6 +74,32 @@ describe('createCustomLabel / renameCustomLabel / deleteCustomLabel', () => {
   it('rejects renaming to an empty name', () => {
     const labels = createCustomLabel([], 'A', '#111111');
     expect(() => renameCustomLabel(labels, labels[0].id, '')).toThrow();
+  });
+
+  it('rejects a name longer than MAX_LABEL_NAME_LENGTH', () => {
+    const tooLong = 'x'.repeat(MAX_LABEL_NAME_LENGTH + 1);
+    expect(() => createCustomLabel([], tooLong, '#123456')).toThrow();
+  });
+
+  it('accepts a name exactly at MAX_LABEL_NAME_LENGTH', () => {
+    const atLimit = 'x'.repeat(MAX_LABEL_NAME_LENGTH);
+    const labels = createCustomLabel([], atLimit, '#123456');
+    expect(labels[0].name).toHaveLength(MAX_LABEL_NAME_LENGTH);
+  });
+
+  it('rejects renaming to a name longer than MAX_LABEL_NAME_LENGTH', () => {
+    const labels = createCustomLabel([], 'A', '#111111');
+    const tooLong = 'x'.repeat(MAX_LABEL_NAME_LENGTH + 1);
+    expect(() => renameCustomLabel(labels, labels[0].id, tooLong)).toThrow();
+  });
+
+  it('rejects creating a label past MAX_CUSTOM_LABELS', () => {
+    let labels: CustomLabel[] = [];
+    for (let i = 0; i < MAX_CUSTOM_LABELS; i += 1) {
+      labels = createCustomLabel(labels, `Label ${i}`, '#123456');
+    }
+    expect(labels).toHaveLength(MAX_CUSTOM_LABELS);
+    expect(() => createCustomLabel(labels, 'One too many', '#123456')).toThrow();
   });
 
   it('deletes only the matching label by id', () => {
