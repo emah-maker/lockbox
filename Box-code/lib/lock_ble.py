@@ -101,7 +101,6 @@ class PhoneBoxBLE:
         self._last_adv_start = 0.0
         self._last_push = 0.0
         self._last_cmd_at = 0.0
-        self._last_command = ""
         self._last_alert = ""
         self._last_time = ""
         self._last_settings = ""
@@ -230,8 +229,21 @@ class PhoneBoxBLE:
         # per-screen bug. Rate-limited to 5x/sec (still far faster than a
         # human notices these particular things change) instead of 50x/sec.
         cmd = self._svc.command
-        if cmd and cmd != self._last_command:
-            self._last_command = cmd
+        if cmd:
+            # Clear the characteristic the moment we've read it, rather than
+            # deduping on "did the string change from last time" -- a GATT
+            # characteristic holds its last-written value indefinitely until
+            # overwritten, so an equality-based dedup can't tell "the app
+            # hasn't written anything new" apart from "the app genuinely sent
+            # this exact command again" (e.g. "lock" twice in a row is a
+            # legitimate resend, not a stale read). Clearing it back to ""
+            # makes a later identical write observably new again -- the same
+            # problem the `alert` characteristic solves with a nonce prefix,
+            # solved here instead by the box consuming its own value, which
+            # this characteristic (unlike `alert`, which is app-authored data
+            # the box only reads) can do since it already writes back to its
+            # own service elsewhere (e.g. `status`/`settings` below).
+            self._svc.command = ""
             if now - self._last_cmd_at >= BLE_CMD_MIN_INTERVAL:
                 self._last_cmd_at = now
                 ctrl.apply_ble_command(cmd, now)

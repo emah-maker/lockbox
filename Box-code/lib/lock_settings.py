@@ -115,7 +115,7 @@ class Settings:
             # (_BASE+1) so this stays a value-format-only change, not a
             # layout shift of every other field; high byte appended at a
             # new offset (_BASE+9) rather than reordering the existing ones.
-            ovr = max(1, min(OVR_MAX, int(self.override_presses)))
+            ovr = max(OVR_MIN, min(OVR_MAX, int(self.override_presses)))
             nvm[_BASE + 1] = ovr & 0xFF
             nvm[_BASE + 9] = (ovr >> 8) & 0xFF
             nvm[_BASE + 2] = 1 if self.auto_open else 0

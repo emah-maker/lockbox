@@ -29,9 +29,12 @@ _MAGIC = 0x81        # bump if this NVM layout changes (forces an empty queue
                       # once, same convention as lock_settings.py's _MAGIC)
 _BASE = 24            # NVM offset for the persisted queue -- leaves a gap
                       # after lock_settings.py's region (byte 0 = brownout
-                      # counter, bytes 8-16 = settings) for that region to
+                      # counter, bytes 8-20 = settings as of lock_settings.py's
+                      # current _MAGIC=0x63 layout -- re-check this range
+                      # whenever a field is added there) for that region to
                       # grow, per the reservation convention lock_settings.py
-                      # documents for its own _BASE.
+                      # documents for its own _BASE. Only 3 bytes (21-23) of
+                      # headroom remain before the two regions would collide.
 _ENTRY_SIZE = 9       # planned_s:2B + actual_s:2B + completed:1B + epoch:4B
 _EPOCH_NONE = 0xFFFFFFFF  # NVM sentinel for "never time-synced" (epoch=-1 in
                           # the in-RAM tuple) -- a real epoch won't reach this
@@ -70,12 +73,19 @@ class SessionLog:
         self._sent_seq = 0
         self._load()
 
-    def record(self, planned_s, actual_s, completed, epoch):
+    def record(self, planned_s, actual_s, completed, epoch, now=None):
         """epoch is the wall-clock second the session ended, or None if the
         box's clock has never been synced by a phone (see LockController.
-        wall_time)."""
+        wall_time). `now` (monotonic seconds) is remembered ONLY when epoch
+        is None, so a later sync this same boot session can retroactively
+        fill it in -- see backfill_epoch(). It's RAM-only (never written to
+        NVM, see _save()/_load()): monotonic time resets on every reboot, so
+        a reference from a previous boot session would be meaningless -- an
+        entry that survives a reboot still unsynced simply stays that way
+        (an accurate real-clock-less-hardware limitation, not a bug)."""
         entry = (int(planned_s), int(actual_s), 1 if completed else 0,
-                 int(epoch) if epoch is not None else -1)
+                 int(epoch) if epoch is not None else -1,
+                 None if epoch is not None else now)
         self._pending.append(entry)
         if len(self._pending) > LOG_MAX_PENDING:
             self._pending.pop(0)
@@ -85,13 +95,36 @@ class SessionLog:
             self._sent_seq = max(0, self._sent_seq - 1)
         self._save()
 
+    def backfill_epoch(self, epoch_for_mono):
+        """Call once the box's wall clock is (re)synced (LockController.
+        set_wall_time) to retroactively fill in the epoch for any pending
+        entries that were recorded earlier this same boot session before a
+        sync was available -- otherwise they'd ship to the app permanently
+        stamped "never synced" even though the box now knows the real time.
+        `epoch_for_mono(mono)` converts a remembered monotonic timestamp to
+        a real epoch (LockController.wall_time, bound to the sync just
+        established). Entries with no remembered `mono` (already synced at
+        record time, or reloaded from NVM after a reboot -- see record())
+        are left untouched."""
+        changed = False
+        for i, entry in enumerate(self._pending):
+            planned_s, actual_s, completed, epoch, mono = entry
+            if epoch < 0 and mono is not None:
+                self._pending[i] = (planned_s, actual_s, completed,
+                                     int(epoch_for_mono(mono)), None)
+                changed = True
+        if changed:
+            self._save()
+
     @property
     def has_pending(self):
         return bool(self._pending)
 
     def to_json(self):
+        # Only the first 4 fields are wire format -- the 5th (mono, see
+        # record()) is RAM-only backfill bookkeeping, never shipped to the app.
         parts = [
-            '{{"p":{},"a":{},"c":{},"t":{}}}'.format(*e) for e in self._pending
+            '{{"p":{},"a":{},"c":{},"t":{}}}'.format(*e[:4]) for e in self._pending
         ]
         return '[' + ','.join(parts) + ']'
 
@@ -149,7 +182,10 @@ class SessionLog:
                 completed = nvm[off + 4]
                 epoch_raw = _read32(nvm, off + 5)
                 epoch = -1 if epoch_raw == _EPOCH_NONE else epoch_raw
-                entries.append((planned_s, actual_s, completed, epoch))
+                # mono=None -- a monotonic reference from a previous boot
+                # session is meaningless after a reboot (see record()), so an
+                # entry reloaded still-unsynced can never be backfilled.
+                entries.append((planned_s, actual_s, completed, epoch, None))
             self._pending = entries
         except Exception:
             # Unsupported build / corrupt region -- start with an empty
@@ -166,12 +202,28 @@ class SessionLog:
             # This board's NVM region may be smaller than LOG_MAX_PENDING
             # entries need (see LOG_MAX_PENDING's comment in lock_config.py:
             # confirm real on-device NVM size before relying on the full
-            # cap) -- persist only as many of the OLDEST entries as fit
-            # rather than writing past the end.
-            to_save = self._pending[:fit] if fit < len(self._pending) else self._pending
+            # cap) -- persist only as many of the NEWEST entries as fit
+            # rather than writing past the end. _pending is oldest-first
+            # (record() appends, the cap eviction above pops(0) the oldest),
+            # so the newest entries are the tail -- [-fit:], not [:fit], to
+            # match record()'s own "the oldest is the one worth losing least"
+            # eviction policy instead of keeping stale old entries and
+            # dropping ones that just happened. fit==0 needs its own branch:
+            # list[-0:] is the whole list in Python, not empty.
+            if fit >= len(self._pending):
+                to_save = self._pending
+            elif fit <= 0:
+                to_save = []
+            else:
+                to_save = self._pending[-fit:]
             nvm[_BASE] = _MAGIC
             nvm[_BASE + 1] = len(to_save)
-            for i, (planned_s, actual_s, completed, epoch) in enumerate(to_save):
+            # Only the first 4 fields are persisted -- the 5th (mono, see
+            # record()) is RAM-only backfill bookkeeping that a reboot would
+            # invalidate anyway (monotonic time resets), so there is nothing
+            # to clear here: it never reaches NVM in the first place.
+            for i, entry in enumerate(to_save):
+                planned_s, actual_s, completed, epoch = entry[:4]
                 off = _BASE + 2 + i * _ENTRY_SIZE
                 _write16(nvm, off, planned_s)
                 _write16(nvm, off + 2, actual_s)

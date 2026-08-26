@@ -19,6 +19,7 @@ from lock_config import (
     RADIUS_CARD, RADIUS_BTN_SM, RADIUS_BTN_LG, STATUS_TRANSITION_S, lerp_color,
     SPRING_STIFFNESS, SPRING_DAMPING, SPRING_MASS, PRESS_DEPTH_PX,
     DONE_POP_OFFSET_PX, OVR_POP_OFFSET_PX, DONE_MSG_Y, DONE_BTN_CENTER_Y,
+    NATIVE_ROTATION,
 )
 from lock_motion import Spring
 
@@ -53,16 +54,19 @@ class LockUI:
         self.display = display
         self.W = W = display.width
         self.H = H = display.height
-        # Whatever rotation the board support package already set up (its
-        # native "right-side-up" orientation) -- set_screen_flipped rotates
-        # 180° from *this*, not from a hardcoded 0, so it works regardless of
-        # what the board default happens to be. Guarded like every other
-        # board-shape assumption here: an unexpected display object with no
-        # .rotation attribute falls back to 0 instead of failing UI init.
-        try:
-            self._base_rotation = display.rotation
-        except AttributeError:
-            self._base_rotation = 0
+        # The display's native orientation -- NATIVE_ROTATION (lock_config.py)
+        # is a hardcoded constant verified against this board's own
+        # CircuitPython board.c, not a value read off display.rotation.
+        # board.DISPLAY can be a supervisor-owned singleton that outlives a
+        # soft reload, and -- per the 2026-08-25 manager report -- touch
+        # mapping was still wrong even after a genuine full power-cycle test,
+        # which means display.rotation at construction time is not a
+        # trustworthy "was this actually native" signal even with a
+        # run_reason-based fresh-boot check (a prior attempt at exactly that
+        # heuristic is what this replaces). Trusting the known-correct
+        # constant instead of trying to detect/recover it eliminates that
+        # whole class of bug outright.
+        self._base_rotation = NATIVE_ROTATION
 
         # ----- theme-tracking registries, populated by the _build_* calls
         # below (see set_theme). Bucketed by role, not by widget type, so
@@ -147,11 +151,28 @@ class LockUI:
         be mounted upside-down and still read right-side-up. Width/height are
         unaffected (180° never swaps them, unlike 90/270), so no widget needs
         rebuilding -- only the touch coordinates need a matching correction,
-        done separately in LockController._map."""
+        done separately in LockController._map (see is_flipped below -- read
+        the live rotation here rather than trust a second, separately-tracked
+        flag that could drift out of sync with it)."""
         try:
             self.display.rotation = (self._base_rotation + 180) % 360 if flipped else self._base_rotation
         except AttributeError:
             pass
+
+    @property
+    def is_flipped(self):
+        """Whether the panel is CURRENTLY rotated 180° from its native
+        orientation -- the single source of truth _map uses for its touch
+        correction, read live off the display instead of a second copy of
+        the flag (manager report: touch stayed un-flipped while the screen
+        visibly was, i.e. something let LockController.settings.
+        screen_flipped and the display's actual rotation disagree; reading
+        the display's own rotation directly makes that class of drift
+        impossible, whatever was causing it)."""
+        try:
+            return self.display.rotation != self._base_rotation
+        except AttributeError:
+            return False
 
     # =================== theme ===================
     def set_theme(self, mode_idx, accent_idx):
@@ -194,6 +215,18 @@ class LockUI:
         # saturated (see the contrast audit above), so this must follow mode
         # like every other themed attribute.
         self.btn_label.color = on_accent
+
+        # The clock-ring gauge and override-ring dots repaint their fill
+        # color only when their filled-count changes (see _set_gauge/
+        # _set_ovr_ring's `if k != self._gauge_k` guards) -- cheap for the
+        # common per-frame case, but that means a theme/accent change alone
+        # (same k, new accent) would leave already-lit dots showing the old
+        # color until the count next crosses a segment boundary. Invalidating
+        # the cached k here forces the next call to actually repaint,
+        # matching how _gauge_k/_ovr_ring_k are already seeded to -1 (an
+        # impossible k) to force a first paint.
+        self._gauge_k = -1
+        self._ovr_ring_k = -1
 
     # =================== color-transition engine ===================
     # Duration/curve come from the motion-and-animation skill's tables, never
@@ -909,8 +942,16 @@ class LockUI:
         self._clock_hints(group, W)
 
     # ----- view switching -----
-    def show_view(self, view):
+    def show_view(self, view, apply=True):
+        """apply=False updates which view is considered active without
+        touching the live root_group -- for a caller that needs the
+        bookkeeping (e.g. for _refresh_clock_view/hide_call_alert to later
+        restore the right thing) but must not fight something else currently
+        owning the display, like the call-alert overlay (see
+        LockController.set_view)."""
         self.view = view
+        if not apply:
+            return
         if view == "clock":
             self.display.root_group = self.clock_groups[self.clock_style_idx]
         elif view == "battery":
@@ -927,7 +968,12 @@ class LockUI:
             self.display.root_group = self.clock_groups[self.clock_style_idx]
 
     def update_clock_view(self, remaining, total, state):
-        txt = fmt_hms(remaining)
+        # +0.999 ceiling before fmt_hms's own truncation -- see fmt_hm's
+        # docstring in lock_config.py: fmt_hms's callers are documented to
+        # apply this so the countdown never displays less time than is
+        # actually left (e.g. 0.5s remaining truncating straight to "0:00:00"
+        # would visually read as done a fraction of a second early).
+        txt = fmt_hms(remaining + 0.999)
         statetext = {"running": "LOCKED",
                      "done": "UNLOCKED",
                      "idle": "not started"}.get(state, "")
@@ -1041,12 +1087,6 @@ class LockUI:
         group.append(self.bat_watts)
         self._dim_widgets.append((self.bat_watts, 'color'))
 
-        self.bat_diag = label.Label(terminalio.FONT, text="", color=C_GREY)
-        self.bat_diag.anchor_point = (0.5, 0.5)
-        self.bat_diag.anchored_position = (W // 2, self.bat_y + self.bat_h + 174)
-        group.append(self.bat_diag)
-        self._dim_widgets.append((self.bat_diag, 'color'))
-
         hint = label.Label(terminalio.FONT, text="<- timer    settings ->",
                            color=C_GREY)
         hint.anchor_point = (0.5, 0.5)
@@ -1060,11 +1100,9 @@ class LockUI:
             self.bat_volts.text = "no gauge"
             self.bat_chg.text = ""
             self.bat_watts.text = ""
-            self.bat_diag.text = "MAX17043 @0x36 not found"
             key = None
         else:
             self.bat_volts.text = "{:.2f} V".format(r.volts)
-            self.bat_diag.text = "raw {}".format(r.raw)
             if r.charging:
                 # A voltage-only gauge can't know the true level while
                 # charging, so don't fake a %: show "CHG" and leave the bar

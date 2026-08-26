@@ -5,7 +5,8 @@ from lock_config import (
     SWAP_XY, INVERT_X, INVERT_Y, CLOCK_FPS, SERVO_HOLD_S, OVERRIDE_PRESSES,
     OVERRIDE_TIMEOUT, DONE_ANIM_S, MIN_STEP, RELEASE_FRAMES,
     SERVO_ANGLE_MIN, SERVO_ANGLE_MAX, fmt_hm, fix, C_GREY,
-    OVR_MIN, OVR_MAX, SLEEP_OPTIONS, BLE_CALL_ALERT_S, CALL_ALERT_BLINK_HZ,
+    OVR_MIN, OVR_MAX, SLEEP_OPTIONS, BRIGHT_OPTIONS, snap_to_option,
+    BLE_CALL_ALERT_S, CALL_ALERT_BLINK_HZ,
     HOLD_REPEAT_DELAY, HOLD_REPEAT_START, HOLD_REPEAT_MIN, HOLD_REPEAT_RAMP,
     STATUS_TAP_COOLDOWN_S, BUILTIN_TOPICS, BLE_LABEL_MAX_COUNT,
     BLE_LABEL_NAME_MAX_LEN, ACCENT_COLORS, TAG_HOLD_S,
@@ -17,6 +18,12 @@ from lock_log import SessionLog
 
 COMPLETED = "completed"
 OVERRIDDEN = "overridden"
+
+# Reserved ids a synced custom label must not be allowed to reuse -- see
+# apply_ble_labels_json. A plain tuple, not a set/frozenset -- frozenset is
+# disabled on some smaller CircuitPython board builds for space reasons, and
+# `in` on a 6-element tuple is plenty fast for this.
+_BUILTIN_TOPIC_IDS = tuple(t[0] for t in BUILTIN_TOPICS)
 
 # ordered top-level views; horizontal swipe moves between them
 VIEWS = ("clock", "control", "battery", "settings")
@@ -62,15 +69,9 @@ class LockController:
         self.servo = Servo()
         self.settings = Settings()
         self.ui.set_theme(self.settings.theme_mode, self.settings.accent_idx)
-        # Recover the display's true native rotation before touching it --
-        # see LockUI.establish_base_rotation's docstring: board.DISPLAY
-        # survives a soft reload, so if a previous run left the screen
-        # flipped, LockUI's raw boot-time rotation capture caught the
-        # *flipped* value, not the native one. Must run before
-        # set_screen_flipped below (which would otherwise flip relative to
-        # the wrong baseline) and before anything reads self.ui.is_flipped
-        # (e.g. the first touch event).
-        self.ui.establish_base_rotation(self.settings.screen_flipped)
+        # LockUI._base_rotation is NATIVE_ROTATION, a hardcoded constant
+        # (lock_config.py) -- no runtime recovery step is needed here before
+        # applying the persisted flip.
         self.ui.set_screen_flipped(self.settings.screen_flipped)
         # Previously only ever called on navigating to the settings view --
         # left the control view's small override-count indicator blank from
@@ -159,7 +160,15 @@ class LockController:
         self._hold_dir = 0             # a view switch can't happen mid-hold, but be safe
         self._last_fkey = None        # force a clock-view refresh
         self._last_bkey = None        # force a battery-view refresh
-        self.ui.show_view(view)
+        # Don't actually swap the visible root_group while the call-alert
+        # overlay is up -- show_call_alert() sets display.root_group directly
+        # (bypassing LockUI.view), and this call would otherwise unconditionally
+        # stomp it (e.g. go_done() calling set_view("control") right as an
+        # incoming-call alert is mid-flash), silently defeating the "insistent
+        # by design" alert before its timeout. self.ui.view still gets tracked
+        # via apply=False so hide_call_alert()'s restore (in update(), once
+        # _call_alert_until elapses) shows the right view once it's safe to.
+        self.ui.show_view(view, apply=self._call_alert_until is None)
         if view == "clock":
             self._refresh_clock_view(self._now)
         elif view == "battery":
@@ -274,7 +283,7 @@ class LockController:
             if opens_now:
                 actual_s = max(0.0, now - lock_start)
                 self.log.record(self.set_seconds, actual_s, outcome == COMPLETED,
-                                 self.wall_time(now))
+                                 self.wall_time(now), now)
             else:
                 # Box stays shut until OPEN is tapped (or override forces it
                 # from that holding state -- see press_override) -- the
@@ -308,7 +317,7 @@ class LockController:
         planned_s, lock_start, completed = self._pending_log
         self._pending_log = None
         actual_s = max(0.0, self._now - lock_start)
-        self.log.record(planned_s, actual_s, completed, self.wall_time(self._now))
+        self.log.record(planned_s, actual_s, completed, self.wall_time(self._now), self._now)
 
     # ----- pre-session tag picker helpers -----
     def _all_topics(self):
@@ -342,7 +351,12 @@ class LockController:
             lid = str(item.get("i", ""))[:40]
             name = str(item.get("n", ""))[:BLE_LABEL_NAME_MAX_LEN]
             color = _parse_hex_color(item.get("c", ""))
-            if lid and name:
+            # A synced id colliding with a BUILTIN_TOPICS id would put two
+            # tag-picker rows under the same id -- ble_status_json's "tp"
+            # field can then only echo back the shared id, not which row was
+            # actually tapped, so the app can't tell them apart when it
+            # re-resolves display/color from its own customLabels catalog.
+            if lid and name and lid not in _BUILTIN_TOPIC_IDS:
                 labels.append((lid, name, color))
         self._synced_labels = labels
 
@@ -535,24 +549,36 @@ class LockController:
         op = cmd.split(":", 1)
         name = op[0]
         if name == "start":
-            if len(op) == 2:
-                try:
-                    secs = int(op[1])
-                except ValueError:
-                    return
-                # Belt-and-suspenders MIN_SECONDS floor -- the app clamps its
-                # own picker too, but a BLE write carries whatever the app
-                # sent, not a value pre-guaranteed to be >=MIN_SECONDS.
-                self.set_seconds = max(MIN_SECONDS, min(MAX_SECONDS, secs))
-                self.ui.set_clock(self.set_seconds)
+            # Guard the whole op on state, not just go_running below -- a
+            # "start" arriving while already running/done must not touch
+            # set_seconds at all (go_done's lock_start = self.deadline -
+            # self.set_seconds would otherwise be computed against a value
+            # that changed mid-session, corrupting the logged duration and
+            # the countdown ring's remaining/total fraction).
             if self.state in ("idle", "closed"):
+                if len(op) == 2:
+                    try:
+                        secs = int(op[1])
+                    except ValueError:
+                        return
+                    # Belt-and-suspenders MIN_SECONDS floor -- the app clamps
+                    # its own picker too, but a BLE write carries whatever
+                    # the app sent, not a value pre-guaranteed to be
+                    # >=MIN_SECONDS.
+                    self.set_seconds = max(MIN_SECONDS, min(MAX_SECONDS, secs))
+                    self.ui.set_clock(self.set_seconds)
                 self.go_running(now)
         elif name == "dur":
             # Live duration preview from the app's H/M stepper (DashboardScreen)
             # -- deliberately does NOT start the countdown (that's still only
             # "start" via the Lock button/press_lock). Ignored while running:
             # the on-screen clock digits are already owned by the countdown
-            # tick (see update()'s set_clock_text), not this preview.
+            # tick (see update()'s set_clock_text), not this preview -- and
+            # the underlying set_seconds must be left alone too, not just the
+            # display, since go_done() reads it back out to compute
+            # lock_start for the session log.
+            if self.state == "running":
+                return
             if len(op) != 2:
                 return
             try:
@@ -563,8 +589,7 @@ class LockController:
             # this is a live preview only, but it still drives the on-screen
             # clock text and must never show/arm 0h00m.
             self.set_seconds = max(MIN_SECONDS, min(MAX_SECONDS, secs))
-            if self.state != "running":
-                self.ui.set_clock(self.set_seconds)
+            self.ui.set_clock(self.set_seconds)
         elif name == "lock":
             if self.state in ("idle", "done"):
                 self.go_closed(now)
@@ -607,18 +632,20 @@ class LockController:
         if "auto" in d:
             st.auto_open = bool(d["auto"])
         if "sleep" in d:
-            # Clamp to the SLEEP_OPTIONS range (10-60s) the on-box UI itself
-            # enforces -- same pattern as ovr/bright, so a malformed/
-            # out-of-range payload can't set an effectively-0 or
-            # multi-minute-oversized sleep timeout on the live in-RAM value
-            # code.py's sleep-timeout check reads immediately.
+            # Snap to the nearest SLEEP_OPTIONS member, not just clamp into
+            # its min/max range -- lock_settings._step_in (the on-box
+            # stepper) does `options.index(value)`, which raises for any
+            # value that isn't an exact option member and silently resets
+            # the stepper to the first option on the next swipe instead of
+            # stepping from wherever the phone left it.
             try:
-                st.sleep_s = max(min(SLEEP_OPTIONS), min(max(SLEEP_OPTIONS), int(d["sleep"])))
+                st.sleep_s = snap_to_option(SLEEP_OPTIONS, int(d["sleep"]))
             except (ValueError, TypeError):
                 pass
         if "bright" in d:
+            # Same snap-to-option reasoning as "sleep" above.
             try:
-                st.bright_pct = max(0, min(100, int(d["bright"])))
+                st.bright_pct = snap_to_option(BRIGHT_OPTIONS, int(d["bright"]))
             except (ValueError, TypeError):
                 pass
         if "unlk" in d:
@@ -659,6 +686,15 @@ class LockController:
                 pass
         if "thm" in d or "acc" in d:
             self.ui.set_theme(st.theme_mode, st.accent_idx)
+            # set_theme only repaints registered widgets -- the clock view's
+            # time labels/gauge/override-ring live outside that registry (see
+            # LockUI.set_theme's own cache-invalidation) and are otherwise
+            # only repainted by _refresh_clock_view when fkey changes, which
+            # it won't while idle/done/closed with nothing else moving. Force
+            # one now, same as cycle_clock_style does, so a live theme/accent
+            # push doesn't leave stale colors up until something else changes.
+            self._last_fkey = None
+            self._refresh_clock_view(self._now)
         if "flip" in d:
             self.ui.set_screen_flipped(st.screen_flipped)
         st.save()
@@ -666,8 +702,21 @@ class LockController:
             self.ui.update_settings(st)
 
     def set_wall_time(self, epoch, now):
-        self._wall_epoch0 = int(epoch)
+        # A non-positive value can't be a real "now" -- reject it rather than
+        # letting a malformed/garbage BLE time_sync write silently become the
+        # reference every subsequent logged session's epoch is computed from
+        # (see wall_time below and SessionLog.record's epoch param) until a
+        # good sync eventually arrives.
+        epoch = int(epoch)
+        if epoch <= 0:
+            return
+        self._wall_epoch0 = epoch
         self._wall_mono0 = now
+        # Retroactively fill in the epoch for any sessions logged earlier
+        # this boot session before a sync was available (see
+        # SessionLog.backfill_epoch) -- self.wall_time now reflects the sync
+        # just established above.
+        self.log.backfill_epoch(self.wall_time)
 
     def wall_time(self, now):
         """Best-known wall-clock epoch, or None until the phone has synced."""
@@ -738,7 +787,15 @@ class LockController:
         open (auto_open on, or already forced open) -- nothing left to
         override."""
         if self.state == "done":
-            if self._pending_log is None:
+            # Whether there's still something to override in "done" is
+            # whether the box is still physically shut, not whether a
+            # deferred log entry exists -- _pending_log is only ever set
+            # when go_done() was entered from "running", so it's None both
+            # when the box is genuinely already open AND when go_done() was
+            # entered from "closed" (e.g. an override/remote-unlock before
+            # LOCK was ever pressed) with auto_open off, which leaves the box
+            # locked. _servo_locked reflects the real physical state either way.
+            if not self._servo_locked:
                 return
         elif self.state not in ("running", "closed"):
             return
@@ -815,6 +872,17 @@ class LockController:
                 self._hold_dir = 0
         return self._was_down
 
+    # Lower threshold to STAY in a hold direction than the one required to
+    # first ENTER it (SWIPE_MIN_PX) -- _drag_direction recomputes direction
+    # from scratch every frame from the cumulative drag, so with a single
+    # threshold, dy sitting right at the boundary (a real, easy thing to do
+    # while deliberately holding a drag still) flaps direction between 0 and
+    # +-1 on a pixel or two of touch-sensor noise, each flap firing an extra
+    # unintended adjust() step and resetting the repeat ramp back to
+    # HOLD_REPEAT_START/HOLD_REPEAT_DELAY. Same class of bug the tag picker's
+    # _TP_SWIPE_JITTER_GUARD_PX exists for.
+    _HOLD_DRAG_RELEASE_PX = 20
+
     def _drag_direction(self):
         """Which adjust direction (if any) the current touch corresponds to
         on the settings detail page: over [+]/[-] by position, or a sustained
@@ -828,7 +896,10 @@ class LockController:
             return -1
         dx = x - self._start[0]
         dy = y - self._start[1]
-        if abs(dy) >= SWIPE_MIN_PX and abs(dy) > abs(dx):
+        threshold = SWIPE_MIN_PX
+        if self._hold_dir != 0 and (dy < 0) == (self._hold_dir > 0):
+            threshold = self._HOLD_DRAG_RELEASE_PX
+        if abs(dy) >= threshold and abs(dy) > abs(dx):
             return 1 if dy < 0 else -1
         return 0
 
@@ -1024,7 +1095,10 @@ class LockController:
             self.settings.save()
             if abs(dx) >= SWIPE_MIN_PX and abs(dx) > abs(dy):
                 self._editing = False
-                self.ui.show_view("settings")
+                # apply=False while a call alert is up -- same reasoning as
+                # set_view (this bypasses set_view, so needs the same guard
+                # applied directly here).
+                self.ui.show_view("settings", apply=self._call_alert_until is None)
                 self.ui.update_settings(self.settings)
             return
 
@@ -1175,7 +1249,7 @@ class LockController:
             elif self.state == "done":
                 self.go_idle()               # reset after finishing -> re-arms sensor
             # running: no on-screen cancel -- override button only
-        elif abs(dy) >= SWIPE_MIN_PX and abs(dy) >= abs(dx):
+        elif abs(dy) >= SWIPE_MIN_PX and abs(dy) > abs(dx):
             # vertical swipe over a unit column sets the lock time (idle or
             # closed). Two-way split (hours/minutes only) -- seconds were
             # dropped from the box's own editing UI, see LockUI's guide_h/

@@ -66,6 +66,21 @@ SWAP_XY = False
 INVERT_X = True
 INVERT_Y = False
 
+# The board's own CircuitPython board.c (waveshare_esp32_s3_touch_lcd_1_47,
+# verified against the adafruit/circuitpython source) hardcodes rotation=0
+# when board.DISPLAY is constructed -- this is a fixed property of the board
+# support package, not something that varies at runtime. LockUI trusts this
+# constant directly as the display's native orientation instead of reading
+# display.rotation at boot and trying to guess whether that live value is
+# trustworthy: board.DISPLAY can be a supervisor-owned singleton that
+# outlives a soft reload, and -- per the 2026-08-25 power-cycle bug report --
+# apparently also survives an unexpected in-session reset (e.g. a brownout
+# retry) closely enough that a "was this session's boot actually fresh"
+# heuristic (CircuitPython's supervisor.runtime.run_reason) is not a
+# sufficient signal either. A hardcoded, hardware-verified constant sidesteps
+# the whole class of "is the raw captured rotation native or stale" bugs.
+NATIVE_ROTATION = 0
+
 # Seed default for Settings.screen_flipped -- lets the box be physically
 # mounted upside-down while still reading right-side-up, toggled from the
 # app's Settings screen (Settings > Box behaviors > "Flip screen"). Rotates
@@ -318,6 +333,19 @@ OVR_MAX = 500
 OVR_STEP = 5
 SLEEP_OPTIONS = (10, 20, 30, 60)      # screen-sleep seconds (on battery)
 BRIGHT_OPTIONS = (10, 30, 50, 70, 100)    # backlight percent (min 10)
+
+
+def snap_to_option(options, value):
+    """Nearest member of a discrete option tuple (SLEEP_OPTIONS/
+    BRIGHT_OPTIONS) to an arbitrary value -- used wherever a value can arrive
+    from outside the on-box stepper (a BLE write carries whatever the app's
+    slider sent, not a value pre-guaranteed to already be one of these
+    options). Without this, a stored value that isn't an exact option member
+    makes lock_settings._step_in's `options.index(value)` raise, silently
+    resetting the on-box stepper to the first option on the very next swipe
+    instead of stepping from where the phone left it. Ties round toward the
+    lower option (min()'s first-match-wins on equal key)."""
+    return min(options, key=lambda o: abs(o - value))
 
 # ----- Settings detail page: [-]/[+] and swipe press-and-hold auto-repeat -----
 # A tap (or the start of a swipe) always applies one step immediately (on
