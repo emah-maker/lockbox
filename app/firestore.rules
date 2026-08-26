@@ -10,11 +10,20 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == uid;
     }
 
+    function hasOnlyUserFields(data) {
+      return data.keys().hasOnly(['email', 'displayName', 'photoURL', 'createdAt', 'updatedAt']);
+    }
+
     match /users/{uid} {
-      allow read, update: if isOwner(uid);
+      allow read: if isOwner(uid);
       allow create: if isOwner(uid)
-                    && request.resource.data.keys().hasOnly(['email', 'displayName', 'photoURL', 'createdAt', 'updatedAt'])
+                    && hasOnlyUserFields(request.resource.data)
                     && request.resource.data.createdAt == request.time;
+      // Same field allow-list as create, plus createdAt pinned immutable --
+      // otherwise update had no shape/immutability checks at all.
+      allow update: if isOwner(uid)
+                    && hasOnlyUserFields(request.resource.data)
+                    && request.resource.data.createdAt == resource.data.createdAt;
       allow delete: if isOwner(uid); // part of the account-deletion path, §5
 
       match /sessions/{sessionId} {
@@ -23,20 +32,29 @@ service cloud.firestore {
         allow create: if isOwner(uid)
                       && request.resource.data.keys().hasOnly(['startedAt', 'plannedS', 'actualS', 'outcome', 'topic'])
                       && request.resource.data.outcome in ['completed', 'overridden']
-                      && request.resource.data.startedAt is int
-                      && request.resource.data.plannedS is int
-                      && request.resource.data.actualS is int;
+                      && request.resource.data.startedAt is int && request.resource.data.startedAt >= 0
+                      && request.resource.data.plannedS is int && request.resource.data.plannedS >= 0
+                      && request.resource.data.actualS is int && request.resource.data.actualS >= 0
+                      && (!('topic' in request.resource.data) || request.resource.data.topic is string);
         allow update, delete: if false; // integrity: never edited or erased by a client, even the owner
       }
 
       match /settings/app {
+        // updatedAt is a client-side logical clock (see firestoreSync.ts's
+        // last-write-wins compare), not a server timestamp -- type-check it
+        // rather than pinning it to request.time.
         allow read, write: if isOwner(uid)
                             && request.resource.data.keys().hasOnly(
-                                 ['themeMode', 'accent', 'callAlertsEnabled', 'customLabels', 'updatedAt']);
+                                 ['themeMode', 'accent', 'callAlertsEnabled', 'customLabels', 'updatedAt'])
+                            && request.resource.data.updatedAt is int;
       }
 
       match /devices/{deviceId} {
-        allow read, write: if isOwner(uid);
+        // Read + delete only: app code never creates/updates device docs
+        // today (firestoreSync.ts's deleteAllUserData only enumerates and
+        // deletes them). Add create/update here once a real device-doc
+        // schema exists to validate against.
+        allow read, delete: if isOwner(uid);
       }
     }
 
