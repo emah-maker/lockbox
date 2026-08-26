@@ -110,7 +110,7 @@ export default function DashboardScreen() {
   // leaving the push effect below free to fire an ordinary user-edit push
   // for what was actually a box-driven sync. One state object makes that
   // impossible regardless of batching.
-  const [pick, setPick] = useState({ hours: 0, minutes: 25 });
+  const [pick, setPick] = useState({ hours: 0, minutes: 5 });
   // While a finger is down on the wheel pickers, the outer screen ScrollView
   // must not steal the vertical drag -- two nested vertical scrollers
   // competing for the same gesture is why swiping a wheel used to just
