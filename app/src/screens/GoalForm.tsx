@@ -26,30 +26,56 @@ import { useSettingsStore } from '../store/useSettingsStore';
 import { useTheme } from '../theme/useTheme';
 import { withAlpha } from '../theme/theme';
 import { allLabelChoices, resolveTopic } from '../stats/customLabels';
-import { Goal, GoalPeriod, MAX_DAILY_TARGET_S, MAX_WEEKLY_TARGET_S, MAX_MONTHLY_TARGET_S, MAX_TARGET_SESSIONS } from '../goals/goals';
+import { Goal, GoalPeriod, MAX_TARGET_SESSIONS } from '../goals/goals';
+import {
+  PERIOD_MAX_HOURS,
+  MINUTE_VALUES,
+  showsDaysWheel,
+  maxDaysFor,
+  partsToTargetS,
+  clampPartsForPeriod,
+  initialPartsFor,
+} from '../goals/goalTargetParts';
 import { Button } from './SettingsPrimitives';
 import { AnimatedPressable } from '../ui/AnimatedPressable';
 import { WheelPicker } from '../ui/WheelPicker';
 import { WeekdayChips, SessionTargetControl, NotifyControl } from './GoalFormExtras';
 import { typeScale } from '../theme/tokens';
 
-// The wheels' selectable hour range is DERIVED from goals.ts's own bounds
-// rather than typed out as 24/168/744, so raising e.g. MAX_MONTHLY_TARGET_S
-// there can never leave this picker silently unable to express a target the
-// store would happily accept (the same "keep these numbers identical on
-// both surfaces" hazard goals.ts's own MAX_GOALS comment warns about, one
-// layer up). Minutes reuse DashboardScreen's 5-minute step so setting "2h
-// 30m" here feels identical to setting a lock duration there.
-const MINUTE_STEP = 5;
-const MINUTE_VALUES = Array.from({ length: 60 / MINUTE_STEP }, (_, i) => i * MINUTE_STEP);
+// The wheels' selectable range is DERIVED from goals.ts's own bounds via
+// goalTargetParts.ts (PERIOD_MAX_HOURS/showsDaysWheel/maxDaysFor) rather than
+// typed out as 24/168/744, so raising e.g. MAX_MONTHLY_TARGET_S there can
+// never leave this picker silently unable to express a target the store
+// would happily accept (the same "keep these numbers identical on both
+// surfaces" hazard goals.ts's own MAX_GOALS comment warns about, one layer
+// up).
+//
+// A period whose range exceeds 24h (weekly/monthly) composes its target from
+// THREE wheels -- Days + Hours-of-day (0-23) + Minutes -- instead of one
+// Hours wheel sized to the whole period (0..744 for monthly). WheelPicker.tsx
+// renders every label eagerly with no virtualization, so a single wheel
+// covering a monthly goal's full range used to mount ~745 rows, each with
+// its own pair of Animated interpolations; the Days wheel caps that at 32
+// rows (weekly: 8) while still reaching every value goals.ts allows. Daily
+// stays exactly what it was before this split -- one Hours wheel (0..24) +
+// Minutes -- since showsDaysWheel is false at or under 24h and a Days wheel
+// would have nothing useful to add.
+//
+// goalTargetParts.ts owns the actual days/hours/minutes arithmetic (and its
+// own tests cover the exact-max clamp below); this file only turns those
+// numbers into wheel labels/selected indices and wires up the three-way
+// gesture handoff to the enclosing Sheet.
 const MINUTE_LABELS = MINUTE_VALUES.map((m) => `${String(m).padStart(2, '0')}m`);
-const PERIOD_MAX_HOURS: Record<GoalPeriod, number> = {
-  daily: Math.floor(MAX_DAILY_TARGET_S / 3600),
-  weekly: Math.floor(MAX_WEEKLY_TARGET_S / 3600),
-  monthly: Math.floor(MAX_MONTHLY_TARGET_S / 3600),
-};
+// Hours-of-day labels for the weekly/monthly Days+Hours+Minutes layout --
+// distinct from hourLabelsFor's period-sized range below, which only daily
+// still uses (its Hours wheel IS the whole period, same as before the
+// Days-wheel split).
+const HOUR_OF_DAY_LABELS = Array.from({ length: 24 }, (_, i) => `${i}h`);
 function hourLabelsFor(period: GoalPeriod): string[] {
   return Array.from({ length: PERIOD_MAX_HOURS[period] + 1 }, (_, i) => `${i}h`);
+}
+function dayLabelsFor(period: GoalPeriod): string[] {
+  return Array.from({ length: maxDaysFor(period) + 1 }, (_, i) => `${i}d`);
 }
 
 const PERIOD_OPTIONS: { key: GoalPeriod; label: string }[] = [
@@ -155,14 +181,19 @@ function GoalForm({
 }) {
   const [topicId, setTopicId] = React.useState<string>(initial?.topic ?? ALL_TOPICS_ID);
   const [period, setPeriod] = React.useState<GoalPeriod>(initial?.period ?? 'daily');
-  const [hours, setHours] = React.useState(Math.floor((initial?.targetS ?? 1500) / 3600));
-  const [minutes, setMinutes] = React.useState(() => {
-    const m = Math.floor(((initial?.targetS ?? 1500) % 3600) / 60);
-    // Snap an off-step minute value (a target set from the dashboard, which
-    // has no 5-minute step) onto the nearest wheel stop, so the wheel never
-    // displays a value it can't actually be parked on.
-    return MINUTE_VALUES.reduce((best, v) => (Math.abs(v - m) < Math.abs(best - m) ? v : best), 0);
-  });
+  // Decomposed once, on mount, via goalTargetParts.ts -- it already applies
+  // the same off-5-minute-grid snap the old inline minutes initializer used
+  // to (a target set from the dashboard, which has no 5-minute step), plus
+  // the at-max days->0h0m clamp neither this component nor the old
+  // single-wheel version needed before now.
+  // One call, three useStates: initialPartsFor is what answers "which goal,
+  // which fallback" (see its own comment), so calling it once and destructuring
+  // keeps that answer in a single place here too rather than re-deriving the
+  // same triple three times on mount.
+  const initialParts = initialPartsFor(initial, 1500, 'daily');
+  const [days, setDays] = React.useState(initialParts.days);
+  const [hours, setHours] = React.useState(initialParts.hours);
+  const [minutes, setMinutes] = React.useState(initialParts.minutes);
   // Seeded as ALL_WEEKDAYS (every chip on) when the goal has no restriction
   // yet -- see ALL_WEEKDAYS's own comment for why that's the reading that
   // actually looks like "every day", rather than seeding an empty selection
@@ -174,17 +205,56 @@ function GoalForm({
   const [notify, setNotify] = React.useState<boolean>(initial?.notify ?? false);
   const [notifyAt, setNotifyAt] = React.useState<string | undefined>(initial?.notifyAt);
 
-  const hourLabels = hourLabelsFor(period);
-  const targetS = hours * 3600 + minutes * 60;
+  // Whether this period's range earns a Days wheel (weekly/monthly) or
+  // stays the original Hours+Minutes pair (daily). `atMaxDays` is the
+  // subtle boundary from goalTargetParts.ts's own header comment: both
+  // MAX_WEEKLY_TARGET_S (168h) and MAX_MONTHLY_TARGET_S (744h) land exactly
+  // on a day boundary, so the only way to reach the true max is days-at-max
+  // WITH hours/minutes at 0 -- any leftover hours/minutes there would
+  // overshoot it (31d + 12h = 756h > 744h). Rather than letting the wheels
+  // display a combination that can't actually be submitted (and only
+  // rejecting it after the fact, the way an out-of-range value already
+  // surfaces its own thrown message elsewhere in this form), the Hours/
+  // Minutes wheels themselves shrink to a single "0" option here -- it's
+  // impossible to scroll them anywhere else while days is maxed out.
+  const showDaysWheel = showsDaysWheel(period);
+  const maxDays = maxDaysFor(period);
+  const atMaxDays = showDaysWheel && days >= maxDays;
+  const dayLabels = showDaysWheel ? dayLabelsFor(period) : [];
+  const hourLabels = showDaysWheel ? (atMaxDays ? ['0h'] : HOUR_OF_DAY_LABELS) : hourLabelsFor(period);
+  const minuteLabels = showDaysWheel && atMaxDays ? ['00m'] : MINUTE_LABELS;
+  // Three wheels at WheelPicker's own 90pt default would need 286pt of row
+  // (3*90 + 2*8 gap), which overflows a 320pt-wide device once the sheet's
+  // horizontal padding is taken out. Two wheels keep the default.
+  const wheelWidth = showDaysWheel ? 78 : 90;
+  const targetS = partsToTargetS({ days, hours, minutes });
 
   const selectPeriod = (next: GoalPeriod) => {
     setPeriod(next);
-    // Clamp the hours wheel into the new period's own range (daily tops out
-    // far below weekly/monthly). Only the wheel's *selectable* range -- goals.ts
-    // is still the only thing that decides whether the resulting targetS is
-    // acceptable, and an out-of-range target still surfaces its own thrown
-    // message rather than being silently rounded down here.
-    setHours((h) => Math.min(h, PERIOD_MAX_HOURS[next]));
+    // Re-clamp the CURRENT (days, hours, minutes) into the new period's own
+    // range, through the same clampPartsForPeriod goalTargetParts.ts uses
+    // for the Days wheel's own at-max clamp below -- one place decides
+    // what's reachable for a period, so a 20d monthly value switched to
+    // weekly lands on 7d0h0m (its own max) rather than on some
+    // period-mismatched leftover. Only the wheels' *selectable* range --
+    // goals.ts is still the only thing that decides whether the resulting
+    // targetS is acceptable.
+    const parts = clampPartsForPeriod({ days, hours, minutes }, next);
+    setDays(parts.days);
+    setHours(parts.hours);
+    setMinutes(parts.minutes);
+  };
+
+  // The Days wheel's own onChange: re-clamps through the same function
+  // `selectPeriod` uses, so scrolling Days up to its max forces Hours/
+  // Minutes back to 0 in the same state update -- see `atMaxDays`'s own
+  // comment for why leftover hours/minutes at max days would overshoot the
+  // period's bound.
+  const setDaysClamped = (nextDays: number) => {
+    const parts = clampPartsForPeriod({ days: nextDays, hours, minutes }, period);
+    setDays(parts.days);
+    setHours(parts.hours);
+    setMinutes(parts.minutes);
   };
 
   const choices = allLabelChoices(customLabels, themeMode);
@@ -302,18 +372,31 @@ function GoalForm({
             never became a drag, and onDragEnd is the guaranteed release once
             a wheel actually captures the drag (at which point this wrapping
             View stops receiving touch events at all). */}
+        {showDaysWheel ? (
+          <WheelPicker
+            labels={dayLabels}
+            selectedIndex={Math.min(days, dayLabels.length - 1)}
+            onChange={setDaysClamped}
+            crossAxisSize={wheelWidth}
+            onDragStart={() => onWheelActiveChange(true)}
+            onDragEnd={() => onWheelActiveChange(false)}
+            accessibilityLabel="Goal target, days"
+          />
+        ) : null}
         <WheelPicker
           labels={hourLabels}
           selectedIndex={Math.min(hours, hourLabels.length - 1)}
           onChange={(i) => setHours(i)}
+          crossAxisSize={wheelWidth}
           onDragStart={() => onWheelActiveChange(true)}
           onDragEnd={() => onWheelActiveChange(false)}
           accessibilityLabel="Goal target, hours"
         />
         <WheelPicker
-          labels={MINUTE_LABELS}
+          labels={minuteLabels}
           selectedIndex={Math.max(0, MINUTE_VALUES.indexOf(minutes))}
           onChange={(i) => setMinutes(MINUTE_VALUES[i])}
+          crossAxisSize={wheelWidth}
           onDragStart={() => onWheelActiveChange(true)}
           onDragEnd={() => onWheelActiveChange(false)}
           accessibilityLabel="Goal target, minutes"
