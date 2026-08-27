@@ -26,6 +26,14 @@ export interface LoggedSession extends SessionRecord {
   // resolveTopic() is what decides whether a given string is still
   // renderable, not this type.
   topic?: string;
+  // Epoch ms this session's `topic` was last set, local or remote. Absent on
+  // records written before this field existed. Compared against a remote
+  // session doc's own topicUpdatedAt by sync/sessionMerge.ts's last-write-wins
+  // merge, so a relabel from the website dashboard and a retag from this
+  // device's CalendarScreen resolve deterministically instead of one silently
+  // overwriting the other on next sync -- see firestore.rules' sessions
+  // `update` rule, the backend for pushing either edit to Firestore.
+  topicUpdatedAt?: number;
 }
 
 /** Loads the durable session log, pruning (and persisting the prune of) any
@@ -103,10 +111,11 @@ export function applyTopicUpdate(
   sessions: LoggedSession[],
   target: Pick<LoggedSession, 'startedAt' | 'plannedS' | 'actualS'>,
   topic: string | undefined,
+  nowMs: number = Date.now(),
 ): LoggedSession[] {
   return sessions.map((s) =>
     s.startedAt === target.startedAt && s.plannedS === target.plannedS && s.actualS === target.actualS
-      ? { ...s, topic }
+      ? { ...s, topic, topicUpdatedAt: nowMs }
       : s,
   );
 }
@@ -118,8 +127,9 @@ export async function retagSession(
   sessions: LoggedSession[],
   target: Pick<LoggedSession, 'startedAt' | 'plannedS' | 'actualS'>,
   topic: string | undefined,
+  nowMs: number = Date.now(),
 ): Promise<LoggedSession[]> {
-  return replaceSessions(applyTopicUpdate(sessions, target, topic));
+  return replaceSessions(applyTopicUpdate(sessions, target, topic, nowMs));
 }
 
 export interface PendingTopicTag {
@@ -158,11 +168,13 @@ export function buildLoggedSessions(
       const startedAt = (e.t >= 0 ? e.t * 1000 : nowMs) - e.a * 1000;
       const endedAt = startedAt + e.a * 1000;
       let topic: string | undefined;
+      let topicUpdatedAt: number | undefined;
       if (pending && !consumed && pending.at >= startedAt - preSlackMs && pending.at <= endedAt + slackMs) {
         topic = pending.topic;
+        topicUpdatedAt = pending.at;
         consumed = true;
       }
-      return { startedAt, plannedS: e.p, actualS: e.a, outcome: e.c ? 'completed' : 'overridden', topic };
+      return { startedAt, plannedS: e.p, actualS: e.a, outcome: e.c ? 'completed' : 'overridden', topic, topicUpdatedAt };
     });
   return { sessions, consumedPendingTopic: consumed };
 }

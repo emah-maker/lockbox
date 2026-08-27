@@ -12,12 +12,14 @@ import CalendarScreen from './src/screens/CalendarScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
 import { useStore } from './src/store/useStore';
 import { useSettingsStore } from './src/store/useSettingsStore';
+import { useGoalsStore } from './src/store/useGoalsStore';
 import { useTheme } from './src/theme/useTheme';
 import { isCallObserverAvailable } from './modules/call-observer';
 import { getLaunchReason, onBackgroundWake } from './modules/background-wake';
 import { useAuthStore } from './src/auth/useAuthStore';
 import { startSettingsSyncBridge } from './src/sync/settingsSyncBridge';
 import { startSessionsSyncBridge } from './src/sync/sessionsSyncBridge';
+import { startGoalsSyncBridge } from './src/sync/goalsSyncBridge';
 import { AnimatedPressable } from './src/ui/AnimatedPressable';
 import { useReducedMotion, configureLayoutAnimation } from './src/ui/useReducedMotion';
 import { typeScale } from './src/theme/tokens';
@@ -55,6 +57,13 @@ export default function App() {
       console.log('Launch reason:', getLaunchReason());
     }
     init();
+    // Focus-goals persistence has no BLE/box relationship (unlike
+    // useSettingsStore's hydrate, which rides inside useStore.init()'s own
+    // Promise.all above because boxSettings does) -- hydrated directly here
+    // instead. Fire-and-forget, same as init() itself just above: nothing in
+    // this file awaits either, and hydrate() itself no-ops past its first
+    // call, so a re-render can't double-hydrate.
+    useGoalsStore.getState().hydrate();
 
     // Account sign-in/sync (docs/rfcs/google-signin-cross-device-sync-architecture.md
     // §2.5, §4.3, §6). useAuthStore.init() runs wipeStaleSessionOnFreshInstall()
@@ -70,6 +79,7 @@ export default function App() {
     });
     startSettingsSyncBridge();
     startSessionsSyncBridge();
+    startGoalsSyncBridge();
 
     // Foundation module (app/modules/background-wake) fires this once, early,
     // on any cold launch the OS performed for a background reason --

@@ -38,6 +38,12 @@ describe('applyTopicUpdate', () => {
     applyTopicUpdate(sessions, { startedAt: 1, plannedS: 60, actualS: 60 }, 'study');
     expect(sessions[0].topic).toBe('work');
   });
+
+  it('stamps topicUpdatedAt with the given nowMs, for sync/sessionMerge.ts\'s last-write-wins compare', () => {
+    const sessions = [session(1, 60, 60, 'work')];
+    const next = applyTopicUpdate(sessions, { startedAt: 1, plannedS: 60, actualS: 60 }, 'study', 12345);
+    expect(next[0].topicUpdatedAt).toBe(12345);
+  });
 });
 
 const entry = (p: number, a: number, c: 0 | 1, t: number): HistoryEntry => ({ p, a, c, t });

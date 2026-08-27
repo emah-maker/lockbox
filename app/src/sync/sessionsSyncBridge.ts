@@ -8,15 +8,18 @@
 // awareness of sync/auth. See
 // docs/rfcs/google-signin-cross-device-sync-architecture.md §4.3.
 import { useStore } from '../store/useStore';
-import { pushNewSessions } from './firestoreSync';
+import { pushNewSessions, pushSessionRetag } from './firestoreSync';
 import type { LoggedSession } from '../stats/sessionHistory';
 
 let started = false;
 // In-memory only (reset per app run): tracks which sessions this run has
-// already considered for upload, so a re-render/resubscribe never re-pushes
-// the same ones. Cross-run/cross-device duplicate protection is Firestore's
-// own idempotent set() at the deterministic doc ID (firestoreSync.ts), not this.
-const seen = new Set<string>();
+// already considered for upload, and the topic/topicUpdatedAt it last pushed
+// for each, so a re-render/resubscribe never re-pushes the same create, and a
+// retag of an already-seen session (useStore.retagSession, which mutates
+// `sessions` in place rather than appending) is still noticed. Cross-run/
+// cross-device duplicate protection for creates is Firestore's own idempotent
+// set() at the deterministic doc ID (firestoreSync.ts), not this.
+const seen = new Map<string, { topic: string | undefined; topicUpdatedAt: number | undefined }>();
 
 function sessionKey(s: LoggedSession): string {
   return `${s.startedAt}_${s.actualS}`;
@@ -31,36 +34,49 @@ function sessionKey(s: LoggedSession): string {
  * under *this* device's doc-id namespace (sessionDocId is deviceId-scoped),
  * creating a second Firestore doc for the same session and permanently
  * double-counting it in stats. syncSessions already uploads whatever is
- * genuinely new in its own batch, correctly keyed -- this just stops that
- * work from being redundantly (and incorrectly) repeated here.
+ * genuinely new (and retags whatever needs relabeling) in its own batches,
+ * correctly keyed -- this just stops that work from being redundantly (and
+ * incorrectly) repeated here.
  */
 export function markSessionsSeen(sessions: LoggedSession[]): void {
-  for (const s of sessions) seen.add(sessionKey(s));
+  for (const s of sessions) seen.set(sessionKey(s), { topic: s.topic, topicUpdatedAt: s.topicUpdatedAt });
 }
 
 /**
  * Call once at app start (after initFirebaseAuth() has resolved -- see
- * App.tsx). Idempotent. Every subsequent growth of useStore's `sessions`
- * array (new sessions appended by handleHistory) triggers a best-effort
- * push of just the new entries; a no-op while signed out (pushNewSessions
- * itself checks for a signed-in user).
+ * App.tsx). Idempotent. Every subsequent change to useStore's `sessions`
+ * array triggers a best-effort push: new entries (appended by handleHistory)
+ * go through pushNewSessions, and a topic/topicUpdatedAt change on an
+ * already-seen entry (retagSession, called from CalendarScreen) goes through
+ * pushSessionRetag -- a no-op either way while signed out (both push
+ * functions check for a signed-in user themselves).
  */
 export function startSessionsSyncBridge(): void {
   if (started) return;
   started = true;
-  for (const s of useStore.getState().sessions) seen.add(sessionKey(s));
+  markSessionsSeen(useStore.getState().sessions);
 
   useStore.subscribe((state) => {
     const fresh: LoggedSession[] = [];
+    const retagged: LoggedSession[] = [];
     for (const s of state.sessions) {
       const key = sessionKey(s);
-      if (!seen.has(key)) {
-        seen.add(key);
+      const prev = seen.get(key);
+      if (!prev) {
+        seen.set(key, { topic: s.topic, topicUpdatedAt: s.topicUpdatedAt });
         fresh.push(s);
+      } else if (prev.topic !== s.topic || prev.topicUpdatedAt !== s.topicUpdatedAt) {
+        seen.set(key, { topic: s.topic, topicUpdatedAt: s.topicUpdatedAt });
+        retagged.push(s);
       }
     }
     if (fresh.length) {
       pushNewSessions(fresh).catch(() => {}); // best-effort; next full sync (syncNow) catches up
+    }
+    for (const s of retagged) {
+      // best-effort; if the doc isn't uploaded yet (not-found) or the push
+      // fails, the next full sync's toRetag catches it via topicUpdatedAt.
+      pushSessionRetag(s, s.topic, s.topicUpdatedAt ?? Date.now()).catch(() => {});
     }
   });
 }

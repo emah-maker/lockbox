@@ -96,6 +96,46 @@ service cloud.firestore {
         // schema exists to validate against.
         allow read, delete: if isOwner(uid);
       }
+
+      match /goals/config {
+        // Single doc holding the user's focus-time goals (RFC-extension
+        // contract: users/{uid}/goals/config), settable from both this app
+        // and the website dashboard. updatedAt is a client-side logical
+        // clock -- same reasoning as settings/app above, so it's type-checked
+        // rather than pinned to request.time.
+        //
+        // read is split from create/update for the same reason as
+        // settings/app: request.resource only exists on writes, so
+        // referencing it in a combined read+write rule denies every read
+        // (rules errors evaluate to deny).
+        allow read: if isOwner(uid);
+        allow create, update: if isOwner(uid)
+                              && request.resource.data.keys().hasOnly(['goals', 'updatedAt'])
+                              && request.resource.data.updatedAt is int
+                              && request.resource.data.goals is list
+                              // Rules can't iterate a list-of-maps to validate each
+                              // Goal entry's own fields (id length/uniqueness, topic
+                              // length, targetS bounds, etc.) -- same limitation
+                              // settings/app's customLabels comment notes above. Only
+                              // the array's overall size is bounded here; per-goal
+                              // field validation is client-side in
+                              // app/src/goals/goals.ts (MAX_GOALS/MAX_GOAL_ID_LENGTH/
+                              // MAX_TOPIC_LENGTH/etc. -- keep those numbers in sync
+                              // with this cap).
+                              && request.resource.data.goals.size() <= 20;
+        // Delete is its own verb, not folded into the create/update rule
+        // above: on a delete request.resource is null, so evaluating
+        // request.resource.data.keys() against it raises a rules error, and
+        // rules errors evaluate to deny -- that would make this doc
+        // permanently undeletable and silently break deleteAllUserData's
+        // account-deletion path. Same shape as the sessions block's own
+        // verb split above.
+        allow delete: if isOwner(uid); // part of the account-deletion path, §5
+      }
+      // Anything else under /goals/{docId} (any id other than "config")
+      // falls through to the deny-by-default rule at the bottom of this
+      // file -- intended: this feature only ever reads/writes the single
+      // config doc.
     }
 
     // Deny-by-default: anything not explicitly matched above -- any other top-level

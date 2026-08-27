@@ -10,21 +10,27 @@
 import { getJSON, setJSON } from '../storage/storage';
 import { clearSessions } from '../stats/sessionHistory';
 import { useSettingsStore } from '../store/useSettingsStore';
+import { useGoalsStore } from '../store/useGoalsStore';
 
 export const LOCAL_DATA_OWNER_KEY = 'localDataOwnerUid';
 
 /**
- * Clears the local session history and resets the four SyncableSettings
- * fields to their defaults, and un-tags local storage's owner. Call on
- * sign-out/account-deletion (so no account's data lingers on a shared,
- * resold, or reset device) and from ensureLocalDataScopedTo below (so a
- * wrong-account or shared-device sign-in can't blend two accounts' data).
- * Deliberately does not touch boxSettings (per-physical-box, not account
- * state) or view-only local prefs (time-window/best-streak selections).
+ * Clears the local session history, resets the four SyncableSettings fields
+ * to their defaults, clears focus goals, and un-tags local storage's owner.
+ * Call on sign-out/account-deletion (so no account's data lingers on a
+ * shared, resold, or reset device) and from ensureLocalDataScopedTo below
+ * (so a wrong-account or shared-device sign-in can't blend two accounts'
+ * data). Deliberately does not touch boxSettings (per-physical-box, not
+ * account state) or view-only local prefs (time-window/best-streak
+ * selections). resetGoals mirrors resetSyncableSettings exactly -- focus
+ * goals are account state (settable from the dashboard too), so they get
+ * the same sign-out/account-switch treatment as themeMode/accent/
+ * callAlertsEnabled/customLabels.
  */
 export async function clearLocalAccountData(): Promise<void> {
   await clearSessions();
   useSettingsStore.getState().resetSyncableSettings();
+  useGoalsStore.getState().resetGoals();
   await setJSON<string | null>(LOCAL_DATA_OWNER_KEY, null);
 }
 
