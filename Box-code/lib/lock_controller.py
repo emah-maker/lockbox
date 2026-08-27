@@ -856,20 +856,27 @@ class LockController:
             self._apply_tag_picker_result(result, self._now)
             return
 
-        # Horizontal swipe -> switch views. INVERT_X is on, so a physical
-        # swipe-right corresponds to a negative mapped dx -- XORed with
-        # is_flipped, same as _map's own invert_x, since a flipped screen's
-        # dx sign relative to the raw touch has flipped too (manager report:
-        # swipe direction was still reversed after the tap/position fix,
-        # because this check -- unlike _map -- was still reading the plain
-        # INVERT_X constant). While actually locked (state == "running"),
-        # only clock and battery are reachable (LOCKED_VIEWS) -- control/
-        # settings stay blocked until go_done returns to "control". clock and
-        # battery aren't adjacent in the full VIEWS order (control sits
-        # between them), so this swipes within LOCKED_VIEWS's own order
-        # instead of VIEWS's while running.
+        # Horizontal swipe -> switch views. self._start/self._last are
+        # already-mapped screen points (process() sets them from _map()'s
+        # return value), so dx is a screen-space delta that has already had
+        # INVERT_X XORed with is_flipped applied once, by _map -- same
+        # coordinate space in_status()/settings_row_at()/etc. hit-test
+        # against, and the same reason plain `dy < 0` (no re-XOR) is correct
+        # below for the clock-style swipe. Re-applying the INVERT_X/is_flipped
+        # XOR here on top of that (as a previous fix did, chasing a manager
+        # report that swipe was still reversed after the tap/position fix)
+        # double-corrects: algebraically it cancels back down to the sign of
+        # the raw, pre-_map dx, so the outcome tracked the physical touch
+        # axis instead of the screen and only matched reality for whichever
+        # single (INVERT_X, is_flipped) combination it happened to be tuned
+        # against. While actually locked (state == "running"), only clock and
+        # battery are reachable (LOCKED_VIEWS) -- control/settings stay
+        # blocked until go_done returns to "control". clock and battery
+        # aren't adjacent in the full VIEWS order (control sits between
+        # them), so this swipes within LOCKED_VIEWS's own order instead of
+        # VIEWS's while running.
         if abs(dx) >= SWIPE_MIN_PX and abs(dx) > abs(dy):
-            right = (dx < 0) if (INVERT_X != self.ui.is_flipped) else (dx > 0)
+            right = dx > 0
             if self.state == "running":
                 if self.view in LOCKED_VIEWS:
                     idx = LOCKED_VIEWS.index(self.view)
