@@ -287,15 +287,20 @@ plausible value before it ever connects), while the box's own `readSettings()` r
 remains authoritative, exactly as `useStore.ts`'s `afterConnected()` already reconciles today. The
 truly cross-device, account-level preferences are the fields in `settings/app`.
 
-**Session `topic` is create-only, like the rest of the session doc.** Retagging a past session
-(Calendar day-list) only ever edits the local copy (`sessionHistory.ts`'s `retagSession`) — it is
-never pushed as a Firestore update, since `allow update: if false` forbids that for every client,
-including the owner (§3.2's integrity property). `syncSessions`'s merge therefore prefers the
-*local* `topic` over a same-id remote doc's (`sync/sessionMerge.ts`'s
-`mergeSessionsPreferLocalTopic`) so a retag at least survives repeated local syncs, but a retag
-made on one device does not appear on a second device signed into the same account. Closing that
-gap would need a mutable side-channel for `topic` (e.g. a separate per-session-id map that isn't
-subject to the create-only rule) and is deferred, not solved, by this design.
+**Session `topic` is the one mutable field on an otherwise create-only session doc (updated
+2026-08-26, for the dashboard relabel-and-tag-sessions backend).** Every other field
+(`startedAt`/`plannedS`/`actualS`/`outcome`) is still permanently immutable, but `firestore.rules`'
+`sessions/{sessionId}` now also has a scoped `allow update` that permits changing only `topic` plus a
+new `topicUpdatedAt` logical clock, enforced via `diff(resource.data).affectedKeys().hasOnly([...])`
+so no other field can be smuggled into that same write. `sync/sessionMerge.ts`'s
+`mergeSessionsPreferLocalTopic` was upgraded from "local always wins" to a real last-write-wins
+compare on `topicUpdatedAt` (mirroring `settings/app`'s own LWW pattern below), and
+`sync/firestoreSync.ts` gained `pushSessionRetag`/`pushTopicRetags` to actually push a retag up
+(wired from `sync/sessionsSyncBridge.ts`, which now also diffs existing sessions for a topic change,
+not just new ones). The website dashboard (`website/js/dashboard.js`) writes through this same rule
+to relabel a session or manage the `customLabels` catalog. The gap this paragraph used to describe —
+a retag on one device never appearing on another, or on the dashboard — is closed by this change,
+not merely deferred.
 
 ### 3.2 Security rules
 
