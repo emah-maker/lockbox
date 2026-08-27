@@ -65,5 +65,9 @@ node_modules/
 # dotenv environment variables file
 .env
 
+# Apple Developer / App Store Connect API keys
+.secrets/
+*.p8
+
 # dataconnect generated files
 .dataconnect
