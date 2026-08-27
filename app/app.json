@@ -13,10 +13,12 @@
       "usesAppleSignIn": true,
       "infoPlist": {
         "UIBackgroundModes": [
+          "bluetooth-central",
           "bluetooth-central"
         ],
         "NSBluetoothAlwaysUsageDescription": "Phone Box connects to your box over Bluetooth to show focus stats and light up the box when an important call comes in.",
-        "NSBluetoothPeripheralUsageDescription": "Phone Box connects to your box over Bluetooth."
+        "NSBluetoothPeripheralUsageDescription": "Phone Box connects to your box over Bluetooth.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "plugins": [
@@ -38,7 +40,8 @@
         }
       ],
       "expo-apple-authentication",
-      "expo-font"
+      "expo-font",
+      "expo-notifications"
     ],
     "android": {
       "permissions": [
@@ -51,6 +54,12 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#1a1a1c"
       }
-    }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "95e39362-3a53-4150-afed-77bcde196369"
+      }
+    },
+    "owner": "emah888"
   }
 }

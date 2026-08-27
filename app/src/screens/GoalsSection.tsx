@@ -1,28 +1,30 @@
-// GoalsSection.tsx -- the "Focus goals" section of StatsScreen, split into
-// its own file the same way CustomLabelsSection.tsx already sits beside it
-// (and OverridePressSection.tsx/ServoAngleSection.tsx beside
-// SettingsScreen.tsx) so StatsScreen.tsx stays under this project's 500-line
-// file guideline.
+// GoalsSection.tsx -- the "Focus goals" section, mounted inside a Sheet from
+// both SettingsScreen.tsx and StatsScreen's ManageSheet.tsx (see those
+// files) -- split into its own file the same way CustomLabelsSection.tsx
+// sits beside it, so neither host screen has to inline this much control
+// surface. Computed off useStore.sessions (same as CustomLabelsSection's own
+// reasoning for its own data) rather than owning any session data itself.
 //
-// Lives on Stats, not Settings, for the same reason CustomLabelsSection does:
-// a goal is only meaningful next to the session data it's measured against
-// (useStore.sessions -- the trend/heatmap/by-topic cards just above are
-// computed from the exact same array), so the progress bars sit one card away
-// from the numbers that move them rather than one tab away.
+// The add/edit form (GoalForm.tsx) is no longer swapped in for a row's own
+// face -- it's mounted in this file's own nested popup Sheet (manager brief:
+// a form must never grow the page/sheet it's opened from as an inline
+// block). GoalsSection is therefore ALREADY mounted inside its callers' own
+// Sheet (Settings' "Goals" sheet, StatsScreen's "Manage" sheet) -- opening a
+// second Sheet on top of that for the form is an ordinary nested-Modal
+// stack, not a re-implementation of Sheet itself; the two are independent
+// native presentations, so the form's own WheelPickers dragging never
+// competes with the OUTER Sheet's scroll the way it used to when the form
+// rendered inline inside it.
 //
 // This file owns render only. Every mutation delegates straight to
 // useGoalsStore's addGoal/updateGoal/archiveGoal, which in turn delegate to
 // goals/goals.ts's pure helpers -- there is deliberately NO validation,
-// clamping, or cap check duplicated here beyond the wheels' own selectable
-// ranges (see PERIOD_MAX_HOURS below for why even those are derived from the
-// store's own constants rather than typed out). Invalid input surfaces as the
-// thrown Error's own `message`, rendered inline, exactly the way
+// clamping, or cap check duplicated here (GoalForm.tsx's own header
+// explains why even its wheels' selectable ranges are derived from the
+// store's own constants rather than typed out). Invalid input surfaces as
+// the thrown Error's own `message`, rendered inline, exactly the way
 // CustomLabelsSection.tsx renders createCustomLabel's "Label name is
 // required." string.
-//
-// The add/edit form itself lives in GoalForm.tsx -- same 500-line-guideline
-// split, and the same one-form-for-create-and-edit reasoning documented in
-// that file's header.
 import React from 'react';
 import { View, Text, StyleSheet, Alert } from 'react-native';
 import { useStore } from '../store/useStore';
@@ -35,11 +37,38 @@ import { resolveTopic } from '../stats/customLabels';
 import { Goal, GoalPeriod } from '../goals/goals';
 import { computeGoalProgress, goalWindow, GoalProgressResult } from '../goals/goalProgress';
 import { Section, Button } from './SettingsPrimitives';
-import { GoalForm } from './GoalForm';
+import { GoalForm, GoalFormValues } from './GoalForm';
+import { Sheet } from '../ui/Sheet';
 import { AnimatedPressable } from '../ui/AnimatedPressable';
 import { AnimatedFill } from '../ui/AnimatedFill';
 import { useReducedMotion, configureLayoutAnimation } from '../ui/useReducedMotion';
 import { typeScale } from '../theme/tokens';
+
+const PERIOD_LABEL: Record<GoalPeriod, string> = { daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly' };
+const WEEKDAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+/** Compact "Mon, Wed, Fri" summary for a day-restricted daily goal's
+ * daysOfWeek -- `null` when there's nothing to show (unset, empty, or the
+ * "every weekday selected" case GoalForm.tsx already collapses to
+ * `undefined` on submit, kept here as a defensive second check since a
+ * goal edited from the dashboard could in principle still carry a literal
+ * 7-long array). */
+function weekdayRestrictionLabel(goal: Goal): string | null {
+  const days = goal.daysOfWeek;
+  if (!days || days.length === 0 || days.length >= 7) return null;
+  return days.map((d) => WEEKDAY_SHORT[d] ?? '?').join(', ');
+}
+
+/** 'HH:MM' -> a locale-formatted time string ("9:00 AM") for the row's own
+ * reminder caption -- goes through a real `Date` (today's date, irrelevant
+ * here) rather than hand-formatting AM/PM so this follows the device's own
+ * 12h/24h preference the same way any other displayed time in the OS does. */
+function formatNotifyAt(notifyAt: string): string {
+  const [h, m] = notifyAt.split(':').map(Number);
+  const d = new Date();
+  d.setHours(h, m, 0, 0);
+  return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+}
 
 /** Progress bar geometry for one goal, handling the over-target case
  * explicitly instead of letting a >100% ratio silently saturate at a full
@@ -67,13 +96,21 @@ function barGeometry(ratio: number): { fillPct: number; targetPct: number | null
 
 export function GoalsSection({
   color,
-  /** Lets StatsScreen's ScrollView surrender the vertical drag while a
-   * finger is down on one of the H/M wheels -- two nested vertical scrollers
-   * competing for the same gesture is why a wheel swipe would otherwise just
-   * scroll the whole screen. Same contract (and same reasoning) as
-   * DashboardScreen.tsx's own lockOuterScroll/unlockOuterScroll pair, except
-   * the ScrollView lives in the parent here, so the flag has to travel up
-   * as a callback instead of staying local state. */
+  /** Still accepted and still fired on every wheel drag start/end, exactly
+   * as before -- kept for callers that already wire it to their OWN
+   * outer Sheet's `scrollEnabled` (SettingsScreen.tsx, StatsScreen's
+   * ManageSheet.tsx both do), even though the wheels themselves now live
+   * inside THIS file's own nested form Sheet rather than directly in
+   * whatever scroll container the caller provides. That nested Sheet is a
+   * separate native presentation layered on top, so the caller's own
+   * scroll no longer actually competes with a wheel drag for the same
+   * gesture the way it did before the form moved into its own popup -- but
+   * changing this component's public contract for that reason would be a
+   * breaking change for two call sites this task doesn't own, for a
+   * caller-side optimization (skip re-rendering on a signal that no longer
+   * does anything for it) that isn't worth that cost. See this component's
+   * own `formWheelActive` state below for what actually gates the nested
+   * form Sheet's `scrollEnabled`. */
   onWheelActiveChange,
 }: {
   color: ReturnType<typeof useTheme>;
@@ -88,9 +125,26 @@ export function GoalsSection({
   const archiveGoal = useGoalsStore((s) => s.archiveGoal);
   const reducedMotion = useReducedMotion();
 
-  const [adding, setAdding] = React.useState(false);
+  // One sheet, two modes: `editingId === null` means the sheet (when open)
+  // is creating a new goal; a real id means it's editing that goal. Replaces
+  // the old adding/editingId pair (which used to pick which ROW to render a
+  // form in place of) now that there's exactly one form popup regardless of
+  // which goal (if any) it's editing.
+  const [formOpen, setFormOpen] = React.useState(false);
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
+  // Gates the nested form Sheet's own `scrollEnabled` -- same
+  // "wheel drag suspends the Sheet's own scroll" wiring
+  // DurationSheet.tsx/SettingsScreen.tsx already use for a WheelPicker
+  // inside a Sheet, just local to this component's own popup instead of a
+  // caller's. Also forwarded to `onWheelActiveChange` (see that prop's own
+  // comment) so an existing caller keeps seeing the identical signal it
+  // always has.
+  const [formWheelActive, setFormWheelActive] = React.useState(false);
+  const onFormWheelActiveChange = (active: boolean) => {
+    setFormWheelActive(active);
+    onWheelActiveChange(active);
+  };
 
   // Archived goals are tombstones, not removals (see Goal.archived in
   // goals.ts) -- filtered out here so a "deleted" goal never renders while
@@ -98,7 +152,7 @@ export function GoalsSection({
   // out on its own side too; both are needed, since this list also drives
   // the rows themselves, not just their progress lookups.
   const visible = React.useMemo(() => goals.filter((g) => !g.archived), [goals]);
-  // Date.now() is read here rather than passed in from StatsScreen because a
+  // Date.now() is read here rather than passed in from the caller because a
   // goal's window boundary is a render-time fact, not a prop -- and this
   // recomputes on every sessions/goals change anyway, which is the only time
   // a bar can actually move.
@@ -110,32 +164,52 @@ export function GoalsSection({
     () => new Map(progress.map((p) => [p.goalId, p])),
     [progress],
   );
+  const editingGoal = editingId !== null ? visible.find((g) => g.id === editingId) ?? null : null;
 
   const openForm = (id: string | null) => {
     configureLayoutAnimation(reducedMotion);
     setError(null);
     setEditingId(id);
-    setAdding(id === null);
+    setFormOpen(true);
   };
   const closeForm = () => {
     configureLayoutAnimation(reducedMotion);
     setError(null);
-    setEditingId(null);
-    setAdding(false);
+    setFormOpen(false);
+    setFormWheelActive(false);
+    onWheelActiveChange(false);
   };
 
-  const handleCreate = (topic: string | null, period: GoalPeriod, targetS: number) => {
+  const handleCreate = (values: GoalFormValues) => {
     try {
-      addGoal(topic, period, targetS);
+      addGoal(values.topic, values.period, values.targetS, {
+        daysOfWeek: values.daysOfWeek,
+        targetSessions: values.targetSessions,
+        notify: values.notify,
+        notifyAt: values.notifyAt,
+      });
       closeForm();
     } catch (e: any) {
       setError(e?.message ?? 'Could not create that goal.');
     }
   };
 
-  const handleSave = (id: string, topic: string | null, period: GoalPeriod, targetS: number) => {
+  const handleSave = (id: string, values: GoalFormValues) => {
     try {
-      updateGoal(id, { topic, period, targetS });
+      // Every extension field is submitted as a full replacement, not a
+      // partial edit -- GoalForm always shows and hands back every field's
+      // current value (see GoalFormValues' own comment), so an unset value
+      // here means "the user cleared this", mapped to GoalPatch's own
+      // explicit-`null`-clears convention (goals.ts), not "leave unchanged".
+      updateGoal(id, {
+        topic: values.topic,
+        period: values.period,
+        targetS: values.targetS,
+        daysOfWeek: values.daysOfWeek ?? null,
+        targetSessions: values.targetSessions ?? null,
+        notify: values.notify,
+        notifyAt: values.notifyAt ?? null,
+      });
       closeForm();
     } catch (e: any) {
       setError(e?.message ?? 'Could not save that goal.');
@@ -169,67 +243,54 @@ export function GoalsSection({
   return (
     <Section
       title="Focus goals"
-      subtitle="Set a daily or weekly target -- for one label, or for all your focus time"
+      subtitle="Set a daily, weekly, or monthly target -- for one label, or for all your focus time"
       color={color}
     >
-      {visible.length === 0 && !adding ? (
+      {visible.length === 0 ? (
         <Text style={[styles.caption, { color: color.textDim }]}>
-          No goals yet. Add one to track how much of your target you've hit this day or week.
+          No goals yet. Add one to track how much of your target you've hit this day, week, or month.
         </Text>
       ) : null}
 
-      {visible.map((goal) =>
-        editingId === goal.id ? (
-          <GoalForm
-            key={goal.id}
-            initial={goal}
-            customLabels={customLabels}
-            themeMode={themeMode}
-            color={color}
-            error={error}
-            submitLabel="Save goal"
-            onSubmit={(topic, period, targetS) => handleSave(goal.id, topic, period, targetS)}
-            onCancel={closeForm}
-            onWheelActiveChange={onWheelActiveChange}
-          />
-        ) : (
-          <GoalRow
-            key={goal.id}
-            goal={goal}
-            result={progressById.get(goal.id)}
-            customLabels={customLabels}
-            themeMode={themeMode}
-            color={color}
-            onEdit={() => openForm(goal.id)}
-            onDelete={() => handleDelete(goal)}
-          />
-        ),
-      )}
+      {visible.map((goal) => (
+        <GoalRow
+          key={goal.id}
+          goal={goal}
+          result={progressById.get(goal.id)}
+          customLabels={customLabels}
+          themeMode={themeMode}
+          color={color}
+          onEdit={() => openForm(goal.id)}
+          onDelete={() => handleDelete(goal)}
+        />
+      ))}
 
-      {adding ? (
+      <Button label="New goal" variant="outline" onPress={() => openForm(null)} color={color} />
+
+      {/* The form's own Sheet carries its own error slot (below) -- this
+          one only ever covers the delete path, which has no form open to
+          render an error into. */}
+      {error && !formOpen ? <Text style={[styles.caption, { color: color.danger }]}>{error}</Text> : null}
+
+      <Sheet
+        visible={formOpen}
+        onClose={closeForm}
+        title={editingGoal ? 'Edit goal' : 'New goal'}
+        size="large"
+        scrollEnabled={!formWheelActive}
+      >
         <GoalForm
+          initial={editingGoal ?? undefined}
           customLabels={customLabels}
           themeMode={themeMode}
           color={color}
           error={error}
-          submitLabel="Add goal"
-          onSubmit={handleCreate}
+          submitLabel={editingGoal ? 'Save goal' : 'Add goal'}
+          onSubmit={(values) => (editingGoal ? handleSave(editingGoal.id, values) : handleCreate(values))}
           onCancel={closeForm}
-          onWheelActiveChange={onWheelActiveChange}
+          onWheelActiveChange={onFormWheelActiveChange}
         />
-      ) : (
-        // Hidden while a row is being edited so there's never a second form
-        // one tap away from the one already open -- both would write through
-        // the same `error` slot below and read as one form's message
-        // appearing under the other.
-        editingId === null && <Button label="New goal" variant="outline" onPress={() => openForm(null)} color={color} />
-      )}
-
-      {/* The form owns its own error slot while open; this one covers the
-          delete path, which has no form to render into. */}
-      {error && !adding && editingId === null ? (
-        <Text style={[styles.caption, { color: color.danger }]}>{error}</Text>
-      ) : null}
+      </Sheet>
     </Section>
   );
 }
@@ -290,6 +351,17 @@ function GoalRow({
   const barColor = met ? color.accent : swatch;
   const percent = Math.round(ratio * 100);
   const window = goalWindow(goal.period, Date.now());
+  const restriction = weekdayRestrictionLabel(goal);
+  // Compact secondary caption -- restriction / session-count target /
+  // reminder -- joined into one line rather than three stacked rows, per
+  // this task's own "minimize vertical scrolling" constraint. `null`
+  // entries (nothing to show for that piece) are filtered out, so a plain
+  // time-only, unrestricted, silent goal shows no second caption at all.
+  const extraBits = [
+    restriction,
+    result?.targetSessions !== undefined ? `${result.sessionCount}/${result.targetSessions} sessions` : null,
+    goal.notify && goal.notifyAt ? `Reminder ${formatNotifyAt(goal.notifyAt)}` : null,
+  ].filter((s): s is string => s !== null);
 
   return (
     <View
@@ -303,11 +375,15 @@ function GoalRow({
           {name}
         </Text>
         <View style={[styles.periodTag, { backgroundColor: withAlpha(color.textDim, 0.18) }]}>
-          <Text style={[styles.periodTagText, { color: color.textDim }]}>
-            {goal.period === 'daily' ? 'Daily' : 'Weekly'}
-          </Text>
+          <Text style={[styles.periodTagText, { color: color.textDim }]}>{PERIOD_LABEL[goal.period]}</Text>
         </View>
       </View>
+
+      {extraBits.length > 0 ? (
+        <Text style={[styles.caption, { color: color.textDim }]} numberOfLines={1}>
+          {extraBits.join(' · ')}
+        </Text>
+      ) : null}
 
       <View style={[styles.track, { backgroundColor: withAlpha(color.textDim, 0.22) }]}>
         <AnimatedFill axis="width" toValue={fillPct} style={styles.fill} color={barColor} />
@@ -330,12 +406,16 @@ function GoalRow({
 
       <View style={styles.goalActions}>
         <Text style={[styles.caption, { color: color.textDim, flex: 1 }]}>
-          {/* The window's own date range, so "this week" is never ambiguous
-              about which week -- goalWindow is Sunday-start, matching
-              CalendarScreen's grid (see goalProgress.ts's weeklyWindow). */}
+          {/* The window's own date range, so "this week"/"this month" is
+              never ambiguous about which one -- goalWindow is Sunday-start
+              for weekly (matching CalendarScreen's grid, see
+              goalProgress.ts's weeklyWindow) and calendar-month for
+              monthly. */}
           {goal.period === 'daily'
             ? new Date(window.startMs).toLocaleDateString(undefined, { weekday: 'long' })
-            : `Week of ${new Date(window.startMs).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`}
+            : goal.period === 'weekly'
+              ? `Week of ${new Date(window.startMs).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`
+              : new Date(window.startMs).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}
         </Text>
         <AnimatedPressable onPress={onEdit} accessibilityRole="button" accessibilityLabel={`Edit ${name} goal`}>
           <Text style={[styles.rowAction, { color: color.accent }]}>Edit</Text>

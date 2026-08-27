@@ -29,15 +29,38 @@ import { dayKey } from './focusStats.js';
 //                                         Compared as a raw string everywhere in this file -- never
 //                                         resolved against TOPIC_KEYS/customLabels, so a goal pinned to
 //                                         a since-deleted custom label id still matches its own sessions.
-//   period: 'daily' | 'weekly',
+//   period: 'daily' | 'weekly' | 'monthly',
 //   targetS: number,                  -- integer seconds; daily: MIN_TARGET_S..MAX_DAILY_TARGET_S,
-//                                         weekly: MIN_TARGET_S..MAX_WEEKLY_TARGET_S
+//                                         weekly: MIN_TARGET_S..MAX_WEEKLY_TARGET_S,
+//                                         monthly: MIN_TARGET_S..MAX_MONTHLY_TARGET_S
+//   daysOfWeek?: number[],            -- 'flexible goals' extension, only meaningful for period:'daily'.
+//                                         Which weekdays count, 0=Sun..6=Sat (JS Date#getDay()). undefined
+//                                         or [] both mean "every day" -- always normalized (deduped+sorted,
+//                                         collapsed to undefined when empty) by normalizeDaysOfWeek below,
+//                                         so a stored array is never itself empty.
+//   targetSessions?: number,          -- 'flexible goals' extension: an optional session-COUNT target
+//                                         alongside targetS's time target. undefined = time-only goal
+//                                         (every goal that existed before this field did). MIN 1,
+//                                         MAX_TARGET_SESSIONS -- period-independent, unlike targetS's bounds.
+//   notify?: boolean,                 -- 'flexible goals' extension: per-goal opt-in to a local reminder
+//                                         (app/src/goals/goalNotifications.ts schedules it; this module
+//                                         only stores the choice). undefined/false = no reminder.
+//   notifyAt?: string,                -- 'flexible goals' extension: 'HH:MM' 24h local reminder time, see
+//                                         NOTIFY_AT_RE below. Meaningful only alongside notify:true, but
+//                                         kept independent of it so toggling notify off/on doesn't lose it.
 //   createdAt: number,                -- epoch ms
 //   updatedAt: number,                -- epoch ms, per-goal logical clock used by mergeGoals below
 //   archived: boolean,                -- tombstone: a "deleted" goal stays in the array with
 //                                         archived:true so the delete propagates to the other side
 //                                         instead of being resurrected by its stale copy.
 // }
+//
+// The four fields above (daysOfWeek/targetSessions/notify/notifyAt) were
+// added by the app's "flexible goals" extension after this file's first
+// version shipped -- confirmed field-for-field against app/src/goals/
+// goals.ts's own Goal interface and sanitizeOneGoal, including the
+// old-shape compatibility guarantee: an entry with none of these four keys
+// at all sails through sanitizeRemoteGoals below completely unchanged.
 
 // Caps mirror the Firestore-side allowlist that will gate users/{uid}/goals/config
 // writes (see app/firestore.rules' settings/app rule for the existing style this
@@ -52,6 +75,13 @@ export const MAX_TOPIC_LENGTH = 200;
 export const MIN_TARGET_S = 60;
 export const MAX_DAILY_TARGET_S = 86400;
 export const MAX_WEEKLY_TARGET_S = 604800;
+// 31d -- the longest possible calendar month, so this bound never rejects a
+// target that's legitimately achievable in a short (28/30-day) one; see
+// app/src/goals/goals.ts's own MAX_MONTHLY_TARGET_S comment.
+export const MAX_MONTHLY_TARGET_S = 31 * 24 * 60 * 60;
+// Flat cap for targetSessions, independent of period -- "how many sessions"
+// doesn't scale with a period's window length the way a seconds-target does.
+export const MAX_TARGET_SESSIONS = 100;
 
 // An archived goal is a cross-device delete tombstone (see the Goal shape
 // comment above) -- it only needs to live long enough for every other signed-in
@@ -71,7 +101,22 @@ export function makeGoalId() {
 }
 
 function maxTargetSFor(period) {
-  return period === 'daily' ? MAX_DAILY_TARGET_S : MAX_WEEKLY_TARGET_S;
+  if (period === 'daily') return MAX_DAILY_TARGET_S;
+  if (period === 'weekly') return MAX_WEEKLY_TARGET_S;
+  return MAX_MONTHLY_TARGET_S;
+}
+
+// 'HH:MM', strict 24h ranges (00-23 : 00-59) -- confirmed against
+// app/src/goals/goals.ts's own NOTIFY_AT_RE.
+const NOTIFY_AT_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
+/** Dedupes and sorts an already-int-checked daysOfWeek array, collapsing an
+ * empty result back to `undefined` -- confirmed against app/src/goals/
+ * goals.ts's own normalizeDaysOfWeek. Callers are responsible for having
+ * already rejected/dropped anything that isn't an integer 0-6. */
+function normalizeDaysOfWeek(daysOfWeek) {
+  const unique = Array.from(new Set(daysOfWeek)).sort((a, b) => a - b);
+  return unique.length > 0 ? unique : undefined;
 }
 
 /** Shared validation for create/update -- throws a plain Error with a
@@ -80,8 +125,8 @@ function maxTargetSFor(period) {
  * knows to surface a plain Error's `.message` as-is, no Firebase `.code`).
  * Error strings match app/src/goals/goals.ts's own exactly. */
 function validateGoalFields(topic, period, targetS) {
-  if (period !== 'daily' && period !== 'weekly') {
-    throw new Error('Goal period must be "daily" or "weekly".');
+  if (period !== 'daily' && period !== 'weekly' && period !== 'monthly') {
+    throw new Error('Goal period must be "daily", "weekly", or "monthly".');
   }
   if (topic !== null) {
     if (typeof topic !== 'string' || !topic.length) {
@@ -100,26 +145,70 @@ function validateGoalFields(topic, period, targetS) {
   }
 }
 
+/** Validates the "flexible goals" extension fields (daysOfWeek/
+ * targetSessions/notify/notifyAt) for a caller-initiated create/update --
+ * confirmed against app/src/goals/goals.ts's own validateGoalExtras,
+ * including its error strings. `daysOfWeek` here is the caller's raw
+ * (not yet deduped/sorted) input. */
+function validateGoalExtras(period, daysOfWeek, targetSessions, notify, notifyAt) {
+  if (daysOfWeek !== undefined) {
+    if (period !== 'daily') throw new Error('daysOfWeek only applies to a daily goal.');
+    if (!Array.isArray(daysOfWeek) || daysOfWeek.some((d) => !Number.isInteger(d) || d < 0 || d > 6)) {
+      throw new Error('daysOfWeek entries must be whole numbers 0-6 (0=Sun..6=Sat).');
+    }
+  }
+  if (targetSessions !== undefined) {
+    if (!Number.isInteger(targetSessions) || targetSessions < 1 || targetSessions > MAX_TARGET_SESSIONS) {
+      throw new Error(`Goal session target must be a whole number between 1 and ${MAX_TARGET_SESSIONS}.`);
+    }
+  }
+  if (notify !== undefined && typeof notify !== 'boolean') {
+    throw new Error('Goal notify must be true or false.');
+  }
+  if (notifyAt !== undefined && (typeof notifyAt !== 'string' || !NOTIFY_AT_RE.test(notifyAt))) {
+    throw new Error('Goal notifyAt must be a 24-hour "HH:MM" time.');
+  }
+}
+
 /** Appends a new goal (`topic: null` means "all focus time"). Mirrors
  * focusStats.js's createCustomLabel: validate, then return a new array
  * (never mutate `goals`) so callers can pass the result straight to a
- * re-render + write. */
-export function createGoal(goals, topic, period, targetS, nowMs = Date.now()) {
+ * re-render + write. `extra` (daysOfWeek/targetSessions/notify/notifyAt) is
+ * the "flexible goals" extension -- confirmed against app/src/goals/
+ * goals.ts's own createGoal(..., extra) trailing param. */
+export function createGoal(goals, topic, period, targetS, nowMs = Date.now(), extra = {}) {
   validateGoalFields(topic, period, targetS);
+  validateGoalExtras(period, extra.daysOfWeek, extra.targetSessions, extra.notify, extra.notifyAt);
   if (goals.length >= MAX_GOALS) throw new Error(`You can have at most ${MAX_GOALS} goals.`);
-  const goal = { id: makeGoalId(), topic, period, targetS, createdAt: nowMs, updatedAt: nowMs, archived: false };
+  const daysOfWeek = extra.daysOfWeek !== undefined ? normalizeDaysOfWeek(extra.daysOfWeek) : undefined;
+  const goal = {
+    id: makeGoalId(),
+    topic,
+    period,
+    targetS,
+    createdAt: nowMs,
+    updatedAt: nowMs,
+    archived: false,
+    ...(daysOfWeek !== undefined ? { daysOfWeek } : {}),
+    ...(extra.targetSessions !== undefined ? { targetSessions: extra.targetSessions } : {}),
+    ...(extra.notify !== undefined ? { notify: extra.notify } : {}),
+    ...(extra.notifyAt !== undefined ? { notifyAt: extra.notifyAt } : {}),
+  };
   return [...goals, goal];
 }
 
-/** Applies a partial edit (`patch` may include any of topic/period/targetS)
- * to the goal with id `id`, validating the resulting fields together (a
- * period change without a matching targetS change must still fail the same
- * way a fresh create would) and bumping its `updatedAt` logical clock -- the
- * same field mergeGoals' LWW compare (below) resolves on. Silently returns
- * `goals` unchanged for an `id` that isn't present, same as
- * renameCustomLabel/deleteCustomLabel's "no matching id -> no-op" stance --
- * not every caller can guarantee the id it has in hand hasn't just lost a
- * race with an archive from another device. */
+/** Applies a partial edit (`patch` may include any of topic/period/targetS
+ * plus the daysOfWeek/targetSessions/notify/notifyAt extension fields --
+ * for the latter three, `undefined` = leave unchanged, `null` = clear,
+ * anything else = replace, confirmed against app/src/goals/goals.ts's own
+ * GoalPatch/updateGoal) to the goal with id `id`, validating the resulting
+ * fields together (a period change without a matching targetS/daysOfWeek
+ * change must still fail the same way a fresh create would) and bumping
+ * its `updatedAt` logical clock -- the same field mergeGoals' LWW compare
+ * (below) resolves on. Silently returns `goals` unchanged for an `id` that
+ * isn't present, same as renameCustomLabel/deleteCustomLabel's "no matching
+ * id -> no-op" stance -- not every caller can guarantee the id it has in
+ * hand hasn't just lost a race with an archive from another device. */
 export function updateGoal(goals, id, patch, nowMs = Date.now()) {
   const idx = goals.findIndex((g) => g.id === id);
   if (idx === -1) return goals.slice();
@@ -127,9 +216,16 @@ export function updateGoal(goals, id, patch, nowMs = Date.now()) {
   const topic = patch.topic !== undefined ? patch.topic : current.topic;
   const period = patch.period !== undefined ? patch.period : current.period;
   const targetS = patch.targetS !== undefined ? patch.targetS : current.targetS;
+  const rawDaysOfWeek = patch.daysOfWeek !== undefined ? (patch.daysOfWeek === null ? undefined : patch.daysOfWeek) : current.daysOfWeek;
+  const targetSessions =
+    patch.targetSessions !== undefined ? (patch.targetSessions === null ? undefined : patch.targetSessions) : current.targetSessions;
+  const notify = patch.notify !== undefined ? patch.notify : current.notify;
+  const notifyAt = patch.notifyAt !== undefined ? (patch.notifyAt === null ? undefined : patch.notifyAt) : current.notifyAt;
   validateGoalFields(topic, period, targetS);
+  validateGoalExtras(period, rawDaysOfWeek, targetSessions, notify, notifyAt);
+  const daysOfWeek = rawDaysOfWeek !== undefined ? normalizeDaysOfWeek(rawDaysOfWeek) : undefined;
   const next = goals.slice();
-  next[idx] = { ...current, topic, period, targetS, updatedAt: nowMs };
+  next[idx] = { ...current, topic, period, targetS, daysOfWeek, targetSessions, notify, notifyAt, updatedAt: nowMs };
   return next;
 }
 
@@ -184,7 +280,7 @@ export function sanitizeRemoteGoals(input, nowMs = Date.now()) {
     if (!entry || typeof entry !== 'object') continue;
     const { id, period, targetS } = entry;
     if (typeof id !== 'string' || !id || id.length > MAX_GOAL_ID_LENGTH) continue;
-    if (period !== 'daily' && period !== 'weekly') continue;
+    if (period !== 'daily' && period !== 'weekly' && period !== 'monthly') continue;
     const topic = entry.topic === undefined ? null : entry.topic;
     if (topic !== null && (typeof topic !== 'string' || !topic.length || topic.length > MAX_TOPIC_LENGTH)) continue;
     const max = maxTargetSFor(period);
@@ -199,7 +295,41 @@ export function sanitizeRemoteGoals(input, nowMs = Date.now()) {
     // malformed clock lose every real comparison instead.
     const createdAt = Number.isFinite(entry.createdAt) ? entry.createdAt : nowMs;
     const updatedAt = Number.isFinite(entry.updatedAt) ? entry.updatedAt : 0;
-    const cleaned = { id, topic, period, targetS, createdAt, updatedAt, archived: entry.archived === true };
+
+    // The four "flexible goals" extension fields, each hardened
+    // independently -- confirmed against app/src/goals/goals.ts's own
+    // sanitizeOneGoal: an invalid value for any ONE of these never rejects
+    // the whole entry, it's simply dropped (comes back as `undefined`,
+    // exactly the old-shape case). This is also what makes an old-shape
+    // input -- one with none of these keys at all -- sail through
+    // unchanged: every check below simply doesn't match.
+    const daysOfWeek =
+      period === 'daily' && Array.isArray(entry.daysOfWeek) && entry.daysOfWeek.every((d) => Number.isInteger(d) && d >= 0 && d <= 6)
+        ? normalizeDaysOfWeek(entry.daysOfWeek)
+        : undefined;
+    const targetSessions =
+      typeof entry.targetSessions === 'number' &&
+      Number.isInteger(entry.targetSessions) &&
+      entry.targetSessions >= 1 &&
+      entry.targetSessions <= MAX_TARGET_SESSIONS
+        ? entry.targetSessions
+        : undefined;
+    const notify = entry.notify === true ? true : entry.notify === false ? false : undefined;
+    const notifyAt = typeof entry.notifyAt === 'string' && NOTIFY_AT_RE.test(entry.notifyAt) ? entry.notifyAt : undefined;
+
+    const cleaned = {
+      id,
+      topic,
+      period,
+      targetS,
+      createdAt,
+      updatedAt,
+      archived: entry.archived === true,
+      ...(daysOfWeek !== undefined ? { daysOfWeek } : {}),
+      ...(targetSessions !== undefined ? { targetSessions } : {}),
+      ...(notify !== undefined ? { notify } : {}),
+      ...(notifyAt !== undefined ? { notifyAt } : {}),
+    };
 
     const existing = byId.get(id);
     if (!existing) {
@@ -296,11 +426,16 @@ export function mergedGoalsDocUpdatedAt(merged, localDocUpdatedAt, remoteDocUpda
  * against app/src/goals/goalProgress.ts's own goalWindow rather than the
  * shared contract's Monday-start fallback text.
  *
- * Half-open `[startMs, endMs)` on `session.startedAt` for both periods -- a
- * session starting exactly at `startMs` counts, one starting exactly at
- * `endMs` belongs to the *next* window, not this one. Matters at exact
- * local-midnight boundaries (daily) and exact Sunday-midnight boundaries
- * (weekly). */
+ * Half-open `[startMs, endMs)` on `session.startedAt` for all three periods
+ * -- a session starting exactly at `startMs` counts, one starting exactly
+ * at `endMs` belongs to the *next* window, not this one. Matters at exact
+ * local-midnight boundaries (daily), exact Sunday-midnight boundaries
+ * (weekly), and exact 1st-of-the-month-midnight boundaries (monthly). The
+ * monthly branch's `new Date(y, m + 1, 1)` deliberately overflows `m`
+ * rather than hand-computing "days in this month" -- the `Date`
+ * constructor already normalizes month-index overflow into the correct
+ * next-year rollover for December, confirmed against
+ * app/src/goals/goalProgress.ts's own monthlyWindow. */
 export function goalWindow(period, nowMs) {
   const now = new Date(nowMs);
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -308,9 +443,25 @@ export function goalWindow(period, nowMs) {
     const endOfToday = new Date(startOfToday.getFullYear(), startOfToday.getMonth(), startOfToday.getDate() + 1);
     return { startMs: startOfToday.getTime(), endMs: endOfToday.getTime() };
   }
+  if (period === 'monthly') {
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const startOfNextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    return { startMs: startOfMonth.getTime(), endMs: startOfNextMonth.getTime() };
+  }
   const sunday = new Date(startOfToday.getFullYear(), startOfToday.getMonth(), startOfToday.getDate() - startOfToday.getDay());
   const nextSunday = new Date(sunday.getFullYear(), sunday.getMonth(), sunday.getDate() + 7);
   return { startMs: sunday.getTime(), endMs: nextSunday.getTime() };
+}
+
+/** Whether `goal`'s target actually applies to the calendar day containing
+ * `nowMs` -- confirmed against app/src/goals/goalProgress.ts's own
+ * isGoalDueOn. Always true for weekly/monthly goals and for a daily goal
+ * with no daysOfWeek restriction (undefined/[] both mean "every day"); for
+ * a day-restricted daily goal, true only when nowMs's local weekday
+ * (0=Sun..6=Sat) is one of the goal's selected days. */
+export function isGoalDueOn(goal, nowMs) {
+  if (goal.period !== 'daily' || !goal.daysOfWeek || goal.daysOfWeek.length === 0) return true;
+  return goal.daysOfWeek.includes(new Date(nowMs).getDay());
 }
 
 /** Progress for every non-archived goal in `goals`, in the same order they
@@ -319,26 +470,37 @@ export function goalWindow(period, nowMs) {
  * never re-sorts; sort `goals` first, or the result, if a particular display
  * order is wanted). Field names/shape confirmed against
  * app/src/goals/goalProgress.ts's own GoalProgressResult: `goalId` (not
- * `id`), `period`, `targetS`, `focusS`, `remainingS`, `ratio`, `met` -- no
- * others.
+ * `id`), `period`, `targetS`, `focusS`, `remainingS`, `ratio`, `met`,
+ * `sessionCount`, `targetSessions`, `sessionsMet`, `dueToday` -- no others.
  *
  * A session counts toward a goal's window when `goal.topic === null` (every
  * in-window session, including untagged ones) or `session.topic ===
  * goal.topic` exactly -- raw string compare, never resolved through
  * resolveTopic, so a goal pinned to a since-deleted custom label id still
  * matches sessions tagged with that id, and an untagged session never counts
- * toward a topic-specific goal. */
+ * toward a topic-specific goal.
+ *
+ * A day-restricted daily goal (Goal.daysOfWeek) is NOT excluded on an
+ * off-day the way an archived goal is -- any matching session logged today
+ * still counts toward focusS/sessionCount; only the result's `dueToday`
+ * flag changes, per isGoalDueOn above. `met` requires BOTH the time target
+ * AND the session-count target (when the goal has one) -- for a time-only
+ * goal (no targetSessions, the shape every goal had before this field
+ * existed) this is exactly the pre-extension `focusS >= targetS` check. */
 export function computeGoalProgress(goals, sessions, nowMs = Date.now()) {
   const results = [];
   for (const goal of goals) {
     if (goal.archived) continue;
     const { startMs, endMs } = goalWindow(goal.period, nowMs);
     let focusS = 0;
+    let sessionCount = 0;
     for (const s of sessions) {
       if (s.startedAt < startMs || s.startedAt >= endMs) continue;
       if (goal.topic !== null && s.topic !== goal.topic) continue;
       focusS += s.actualS;
+      sessionCount += 1;
     }
+    const sessionsMet = goal.targetSessions !== undefined ? sessionCount >= goal.targetSessions : undefined;
     results.push({
       goalId: goal.id,
       period: goal.period,
@@ -346,7 +508,10 @@ export function computeGoalProgress(goals, sessions, nowMs = Date.now()) {
       focusS,
       remainingS: Math.max(0, goal.targetS - focusS),
       ratio: focusS / goal.targetS, // deliberately unclamped -- can exceed 1 (e.g. 1.8 = 180% of target)
-      met: focusS >= goal.targetS,
+      met: focusS >= goal.targetS && (sessionsMet === undefined || sessionsMet),
+      sessionCount,
+      ...(goal.targetSessions !== undefined ? { targetSessions: goal.targetSessions, sessionsMet } : {}),
+      dueToday: isGoalDueOn(goal, nowMs),
     });
   }
   return results;

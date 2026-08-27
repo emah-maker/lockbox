@@ -1,57 +1,79 @@
 // CalendarScreen.tsx -- month grid over the local session log (sessionHistory
-// via useStore.sessions). Each day with focus time gets a dot; tapping a day
-// lists that day's sessions below the grid.
+// via useStore.sessions). Each day gets a heat-tinted circle (focus minutes),
+// a small topic stack (stats/customLabels.ts's topicBreakdownWithCustom),
+// and a goal-met ring (goalProgress.ts, via monthGrid.ts's goalsMetOnDay).
+// Tapping a day no longer grows an inline panel below the grid (manager
+// brief: this app's screens should not "expand up and down") -- it opens
+// DaySheet.tsx in a `Sheet` instead, so the grid itself stays a stable,
+// fixed-height view. Most of the day-cell/summary-strip/recent-row rendering
+// lives in src/ui/calendar/* and src/screens/calendar/* (split out to stay
+// under this project's 500-line file guideline -- this file was already
+// over budget before this pass).
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, StyleSheet, Pressable, ScrollView, Modal, Animated, Easing } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Animated, Easing, PanResponder } from 'react-native';
+import * as Haptics from 'expo-haptics';
 import { Feather } from '@expo/vector-icons';
 import { useStore } from '../store/useStore';
 import { useSettingsStore } from '../store/useSettingsStore';
+import { useGoalsStore } from '../store/useGoalsStore';
 import { useTheme } from '../theme/useTheme';
-import { withAlpha } from '../theme/theme';
-import { formatDuration } from '../stats/stats';
 import { dayKey, groupByDay, LoggedSession } from '../stats/sessionHistory';
-import { dominantTopicWithCustom, resolveTopic, allLabelChoices, ResolvedTopic } from '../stats/customLabels';
+import { topicBreakdownWithCustom } from '../stats/customLabels';
 import { AnimatedPressable } from '../ui/AnimatedPressable';
+import { DayCell } from '../ui/calendar/DayCell';
+import { MonthSummaryStrip } from '../ui/calendar/MonthSummaryStrip';
+import { RecentSessionsRow } from '../ui/calendar/RecentSessionsRow';
+import { DaySheet } from './calendar/DaySheet';
+import { buildGrid, computeMonthSummary, goalsMetOnDay, startOfMonth } from './calendar/monthGrid';
 import { useReducedMotion, configureLayoutAnimation } from '../ui/useReducedMotion';
-import { typeScale, elevation, springs, overlay } from '../theme/tokens';
+import { typeScale } from '../theme/tokens';
+import { useNav } from '../nav/useNav';
 
 const WEEKDAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 
-function startOfMonth(d: Date) {
-  return new Date(d.getFullYear(), d.getMonth(), 1);
-}
-
-function buildGrid(monthStart: Date): (Date | null)[] {
-  const year = monthStart.getFullYear();
-  const month = monthStart.getMonth();
-  const firstWeekday = monthStart.getDay(); // 0=Sun
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const cells: (Date | null)[] = [];
-  for (let i = 0; i < firstWeekday; i++) cells.push(null);
-  for (let d = 1; d <= daysInMonth; d++) cells.push(new Date(year, month, d));
-  while (cells.length % 7 !== 0) cells.push(null);
-  return cells;
-}
+// A horizontal drag past this many px (released, not just moved) counts as a
+// deliberate "change month" swipe rather than an incidental brush while
+// scrolling the page vertically -- same rough threshold apple-design's
+// gesture guidance uses for a "commit" swipe, and the onMoveShouldSetPanResponder
+// check below already requires the gesture to be more horizontal than
+// vertical before this responder even claims it.
+const SWIPE_THRESHOLD = 50;
+const MONTH_SLIDE_DISTANCE = 24;
+const MONTH_SLIDE_DURATION = 220;
 
 export default function CalendarScreen() {
   const c = useTheme();
   const themeMode = useSettingsStore((s) => s.themeMode);
   const customLabels = useSettingsStore((s) => s.customLabels);
   const sessions = useStore((s) => s.sessions);
-  const retagSession = useStore((s) => s.retagSession);
+  const retagSessionAction = useStore((s) => s.retagSession);
+  const goals = useGoalsStore((s) => s.goals);
   const [cursor, setCursor] = useState(startOfMonth(new Date()));
   const [selectedKey, setSelectedKey] = useState<string>(dayKey(Date.now()));
-  const [taggingSession, setTaggingSession] = useState<LoggedSession | null>(null);
+  const [daySheetVisible, setDaySheetVisible] = useState(false);
   const reducedMotion = useReducedMotion();
+
+  // Inbound link from another tab: DashboardScreen/StatsScreen/etc. can
+  // navigate('calendar', { calendarDate }) to land straight on a specific
+  // day's detail sheet (see this screen's contract with src/nav/useNav.ts).
+  // Read once via getState() rather than a subscribed selector -- consuming
+  // the intent is a one-shot side effect on mount, not something this screen
+  // should re-run on every intent change while already mounted.
+  useEffect(() => {
+    const intent = useNav.getState().consumeIntent();
+    if (intent?.calendarDate) {
+      const d = new Date(intent.calendarDate);
+      setCursor(startOfMonth(d));
+      setSelectedKey(dayKey(d.getTime()));
+      setDaySheetVisible(true);
+    }
+  }, []);
 
   // Month nav gets directional motion (spatial consistency: "next" content
   // enters from the right, "prev" from the left) instead of the grid just
-  // popping to the new month in place. Entering/exiting ease-out + a
-  // "dropdowns, cards" duration, both from motion-and-animation.md's tables --
-  // not invented values. A timing, not a spring, since this is a tap-triggered
-  // entrance with no gesture/velocity to hand off.
-  const MONTH_SLIDE_DISTANCE = 24;
-  const MONTH_SLIDE_DURATION = 220;
+  // popping to the new month in place. A timing, not a spring, since this is
+  // a tap/swipe-triggered entrance with no ongoing gesture velocity to hand
+  // off (the swipe itself is fully released before this starts).
   const monthSlideX = useRef(new Animated.Value(0)).current;
   const monthOpacity = useRef(new Animated.Value(1)).current;
   const animateMonthChange = (direction: 1 | -1) => {
@@ -74,10 +96,37 @@ export default function CalendarScreen() {
     ]).start();
   };
 
+  const goToMonth = (direction: 1 | -1) => {
+    configureLayoutAnimation(reducedMotion);
+    animateMonthChange(direction);
+    setCursor((prev) => new Date(prev.getFullYear(), prev.getMonth() + direction, 1));
+  };
+
+  // Swipe-to-change-month. No gesture-handler/reanimated dependency in this
+  // app (see SettingsPrimitives.tsx's SliderRow precedent) -- PanResponder
+  // from RN core is the established way to read a raw drag here. Claims the
+  // gesture only once it's clearly more horizontal than vertical, so a
+  // vertical scroll on the page (this screen is itself inside a ScrollView)
+  // is never hijacked into a month change.
+  const panResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_evt, gesture) =>
+        Math.abs(gesture.dx) > 12 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.5,
+      onPanResponderRelease: (_evt, gesture) => {
+        if (gesture.dx <= -SWIPE_THRESHOLD) goToMonth(1);
+        else if (gesture.dx >= SWIPE_THRESHOLD) goToMonth(-1);
+      },
+    }),
+  ).current;
+
   const byDay = useMemo(() => groupByDay(sessions), [sessions]);
   const grid = useMemo(() => buildGrid(cursor), [cursor]);
   const todayKey = dayKey(Date.now());
 
+  // Global max (across all logged days, not just the displayed month) so a
+  // day's heat intensity reads consistently no matter which month is on
+  // screen -- paging to a quieter month shouldn't make its best day look as
+  // saturated as this app's all-time busiest day.
   const maxFocus = useMemo(() => {
     let max = 0;
     for (const list of byDay.values()) {
@@ -87,7 +136,27 @@ export default function CalendarScreen() {
     return max || 1;
   }, [byDay]);
 
+  const monthSummary = useMemo(() => computeMonthSummary(grid, byDay), [grid, byDay]);
+
+  const dayCells = useMemo(
+    () =>
+      grid.map((date) => {
+        if (!date) return null;
+        const key = dayKey(date.getTime());
+        const daySessions = byDay.get(key) ?? [];
+        const focusS = daySessions.reduce((sum, s) => sum + s.actualS, 0);
+        const topicStats = topicBreakdownWithCustom(daySessions, customLabels, themeMode);
+        const goalMet = goalsMetOnDay(goals, sessions, date).length > 0;
+        return { date, key, daySessions, focusS, topicStats, goalMet };
+      }),
+    [grid, byDay, customLabels, themeMode, goals, sessions],
+  );
+
   const selectedSessions: LoggedSession[] = byDay.get(selectedKey) ?? [];
+  const selectedGoalsMet = useMemo(
+    () => goalsMetOnDay(goals, sessions, new Date(selectedKey)),
+    [goals, sessions, selectedKey],
+  );
 
   // Newest-last in storage (see stats.ts's aggregate doc comment) -- reverse
   // for a most-recent-first quick-jump row.
@@ -103,42 +172,24 @@ export default function CalendarScreen() {
     setSelectedKey(dayKey(sess.startedAt));
   };
 
+  const selectDay = (key: string) => {
+    Haptics.selectionAsync();
+    setSelectedKey(key);
+    setDaySheetVisible(true);
+  };
+
   return (
     <ScrollView style={{ backgroundColor: c.bg }} contentContainerStyle={styles.container}>
       <Text style={[styles.h1, { color: c.text }]}>Focus Calendar</Text>
 
-      {recentSessions.length > 0 && (
-        <View style={styles.recentSection}>
-          <Text style={[styles.h2, { color: c.text }]}>Recent sessions</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.recentRow}>
-            {recentSessions.map((sess) => {
-              const resolved = resolveTopic(sess.topic, customLabels, themeMode);
-              const active = dayKey(sess.startedAt) === selectedKey;
-              return (
-                <AnimatedPressable
-                  key={`${sess.startedAt}:${sess.plannedS}`}
-                  style={[
-                    styles.recentChip,
-                    { backgroundColor: c.surface },
-                    active && { borderColor: c.accent, borderWidth: 1.5 },
-                  ]}
-                  onPress={() => jumpToSession(sess)}
-                >
-                  <View style={styles.recentChipTop}>
-                    {resolved && <View style={[styles.topicDotInline, { backgroundColor: resolved.color }]} />}
-                    <Text style={[styles.recentChipDate, { color: c.text }]}>
-                      {new Date(sess.startedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-                    </Text>
-                  </View>
-                  <Text style={[styles.recentChipDuration, { color: c.textDim }]}>
-                    {formatDuration(sess.actualS)}
-                  </Text>
-                </AnimatedPressable>
-              );
-            })}
-          </ScrollView>
-        </View>
-      )}
+      <RecentSessionsRow
+        sessions={recentSessions}
+        selectedKey={selectedKey}
+        theme={c}
+        customLabels={customLabels}
+        themeMode={themeMode}
+        onSelect={jumpToSession}
+      />
 
       <View style={styles.monthHeader}>
         <AnimatedPressable
@@ -146,11 +197,7 @@ export default function CalendarScreen() {
           accessibilityRole="button"
           accessibilityLabel="Previous month"
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          onPress={() => {
-            configureLayoutAnimation(reducedMotion);
-            animateMonthChange(-1);
-            setCursor(new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1));
-          }}
+          onPress={() => goToMonth(-1)}
         >
           <Feather name="chevron-left" size={22} color={c.accent} />
         </AnimatedPressable>
@@ -162,11 +209,7 @@ export default function CalendarScreen() {
           accessibilityRole="button"
           accessibilityLabel="Next month"
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          onPress={() => {
-            configureLayoutAnimation(reducedMotion);
-            animateMonthChange(1);
-            setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1));
-          }}
+          onPress={() => goToMonth(1)}
         >
           <Feather name="chevron-right" size={22} color={c.accent} />
         </AnimatedPressable>
@@ -181,267 +224,49 @@ export default function CalendarScreen() {
       </View>
 
       <Animated.View
+        {...panResponder.panHandlers}
         style={[styles.grid, { opacity: monthOpacity, transform: [{ translateX: monthSlideX }] }]}
       >
-        {grid.map((date, i) => {
-          if (!date) return <View key={i} style={styles.cell} />;
-          const key = dayKey(date.getTime());
-          const daySessions = byDay.get(key) ?? [];
-          const focusS = daySessions.reduce((sum, s) => sum + s.actualS, 0);
-          const intensity = focusS > 0 ? 0.25 + 0.75 * Math.min(1, focusS / maxFocus) : 0;
-          const selected = key === selectedKey;
-          const isToday = key === todayKey;
-          const dominant = dominantTopicWithCustom(daySessions, customLabels, themeMode);
-          // Selection/today/has-focus-time state was previously conveyed by
-          // border/background color alone (production readiness review,
-          // Medium: "day-cell state conveyed visually only").
-          const dayA11yLabel = `${date.toLocaleDateString(undefined, {
-            weekday: 'long',
-            month: 'long',
-            day: 'numeric',
-          })}${focusS > 0 ? `, ${formatDuration(focusS)} focused` : ', no focus time'}`;
+        {dayCells.map((cell, i) => {
+          if (!cell) return <View key={i} style={styles.emptyCell} />;
           return (
-            <AnimatedPressable
+            <DayCell
               key={i}
-              style={styles.cell}
-              accessibilityRole="button"
-              accessibilityLabel={dayA11yLabel}
-              accessibilityState={{ selected }}
-              onPress={() => {
-                configureLayoutAnimation(reducedMotion);
-                setSelectedKey(key);
-              }}
-            >
-              <View
-                style={[
-                  styles.dayCircle,
-                  selected && { borderColor: c.accent, borderWidth: 2 },
-                  isToday && !selected && { borderColor: c.textDim, borderWidth: 1 },
-                  focusS > 0 && { backgroundColor: withAlpha(c.accent, intensity) },
-                ]}
-              >
-                <Text style={[styles.dayNum, { color: focusS > 0 ? c.accentText : c.text }]}>
-                  {date.getDate()}
-                </Text>
-              </View>
-              {dominant && <View style={[styles.topicDot, { backgroundColor: dominant.color }]} />}
-            </AnimatedPressable>
+              date={cell.date}
+              focusS={cell.focusS}
+              maxFocus={maxFocus}
+              topicStats={cell.topicStats}
+              goalMet={cell.goalMet}
+              selected={cell.key === selectedKey}
+              isToday={cell.key === todayKey}
+              theme={c}
+              onPress={() => selectDay(cell.key)}
+            />
           );
         })}
       </Animated.View>
 
-      <View style={[styles.card, { backgroundColor: c.surface }]}>
-        <Text style={[styles.h2, { color: c.text }]}>
-          {new Date(selectedKey).toLocaleDateString(undefined, {
-            weekday: 'long',
-            month: 'short',
-            day: 'numeric',
-          })}
-        </Text>
-        {selectedSessions.length === 0 ? (
-          <Text style={[styles.empty, { color: c.textDim }]}>No focus sessions logged this day.</Text>
-        ) : (
-          selectedSessions.map((s) => {
-            const resolved = resolveTopic(s.topic, customLabels, themeMode);
-            return (
-              <View key={`${s.startedAt}:${s.plannedS}`} style={styles.sessionRow}>
-                <Text style={[styles.sessionTime, { color: c.textDim }]}>
-                  {new Date(s.startedAt).toLocaleTimeString(undefined, {
-                    hour: 'numeric',
-                    minute: '2-digit',
-                  })}
-                </Text>
-                <Text style={[styles.sessionDuration, { color: c.text }]}>
-                  {formatDuration(s.actualS)}
-                </Text>
-                <AnimatedPressable
-                  style={styles.sessionTopic}
-                  onPress={() => setTaggingSession(s)}
-                  accessibilityRole="button"
-                  accessibilityLabel={resolved ? `Tagged: ${resolved.label}. Tap to change.` : 'Untagged. Tap to tag this session.'}
-                >
-                  {resolved ? (
-                    <>
-                      <View style={[styles.topicDotInline, { backgroundColor: resolved.color }]} />
-                      <Text style={[styles.sessionTopicLabel, { color: c.textDim }]}>{resolved.label}</Text>
-                    </>
-                  ) : (
-                    <Text style={[styles.sessionTopicLabel, { color: c.accent }]}>Tag</Text>
-                  )}
-                </AnimatedPressable>
-                <Text
-                  style={[
-                    styles.sessionOutcome,
-                    { color: s.outcome === 'completed' ? c.accent : c.warn },
-                  ]}
-                >
-                  {s.outcome === 'completed' ? 'Completed' : 'Ended early'}
-                </Text>
-              </View>
-            );
-          })
-        )}
-      </View>
+      <MonthSummaryStrip summary={monthSummary} theme={c} />
 
-      <LabelPickerModal
-        visible={taggingSession !== null}
-        choices={allLabelChoices(customLabels, themeMode)}
-        current={taggingSession ? resolveTopic(taggingSession.topic, customLabels, themeMode)?.id : undefined}
-        color={c}
-        onClose={() => setTaggingSession(null)}
-        onPick={(id) => {
-          if (taggingSession) retagSession(taggingSession, id);
-          setTaggingSession(null);
-        }}
-        onClear={
-          taggingSession?.topic
-            ? () => {
-                retagSession(taggingSession, undefined);
-                setTaggingSession(null);
-              }
-            : undefined
-        }
+      <DaySheet
+        visible={daySheetVisible}
+        onClose={() => setDaySheetVisible(false)}
+        dateKey={selectedKey}
+        sessions={selectedSessions}
+        goalsMet={selectedGoalsMet}
+        goals={goals}
+        theme={c}
+        customLabels={customLabels}
+        themeMode={themeMode}
+        onRetag={(target, topic) => retagSessionAction(target, topic)}
       />
     </ScrollView>
   );
 }
 
-// Sheet presentation: the sheet springs up from SHEET_TRAVEL px below its
-// resting place and back down the same path on dismiss, so entry and exit
-// trace one motion instead of a cut. Shares the app-wide `springs.default`
-// token (tokens.ts) -- damping 30 against stiffness 300 is just under
-// critical (2*sqrt(300) ~= 34.6), settling fast with no visible bounce.
-const SHEET_TRAVEL = 56;
-const BACKDROP_OPACITY = 0.4;
-const SHEET_SPRING = { ...springs.default, useNativeDriver: true };
-
-/** Retag/untag picker for one past session -- lists every built-in topic and
- * custom label (allLabelChoices) plus a "Clear tag" option. */
-function LabelPickerModal({
-  visible,
-  choices,
-  current,
-  color,
-  onPick,
-  onClear,
-  onClose,
-}: {
-  visible: boolean;
-  choices: ResolvedTopic[];
-  current: string | undefined;
-  color: ReturnType<typeof useTheme>;
-  onPick: (id: string) => void;
-  onClear?: () => void;
-  onClose: () => void;
-}) {
-  const reduceMotion = useReducedMotion();
-  // Stays mounted through the exit animation, then hides.
-  const [presented, setPresented] = useState(visible);
-  const backdropOpacity = useRef(new Animated.Value(0)).current;
-  const sheetY = useRef(new Animated.Value(SHEET_TRAVEL)).current;
-
-  useEffect(() => {
-    if (visible) {
-      setPresented(true);
-      if (reduceMotion) {
-        backdropOpacity.setValue(BACKDROP_OPACITY);
-        sheetY.setValue(0);
-        return;
-      }
-      Animated.parallel([
-        Animated.spring(backdropOpacity, { toValue: BACKDROP_OPACITY, ...SHEET_SPRING }),
-        Animated.spring(sheetY, { toValue: 0, ...SHEET_SPRING }),
-      ]).start();
-      return;
-    }
-    if (reduceMotion) {
-      backdropOpacity.setValue(0);
-      sheetY.setValue(SHEET_TRAVEL);
-      setPresented(false);
-      return;
-    }
-    Animated.parallel([
-      Animated.spring(sheetY, { toValue: SHEET_TRAVEL, ...SHEET_SPRING }),
-      Animated.spring(backdropOpacity, { toValue: 0, ...SHEET_SPRING }),
-    ]).start(({ finished }) => {
-      if (finished) setPresented(false);
-    });
-  }, [visible, reduceMotion, backdropOpacity, sheetY]);
-
-  const sheetOpacity = backdropOpacity.interpolate({
-    inputRange: [0, BACKDROP_OPACITY],
-    outputRange: [0, 1],
-    extrapolate: 'clamp',
-  });
-
-  return (
-    <Modal visible={presented} transparent animationType="none" onRequestClose={onClose}>
-      <Animated.View style={[modalStyles.scrim, { opacity: backdropOpacity }]}>
-        <Pressable style={modalStyles.scrimTouch} onPress={onClose} />
-      </Animated.View>
-      <Animated.View
-        pointerEvents="box-none"
-        style={[modalStyles.sheetLayer, { opacity: sheetOpacity, transform: [{ translateY: sheetY }] }]}
-      >
-        <Pressable style={[modalStyles.sheet, { backgroundColor: color.surface }]} onPress={() => {}}>
-          <Text style={[modalStyles.title, { color: color.text }]}>Tag this session</Text>
-          <ScrollView style={modalStyles.list}>
-            {choices.map((choice) => (
-              <AnimatedPressable
-                key={choice.id}
-                style={modalStyles.row}
-                onPress={() => onPick(choice.id)}
-              >
-                <View style={[modalStyles.dot, { backgroundColor: choice.color }]} />
-                <Text style={[modalStyles.rowLabel, { color: color.text }]}>{choice.label}</Text>
-                {current === choice.id && <Feather name="check" size={16} color={color.accent} />}
-              </AnimatedPressable>
-            ))}
-          </ScrollView>
-          {onClear && (
-            <AnimatedPressable style={modalStyles.row} onPress={onClear}>
-              <Text style={[modalStyles.rowLabel, { color: color.danger }]}>Clear tag</Text>
-            </AnimatedPressable>
-          )}
-        </Pressable>
-      </Animated.View>
-    </Modal>
-  );
-}
-
-const modalStyles = StyleSheet.create({
-  scrim: { ...StyleSheet.absoluteFillObject, backgroundColor: overlay.scrim },
-  scrimTouch: { flex: 1 },
-  sheetLayer: { ...StyleSheet.absoluteFillObject, justifyContent: 'flex-end' },
-  sheet: {
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    padding: 20,
-    maxHeight: '70%',
-    ...elevation.card,
-  },
-  title: { ...typeScale.sectionTitle, marginBottom: 12 },
-  list: { marginBottom: 4 },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10 },
-  dot: { width: 12, height: 12, borderRadius: 6 },
-  rowLabel: {
-    fontSize: 15,
-    flex: 1,
-    letterSpacing: typeScale.body.letterSpacing,
-    lineHeight: typeScale.body.lineHeight,
-  },
-});
-
 const styles = StyleSheet.create({
   container: { padding: 20, paddingTop: 50, gap: 16 },
   h1: { ...typeScale.title, marginBottom: 4 },
-  h2: { ...typeScale.sectionTitle, marginBottom: 8 },
-  recentSection: { gap: 4 },
-  recentRow: { flexDirection: 'row', gap: 8, paddingRight: 4 },
-  recentChip: { borderRadius: 12, borderWidth: 1.5, borderColor: 'transparent', padding: 10, minWidth: 84 },
-  recentChipTop: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  recentChipDate: { fontSize: 13, fontWeight: '600', letterSpacing: typeScale.label.letterSpacing },
-  recentChipDuration: { fontSize: 12, marginTop: 2, letterSpacing: typeScale.caption.letterSpacing },
   monthHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   monthLabel: {
     fontSize: 17,
@@ -459,50 +284,5 @@ const styles = StyleSheet.create({
     lineHeight: typeScale.caption.lineHeight,
   },
   grid: { flexDirection: 'row', flexWrap: 'wrap' },
-  cell: { width: '14.2857%', aspectRatio: 1, alignItems: 'center', justifyContent: 'center' },
-  dayCircle: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  dayNum: { ...typeScale.label },
-  topicDot: { width: 5, height: 5, borderRadius: 2.5, marginTop: 3 },
-  card: { borderRadius: 14, padding: 16, ...elevation.card },
-  empty: { ...typeScale.body },
-  sessionRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 6,
-  },
-  sessionTime: {
-    fontSize: 13,
-    width: 80,
-    letterSpacing: typeScale.label.letterSpacing,
-    lineHeight: typeScale.label.lineHeight,
-  },
-  sessionDuration: {
-    fontSize: 14,
-    fontWeight: '600',
-    flex: 1,
-    textAlign: 'center',
-    letterSpacing: typeScale.body.letterSpacing,
-    lineHeight: typeScale.body.lineHeight,
-  },
-  sessionTopic: { flexDirection: 'row', alignItems: 'center', gap: 5, width: 80 },
-  topicDotInline: { width: 8, height: 8, borderRadius: 4 },
-  sessionTopicLabel: {
-    fontSize: 12,
-    letterSpacing: typeScale.caption.letterSpacing,
-    lineHeight: typeScale.caption.lineHeight,
-  },
-  sessionOutcome: {
-    fontSize: 12,
-    width: 90,
-    textAlign: 'right',
-    letterSpacing: typeScale.caption.letterSpacing,
-    lineHeight: typeScale.caption.lineHeight,
-  },
+  emptyCell: { width: '14.2857%', aspectRatio: 1 },
 });

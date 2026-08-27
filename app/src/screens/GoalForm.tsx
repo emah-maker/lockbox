@@ -1,16 +1,20 @@
 // GoalForm.tsx -- the add/edit form for one focus goal, split out of
 // GoalsSection.tsx so both stay under this project's 500-line file guideline
 // (the same reason GoalsSection.tsx itself sits beside StatsScreen.tsx rather
-// than inside it).
+// than inside it). The "flexible goals" extension controls (weekday chips,
+// session-count stepper, notify toggle + reminder-time wheels) are split
+// again into GoalFormExtras.tsx for the same reason -- see that file's own
+// header.
 //
 // One form serves BOTH create and edit: a goal's editable surface (topic,
-// period, target) is exactly its creatable surface, so a second copy would
-// only be two places to keep the wheel/chip behavior in sync. GoalsSection
-// mounts it either at the bottom of the section (create) or in place of the
-// row being edited, exactly the way CustomLabelsSection's CustomLabelRow
-// swaps its face for an inline rename field.
+// period, target, and now the four extension fields) is exactly its
+// creatable surface, so a second copy would only be two places to keep the
+// wheel/chip behavior in sync. GoalsSection mounts it inside its own popup
+// Sheet (manager brief: a form must never grow the page it's opened from
+// inline) for both create and edit, rather than swapping a row's own face
+// out the way the pre-Sheet version of this form used to.
 //
-// Owns no persistence and no validation: it hands (topic, period, targetS)
+// Owns no persistence and no validation: it hands a GoalFormValues snapshot
 // to its `onSubmit` and renders whatever `error` its parent passes back down
 // -- goals/goals.ts is the only authority on whether those values are
 // acceptable. The one thing encoded here is the wheels' own SELECTABLE
@@ -22,25 +26,27 @@ import { useSettingsStore } from '../store/useSettingsStore';
 import { useTheme } from '../theme/useTheme';
 import { withAlpha } from '../theme/theme';
 import { allLabelChoices, resolveTopic } from '../stats/customLabels';
-import { Goal, GoalPeriod, MAX_DAILY_TARGET_S, MAX_WEEKLY_TARGET_S } from '../goals/goals';
+import { Goal, GoalPeriod, MAX_DAILY_TARGET_S, MAX_WEEKLY_TARGET_S, MAX_MONTHLY_TARGET_S, MAX_TARGET_SESSIONS } from '../goals/goals';
 import { Button } from './SettingsPrimitives';
 import { AnimatedPressable } from '../ui/AnimatedPressable';
 import { WheelPicker } from '../ui/WheelPicker';
+import { WeekdayChips, SessionTargetControl, NotifyControl } from './GoalFormExtras';
 import { typeScale } from '../theme/tokens';
 
 // The wheels' selectable hour range is DERIVED from goals.ts's own bounds
-// rather than typed out as 24/168, so raising MAX_WEEKLY_TARGET_S there can
-// never leave this picker silently unable to express a target the store would
-// happily accept (the same "keep these numbers identical on both surfaces"
-// hazard goals.ts's own MAX_GOALS comment warns about, one layer up).
-// Minutes reuse DashboardScreen's 5-minute step so setting "2h 30m" here
-// feels identical to setting a lock duration there.
+// rather than typed out as 24/168/744, so raising e.g. MAX_MONTHLY_TARGET_S
+// there can never leave this picker silently unable to express a target the
+// store would happily accept (the same "keep these numbers identical on
+// both surfaces" hazard goals.ts's own MAX_GOALS comment warns about, one
+// layer up). Minutes reuse DashboardScreen's 5-minute step so setting "2h
+// 30m" here feels identical to setting a lock duration there.
 const MINUTE_STEP = 5;
 const MINUTE_VALUES = Array.from({ length: 60 / MINUTE_STEP }, (_, i) => i * MINUTE_STEP);
 const MINUTE_LABELS = MINUTE_VALUES.map((m) => `${String(m).padStart(2, '0')}m`);
 const PERIOD_MAX_HOURS: Record<GoalPeriod, number> = {
   daily: Math.floor(MAX_DAILY_TARGET_S / 3600),
   weekly: Math.floor(MAX_WEEKLY_TARGET_S / 3600),
+  monthly: Math.floor(MAX_MONTHLY_TARGET_S / 3600),
 };
 function hourLabelsFor(period: GoalPeriod): string[] {
   return Array.from({ length: PERIOD_MAX_HOURS[period] + 1 }, (_, i) => `${i}h`);
@@ -49,7 +55,15 @@ function hourLabelsFor(period: GoalPeriod): string[] {
 const PERIOD_OPTIONS: { key: GoalPeriod; label: string }[] = [
   { key: 'daily', label: 'Daily' },
   { key: 'weekly', label: 'Weekly' },
+  { key: 'monthly', label: 'Monthly' },
 ];
+
+// Every weekday selected is data-equivalent to Goal.daysOfWeek's own
+// "undefined = every day" (see that field's comment in goals.ts) -- kept as
+// its own constant so the "seed the chips as all-on for an unrestricted
+// goal" and "an all-on submission collapses back to no restriction at all"
+// reasoning below both read against the same literal array.
+const ALL_WEEKDAYS = [0, 1, 2, 3, 4, 5, 6];
 
 // Sentinel for the "all focus time" choice in the topic chip row. A goal's
 // own `topic: null` is what actually gets stored (goals.ts) -- this exists
@@ -83,12 +97,35 @@ function orphanLabel(
   return resolveTopic(topic, customLabels, themeMode)?.label ?? 'Deleted label';
 }
 
-export /** The one form used for BOTH creating and editing a goal -- an edit swaps
- * the row out for this in place, the same way CustomLabelsSection's
- * CustomLabelRow swaps its face for an inline rename field. Deliberately not
- * two near-identical forms: a goal's editable surface (topic, period,
- * target) is exactly its creatable surface, so a second copy would just be
- * two places to keep the wheel/chip behavior in sync. */
+/** What GoalForm hands back to its `onSubmit` -- a full snapshot of every
+ * editable field, not a partial patch (the form always shows and submits
+ * every field's current value, so there's nothing to distinguish
+ * "untouched" from "explicitly set to its current value"). GoalsSection.tsx
+ * is the one place that turns this into goals.ts's own createGoal/
+ * updateGoal call shapes -- see that file's handleCreate/handleSave for how
+ * `undefined` here maps to "no value" on create and to an explicit `null`
+ * clear on update. */
+export interface GoalFormValues {
+  topic: string | null;
+  period: GoalPeriod;
+  targetS: number;
+  /** Only meaningful when `period === 'daily'` -- always `undefined` for
+   * any other period, and collapsed to `undefined` even for `daily` when
+   * every weekday (or none) is selected, since both are data-equivalent to
+   * "every day" (see ALL_WEEKDAYS above). */
+  daysOfWeek?: number[];
+  targetSessions?: number;
+  notify: boolean;
+  notifyAt?: string;
+}
+
+export /** The one form used for BOTH creating and editing a goal, rendered inside
+ * GoalsSection's own popup Sheet either way -- an edit opens the SAME sheet
+ * pre-filled from `initial`, rather than swapping a row's face out in place
+ * (the pre-Sheet version of this form's own old behavior). Deliberately not
+ * two near-identical forms: a goal's editable surface is exactly its
+ * creatable surface, so a second copy would just be two places to keep the
+ * wheel/chip/extension-control behavior in sync. */
 function GoalForm({
   initial,
   customLabels,
@@ -106,8 +143,14 @@ function GoalForm({
   color: ReturnType<typeof useTheme>;
   error: string | null;
   submitLabel: string;
-  onSubmit: (topic: string | null, period: GoalPeriod, targetS: number) => void;
+  onSubmit: (values: GoalFormValues) => void;
   onCancel: () => void;
+  /** Fires while any of this form's WheelPickers (target duration, or the
+   * reminder-time hour/minute inside NotifyControl) is actively being
+   * dragged -- GoalsSection passes this straight through to its own popup
+   * Sheet's `scrollEnabled` prop, the same "outer scroll yields to an inner
+   * wheel drag" contract DurationSheet.tsx already applies for the
+   * identical WheelPicker-inside-Sheet situation. */
   onWheelActiveChange: (active: boolean) => void;
 }) {
   const [topicId, setTopicId] = React.useState<string>(initial?.topic ?? ALL_TOPICS_ID);
@@ -120,6 +163,16 @@ function GoalForm({
     // displays a value it can't actually be parked on.
     return MINUTE_VALUES.reduce((best, v) => (Math.abs(v - m) < Math.abs(best - m) ? v : best), 0);
   });
+  // Seeded as ALL_WEEKDAYS (every chip on) when the goal has no restriction
+  // yet -- see ALL_WEEKDAYS's own comment for why that's the reading that
+  // actually looks like "every day", rather than seeding an empty selection
+  // that would look like nothing had been chosen at all.
+  const [daysOfWeek, setDaysOfWeek] = React.useState<number[]>(
+    initial?.daysOfWeek && initial.daysOfWeek.length > 0 ? initial.daysOfWeek : ALL_WEEKDAYS,
+  );
+  const [targetSessions, setTargetSessions] = React.useState<number | undefined>(initial?.targetSessions);
+  const [notify, setNotify] = React.useState<boolean>(initial?.notify ?? false);
+  const [notifyAt, setNotifyAt] = React.useState<string | undefined>(initial?.notifyAt);
 
   const hourLabels = hourLabelsFor(period);
   const targetS = hours * 3600 + minutes * 60;
@@ -127,9 +180,9 @@ function GoalForm({
   const selectPeriod = (next: GoalPeriod) => {
     setPeriod(next);
     // Clamp the hours wheel into the new period's own range (daily tops out
-    // far below weekly). Only the wheel's *selectable* range -- goals.ts is
-    // still the only thing that decides whether the resulting targetS is
-    // acceptable, and a 24h+05m daily target still surfaces its own thrown
+    // far below weekly/monthly). Only the wheel's *selectable* range -- goals.ts
+    // is still the only thing that decides whether the resulting targetS is
+    // acceptable, and an out-of-range target still surfaces its own thrown
     // message rather than being silently rounded down here.
     setHours((h) => Math.min(h, PERIOD_MAX_HOURS[next]));
   };
@@ -144,8 +197,26 @@ function GoalForm({
       ? initial.topic
       : null;
 
+  const handleSubmit = () => {
+    // Every weekday selected (or none) is "no restriction at all" --
+    // collapsed to `undefined` here rather than left as a 7-long array, so
+    // a goal that's never been restricted keeps reading that way after a
+    // round-trip through this form (see ALL_WEEKDAYS's own comment).
+    const restrictedDays =
+      period === 'daily' && daysOfWeek.length > 0 && daysOfWeek.length < 7 ? daysOfWeek : undefined;
+    onSubmit({
+      topic: topicIdToStored(topicId),
+      period,
+      targetS,
+      daysOfWeek: restrictedDays,
+      targetSessions,
+      notify,
+      notifyAt,
+    });
+  };
+
   return (
-    <View style={[styles.form, { borderColor: withAlpha(color.textDim, 0.3) }]}>
+    <View style={styles.form}>
       <Text style={[styles.formLabel, { color: color.textDim }]}>Count sessions labeled</Text>
       <View style={styles.chipRow}>
         <TopicChip
@@ -206,6 +277,19 @@ function GoalForm({
         ))}
       </View>
 
+      {/* Weekday restriction is only meaningful for a daily goal -- a
+          weekly/monthly goal's window already spans its whole period, so
+          "which days count" has no meaning for either (goalProgress.ts's
+          isGoalDueOn treats it the same way). Hidden rather than disabled
+          when not applicable, so the form doesn't grow taller than it needs
+          to for the common (unrestricted, or non-daily) case. */}
+      {period === 'daily' ? (
+        <>
+          <Text style={[styles.formLabel, { color: color.textDim }]}>On these days</Text>
+          <WeekdayChips selected={daysOfWeek} onChange={setDaysOfWeek} color={color} />
+        </>
+      ) : null}
+
       <Text style={[styles.formLabel, { color: color.textDim }]}>Target</Text>
       <View
         style={styles.wheelRow}
@@ -236,6 +320,17 @@ function GoalForm({
         />
       </View>
 
+      <SessionTargetControl value={targetSessions} onChange={setTargetSessions} max={MAX_TARGET_SESSIONS} color={color} />
+
+      <NotifyControl
+        notify={notify}
+        notifyAt={notifyAt}
+        onNotifyChange={setNotify}
+        onNotifyAtChange={setNotifyAt}
+        onWheelActiveChange={onWheelActiveChange}
+        color={color}
+      />
+
       {error ? <Text style={[styles.caption, { color: color.danger }]}>{error}</Text> : null}
 
       <View style={styles.formActions}>
@@ -248,7 +343,7 @@ function GoalForm({
           // left to surface as its thrown message instead of being disabled
           // away here.
           disabled={targetS <= 0}
-          onPress={() => onSubmit(topicIdToStored(topicId), period, targetS)}
+          onPress={handleSubmit}
           color={color}
         />
         <Button label="Cancel" variant="outline" onPress={onCancel} color={color} />
@@ -295,7 +390,7 @@ function TopicChip({
 
 const styles = StyleSheet.create({
   caption: { fontSize: 12, letterSpacing: typeScale.caption.letterSpacing, lineHeight: typeScale.caption.lineHeight },
-  form: { gap: 8, borderWidth: 1, borderRadius: 12, padding: 12 },
+  form: { gap: 10 },
   formLabel: { ...typeScale.label },
   formActions: { flexDirection: 'row', gap: 8 },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },

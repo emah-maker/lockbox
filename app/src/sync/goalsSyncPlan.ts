@@ -37,10 +37,21 @@ export interface GoalsSyncPlan {
   shouldPushBack: boolean;
 }
 
+/** Order-sensitive equality for a possibly-undefined Goal.daysOfWeek --
+ * both sides are always already normalized (deduped/sorted, undefined
+ * rather than []) by goals.ts's own normalizeDaysOfWeek, whether they came
+ * from createGoal/updateGoal or sanitizeOneGoal, so a plain index-wise
+ * compare is sufficient; this never re-sorts or dedupes on its own. */
+function sameDaysOfWeek(a: number[] | undefined, b: number[] | undefined): boolean {
+  if (a === undefined || b === undefined) return a === b;
+  return a.length === b.length && a.every((v, i) => v === b[i]);
+}
+
 /**
  * True when `merged` contains anything `remote` doesn't -- a different set
  * of ids, or a shared id whose comparison-relevant fields (topic/period/
- * targetS/updatedAt/archived) differ. `createdAt` is deliberately excluded:
+ * targetS/updatedAt/archived/daysOfWeek/targetSessions/notify/notifyAt)
+ * differ. `createdAt` is deliberately excluded:
  * it's immutable per id (goals.ts never rewrites it), so it can never differ
  * between two records that share an id without one of them being corrupt,
  * which sanitizeRemoteGoals/mergeGoals already guard against upstream.
@@ -66,7 +77,17 @@ function goalsDifferFrom(merged: Goal[], remote: Goal[]): boolean {
   for (const g of merged) {
     const r = remoteById.get(g.id);
     if (!r) return true;
-    if (g.topic !== r.topic || g.period !== r.period || g.targetS !== r.targetS || g.updatedAt !== r.updatedAt || g.archived !== r.archived) {
+    if (
+      g.topic !== r.topic ||
+      g.period !== r.period ||
+      g.targetS !== r.targetS ||
+      g.updatedAt !== r.updatedAt ||
+      g.archived !== r.archived ||
+      g.targetSessions !== r.targetSessions ||
+      g.notify !== r.notify ||
+      g.notifyAt !== r.notifyAt ||
+      !sameDaysOfWeek(g.daysOfWeek, r.daysOfWeek)
+    ) {
       return true;
     }
   }

@@ -152,4 +152,50 @@ describe('planGoalsSync', () => {
     expect(plan.docUpdatedAt).toBe(1500);
     expect(plan.shouldPushBack).toBe(false);
   });
+
+  describe('flexible-goals extension fields (daysOfWeek/targetSessions/notify/notifyAt)', () => {
+    it('pushes back when only a flexible-goals extension field differs, even though the doc-level clock matches', () => {
+      // Same trap as the topic/period/targetS content check above, just for
+      // one of the newer fields -- a bump to `updatedAt` on its own already
+      // covers most cases, but this isolates the *content* comparison
+      // itself catching a difference on one of the four new fields.
+      const shared = goal('goal:a', 1000, { notify: true, notifyAt: '09:00' });
+      const remoteVersion = { ...shared, notifyAt: '18:00' }; // same updatedAt, different notifyAt
+      const plan = planGoalsSync([shared], 1000, [remoteVersion], 1000);
+
+      expect(plan.merged).toEqual([shared]); // local wins the updatedAt tie
+      expect(plan.shouldPushBack).toBe(true); // but the remote's notifyAt still needs correcting
+    });
+
+    it('does not push back when a shared goal is identical including its daysOfWeek', () => {
+      const shared = goal('goal:a', 1000, { period: 'daily', daysOfWeek: [1, 3, 5] });
+      const plan = planGoalsSync([shared], 1000, [{ ...shared }], 1000);
+
+      expect(plan.shouldPushBack).toBe(false);
+    });
+
+    it('pushes back when daysOfWeek differs even though every other field is identical', () => {
+      const local = goal('goal:a', 1000, { period: 'daily', daysOfWeek: [1, 3, 5] });
+      const remote = { ...local, daysOfWeek: [1, 3] };
+      const plan = planGoalsSync([local], 1000, [remote], 1000);
+
+      expect(plan.shouldPushBack).toBe(true);
+    });
+
+    it('treats undefined and an empty daysOfWeek as equal for the content diff (both mean "every day")', () => {
+      const local = goal('goal:a', 1000, { period: 'daily' }); // daysOfWeek undefined
+      const remote = { ...local, daysOfWeek: [] as number[] };
+      const plan = planGoalsSync([local], 1000, [remote], 1000);
+
+      expect(plan.shouldPushBack).toBe(false);
+    });
+
+    it('pushes back when targetSessions differs', () => {
+      const local = goal('goal:a', 1000, { targetSessions: 3 });
+      const remote = { ...local, targetSessions: 5 };
+      const plan = planGoalsSync([local], 1000, [remote], 1000);
+
+      expect(plan.shouldPushBack).toBe(true);
+    });
+  });
 });

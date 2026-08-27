@@ -13,6 +13,7 @@ import {
   LayoutChangeEvent,
   Animated,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../theme/useTheme';
 import { withAlpha } from '../theme/theme';
 import { AnimatedPressable } from '../ui/AnimatedPressable';
@@ -89,6 +90,60 @@ export function Row({
       <Text style={[styles.label, { color: color.text }]}>{label}</Text>
       {children}
     </View>
+  );
+}
+
+// Disclosure row for the Settings hub (SettingsScreen.tsx) -- label on the
+// left, a one-line current-value summary and a chevron on the right, the
+// whole row tappable to open that category's Sheet. Unlike Row above (which
+// hosts an inline control, e.g. a Switch, and is still used inside each
+// sheet's own content), this is the hub's own list-item shape: a summary
+// string rather than a live control, since the control itself only exists
+// once its sheet is open. min 44pt tall so the hub itself is comfortable to
+// scan and tap even though its rows are denser than the old wall-of-controls
+// screen this replaces.
+export function DisclosureRow({
+  label,
+  value,
+  onPress,
+  color,
+  icon,
+  accessibilityLabel,
+}: {
+  label: string;
+  /** One-line summary of the section's current state, e.g. "Dark · Mint" or
+   * "3 labels" -- omitted (not empty-stringed) when there's nothing worth
+   * summarizing yet, so the chevron doesn't sit next to an awkward blank. */
+  value?: string;
+  onPress: () => void;
+  color: ReturnType<typeof useTheme>;
+  /** Optional leading glyph (e.g. the account avatar icon) -- most hub rows
+   * omit this and render as plain text + chevron. */
+  icon?: React.ReactNode;
+  accessibilityLabel?: string;
+}) {
+  return (
+    <AnimatedPressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel ?? (value ? `${label}, ${value}` : label)}
+      style={styles.disclosureRow}
+    >
+      <View style={styles.disclosureLeft}>
+        {icon}
+        <Text style={[styles.label, { color: color.text }]} numberOfLines={1}>
+          {label}
+        </Text>
+      </View>
+      <View style={styles.disclosureRight}>
+        {value ? (
+          <Text style={[styles.disclosureValue, { color: color.textDim }]} numberOfLines={1}>
+            {value}
+          </Text>
+        ) : null}
+        <Ionicons name="chevron-forward" size={18} color={color.textDim} />
+      </View>
+    </AnimatedPressable>
   );
 }
 
@@ -398,7 +453,11 @@ const styles = StyleSheet.create({
   buttonLabel: { fontWeight: '600', letterSpacing: typeScale.body.letterSpacing, lineHeight: typeScale.body.lineHeight },
   buttonContent: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   button: {
-    paddingVertical: 10,
+    // paddingVertical 12 (was 10) so a filled/outline Button's tap target
+    // clears the ~44pt minimum together with its text line-height, not just
+    // its visual box (production readiness review-style pass, same
+    // reasoning as SliderRow's hitSlop just below).
+    paddingVertical: 12,
     paddingHorizontal: 16,
     borderRadius: 10,
     borderWidth: 1.5,
@@ -406,8 +465,21 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     minWidth: 110,
   },
-  row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  // minHeight 44 so every Row -- both a sheet's own Switch/value rows and
+  // (via the shared object below) SliderRow's label/value line -- clears the
+  // minimum comfortable touch target, now that the hub above it is denser.
+  row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', minHeight: 44 },
   label: rowLabelStyle,
+  disclosureRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    minHeight: 48,
+    paddingVertical: 10,
+  },
+  disclosureLeft: { flexDirection: 'row', alignItems: 'center', gap: 10, flexShrink: 1 },
+  disclosureRight: { flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 1, marginLeft: 12 },
+  disclosureValue: { fontSize: 14, flexShrink: 1, letterSpacing: typeScale.body.letterSpacing, lineHeight: 18 },
   sliderValue: { fontSize: 15, fontWeight: '600', letterSpacing: typeScale.sectionTitle.letterSpacing, lineHeight: 20 },
   sliderTrackWrap: { height: THUMB_SIZE, justifyContent: 'center', marginTop: 10 },
   sliderTrack: { position: 'absolute', left: 0, height: TRACK_HEIGHT, borderRadius: TRACK_HEIGHT / 2 },

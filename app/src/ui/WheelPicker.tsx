@@ -95,6 +95,26 @@ export function WheelPicker({
   const PAD = (itemSize * (VISIBLE_COUNT - 1)) / 2;
   const scrollPos = useRef(new Animated.Value(selectedIndex * itemSize)).current;
   const settledIndexRef = useRef(selectedIndex);
+  // True from the moment a finger touches this wheel until its settle
+  // (drag-release commit, or the momentum coast that follows a flick) has
+  // fully resolved -- guards the external-resync effect just below from
+  // calling scrollTo() while a live touch (or its own momentum) is still
+  // driving the same ScrollView. That fight -- an imperative scrollTo
+  // landing mid-gesture -- is exactly the "controlled value fighting a
+  // drag" class of glitch this component exists to avoid (see WheelPicker's
+  // own bounce-vs-manual-snap comment in commit() below for the sibling bug
+  // of the same shape).
+  const isBusyRef = useRef(false);
+  // Dedupes a single physical release from committing twice. With
+  // snapToInterval set, iOS keeps running its own momentum/settle pass to
+  // glide to the snap point even after a release velocity near zero -- so
+  // onScrollEndDrag's low-velocity branch below can call commit() directly,
+  // and onMomentumScrollEnd (always wired to commit) still fires right
+  // after for the very same settle. Without this, that shows up as a
+  // doubled haptic tap and onChange firing twice per turn of the wheel.
+  // Cleared at the start of every new drag so a genuinely separate gesture
+  // still commits normally.
+  const committedRef = useRef<number | null>(null);
 
   const scrollToIndex = (index: number, animated: boolean) => {
     const offset = index * itemSize;
@@ -113,7 +133,14 @@ export function WheelPicker({
   // since the *value* never changed -- the ref comparison below is what
   // actually needs to run on every render; it already no-ops cheaply once
   // the two agree, so this isn't a behavior change for the normal case.
+  // Skipped entirely while isBusyRef is set: a re-render landing mid-drag
+  // (e.g. the paired wheel's own onChange, or a box-sync tick arriving)
+  // must not scrollTo() this wheel out from under the live touch. Once the
+  // touch/momentum settles, onDragEnd's caller-side state update (see
+  // DashboardScreen's lockOuterScroll/unlockOuterScroll) triggers the next
+  // render this effect needs to actually catch up.
   useEffect(() => {
+    if (isBusyRef.current) return;
     if (settledIndexRef.current === selectedIndex) return;
     settledIndexRef.current = selectedIndex;
     scrollToIndex(selectedIndex, true);
@@ -143,10 +170,19 @@ export function WheelPicker({
     // native bounce can't be involved (there's nothing to elastically
     // correct there), so this only skips the exact case that fights it --
     // the clamped index/onChange below still fire every time regardless.
+    // Checked before this settle is marked committed below -- a corrective
+    // scrollTo here is itself an animated scroll, so it can trigger its own
+    // trailing onMomentumScrollEnd once it finishes. Marking `index` as
+    // committed first turns that follow-up call into the ordinary
+    // already-committed no-op below, instead of a second, spurious commit.
+    const alreadyCommitted = committedRef.current === index;
     if (Math.abs(pos - snappedPos) > 0.5 && pos >= -0.5 && pos <= maxOffset + 0.5) {
       scrollToIndex(index, true);
     }
+    committedRef.current = index;
     settledIndexRef.current = index;
+    isBusyRef.current = false; // this settle is fully resolved -- safe for the resync effect to scrollTo again
+    if (alreadyCommitted) return; // see committedRef's own comment -- the other event already handled this exact settle
     if (index !== selectedIndex) {
       Haptics.selectionAsync();
       onChange(index);
@@ -207,7 +243,11 @@ export function WheelPicker({
         }
         onScroll={onScroll}
         scrollEventThrottle={16}
-        onScrollBeginDrag={onDragStart}
+        onScrollBeginDrag={() => {
+          isBusyRef.current = true;
+          committedRef.current = null; // a fresh gesture -- the dedupe below must not carry over from the last one
+          onDragStart?.();
+        }}
         onMomentumScrollEnd={commit}
         onScrollEndDrag={(e) => {
           // The finger has left the screen the instant this fires, whether

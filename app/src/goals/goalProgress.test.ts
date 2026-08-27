@@ -1,8 +1,10 @@
 // Unit tests for goalProgress.ts's pure progress computation: window
-// boundaries (daily + weekly, including exact-edge sessions), topic
-// matching (built-in/custom/null/untagged), archived-goal exclusion, and
-// the unclamped ratio when a goal is exceeded. Run with `npm test`.
-import { computeGoalProgress, goalWindow } from './goalProgress';
+// boundaries (daily + weekly + monthly, including exact-edge sessions),
+// topic matching (built-in/custom/null/untagged), archived-goal exclusion,
+// the unclamped ratio when a goal is exceeded, and the flexible-goals
+// extension (daysOfWeek/dueToday, targetSessions/sessionCount/sessionsMet,
+// and the combined `met`). Run with `npm test`.
+import { computeGoalProgress, goalWindow, isGoalDueOn } from './goalProgress';
 import { Goal } from './goals';
 import { LoggedSession } from '../stats/sessionHistory';
 
@@ -33,6 +35,8 @@ const DAY_START = new Date(2024, 0, 10, 0, 0, 0).getTime();
 const DAY_END = new Date(2024, 0, 11, 0, 0, 0).getTime();
 const WEEK_START = new Date(2024, 0, 7, 0, 0, 0).getTime(); // Sunday
 const WEEK_END = new Date(2024, 0, 14, 0, 0, 0).getTime(); // next Sunday
+const MONTH_START = new Date(2024, 0, 1, 0, 0, 0).getTime(); // Jan 1
+const MONTH_END = new Date(2024, 1, 1, 0, 0, 0).getTime(); // Feb 1
 
 describe('goalWindow', () => {
   it('computes the daily window as local midnight to next local midnight', () => {
@@ -41,6 +45,18 @@ describe('goalWindow', () => {
 
   it('computes the weekly window as Sunday-start (matches CalendarScreen.tsx/focusStats.js convention)', () => {
     expect(goalWindow('weekly', NOW)).toEqual({ startMs: WEEK_START, endMs: WEEK_END });
+  });
+
+  it('computes the monthly window as the 1st of the month through the 1st of the next month', () => {
+    expect(goalWindow('monthly', NOW)).toEqual({ startMs: MONTH_START, endMs: MONTH_END });
+  });
+
+  it('rolls the monthly window over into January of the next year for a December `nowMs`', () => {
+    const decemberNow = new Date(2024, 11, 15).getTime();
+    expect(goalWindow('monthly', decemberNow)).toEqual({
+      startMs: new Date(2024, 11, 1).getTime(),
+      endMs: new Date(2025, 0, 1).getTime(),
+    });
   });
 });
 
@@ -84,6 +100,28 @@ describe('computeGoalProgress -- weekly window boundaries', () => {
 
   it('counts a session one ms before the window end', () => {
     const [p] = computeGoalProgress([goal({ period: 'weekly', targetS: 36000 })], [session(WEEK_END - 1, 100)], NOW);
+    expect(p.focusS).toBe(100);
+  });
+});
+
+describe('computeGoalProgress -- monthly window boundaries', () => {
+  it('counts a session exactly at the window start (the 1st, midnight)', () => {
+    const [p] = computeGoalProgress([goal({ period: 'monthly', targetS: 100000 })], [session(MONTH_START, 100)], NOW);
+    expect(p.focusS).toBe(100);
+  });
+
+  it('excludes a session exactly at the window end (the 1st of next month)', () => {
+    const [p] = computeGoalProgress([goal({ period: 'monthly', targetS: 100000 })], [session(MONTH_END, 100)], NOW);
+    expect(p.focusS).toBe(0);
+  });
+
+  it('excludes a session one ms before the window start', () => {
+    const [p] = computeGoalProgress([goal({ period: 'monthly', targetS: 100000 })], [session(MONTH_START - 1, 100)], NOW);
+    expect(p.focusS).toBe(0);
+  });
+
+  it('counts a session one ms before the window end', () => {
+    const [p] = computeGoalProgress([goal({ period: 'monthly', targetS: 100000 })], [session(MONTH_END - 1, 100)], NOW);
     expect(p.focusS).toBe(100);
   });
 });
@@ -153,5 +191,87 @@ describe('computeGoalProgress -- output shape and archived exclusion', () => {
     expect(result.map((p) => p.goalId)).toEqual(['goal:a', 'goal:b']);
     expect(result[0].focusS).toBe(100);
     expect(result[1].focusS).toBe(200);
+  });
+});
+
+// NOW is a Wednesday (2024-01-10, Date#getDay() === 3).
+describe('isGoalDueOn / dueToday -- day-restricted daily goals', () => {
+  it('is always true for a daily goal with no daysOfWeek restriction', () => {
+    expect(isGoalDueOn(goal({ period: 'daily' }), NOW)).toBe(true);
+    expect(isGoalDueOn(goal({ period: 'daily', daysOfWeek: [] }), NOW)).toBe(true);
+  });
+
+  it('is always true for weekly/monthly goals, even ones that happen to carry a stray daysOfWeek', () => {
+    expect(isGoalDueOn(goal({ period: 'weekly' }), NOW)).toBe(true);
+    expect(isGoalDueOn(goal({ period: 'monthly' }), NOW)).toBe(true);
+    expect(isGoalDueOn({ ...goal({ period: 'weekly' }), daysOfWeek: [0] } as Goal, NOW)).toBe(true);
+  });
+
+  it('is true only on a selected weekday for a day-restricted daily goal', () => {
+    const mondayWednesdayFriday = goal({ period: 'daily', daysOfWeek: [1, 3, 5] });
+    expect(isGoalDueOn(mondayWednesdayFriday, NOW)).toBe(true); // Wednesday
+    const tuesdayThursday = goal({ period: 'daily', daysOfWeek: [2, 4] });
+    expect(isGoalDueOn(tuesdayThursday, NOW)).toBe(false); // Wednesday is not selected
+  });
+
+  it('computeGoalProgress reports dueToday: true for an ordinary goal and reflects isGoalDueOn for a restricted one', () => {
+    const [ordinary] = computeGoalProgress([goal({ period: 'daily' })], [], NOW);
+    expect(ordinary.dueToday).toBe(true);
+
+    const [dueOffDay] = computeGoalProgress([goal({ period: 'daily', daysOfWeek: [2, 4] })], [], NOW);
+    expect(dueOffDay.dueToday).toBe(false);
+
+    const [dueOnDay] = computeGoalProgress([goal({ period: 'daily', daysOfWeek: [1, 3, 5] })], [], NOW);
+    expect(dueOnDay.dueToday).toBe(true);
+  });
+
+  it('still counts a session logged on an off day toward focusS/sessionCount -- dueToday only flags the day, it never excludes real progress', () => {
+    const offDayGoal = goal({ period: 'daily', daysOfWeek: [2, 4], targetS: 1000 }); // Wednesday is not selected
+    const [p] = computeGoalProgress([offDayGoal], [session(NOW, 500)], NOW);
+    expect(p.dueToday).toBe(false);
+    expect(p.focusS).toBe(500);
+  });
+});
+
+describe('computeGoalProgress -- session-count target (targetSessions/sessionCount/sessionsMet) and combined `met`', () => {
+  it('always reports sessionCount, even for a goal with no targetSessions', () => {
+    const [p] = computeGoalProgress([goal({})], [session(NOW, 100), session(NOW, 200)], NOW);
+    expect(p.sessionCount).toBe(2);
+    expect(p.targetSessions).toBeUndefined();
+    expect(p.sessionsMet).toBeUndefined();
+  });
+
+  it('only counts topic-matching, in-window sessions toward sessionCount, same filter as focusS', () => {
+    const sessions = [session(NOW, 100, 'work'), session(NOW, 200, 'study'), session(DAY_END, 300, 'work')];
+    const [p] = computeGoalProgress([goal({ topic: 'work' })], sessions, NOW);
+    expect(p.sessionCount).toBe(1);
+  });
+
+  it('reports targetSessions and sessionsMet when the goal has a session-count target', () => {
+    const withTarget = goal({ targetSessions: 2, targetS: 100 });
+    const [under] = computeGoalProgress([withTarget], [session(NOW, 1000)], NOW); // 1 session, time target already met
+    expect(under.targetSessions).toBe(2);
+    expect(under.sessionsMet).toBe(false);
+    expect(under.met).toBe(false); // time is met but the session count isn't -- met requires BOTH
+
+    const [atTarget] = computeGoalProgress([withTarget], [session(NOW, 1000), session(NOW, 1000)], NOW);
+    expect(atTarget.sessionsMet).toBe(true);
+    expect(atTarget.met).toBe(true);
+  });
+
+  it('a time-only goal (no targetSessions) keeps the pre-extension met semantics exactly: met iff focusS >= targetS', () => {
+    const [p] = computeGoalProgress([goal({ targetS: 1000 })], [session(NOW, 1000)], NOW);
+    expect(p.met).toBe(true);
+    expect(p.sessionsMet).toBeUndefined();
+  });
+
+  it('met is false when the time target is met but the session-count target is not, and vice versa', () => {
+    const g = goal({ targetS: 100, targetSessions: 3 });
+    const timeMetOnly = computeGoalProgress([g], [session(NOW, 500)], NOW)[0]; // 1 session well over the time target
+    expect(timeMetOnly.met).toBe(false);
+
+    const sessionsMetOnly = computeGoalProgress([g], [session(NOW, 1), session(NOW, 1), session(NOW, 1)], NOW)[0]; // 3 tiny sessions
+    expect(sessionsMetOnly.sessionsMet).toBe(true);
+    expect(sessionsMetOnly.met).toBe(false); // time target still not met
   });
 });

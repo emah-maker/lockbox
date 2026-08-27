@@ -3,55 +3,65 @@
 // session log (useStore.sessions) the same way DashboardScreen's Focus card
 // is -- the box keeps no long-term stats of its own to read this from.
 //
-// A day/week/month/all-time window control scopes both the total and the
-// topic breakdown below to the same slice of `sessions` (sessionHistory.ts's
-// filterByWindow) -- the 7-day trend chart (stats/trend.ts) and "Fun facts"
-// always look at the full history/last-7-days regardless of this control, so
-// they read consistently no matter which window is selected. The topic
-// breakdown is a no-op on an untagged history -- it just shows a hint instead
-// of an empty chart.
+// The period selector (screens/stats/PeriodSelector.tsx) is Day/Week/Month/
+// All, scoping the total + topic breakdown to that slice of `sessions`
+// (sessionHistory.ts's filterByWindow), PLUS a fifth "Goals" option that
+// swaps the whole body for a read-only goal-progress view
+// (screens/stats/GoalsProgressView.tsx) instead of scoping anything -- see
+// that file's header for why goal editing itself is reached from the Goals
+// view's own "Manage goals" affordance (screens/stats/ManageSheet.tsx) --
+// a contextual shortcut for editing a goal while looking at it; Settings'
+// own goals row is the canonical home, and every per-card tap here
+// navigates there rather than opening a second editor.
 //
-// The Focus goals + Custom labels sections at the bottom are the two
-// write-capable cards on this screen; both live here (rather than in
-// Settings) because a goal's progress and a label's breakdown only mean
-// anything next to the session data above them. See GoalsSection.tsx's own
-// header for that placement decision.
+// This file is now an orchestrator: it owns the period/topic-filter/sheet
+// state and composes screens/stats/*.tsx, which is where the actual card
+// bodies, the trend/topic interactivity, and the goals view live -- split
+// out once this file's own single-scroll version of all of that started
+// pushing past this project's 500-line guideline (see each sub-file's own
+// header for why it exists separately).
+//
+// "Stop the screen growing vertically" (this task's brief): the
+// write-capable, potentially-long goal forms that used to sit permanently
+// at the bottom of this scroll (GoalsSection's add/edit/delete) now live
+// inside ManageSheet, reached from the Goals view instead of always
+// rendered inline. CustomLabelsSection moved to Settings' own "Custom
+// labels" row entirely rather than being mounted here too, so there is one
+// canonical place to edit the label catalog -- the main scroll is just the total
+// card, fun facts (capped, with a "see more" sheet), the trend/heatmap
+// card, and the topic card, which is the "fits one screen with light
+// scrolling" the brief asks for.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, View, Text, StyleSheet, ScrollView } from 'react-native';
-import { Feather } from '@expo/vector-icons';
+import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { useStore } from '../store/useStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useTheme } from '../theme/useTheme';
-import { withAlpha } from '../theme/theme';
-import { aggregate, formatDuration, completionRate } from '../stats/stats';
-import { topComparisons, formatComparison } from '../stats/comparisons';
+import { aggregate } from '../stats/stats';
+import { topComparisons } from '../stats/comparisons';
 import { topicBreakdownWithCustom } from '../stats/customLabels';
 import { lastNDays, lastNDaysHeatmap, bestDay } from '../stats/trend';
-import { filterByWindow, TimeWindow } from '../stats/sessionHistory';
+import { filterByWindow, dayKey, TimeWindow, LoggedSession } from '../stats/sessionHistory';
 import { getJSON, setJSON } from '../storage/storage';
-import { useReducedMotion, configureLayoutAnimation } from '../ui/useReducedMotion';
-import { AnimatedFill } from '../ui/AnimatedFill';
-import { AnimatedPressable } from '../ui/AnimatedPressable';
-import { TopicDonut } from '../ui/TopicDonut';
-import { CustomLabelsSection } from './CustomLabelsSection';
-import { GoalsSection } from './GoalsSection';
-import { typeScale, elevation, springs } from '../theme/tokens';
+import { useReducedMotion } from '../ui/useReducedMotion';
+import { Sheet } from '../ui/Sheet';
+import { useNav } from '../nav/useNav';
+import { PeriodSelector, StatsPeriod, isStatsPeriod } from './stats/PeriodSelector';
+import { TotalFocusCard } from './stats/TotalFocusCard';
+import { FunFactsCard } from './stats/FunFactsCard';
+import { TrendCard } from './stats/TrendCard';
+import { TopicCard } from './stats/TopicCard';
+import { GoalsProgressView } from './stats/GoalsProgressView';
+import { SessionListSheet } from './stats/SessionListSheet';
+import { ManageSheet } from './stats/ManageSheet';
+import { typeScale } from '../theme/tokens';
 
 const TOP_N = 5;
-const TREND_BAR_MAX_H = 80;
-const HEATMAP_OPACITY = [0.08, 0.3, 0.5, 0.72, 1] as const; // index = HeatmapDay.level
-const BEST_STREAK_KEY = 'bestStreakSeen';
 const TIME_WINDOW_KEY = 'statsTimeWindow';
+const HIGHLIGHT_MS = 1600;
 
-const WINDOW_OPTIONS: { key: TimeWindow; label: string }[] = [
-  { key: 'day', label: 'Day' },
-  { key: 'week', label: 'Week' },
-  { key: 'month', label: 'Month' },
-  { key: 'all', label: 'All time' },
-];
-
-const isTimeWindow = (v: unknown): v is TimeWindow =>
-  v === 'day' || v === 'week' || v === 'month' || v === 'all';
+function isTimeWindow(v: StatsPeriod): v is TimeWindow {
+  return v === 'day' || v === 'week' || v === 'month' || v === 'all';
+}
 
 export default function StatsScreen() {
   const c = useTheme();
@@ -59,21 +69,25 @@ export default function StatsScreen() {
   const themeMode = useSettingsStore((s) => s.themeMode);
   const customLabels = useSettingsStore((s) => s.customLabels);
   const reducedMotion = useReducedMotion();
-  const [timeWindow, setTimeWindow] = useState<TimeWindow>('all');
+
+  const [period, setPeriod] = useState<StatsPeriod>('all');
+  const [selectedTopic, setSelectedTopic] = useState<string | null>(null);
+  const [daySheetKey, setDaySheetKey] = useState<string | null>(null);
+  const [topicSheetKey, setTopicSheetKey] = useState<string | null>(null);
+  const [funFactsSheetOpen, setFunFactsSheetOpen] = useState(false);
+  const [manageSheetOpen, setManageSheetOpen] = useState(false);
+  const [highlightGoalId, setHighlightGoalId] = useState<string | null>(null);
   // Guards the mount load below against overwriting a selection the user
-  // already made while the AsyncStorage read was still in flight.
+  // (or an incoming deep link) already made while the AsyncStorage read was
+  // still in flight -- same guard StatsScreen has always used for its
+  // period control.
   const userSelectedRef = useRef(false);
-  // GoalsSection's H/M target wheels are vertical scrollers nested inside
-  // this screen's own ScrollView, so this screen has to surrender the drag
-  // while a finger is down on one -- the identical problem (and the identical
-  // state-driven `scrollEnabled` fix, deliberately NOT setNativeProps)
-  // DashboardScreen.tsx solves for its lock-duration wheels; see its
-  // pickerActive comment for why a ref + setNativeProps was rejected there.
+  // GoalsSection's H/M target wheels (inside ManageSheet) are vertical
+  // scrollers nested inside that sheet's own ScrollView -- same
+  // scrollEnabled hand-off DashboardScreen/the old inline GoalsSection here
+  // used, just now scoped to the sheet instead of this screen's own
+  // (removed) ScrollView drag.
   const [wheelActive, setWheelActive] = useState(false);
-  // Belt-and-suspenders against a lost release (WheelPicker's onDragEnd not
-  // firing while the ScrollView is still elastically bouncing at a wheel's
-  // hard limit) leaving this screen permanently unscrollable -- same guard,
-  // same 600ms, as DashboardScreen's pickerSafetyTimer.
   const wheelSafetyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onWheelActiveChange = (active: boolean) => {
     if (wheelSafetyTimer.current) {
@@ -88,318 +102,182 @@ export default function StatsScreen() {
   }, []);
 
   // Per-device view preference -- deliberately not part of useSettingsStore's
-  // SyncableSettings, since which window is selected shouldn't follow the
+  // SyncableSettings, since which period is selected shouldn't follow the
   // user to another device (see that store's header comment).
   useEffect(() => {
     let cancelled = false;
-    getJSON<TimeWindow | null>(TIME_WINDOW_KEY, null).then((saved) => {
-      if (!cancelled && !userSelectedRef.current && isTimeWindow(saved)) setTimeWindow(saved);
+    getJSON<StatsPeriod | null>(TIME_WINDOW_KEY, null).then((saved) => {
+      if (!cancelled && !userSelectedRef.current && isStatsPeriod(saved)) setPeriod(saved);
     });
     return () => {
       cancelled = true;
     };
   }, []);
 
-  const selectWindow = (w: TimeWindow) => {
+  // Honor an incoming NavIntent on mount (task brief: "Honor an incoming
+  // consumeIntent() on mount"). statsPeriod selects the tab the same way a
+  // manual tap would; goalId both jumps to the Goals period (so the card it
+  // names is actually visible) and highlights that one card briefly;
+  // topic pre-applies the donut/topic-row filter this screen already
+  // supports, so a deep link from elsewhere in the app can land already
+  // scoped to one topic.
+  useEffect(() => {
+    const intent = useNav.getState().consumeIntent();
+    if (!intent) return;
+    if (intent.statsPeriod) {
+      userSelectedRef.current = true;
+      setPeriod(intent.statsPeriod);
+    }
+    if (intent.topic) setSelectedTopic(intent.topic);
+    if (intent.goalId) {
+      userSelectedRef.current = true;
+      setPeriod('goals');
+      setHighlightGoalId(intent.goalId);
+      setTimeout(() => setHighlightGoalId(null), HIGHLIGHT_MS);
+    }
+  }, []);
+
+  const selectPeriod = (p: StatsPeriod) => {
     userSelectedRef.current = true;
-    if (w === timeWindow) return;
-    configureLayoutAnimation(reducedMotion);
-    setTimeWindow(w);
-    setJSON(TIME_WINDOW_KEY, w);
+    if (p === period) return;
+    setPeriod(p);
+    setJSON(TIME_WINDOW_KEY, p);
   };
 
-  const windowedSessions = useMemo(() => filterByWindow(sessions, timeWindow), [sessions, timeWindow]);
-  const stats = useMemo(() => aggregate(windowedSessions), [windowedSessions]);
-  // Streak is "consecutive completed sessions ending now" -- windowing it by
-  // day/week/month would truncate a real streak to whatever fraction of it
-  // falls in the selected window (e.g. a 30-day streak would read as "1" the
-  // moment "Day" is selected). Computed unwindowed instead, same choice as
-  // trend/bestDay below.
-  const unwindowedStats = useMemo(() => aggregate(sessions), [sessions]);
-  const comparisons = useMemo(() => topComparisons(stats.foc).slice(0, TOP_N), [stats.foc]);
-  const best = useMemo(() => bestDay(sessions), [sessions]);
-  const trend = useMemo(() => lastNDays(sessions), [sessions]);
-  const heatmap = useMemo(() => lastNDaysHeatmap(sessions), [sessions]);
+  const windowKey: TimeWindow = isTimeWindow(period) ? period : 'all';
+
+  // Topic filter (InteractiveTopicDonut / TopicCard row taps) scopes every
+  // card on this screen, not just the topic card itself -- computed as two
+  // layers: `windowOnlySessions` (period control only) feeds the topic
+  // breakdown itself, since that list has to keep showing every topic to
+  // stay selectable/clearable; `topicScoped` (topic filter only, no period
+  // window) feeds the always-unwindowed trend/heatmap/streak, matching
+  // those cards' pre-existing "ignore the period control" behavior.
+  const windowOnlySessions = useMemo(() => filterByWindow(sessions, windowKey), [sessions, windowKey]);
   const topics = useMemo(
-    () => topicBreakdownWithCustom(windowedSessions, customLabels, themeMode),
-    [windowedSessions, customLabels, themeMode],
+    () => topicBreakdownWithCustom(windowOnlySessions, customLabels, themeMode),
+    [windowOnlySessions, customLabels, themeMode],
   );
 
-  const trendMax = Math.max(1, ...trend.map((d) => d.focusS));
+  const topicScoped = useMemo(
+    () => (selectedTopic ? sessions.filter((s) => s.topic === selectedTopic) : sessions),
+    [sessions, selectedTopic],
+  );
+  const scopedWindowed = useMemo(
+    () => (selectedTopic ? windowOnlySessions.filter((s) => s.topic === selectedTopic) : windowOnlySessions),
+    [windowOnlySessions, selectedTopic],
+  );
+
+  const stats = useMemo(() => aggregate(scopedWindowed), [scopedWindowed]);
+  const unwindowedStats = useMemo(() => aggregate(topicScoped), [topicScoped]);
+  const comparisons = useMemo(() => topComparisons(stats.foc).slice(0, TOP_N), [stats.foc]);
+  const best = useMemo(() => bestDay(topicScoped), [topicScoped]);
+  const trend = useMemo(() => lastNDays(topicScoped), [topicScoped]);
+  const heatmap = useMemo(() => lastNDaysHeatmap(topicScoped), [topicScoped]);
+
+  const daySheetSessions: LoggedSession[] = daySheetKey
+    ? topicScoped.filter((s) => dayKey(s.startedAt) === daySheetKey)
+    : [];
+  const topicSheetSessions: LoggedSession[] = topicSheetKey
+    ? windowOnlySessions.filter((s) => s.topic === topicSheetKey)
+    : [];
+
+  const openCalendarDay = (dateKey: string) => {
+    setDaySheetKey(null);
+    setTopicSheetKey(null);
+    useNav.getState().navigate('calendar', { calendarDate: dateKey });
+  };
 
   return (
-    <ScrollView
-      scrollEnabled={!wheelActive}
-      style={{ backgroundColor: c.bg }}
-      contentContainerStyle={styles.container}
-    >
-      <Text style={[styles.h1, { color: c.text }]}>Stats</Text>
+    <View style={{ flex: 1, backgroundColor: c.bg }}>
+      <ScrollView style={{ backgroundColor: c.bg }} contentContainerStyle={styles.container}>
+        <Text style={[styles.h1, { color: c.text }]}>Stats</Text>
 
-      <View style={styles.windowRow}>
-        {WINDOW_OPTIONS.map((opt) => {
-          const active = timeWindow === opt.key;
-          return (
-            <AnimatedPressable
-              key={opt.key}
-              accessibilityRole="button"
-              accessibilityState={{ selected: active }}
-              style={[
-                styles.windowChip,
-                { borderColor: withAlpha(c.accent, 0.4) },
-                active && { backgroundColor: c.accent, borderColor: c.accent },
-              ]}
-              onPress={() => selectWindow(opt.key)}
-            >
-              <Text style={[styles.windowChipText, { color: active ? c.accentText : c.textDim }]}>
-                {opt.label}
-              </Text>
-            </AnimatedPressable>
-          );
-        })}
-      </View>
+        <PeriodSelector period={period} onSelect={selectPeriod} />
 
-      {/* minHeight reserves the miniRow's space below even on a window with
-          zero sessions, so switching windows (or logging the first session)
-          doesn't change this card's height and shift everything below it. */}
-      <View style={[styles.card, { backgroundColor: c.surface, minHeight: 170 }]}>
-        <Text style={[styles.label, { color: c.textDim }]}>Total focus time</Text>
-        <AnimatedTotal text={formatDuration(stats.foc)} color={c.accent} reducedMotion={reducedMotion} />
-        <Text style={[styles.sub, { color: c.textDim }]}>
-          across {stats.n} session{stats.n === 1 ? '' : 's'}
-        </Text>
-        {stats.n > 0 && (
-          <View style={styles.miniRow}>
-            <MiniStat label="Completed" value={`${completionRate(stats)}%`} color={c} />
-            <StreakStat value={unwindowedStats.str} color={c} reducedMotion={reducedMotion} />
-            <MiniStat label="Longest" value={formatDuration(stats.lng)} color={c} />
-          </View>
-        )}
-      </View>
-
-      {/* minHeight ~= one best-day banner + one comparison row, so the empty
-          placeholder doesn't leave this noticeably shorter than the typical
-          populated state -- can't fully fix an unbounded comparisons list,
-          but removes the common small-vs-empty jump. */}
-      <View style={[styles.card, { backgroundColor: c.surface, minHeight: 140 }]}>
-        <Text style={[styles.h2, { color: c.text }]}>Fun facts</Text>
-        {stats.foc <= 0 ? (
-          <Text style={[styles.sub, { color: c.textDim }]}>
-            Start a focus session to see how it stacks up.
-          </Text>
+        {period === 'goals' ? (
+          <GoalsProgressView
+            onOpenGoalInSettings={(goalId) => useNav.getState().navigate('settings', { settingsSection: 'goals', goalId })}
+            onManage={() => setManageSheetOpen(true)}
+            highlightGoalId={highlightGoalId}
+          />
         ) : (
           <>
-            {best && (
-              <View style={[styles.bestDay, { backgroundColor: withAlpha(c.accent, 0.12) }]}>
-                <Feather name="award" size={16} color={c.accent} />
-                <Text style={[styles.fact, styles.bestDayText, { color: c.text }]}>
-                  Your best day was{' '}
-                  {new Date(best.dateMs).toLocaleDateString(undefined, {
-                    weekday: 'short',
-                    month: 'short',
-                    day: 'numeric',
-                  })}{' '}
-                  -- {formatDuration(best.focusS)} focused.
-                </Text>
-              </View>
-            )}
-            {comparisons.map((cmp) => (
-              <View key={cmp.ref.key} style={styles.factRow}>
-                <Feather name="zap" size={14} color={c.textDim} />
-                <Text style={[styles.fact, { color: c.text }]}>{formatComparison(cmp)}</Text>
-              </View>
-            ))}
+            <TotalFocusCard stats={stats} unwindowedStreak={unwindowedStats.str} reducedMotion={reducedMotion} />
+            <FunFactsCard
+              hasFocus={stats.foc > 0}
+              best={best}
+              comparisons={comparisons}
+              onSeeMore={() => setFunFactsSheetOpen(true)}
+            />
+            <TrendCard trend={trend} heatmap={heatmap} onInspectDay={setDaySheetKey} />
+            <TopicCard
+              topics={topics}
+              selectedKey={selectedTopic}
+              onSelectTopic={setSelectedTopic}
+              onInspectTopic={setTopicSheetKey}
+            />
           </>
         )}
-      </View>
+      </ScrollView>
 
-      <View style={[styles.card, { backgroundColor: c.surface }]}>
-        <Text style={[styles.h2, { color: c.text }]}>Last 7 days</Text>
-        {/* The bars themselves are non-interactive and carry no text of their
-            own, so a screen reader previously skipped this chart's content
-            entirely (production readiness review, Low). One accessible
-            summary on the wrapping row reads the whole week at once, same
-            approach as the heatmap below. */}
-        <View
-          style={styles.trendRow}
-          accessible
-          accessibilityLabel={`Last 7 days: ${trend.map((d) => `${d.label} ${formatDuration(d.focusS)}`).join(', ')}`}
-        >
-          {trend.map((d) => {
-            const h = Math.max(3, Math.round((d.focusS / trendMax) * TREND_BAR_MAX_H));
-            return (
-              <View key={d.key} style={styles.trendCol}>
-                <View style={[styles.trendTrack, { height: TREND_BAR_MAX_H, backgroundColor: withAlpha(c.accent, 0.12) }]}>
-                  <AnimatedFill axis="height" toValue={h} style={styles.trendBar} color={c.accent} />
-                </View>
-                <Text style={[styles.trendLabel, { color: c.textDim }]}>{d.label}</Text>
-              </View>
-            );
-          })}
-        </View>
-      </View>
+      <Sheet
+        visible={daySheetKey !== null}
+        onClose={() => setDaySheetKey(null)}
+        title={daySheetKey ? new Date(daySheetKey).toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' }) : undefined}
+      >
+        <SessionListSheet
+          sessions={daySheetSessions}
+          customLabels={customLabels}
+          themeMode={themeMode}
+          onOpenCalendarDay={openCalendarDay}
+          emptyLabel="No sessions on this day."
+        />
+      </Sheet>
 
-      <View style={[styles.card, { backgroundColor: c.surface }]}>
-        <Text style={[styles.h2, { color: c.text }]}>Last 5 weeks</Text>
-        <View
-          style={styles.heatmapGrid}
-          accessible
-          accessibilityLabel={`Focus activity heatmap, last 5 weeks: ${
-            heatmap.filter((d) => d.level > 0).length
-          } of ${heatmap.length} days with focus time`}
-        >
-          {heatmap.map((d) => (
-            <View
-              key={d.key}
-              style={[
-                styles.heatmapCell,
-                { backgroundColor: withAlpha(c.accent, HEATMAP_OPACITY[d.level]) },
-              ]}
-            />
+      <Sheet
+        visible={topicSheetKey !== null}
+        onClose={() => setTopicSheetKey(null)}
+        title={topics.find((t) => t.key === topicSheetKey)?.label}
+      >
+        <SessionListSheet
+          sessions={topicSheetSessions}
+          customLabels={customLabels}
+          themeMode={themeMode}
+          onOpenCalendarDay={openCalendarDay}
+          emptyLabel="No sessions for this topic in the selected period."
+        />
+      </Sheet>
+
+      <Sheet visible={funFactsSheetOpen} onClose={() => setFunFactsSheetOpen(false)} title="Fun facts">
+        <View style={{ gap: 8 }}>
+          {comparisons.map((cmp) => (
+            <Text key={cmp.ref.key} style={[styles.factSheetRow, { color: c.text }]}>
+              {`That's like ${cmp.count >= 10 ? Math.round(cmp.count) : Math.round(cmp.count * 10) / 10}x ${cmp.ref.label}.`}
+            </Text>
           ))}
         </View>
-      </View>
+      </Sheet>
 
-      {/* minHeight ~= donut + one topic row, same reasoning as the other
-          placeholder cards above -- a genuinely long topic list still grows
-          past this, which is expected content growth, not the reflow bug
-          being fixed here. */}
-      <View style={[styles.card, { backgroundColor: c.surface, minHeight: 160 }]}>
-        <Text style={[styles.h2, { color: c.text }]}>By topic</Text>
-        {topics.length === 0 ? (
-          <Text style={[styles.sub, { color: c.textDim }]}>
-            Tag a session on the Home tab while it's running to see the split here.
-          </Text>
-        ) : (
-          <>
-            <View style={styles.donutRow}>
-              <TopicDonut segments={topics.map((t) => ({ key: t.key, focusS: t.focusS, color: t.color }))} />
-            </View>
-            {topics.map((t) => (
-              <View key={t.key} style={styles.topicRow}>
-                <View style={[styles.topicSwatch, { backgroundColor: t.color }]} />
-                <View style={styles.topicHeader}>
-                  <Text style={[styles.topicLabel, { color: c.text }]}>{t.label}</Text>
-                  <Text style={[styles.topicValue, { color: c.textDim }]}>
-                    {formatDuration(t.focusS)} · {t.n} session{t.n === 1 ? '' : 's'}
-                  </Text>
-                </View>
-              </View>
-            ))}
-          </>
-        )}
-      </View>
-
-      <GoalsSection color={c} onWheelActiveChange={onWheelActiveChange} />
-
-      <CustomLabelsSection color={c} />
-    </ScrollView>
-  );
-}
-
-// Pops the total gently whenever its formatted value actually changes (e.g.
-// the window control above is switched) instead of snapping straight to the
-// new number -- gated to real changes only (skipped on first mount and on
-// re-renders where the text is unchanged), same restraint AnimatedFill/
-// AnimatedPressable already apply elsewhere on this screen.
-function AnimatedTotal({ text, color, reducedMotion }: { text: string; color: string; reducedMotion: boolean }) {
-  const pop = useRef(new Animated.Value(1)).current;
-  const prevText = useRef(text);
-
-  useEffect(() => {
-    if (prevText.current === text) return;
-    prevText.current = text;
-    if (reducedMotion) return;
-    pop.setValue(0.92);
-    Animated.spring(pop, { toValue: 1, ...springs.default, useNativeDriver: true }).start();
-  }, [text, reducedMotion]);
-
-  return (
-    <Animated.Text style={[styles.big, { color, transform: [{ scale: pop }] }]}>{text}</Animated.Text>
-  );
-}
-
-function MiniStat({ label, value, color }: { label: string; value: string; color: ReturnType<typeof useTheme> }) {
-  return (
-    <View style={styles.miniStat}>
-      <Text style={[styles.miniValue, { color: color.text }]}>{value}</Text>
-      <Text style={[styles.miniLabel, { color: color.textDim }]}>{label}</Text>
-    </View>
-  );
-}
-
-/** Same as MiniStat, but pulses once the moment `value` (the current streak)
- * actually beats the best streak this device has ever seen -- not on every
- * render, and not on every day an existing streak just continues. The best
- * seen so far persists in storage (BEST_STREAK_KEY) so the milestone is a
- * real personal record across app restarts, not just within one mount. */
-function StreakStat({
-  value,
-  color,
-  reducedMotion,
-}: {
-  value: number;
-  color: ReturnType<typeof useTheme>;
-  reducedMotion: boolean;
-}) {
-  const pulse = useRef(new Animated.Value(1)).current;
-  const checkedValueRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    if (value <= 0 || checkedValueRef.current === value) return;
-    checkedValueRef.current = value;
-    let cancelled = false;
-    getJSON<number>(BEST_STREAK_KEY, 0).then((best) => {
-      if (cancelled || value <= best) return;
-      setJSON(BEST_STREAK_KEY, value);
-      if (reducedMotion) return;
-      pulse.setValue(1.4);
-      Animated.spring(pulse, { toValue: 1, ...springs.default, useNativeDriver: true }).start();
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [value, reducedMotion, pulse]);
-
-  return (
-    <View style={styles.miniStat}>
-      <Animated.Text style={[styles.miniValue, { color: color.text, transform: [{ scale: pulse }] }]}>
-        {value}
-      </Animated.Text>
-      <Text style={[styles.miniLabel, { color: color.textDim }]}>Streak</Text>
+      {/* scrollEnabled hands the vertical gesture to GoalForm's H/M WheelPickers
+          while a finger is down on one -- same two-nested-vertical-scrollers
+          hazard this screen used to solve for its own (now removed) inline
+          ScrollView, just handed to Sheet's own body scroll instead. */}
+      <Sheet
+        visible={manageSheetOpen}
+        onClose={() => setManageSheetOpen(false)}
+        title="Manage goals"
+        size="large"
+        scrollEnabled={!wheelActive}
+      >
+        <ManageSheet color={c} onWheelActiveChange={onWheelActiveChange} />
+      </Sheet>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { padding: 20, paddingTop: 50, gap: 16, paddingBottom: 60 },
+  container: { padding: 20, paddingTop: 50, gap: 16, paddingBottom: 32 },
   h1: { ...typeScale.title, marginBottom: 4 },
-  h2: { ...typeScale.sectionTitle, marginBottom: 8 },
-  card: { borderRadius: 14, padding: 16, gap: 6, ...elevation.card },
-  label: { fontSize: 13, letterSpacing: typeScale.label.letterSpacing, lineHeight: typeScale.label.lineHeight },
-  big: { ...typeScale.display },
-  sub: { ...typeScale.body },
-  fact: { fontSize: 15, letterSpacing: typeScale.body.letterSpacing, lineHeight: typeScale.body.lineHeight, flex: 1 },
-  factRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4 },
-  bestDay: { flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 10, padding: 10, marginBottom: 6 },
-  bestDayText: { fontWeight: '600' },
-  windowRow: { flexDirection: 'row', gap: 8 },
-  windowChip: { flex: 1, alignItems: 'center', paddingVertical: 8, borderRadius: 12, borderWidth: 1.5 },
-  windowChipText: { ...typeScale.label, fontWeight: '600' },
-  miniRow: { flexDirection: 'row', gap: 20, marginTop: 8 },
-  miniStat: { alignItems: 'flex-start' },
-  miniValue: { fontSize: 18, fontWeight: '700', letterSpacing: typeScale.sectionTitle.letterSpacing, lineHeight: 22 },
-  miniLabel: { fontSize: 12, marginTop: 2, letterSpacing: typeScale.caption.letterSpacing, lineHeight: typeScale.caption.lineHeight },
-  trendRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: 8 },
-  trendCol: { alignItems: 'center', gap: 6, flex: 1 },
-  trendTrack: { width: 18, borderRadius: 9, justifyContent: 'flex-end', overflow: 'hidden' },
-  trendBar: { width: '100%', borderRadius: 9 },
-  trendLabel: { ...typeScale.caption },
-  donutRow: { alignItems: 'center', marginVertical: 8 },
-  topicRow: { flexDirection: 'row', alignItems: 'baseline', gap: 8, marginTop: 8 },
-  topicSwatch: { width: 10, height: 10, borderRadius: 5, marginBottom: 2 },
-  topicHeader: { flex: 1, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
-  topicLabel: { fontSize: 14, fontWeight: '600', letterSpacing: typeScale.body.letterSpacing, lineHeight: typeScale.body.lineHeight },
-  topicValue: { fontSize: 12, letterSpacing: typeScale.caption.letterSpacing, lineHeight: typeScale.caption.lineHeight },
-  heatmapGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 4 },
-  heatmapCell: { width: 14, height: 14, borderRadius: 3 },
+  factSheetRow: { fontSize: 15, lineHeight: 20 },
 });

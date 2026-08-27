@@ -15,6 +15,8 @@ import {
   MIN_TARGET_S,
   MAX_DAILY_TARGET_S,
   MAX_WEEKLY_TARGET_S,
+  MAX_MONTHLY_TARGET_S,
+  MAX_TARGET_SESSIONS,
   ARCHIVED_GOAL_PRUNE_MS,
 } from './goals';
 
@@ -70,7 +72,12 @@ describe('createGoal', () => {
   });
 
   it('rejects an invalid period', () => {
-    expect(() => createGoal([], null, 'monthly' as any, 3600)).toThrow();
+    expect(() => createGoal([], null, 'yearly' as any, 3600)).toThrow();
+  });
+
+  it('accepts the "monthly" period added by the flexible-goals extension', () => {
+    const goals = createGoal([], null, 'monthly', 3600);
+    expect(goals[0].period).toBe('monthly');
   });
 
   it('rejects a non-integer targetS', () => {
@@ -114,6 +121,12 @@ describe('createGoal', () => {
     expect(goals[0].targetS).toBe(midway);
   });
 
+  it('accepts a monthly targetS up to MAX_MONTHLY_TARGET_S and rejects above it', () => {
+    const goals = createGoal([], null, 'monthly', MAX_MONTHLY_TARGET_S);
+    expect(goals[0].targetS).toBe(MAX_MONTHLY_TARGET_S);
+    expect(() => createGoal([], null, 'monthly', MAX_MONTHLY_TARGET_S + 1)).toThrow();
+  });
+
   it('rejects creating a goal past MAX_GOALS', () => {
     let goals: Goal[] = [];
     for (let i = 0; i < MAX_GOALS; i += 1) {
@@ -151,6 +164,129 @@ describe('updateGoal', () => {
     const goals = createGoal([], 'work', 'daily', 3600, 1000);
     const result = updateGoal(goals, 'goal:does-not-exist', { targetS: 7200 }, 2000);
     expect(result).toEqual(goals);
+  });
+});
+
+describe('createGoal -- flexible-goals extension fields', () => {
+  it('creates a plain goal with none of the new fields present at all (not even as undefined keys implied by tests below)', () => {
+    const goals = createGoal([], null, 'daily', 3600, 1000);
+    expect(goals[0]).not.toHaveProperty('daysOfWeek');
+    expect(goals[0]).not.toHaveProperty('targetSessions');
+    expect(goals[0]).not.toHaveProperty('notify');
+    expect(goals[0]).not.toHaveProperty('notifyAt');
+  });
+
+  it('accepts a daily goal restricted to specific weekdays, deduped and sorted', () => {
+    const goals = createGoal([], null, 'daily', 3600, 1000, { daysOfWeek: [5, 1, 3, 1] });
+    expect(goals[0].daysOfWeek).toEqual([1, 3, 5]);
+  });
+
+  it('collapses an empty daysOfWeek array to undefined ("every day" has one canonical form)', () => {
+    const goals = createGoal([], null, 'daily', 3600, 1000, { daysOfWeek: [] });
+    expect(goals[0].daysOfWeek).toBeUndefined();
+  });
+
+  it('rejects daysOfWeek on a non-daily goal', () => {
+    expect(() => createGoal([], null, 'weekly', 3600, 1000, { daysOfWeek: [1] })).toThrow(
+      'daysOfWeek only applies to a daily goal.',
+    );
+  });
+
+  it('rejects a daysOfWeek entry outside 0-6', () => {
+    expect(() => createGoal([], null, 'daily', 3600, 1000, { daysOfWeek: [7] })).toThrow();
+    expect(() => createGoal([], null, 'daily', 3600, 1000, { daysOfWeek: [-1] })).toThrow();
+    expect(() => createGoal([], null, 'daily', 3600, 1000, { daysOfWeek: [1.5] })).toThrow();
+  });
+
+  it('accepts a targetSessions within bounds', () => {
+    const goals = createGoal([], null, 'daily', 3600, 1000, { targetSessions: 3 });
+    expect(goals[0].targetSessions).toBe(3);
+  });
+
+  it('rejects a targetSessions below 1 or above MAX_TARGET_SESSIONS, or non-integer', () => {
+    expect(() => createGoal([], null, 'daily', 3600, 1000, { targetSessions: 0 })).toThrow();
+    expect(() => createGoal([], null, 'daily', 3600, 1000, { targetSessions: MAX_TARGET_SESSIONS + 1 })).toThrow();
+    expect(() => createGoal([], null, 'daily', 3600, 1000, { targetSessions: 1.5 })).toThrow();
+  });
+
+  it('accepts targetSessions exactly at MAX_TARGET_SESSIONS', () => {
+    const goals = createGoal([], null, 'daily', 3600, 1000, { targetSessions: MAX_TARGET_SESSIONS });
+    expect(goals[0].targetSessions).toBe(MAX_TARGET_SESSIONS);
+  });
+
+  it('accepts notify/notifyAt together', () => {
+    const goals = createGoal([], null, 'daily', 3600, 1000, { notify: true, notifyAt: '09:30' });
+    expect(goals[0]).toMatchObject({ notify: true, notifyAt: '09:30' });
+  });
+
+  it('rejects a malformed notifyAt', () => {
+    expect(() => createGoal([], null, 'daily', 3600, 1000, { notify: true, notifyAt: '9:30' })).toThrow();
+    expect(() => createGoal([], null, 'daily', 3600, 1000, { notify: true, notifyAt: '24:00' })).toThrow();
+    expect(() => createGoal([], null, 'daily', 3600, 1000, { notify: true, notifyAt: '12:60' })).toThrow();
+    expect(() => createGoal([], null, 'daily', 3600, 1000, { notify: true, notifyAt: 'noon' })).toThrow();
+  });
+
+  it('accepts notifyAt at both boundary times', () => {
+    expect(createGoal([], null, 'daily', 3600, 1000, { notifyAt: '00:00' })[0].notifyAt).toBe('00:00');
+    expect(createGoal([], null, 'daily', 3600, 1000, { notifyAt: '23:59' })[0].notifyAt).toBe('23:59');
+  });
+
+  it('rejects a non-boolean notify', () => {
+    expect(() => createGoal([], null, 'daily', 3600, 1000, { notify: 'yes' as any })).toThrow();
+  });
+});
+
+describe('updateGoal -- flexible-goals extension fields', () => {
+  it('sets daysOfWeek on an existing daily goal', () => {
+    const goals = createGoal([], null, 'daily', 3600, 1000);
+    const updated = updateGoal(goals, goals[0].id, { daysOfWeek: [3, 1] }, 2000);
+    expect(updated[0].daysOfWeek).toEqual([1, 3]);
+  });
+
+  it('clears daysOfWeek back to "every day" via null', () => {
+    const goals = createGoal([], null, 'daily', 3600, 1000, { daysOfWeek: [1, 2] });
+    const updated = updateGoal(goals, goals[0].id, { daysOfWeek: null }, 2000);
+    expect(updated[0].daysOfWeek).toBeUndefined();
+  });
+
+  it('leaves daysOfWeek untouched when the patch omits it', () => {
+    const goals = createGoal([], null, 'daily', 3600, 1000, { daysOfWeek: [1, 2] });
+    const updated = updateGoal(goals, goals[0].id, { targetS: 7200 }, 2000);
+    expect(updated[0].daysOfWeek).toEqual([1, 2]);
+  });
+
+  it('re-checks a goal\'s existing daysOfWeek when the patch switches period away from daily', () => {
+    const goals = createGoal([], null, 'daily', 3600, 1000, { daysOfWeek: [1, 2] });
+    expect(() => updateGoal(goals, goals[0].id, { period: 'weekly' }, 2000)).toThrow(
+      'daysOfWeek only applies to a daily goal.',
+    );
+    // Clearing it explicitly alongside the period change succeeds.
+    const updated = updateGoal(goals, goals[0].id, { period: 'weekly', daysOfWeek: null }, 2000);
+    expect(updated[0].period).toBe('weekly');
+    expect(updated[0].daysOfWeek).toBeUndefined();
+  });
+
+  it('sets and clears targetSessions via null', () => {
+    const goals = createGoal([], null, 'daily', 3600, 1000);
+    const withTarget = updateGoal(goals, goals[0].id, { targetSessions: 5 }, 2000);
+    expect(withTarget[0].targetSessions).toBe(5);
+    const cleared = updateGoal(withTarget, goals[0].id, { targetSessions: null }, 3000);
+    expect(cleared[0].targetSessions).toBeUndefined();
+  });
+
+  it('sets notify and notifyAt, and clears notifyAt via null while leaving notify alone', () => {
+    const goals = createGoal([], null, 'daily', 3600, 1000);
+    const withNotify = updateGoal(goals, goals[0].id, { notify: true, notifyAt: '08:00' }, 2000);
+    expect(withNotify[0]).toMatchObject({ notify: true, notifyAt: '08:00' });
+    const clearedTime = updateGoal(withNotify, goals[0].id, { notifyAt: null }, 3000);
+    expect(clearedTime[0].notify).toBe(true);
+    expect(clearedTime[0].notifyAt).toBeUndefined();
+  });
+
+  it('rejects an invalid extension field the same way create does', () => {
+    const goals = createGoal([], null, 'daily', 3600, 1000);
+    expect(() => updateGoal(goals, goals[0].id, { notifyAt: 'bad' })).toThrow();
+    expect(() => updateGoal(goals, goals[0].id, { targetSessions: -1 })).toThrow();
   });
 });
 
@@ -240,7 +376,11 @@ describe('sanitizeRemoteGoals', () => {
   });
 
   it('drops an entry with an invalid period', () => {
-    expect(sanitizeRemoteGoals([valid({ period: 'monthly' as any })])).toEqual([]);
+    expect(sanitizeRemoteGoals([valid({ period: 'yearly' as any })])).toEqual([]);
+  });
+
+  it('keeps an entry with the "monthly" period added by the flexible-goals extension', () => {
+    expect(sanitizeRemoteGoals([valid({ period: 'monthly' as any, targetS: 3600 })])).toHaveLength(1);
   });
 
   it('drops an entry whose targetS is not an integer', () => {
@@ -305,5 +445,75 @@ describe('sanitizeRemoteGoals', () => {
     ];
     expect(() => sanitizeRemoteGoals(hostile)).not.toThrow();
     expect(sanitizeRemoteGoals(hostile).map((g) => g.id)).toEqual(['goal:ok']);
+  });
+
+  describe('old-shape compatibility (pre-flexible-goals entries)', () => {
+    it('accepts an entry with none of the four new fields at all, and never invents them', () => {
+      const result = sanitizeRemoteGoals([valid()]);
+      expect(result).toEqual([valid()]);
+      expect(result[0]).not.toHaveProperty('daysOfWeek');
+      expect(result[0]).not.toHaveProperty('targetSessions');
+      expect(result[0]).not.toHaveProperty('notify');
+      expect(result[0]).not.toHaveProperty('notifyAt');
+    });
+
+    it('never throws on an entry with the new fields simply absent (undefined via destructuring, not explicitly set)', () => {
+      const bareOldShape = { id: 'goal:old', topic: 'work', period: 'daily', targetS: 1800, createdAt: 1, updatedAt: 1, archived: false };
+      expect(() => sanitizeRemoteGoals([bareOldShape])).not.toThrow();
+      expect(sanitizeRemoteGoals([bareOldShape])).toEqual([bareOldShape]);
+    });
+  });
+
+  describe('flexible-goals extension fields -- strict per-field validation, never rejects the whole goal', () => {
+    it('keeps a valid daysOfWeek on a daily entry, deduped and sorted', () => {
+      const result = sanitizeRemoteGoals([valid({ daysOfWeek: [3, 1, 1, 5] } as any)]);
+      expect(result[0].daysOfWeek).toEqual([1, 3, 5]);
+    });
+
+    it('drops (only) an invalid daysOfWeek -- out-of-range entries, wrong type, or a daily-only field on a non-daily goal', () => {
+      expect(sanitizeRemoteGoals([valid({ daysOfWeek: [7] } as any)])[0].daysOfWeek).toBeUndefined();
+      expect(sanitizeRemoteGoals([valid({ daysOfWeek: [-1] } as any)])[0].daysOfWeek).toBeUndefined();
+      expect(sanitizeRemoteGoals([valid({ daysOfWeek: 'mon' as any } as any)])[0].daysOfWeek).toBeUndefined();
+      expect(sanitizeRemoteGoals([valid({ period: 'weekly', targetS: 3600, daysOfWeek: [1, 2] } as any)])[0].daysOfWeek).toBeUndefined();
+    });
+
+    it('collapses an empty remote daysOfWeek to undefined, same as the create/update path', () => {
+      expect(sanitizeRemoteGoals([valid({ daysOfWeek: [] } as any)])[0].daysOfWeek).toBeUndefined();
+    });
+
+    it('keeps a valid targetSessions', () => {
+      expect(sanitizeRemoteGoals([valid({ targetSessions: 4 } as any)])[0].targetSessions).toBe(4);
+    });
+
+    it('drops (only) an out-of-range or non-integer targetSessions', () => {
+      expect(sanitizeRemoteGoals([valid({ targetSessions: 0 } as any)])[0].targetSessions).toBeUndefined();
+      expect(sanitizeRemoteGoals([valid({ targetSessions: MAX_TARGET_SESSIONS + 1 } as any)])[0].targetSessions).toBeUndefined();
+      expect(sanitizeRemoteGoals([valid({ targetSessions: 1.5 } as any)])[0].targetSessions).toBeUndefined();
+      expect(sanitizeRemoteGoals([valid({ targetSessions: '3' as any } as any)])[0].targetSessions).toBeUndefined();
+    });
+
+    it('keeps a valid notify/notifyAt pair', () => {
+      const result = sanitizeRemoteGoals([valid({ notify: true, notifyAt: '18:45' } as any)]);
+      expect(result[0]).toMatchObject({ notify: true, notifyAt: '18:45' });
+    });
+
+    it('coerces a non-boolean notify to undefined (only true/false literals survive)', () => {
+      expect(sanitizeRemoteGoals([valid({ notify: 'true' as any } as any)])[0].notify).toBeUndefined();
+      expect(sanitizeRemoteGoals([valid({ notify: false } as any)])[0].notify).toBe(false);
+    });
+
+    it('drops (only) a malformed notifyAt', () => {
+      expect(sanitizeRemoteGoals([valid({ notifyAt: '9:30' } as any)])[0].notifyAt).toBeUndefined();
+      expect(sanitizeRemoteGoals([valid({ notifyAt: '24:00' } as any)])[0].notifyAt).toBeUndefined();
+      expect(sanitizeRemoteGoals([valid({ notifyAt: 'noon' } as any)])[0].notifyAt).toBeUndefined();
+      expect(sanitizeRemoteGoals([valid({ notifyAt: 123 as any } as any)])[0].notifyAt).toBeUndefined();
+    });
+
+    it('an invalid extension field never drops the whole goal -- the core fields still come through', () => {
+      const result = sanitizeRemoteGoals([valid({ topic: 'work', notifyAt: 'garbage' } as any)]);
+      expect(result).toHaveLength(1);
+      expect(result[0].topic).toBe('work');
+      expect(result[0].notifyAt).toBeUndefined();
+    });
   });
 });

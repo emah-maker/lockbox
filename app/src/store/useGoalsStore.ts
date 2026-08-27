@@ -16,17 +16,26 @@
 // why that separation matters -- firestoreSync.ts already reads this store
 // for the migration/merge logic, so a Firebase import here would create a
 // circular dependency).
+// Also fires syncGoalNotifications (goalNotifications.ts) after hydrate and
+// after every mutation, per that module's own "call this from useGoalsStore"
+// contract -- fire-and-forget, same as this file's own pre-existing
+// hydrate()/init() calls in App.tsx: a goal's local persistence must never
+// be gated on, or fail because of, whatever the OS's notification
+// scheduler does with the result (goalNotifications.ts's own header goes
+// into why that call chain never throws in the first place).
 import { create } from 'zustand';
 import { getJSON, setJSON } from '../storage/storage';
 import {
   Goal,
   GoalPeriod,
   GoalPatch,
+  GoalCreateExtras,
   createGoal as createGoalIn,
   updateGoal as updateGoalIn,
   archiveGoal as archiveGoalIn,
   pruneArchivedGoals,
 } from '../goals/goals';
+import { syncGoalNotifications } from '../goals/goalNotifications';
 
 const GOALS_KEY = 'focusGoals';
 const GOALS_UPDATED_AT_KEY = 'goalsUpdatedAt';
@@ -44,7 +53,7 @@ interface GoalsState {
   goalsUpdatedAt: number;
 
   hydrate: () => Promise<void>;
-  addGoal: (topic: string | null, period: GoalPeriod, targetS: number) => void;
+  addGoal: (topic: string | null, period: GoalPeriod, targetS: number, extra?: GoalCreateExtras) => void;
   updateGoal: (id: string, patch: GoalPatch) => void;
   archiveGoal: (id: string) => void;
   /** Applied when a Firestore goals/config doc (already merged with the
@@ -77,6 +86,10 @@ function persist(set: (partial: Partial<GoalsState>) => void, goals: Goal[], upd
   set({ goals: pruned, goalsUpdatedAt: updatedAt });
   setJSON(GOALS_KEY, pruned);
   setJSON(GOALS_UPDATED_AT_KEY, updatedAt);
+  // Fire-and-forget: syncGoalNotifications never throws (see its own
+  // header), but `void` makes it explicit at every call site that nothing
+  // here awaits or otherwise gates on the OS's notification scheduler.
+  void syncGoalNotifications(pruned);
 }
 
 export const useGoalsStore = create<GoalsState>((set, get) => ({
@@ -91,16 +104,17 @@ export const useGoalsStore = create<GoalsState>((set, get) => ({
       getJSON<number>(GOALS_UPDATED_AT_KEY, 0),
     ]);
     set({ hydrated: true, goals, goalsUpdatedAt });
+    void syncGoalNotifications(goals);
   },
 
-  addGoal: (topic, period, targetS) => {
+  addGoal: (topic, period, targetS, extra) => {
     // One nowMs shared by the pure helper's own createdAt/updatedAt stamp
     // and this store's doc-level clock, so the two never drift apart by the
     // few ms between two separate Date.now() calls (same reasoning
     // useSettingsStore's actions capture settingsUpdatedAt once and reuse
     // it across both the field write and the clock write).
     const nowMs = Date.now();
-    const goals = createGoalIn(get().goals, topic, period, targetS, nowMs);
+    const goals = createGoalIn(get().goals, topic, period, targetS, nowMs, extra);
     persist(set, goals, nowMs);
   },
 

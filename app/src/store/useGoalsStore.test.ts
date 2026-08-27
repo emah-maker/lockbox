@@ -6,12 +6,22 @@
 // coverage in goals/goals.test.ts -- this file only exercises what this
 // store adds on top: persistence and the clock. Exercises the real
 // AsyncStorage-backed storage.ts (mocked by jest.setup.js) rather than
-// mocking getJSON/setJSON, same as sync/localDataOwner.test.ts. Run with
-// `npm test`.
+// mocking getJSON/setJSON, same as sync/localDataOwner.test.ts.
+//
+// goalNotifications.ts's own syncGoalNotifications is mocked here -- this
+// file only needs to confirm the STORE calls it at the right times (after
+// hydrate, after every mutation) with the right (pruned) goals array;
+// syncGoalNotifications's own scheduling/permission logic is goalNotifications.
+// test.ts's coverage, not this file's. Run with `npm test`.
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useGoalsStore } from './useGoalsStore';
 import { getJSON } from '../storage/storage';
 import { Goal, ARCHIVED_GOAL_PRUNE_MS } from '../goals/goals';
+
+const mockSyncGoalNotifications = jest.fn().mockResolvedValue(undefined);
+jest.mock('../goals/goalNotifications', () => ({
+  syncGoalNotifications: (...args: unknown[]) => mockSyncGoalNotifications(...args),
+}));
 
 const GOALS_KEY = 'focusGoals';
 const GOALS_UPDATED_AT_KEY = 'goalsUpdatedAt';
@@ -30,6 +40,7 @@ const goal = (id: string, updatedAt: number, overrides: Partial<Goal> = {}): Goa
 beforeEach(async () => {
   await AsyncStorage.clear();
   useGoalsStore.setState({ hydrated: false, goals: [], goalsUpdatedAt: 0 });
+  mockSyncGoalNotifications.mockClear();
 });
 
 describe('hydrate', () => {
@@ -189,5 +200,57 @@ describe('resetGoals', () => {
     expect(useGoalsStore.getState().goalsUpdatedAt).toBe(0);
     expect(await getJSON<Goal[]>(GOALS_KEY, [{ id: 'sentinel' } as unknown as Goal])).toEqual([]);
     expect(await getJSON<number>(GOALS_UPDATED_AT_KEY, -1)).toBe(0);
+  });
+});
+
+describe('syncGoalNotifications integration', () => {
+  it('is called with the hydrated goals array after hydrate', async () => {
+    const stored = [goal('goal:a', 500)];
+    await AsyncStorage.setItem('phonebox:' + GOALS_KEY, JSON.stringify(stored));
+    await AsyncStorage.setItem('phonebox:' + GOALS_UPDATED_AT_KEY, JSON.stringify(500));
+
+    await useGoalsStore.getState().hydrate();
+
+    expect(mockSyncGoalNotifications).toHaveBeenCalledWith(stored);
+  });
+
+  it('is called after addGoal, with the post-mutation (pruned) goals array', () => {
+    useGoalsStore.getState().addGoal('work', 'daily', 1800);
+    expect(mockSyncGoalNotifications).toHaveBeenCalledWith(useGoalsStore.getState().goals);
+  });
+
+  it('is called after updateGoal', () => {
+    useGoalsStore.getState().addGoal('work', 'daily', 1800);
+    mockSyncGoalNotifications.mockClear();
+    const id = useGoalsStore.getState().goals[0].id;
+
+    useGoalsStore.getState().updateGoal(id, { notify: true, notifyAt: '09:00' });
+
+    expect(mockSyncGoalNotifications).toHaveBeenCalledWith(useGoalsStore.getState().goals);
+  });
+
+  it('is called after archiveGoal', () => {
+    useGoalsStore.getState().addGoal('work', 'daily', 1800);
+    mockSyncGoalNotifications.mockClear();
+    const id = useGoalsStore.getState().goals[0].id;
+
+    useGoalsStore.getState().archiveGoal(id);
+
+    expect(mockSyncGoalNotifications).toHaveBeenCalledWith(useGoalsStore.getState().goals);
+  });
+
+  it('is called after applyRemoteGoals and after resetGoals', () => {
+    useGoalsStore.getState().applyRemoteGoals([goal('goal:a', 42)], 42);
+    expect(mockSyncGoalNotifications).toHaveBeenCalledWith(useGoalsStore.getState().goals);
+
+    mockSyncGoalNotifications.mockClear();
+    useGoalsStore.getState().resetGoals();
+    expect(mockSyncGoalNotifications).toHaveBeenCalledWith([]);
+  });
+
+  it('is never called when addGoal throws (validation failure never triggers a reschedule)', () => {
+    mockSyncGoalNotifications.mockClear();
+    expect(() => useGoalsStore.getState().addGoal('work', 'daily', 5)).toThrow();
+    expect(mockSyncGoalNotifications).not.toHaveBeenCalled();
   });
 });

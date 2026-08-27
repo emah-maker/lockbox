@@ -1,7 +1,10 @@
 // App.tsx -- entry point. Navigation is a trivial hand-rolled tab switcher (no
 // react-navigation dependency) since four flat screens don't need a router:
-// Dashboard, Stats, Calendar, Settings.
-import React, { useEffect, useState } from 'react';
+// Dashboard, Stats, Calendar, Settings. The active tab itself now lives in
+// useNav.ts (not local useState) so a screen/sheet on one tab can switch to
+// another and hand it a bit of context to act on -- see useNav's own header
+// comment.
+import React, { useEffect, useRef } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
@@ -21,10 +24,10 @@ import { startSettingsSyncBridge } from './src/sync/settingsSyncBridge';
 import { startSessionsSyncBridge } from './src/sync/sessionsSyncBridge';
 import { startGoalsSyncBridge } from './src/sync/goalsSyncBridge';
 import { AnimatedPressable } from './src/ui/AnimatedPressable';
+import { StatusStrip } from './src/ui/StatusStrip';
 import { useReducedMotion, configureLayoutAnimation } from './src/ui/useReducedMotion';
 import { typeScale } from './src/theme/tokens';
-
-type Tab = 'dashboard' | 'stats' | 'calendar' | 'settings';
+import { useNav, Tab } from './src/nav/useNav';
 
 const TABS: { key: Tab; label: string; icon: React.ComponentProps<typeof Feather>['name'] }[] = [
   { key: 'dashboard', label: 'Home', icon: 'home' },
@@ -41,7 +44,8 @@ const SCREENS: Record<Tab, React.ComponentType> = {
 };
 
 export default function App() {
-  const [tab, setTab] = useState<Tab>('dashboard');
+  const tab = useNav((s) => s.tab);
+  const setTab = useNav((s) => s.setTab);
   const init = useStore((s) => s.init);
   const themeMode = useSettingsStore((s) => s.themeMode);
   const theme = useTheme();
@@ -102,15 +106,30 @@ export default function App() {
 
   const Screen = SCREENS[tab];
 
-  const selectTab = (next: Tab) => {
+  // Same configureLayoutAnimation-on-tab-change this app always had, just no
+  // longer tied to the bottom tab bar's own tap handler: now that `tab`
+  // lives in useNav (siblings call navigate() directly from Calendar/Stats/
+  // Settings/Home to cross-link), a switch that arrives that way needs the
+  // same animated transition a bar tap gets. Skipped on the very first
+  // render -- there's no prior screen to animate away from at mount.
+  const isFirstTabRender = useRef(true);
+  useEffect(() => {
+    if (isFirstTabRender.current) {
+      isFirstTabRender.current = false;
+      return;
+    }
     configureLayoutAnimation(reducedMotion);
-    setTab(next);
-  };
+  }, [tab]);
+
+  const selectTab = (next: Tab) => setTab(next);
 
   return (
     <SafeAreaProvider>
       <StatusBar style={themeMode === 'dark' ? 'light' : 'dark'} />
       <View style={{ flex: 1, backgroundColor: theme.bg }}>
+        <SafeAreaView edges={['top']} style={{ backgroundColor: theme.surface }}>
+          <StatusStrip />
+        </SafeAreaView>
         <Screen />
         <SafeAreaView edges={['bottom']} style={{ backgroundColor: theme.surface }}>
           <View style={styles.tabBar}>
