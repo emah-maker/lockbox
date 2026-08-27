@@ -48,7 +48,7 @@ import {
   limit,
 } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
 import { firebaseConfig, isFirebaseConfigured } from './firebaseConfig.js';
-import { friendlyErrorMessage, isIgnorableAuthError } from './authErrors.js';
+import { friendlyErrorMessage, isIgnorableAuthError, logAuthError } from './authErrors.js';
 import { resolveTheme, compositeHex, DEFAULT_THEME_MODE, DEFAULT_ACCENT } from './theme.js';
 import {
   aggregate,
@@ -617,6 +617,7 @@ async function writeGoals(next) {
 // ---------- Firebase wiring ----------
 function showError(err) {
   if (isIgnorableAuthError(err)) return;
+  logAuthError('dashboard load', err);
   els.errorMsg.textContent = friendlyErrorMessage(err);
   showState('error');
 }

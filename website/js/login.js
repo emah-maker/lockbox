@@ -1,19 +1,20 @@
 /* =========================================================================
    login.js -- the sign-in gate in front of dashboard.html. Owns the actual
    signInWithPopup call; dashboard.js only ever checks auth state and
-   redirects here when signed out. Firebase Auth (Google) only -- Firestore
-   isn't touched on this page, that's dashboard.js's job once a user lands
-   there signed in.
+   redirects here when signed out. Firebase Auth (Google or Apple) only --
+   Firestore isn't touched on this page, that's dashboard.js's job once a
+   user lands there signed in.
    ========================================================================= */
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js';
 import {
   getAuth,
   GoogleAuthProvider,
+  OAuthProvider,
   signInWithPopup,
   onAuthStateChanged,
 } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js';
 import { firebaseConfig, isFirebaseConfigured } from './firebaseConfig.js';
-import { friendlyErrorMessage, isIgnorableAuthError } from './authErrors.js';
+import { friendlyErrorMessage, isIgnorableAuthError, logAuthError } from './authErrors.js';
 
 const els = {
   notConfigured: document.getElementById('loginNotConfigured'),
@@ -21,6 +22,7 @@ const els = {
   error: document.getElementById('loginError'),
   errorMsg: document.getElementById('loginErrorMsg'),
   signInBtn: document.getElementById('signInBtn'),
+  signInAppleBtn: document.getElementById('signInAppleBtn'),
   retryBtn: document.getElementById('loginRetryBtn'),
 };
 
@@ -45,6 +47,7 @@ function showState(name) {
 
 function showError(err) {
   if (isIgnorableAuthError(err)) return;
+  logAuthError('sign-in', err);
   els.errorMsg.textContent = friendlyErrorMessage(err);
   showState('error');
 }
@@ -58,11 +61,14 @@ function init() {
   const app = initializeApp(firebaseConfig);
   const auth = getAuth(app);
 
-  const trySignIn = () => {
-    signInWithPopup(auth, new GoogleAuthProvider()).catch(showError);
+  let lastProvider = () => new GoogleAuthProvider();
+  const trySignIn = (makeProvider) => {
+    if (makeProvider) lastProvider = makeProvider;
+    signInWithPopup(auth, lastProvider()).catch(showError);
   };
-  els.signInBtn.addEventListener('click', trySignIn);
-  els.retryBtn.addEventListener('click', trySignIn);
+  els.signInBtn.addEventListener('click', () => trySignIn(() => new GoogleAuthProvider()));
+  els.signInAppleBtn.addEventListener('click', () => trySignIn(() => new OAuthProvider('apple.com')));
+  els.retryBtn.addEventListener('click', () => trySignIn());
 
   onAuthStateChanged(auth, (user) => {
     if (user) {
