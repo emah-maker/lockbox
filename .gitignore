@@ -24,3 +24,30 @@ Thumbs.db
 .env
 .env.local
 *.pem
+
+# Firebase local deploy cache (firebase.json / .firebaserc stay tracked)
+.firebase/
+
+# Agent/tool scratch output
+graphify-out/
+.impeccable/
+app/.agents/
+app/.claude/
+
+# Large local-only asset working dirs
+V2 CAD/
+Audits/
+
+# Loose generated assets / media at repo root
+/hero-top.png
+/pricing-costbars.png
+/pricing-revealed.png
+/WhatsApp Video *.mp4
+
+# FRAIM synced catalog (baseline content, re-synced from upstream).
+# NOTE: fraim/ is currently TRACKED (874 files), so this pattern has no effect
+# until those paths are untracked with:
+#   git rm -r --cached fraim/
+# Repo-specific overrides under fraim/personalized-employee/ are re-included below.
+fraim/*
+!fraim/personalized-employee/
