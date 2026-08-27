@@ -13,7 +13,6 @@
       "usesAppleSignIn": true,
       "infoPlist": {
         "UIBackgroundModes": [
-          "bluetooth-central",
           "bluetooth-central"
         ],
         "NSBluetoothAlwaysUsageDescription": "Phone Box connects to your box over Bluetooth to show focus stats and light up the box when an important call comes in.",
@@ -41,7 +40,7 @@
       ],
       "expo-apple-authentication",
       "expo-font",
-      "expo-notifications"
+      "./plugins/withoutPushEntitlement"
     ],
     "android": {
       "permissions": [
