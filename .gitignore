@@ -51,3 +51,12 @@ Audits/
 # Repo-specific overrides under fraim/personalized-employee/ are re-included below.
 fraim/*
 !fraim/personalized-employee/
+
+# --- cmd.exe redirect-misparse junk files (2026-08-27) ---
+# Root cause FIXED in .claude/settings.json + .claude/helpers/hook-entry.cjs
+# (broken original: scripts/settings.json.pre-hook-fix.bak).
+# No blanket ignore here on purpose: patterns broad enough to catch names like
+# `0)` or `r.goalId)).toEqual(['g1'])` also swallow legitimate files such as
+# Expo Router dynamic routes ([id].tsx) -- silently untracked is worse than
+# visibly junk. Zero-byte junk shows up in `git status`; clean it with:
+#   node scripts/clean-junk-files.js [--delete]
