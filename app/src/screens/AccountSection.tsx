@@ -16,6 +16,7 @@ import { Button, Row, Section, captionStyle } from './SettingsPrimitives';
 import { AnimatedPressable } from '../ui/AnimatedPressable';
 
 export function AccountSection({ color }: { color: ReturnType<typeof useTheme> }) {
+  const ready = useAuthStore((s) => s.ready);
   const user = useAuthStore((s) => s.user);
   const syncing = useAuthStore((s) => s.syncing);
   const syncError = useAuthStore((s) => s.syncError);
@@ -164,7 +165,7 @@ export function AccountSection({ color }: { color: ReturnType<typeof useTheme> }
             <Button
               label="Sign in with Google"
               onPress={() => handleSignIn(signInWithGoogle)}
-              disabled={busy}
+              disabled={busy || !ready}
               loading={busy}
               color={color}
               icon={<Ionicons name="logo-google" size={16} color={color.accentText} />}
@@ -173,7 +174,7 @@ export function AccountSection({ color }: { color: ReturnType<typeof useTheme> }
               <Button
                 label="Sign in with Apple"
                 onPress={() => handleSignIn(signInWithApple)}
-                disabled={busy}
+                disabled={busy || !ready}
                 loading={busy}
                 color={color}
                 variant="outline"
