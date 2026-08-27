@@ -10,19 +10,27 @@
 // email via accountLinking.ts: `pendingLink` below surfaces the "sign in
 // with your other provider to link" prompt state to SettingsScreen, and
 // handleProviderSignIn() completes the link once the user proves ownership
-// by signing in with that other provider.
+// by signing in with that other provider. linkProvider/unlinkProvider below
+// are the separate, additive case: already signed in, and adding/removing
+// the OTHER provider deliberately rather than resolving a sign-in conflict.
+//
+// autoSyncEnabled gates ONLY the automatic syncNow() call in init()'s
+// onAuthStateChanged handler below -- syncNow() itself (and the manual
+// "Sync now" button that calls it) is never gated by this preference.
 import { create } from 'zustand';
-import { onAuthStateChanged, type User } from 'firebase/auth';
+import { onAuthStateChanged, unlink, type User } from 'firebase/auth';
 import { initFirebaseAuth, getFirebaseAuth } from './firebase';
 import {
   signInWithGoogle as signInWithGoogleAuth,
   signOutFully as signOutGoogleFully,
   deleteAccountFully as deleteAccountGoogleFully,
+  linkGoogleToCurrentUser,
 } from './googleAuth';
 import {
   signInWithApple as signInWithAppleAuth,
   signOutFully as signOutAppleFully,
   deleteAccountFully as deleteAccountAppleFully,
+  linkAppleToCurrentUser,
 } from './appleAuth';
 import {
   getPendingLink,
@@ -31,9 +39,11 @@ import {
   type AuthProviderKind,
   type PendingAccountLink,
 } from './accountLinking';
+import { toProviderKinds, canUnlink } from './accountDisplay';
 import { runMigrationAndSync, deleteAllUserData, beginAccountDeletion, endAccountDeletion } from '../sync/firestoreSync';
 import { clearLocalAccountData } from '../sync/localDataOwner';
 import { useStore } from '../store/useStore';
+import { useSettingsStore } from '../store/useSettingsStore';
 import { getJSON, setJSON } from '../storage/storage';
 
 export interface AccountUser {
@@ -41,12 +51,37 @@ export interface AccountUser {
   email: string | null;
   displayName: string | null;
   photoURL: string | null;
+  emailVerified: boolean;
+  /** ISO date strings straight off Firebase's user.metadata -- display-only,
+   * formatted by accountDisplay.ts's formatShortDate, never parsed for logic. */
+  creationTime: string | null;
+  lastSignInTime: string | null;
+  /** Raw Firebase providerData ids, unfiltered -- so the Account page's chip
+   * list can show an "Other" chip (accountDisplay.ts's providerLabel) for a
+   * provider id besides google.com/apple.com, per spec §1, rather than
+   * silently dropping it the way linkedProviders below deliberately does. */
+  providerIds: string[];
+  /** providerIds narrowed to the two providers this app's link/unlink
+   * actions understand -- same data linkedProviders(user) below has always
+   * computed for signOut/deleteAccount's provider-specific branching. */
+  linkedProviders: AuthProviderKind[];
 }
 
 const LAST_SYNCED_KEY = 'lastSyncedAt';
 
 function toAccountUser(u: User): AccountUser {
-  return { uid: u.uid, email: u.email, displayName: u.displayName, photoURL: u.photoURL };
+  const providerIds = u.providerData.map((p) => p.providerId);
+  return {
+    uid: u.uid,
+    email: u.email,
+    displayName: u.displayName,
+    photoURL: u.photoURL,
+    emailVerified: u.emailVerified,
+    creationTime: u.metadata.creationTime ?? null,
+    lastSignInTime: u.metadata.lastSignInTime ?? null,
+    providerIds,
+    linkedProviders: toProviderKinds(providerIds),
+  };
 }
 
 interface AuthState {
@@ -87,16 +122,47 @@ interface AuthState {
    * orphaned, not purged, by design). */
   deleteAccount: () => Promise<void>;
   syncNow: () => Promise<void>;
+  /** Links `provider`'s credential to the CURRENT signed-in user -- the
+   * additive "I'm signed in and want to also add my other method" case.
+   * No-op if signed out. Throws (generic, credential-free message) if the
+   * link fails, e.g. that credential already belongs to a different
+   * Firebase user -- see accountDisplay.ts's providerActionErrorMessage,
+   * which UI callers should use to translate the thrown error's `code`. */
+  linkProvider: (provider: AuthProviderKind) => Promise<void>;
+  /** Unlinks `provider` from the current user. Refuses (throws) unless 2+
+   * providers are currently linked -- §1's "never leave zero sign-in
+   * methods" rule, enforced here (not just in the UI) so this action is
+   * safe to call from anywhere. No-op if signed out. */
+  unlinkProvider: (provider: AuthProviderKind) => Promise<void>;
 }
 
 /** The providers `user` is currently linked to, read straight off Firebase's
  * own providerData rather than tracked separately -- this can never drift
- * out of sync with what Firebase actually has linked. */
+ * out of sync with what Firebase actually has linked. Delegates the actual
+ * id->kind mapping to accountDisplay.ts's toProviderKinds so AccountUser's
+ * own linkedProviders field (above) is computed from the exact same logic,
+ * not a second copy of it. */
 function linkedProviders(user: User): AuthProviderKind[] {
-  return user.providerData
-    .map((p) => p.providerId)
-    .filter((id): id is 'google.com' | 'apple.com' => id === 'google.com' || id === 'apple.com')
-    .map((id) => (id === 'google.com' ? 'google' : 'apple'));
+  return toProviderKinds(user.providerData.map((p) => p.providerId));
+}
+
+/** Wraps a provider's deleteAccountFully() with exactly one retry on
+ * auth/requires-recent-login (spec §4). Each call to `run` already performs
+ * its own fresh native sign-in + reauthenticateWithCredential before
+ * deleteUser() (see googleAuth.ts/appleAuth.ts's deleteAccountFully), so a
+ * first attempt that hit this because that reauth step was itself skipped
+ * (e.g. a cancelled native picker, which both files deliberately swallow and
+ * fall through past) gets exactly one more chance to complete it. A second
+ * failure of any kind propagates unchanged -- deleteAccount's own caller
+ * (the Account page) turns any failure here into one generic,
+ * credential-free message, never this raw error. */
+async function deleteWithReauthRetry(run: () => Promise<void>): Promise<void> {
+  try {
+    await run();
+  } catch (e: any) {
+    if (e?.code !== 'auth/requires-recent-login') throw e;
+    await run();
+  }
 }
 
 /** Shared by signInWithGoogle/signInWithApple below: runs the provider's own
@@ -142,7 +208,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const auth = getFirebaseAuth();
     onAuthStateChanged(auth, (u) => {
       set({ ready: true, user: u ? toAccountUser(u) : null });
-      if (u) {
+      // autoSyncEnabled (useSettingsStore) gates ONLY this automatic call --
+      // a local-only per-device preference (§3), off by exception rather
+      // than by default. The manual "Sync now" button calls syncNow()
+      // directly and is unaffected either way.
+      if (u && useSettingsStore.getState().autoSyncEnabled) {
         get().syncNow(); // fire-and-forget: migration/sync never blocks the UI
       }
     });
@@ -213,7 +283,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     beginAccountDeletion(user.uid);
     try {
       await deleteAllUserData(user.uid);
-      await deleteAccountFully();
+      await deleteWithReauthRetry(deleteAccountFully);
     } finally {
       endAccountDeletion();
     }
@@ -253,5 +323,48 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     } finally {
       if (get().syncingUid === uid) set({ syncing: false, syncingUid: null });
     }
+  },
+
+  linkProvider: async (provider) => {
+    const auth = getFirebaseAuth();
+    const current = auth.currentUser;
+    if (!current) return;
+    // Deliberately not routed through handleProviderSignIn/pendingLink --
+    // that flow is for the sign-in-time conflict case (not yet signed in,
+    // Firebase itself rejected the credential). Here the user is already
+    // signed in and choosing to add their other provider on purpose, so this
+    // goes straight to linkGoogleToCurrentUser/linkAppleToCurrentUser, which
+    // call Firebase's linkWithCredential on the CURRENT user instead of
+    // signInWithCredential (see those functions' own comments for why that
+    // distinction matters).
+    const uid = current.uid;
+    const updated = provider === 'google'
+      ? await linkGoogleToCurrentUser(current)
+      : await linkAppleToCurrentUser(current);
+    // Same stale-uid discipline as syncNow's own result-application check
+    // above: the native picker/sheet this just awaited can stay open
+    // indefinitely, so a sign-out (or a completed deleteAccount) can land
+    // while it's up. Applying `updated` unconditionally would then repopulate
+    // `user` with an account nobody is signed in as any more, leaving the
+    // Account page rendering a signed-in state after sign-out.
+    if (get().user?.uid === uid) set({ user: toAccountUser(updated) });
+  },
+
+  unlinkProvider: async (provider) => {
+    const auth = getFirebaseAuth();
+    const current = auth.currentUser;
+    if (!current) return;
+    if (!canUnlink(current.providerData.map((p) => p.providerId))) {
+      // Generic, credential-free message matching this file's other thrown
+      // errors -- this should be unreachable from a UI that itself gates the
+      // Unlink action on canUnlink, but the store-level check is what makes
+      // this action safe to call from anywhere, not just a UI that
+      // remembered to check first.
+      throw new Error('Cannot remove your only sign-in method.');
+    }
+    const providerId = provider === 'google' ? 'google.com' : 'apple.com';
+    const uid = current.uid;
+    const updated = await unlink(current, providerId);
+    if (get().user?.uid === uid) set({ user: toAccountUser(updated) }); // see linkProvider's note
   },
 }));

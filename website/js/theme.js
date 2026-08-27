@@ -53,6 +53,10 @@ const MODES = {
 
 export const DEFAULT_THEME_MODE = 'dark';
 export const DEFAULT_ACCENT = 'mint';
+// Exposed for accountPanel.js's appearance picker -- reads the same ACCENTS
+// table resolveTheme does, rather than a second hardcoded accent list, so a
+// new accent added above is picked up here for free.
+export const ACCENT_NAMES = Object.keys(ACCENTS.dark);
 
 export function resolveTheme(mode, accent) {
   const modeColors = MODES[mode] || MODES[DEFAULT_THEME_MODE];

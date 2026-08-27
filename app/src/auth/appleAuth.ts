@@ -14,7 +14,15 @@
 // documents.
 import * as AppleAuthentication from 'expo-apple-authentication';
 import * as Crypto from 'expo-crypto';
-import { OAuthProvider, signInWithCredential, deleteUser, reauthenticateWithCredential, type User } from 'firebase/auth';
+import {
+  OAuthProvider,
+  signInWithCredential,
+  linkWithCredential,
+  deleteUser,
+  reauthenticateWithCredential,
+  type AuthCredential,
+  type User,
+} from 'firebase/auth';
 import * as SecureStore from 'expo-secure-store';
 import { getFirebaseAuth } from './firebase';
 import { SECURE_STORE_OPTS, FIREBASE_AUTH_SECURE_STORE_KEYS } from './secureStoreKeys';
@@ -37,12 +45,15 @@ async function generateNonce(): Promise<{ raw: string; hashed: string }> {
 }
 
 /**
- * Runs the native Sign in with Apple sheet, exchanges the resulting identity
- * token for a Firebase session, and returns the signed-in Firebase user.
- * Throws if the user cancels or the flow otherwise fails -- callers should
- * treat that as "stay signed out", not a fatal error.
+ * Runs the native Sign in with Apple sheet and exchanges the resulting
+ * identity token for a Firebase credential. Shared by signInWithApple
+ * (below) and linkAppleToCurrentUser -- both need the same "run the native
+ * sheet, get a fresh credential" step, they just do different things with
+ * the result. Throws if the user cancels or the flow otherwise fails --
+ * callers should treat that as "stay signed out"/"link not completed", not a
+ * fatal error.
  */
-export async function signInWithApple(): Promise<User> {
+async function getAppleCredential(): Promise<AuthCredential> {
   const { raw: nonce, hashed: hashedNonce } = await generateNonce();
   let result: AppleAuthentication.AppleAuthenticationCredential;
   try {
@@ -58,13 +69,36 @@ export async function signInWithApple(): Promise<User> {
     throw new Error('Apple Sign-In did not return an identity token.');
   }
   const provider = new OAuthProvider('apple.com');
-  const credential = provider.credential({ idToken: identityToken, rawNonce: nonce });
+  return provider.credential({ idToken: identityToken, rawNonce: nonce });
+  // `identityToken` and `nonce` fall out of scope here -- used once, never persisted.
+}
+
+/**
+ * Runs the native Sign in with Apple sheet, exchanges the resulting identity
+ * token for a Firebase session, and returns the signed-in Firebase user.
+ * Throws if the user cancels or the flow otherwise fails -- callers should
+ * treat that as "stay signed out", not a fatal error.
+ */
+export async function signInWithApple(): Promise<User> {
+  const credential = await getAppleCredential();
   const userCredential = await signInDetectingLinkConflict('apple', credential, () =>
     signInWithCredential(getFirebaseAuth(), credential),
   );
-  // `identityToken`, `nonce`, and `credential` fall out of scope here -- used
-  // once, never persisted.
+  // `credential` falls out of scope here -- used once, never persisted.
   return userCredential.user;
+}
+
+/**
+ * Links a fresh Apple credential to `user` -- the additive "I'm already
+ * signed in and want to also add Apple" case, mirroring
+ * googleAuth.ts's linkGoogleToCurrentUser exactly (see its comment for why
+ * this must never route through signInWithCredential). Callers must pass
+ * the CURRENT signed-in user (useAuthStore.linkProvider does).
+ */
+export async function linkAppleToCurrentUser(user: User): Promise<User> {
+  const credential = await getAppleCredential();
+  const result = await linkWithCredential(user, credential);
+  return result.user;
 }
 
 /**

@@ -9,7 +9,9 @@
    the difference between "the network hiccuped, retry" and "a provider
    isn't enabled in the Firebase console", and a bare "Something went
    wrong" makes a report from the browser unactionable. logAuthError()
-   also dumps the whole error object to the console for the same reason.
+   also dumps the whole error object to the console for the same reason --
+   except for errors carrying a credential payload, which are redacted; see
+   its own comment below.
    ========================================================================= */
 
 const MESSAGES = {
@@ -21,6 +23,10 @@ const MESSAGES = {
   'auth/web-storage-unsupported': 'Your browser is blocking the storage this sign-in needs. Turn off strict tracking protection for this site, or leave private browsing, and try again.',
   'auth/too-many-requests': 'Too many attempts from this device. Wait a few minutes and try again.',
   'auth/internal-error': 'The sign-in provider returned an internal error. Try again -- if it repeats, check that the Google provider has a support email set in the Firebase console.',
+  // --- Account panel (dashboard.html's link/unlink/delete actions) ---
+  'auth/requires-recent-login': 'This action needs a fresh sign-in. Sign in again and retry.',
+  'auth/credential-already-in-use': 'That sign-in method is already linked to a different account.',
+  'auth/provider-already-linked': 'That sign-in method is already linked to this account.',
 
   // --- Firestore (dashboard.html) ---
   'permission-denied': 'Your account doesn’t have access to this data. If this is your own account, the Firestore rules in app/firestore.rules may not be deployed yet -- run `firebase deploy --only firestore:rules`.',
@@ -47,8 +53,28 @@ export function friendlyErrorMessage(err) {
 
 /* Companion to friendlyErrorMessage: the on-screen copy is deliberately
    short, so put the untruncated error somewhere a developer can actually
-   read it. Called on the same paths that render an error state. */
+   read it. Called on the same paths that render an error state.
+
+   ...with one exception, which is why this isn't a bare console.error(err):
+   the credential-conflict codes the account panel's Link action hits
+   (auth/credential-already-in-use, auth/account-exists-with-different-credential)
+   carry the failing credential IN the error object -- `customData.email`
+   plus a `_tokenResponse` holding the provider's raw OAuth idToken. Dumping
+   that whole object would print a live token and the user's email into the
+   browser console, which the design doc forbids outright (§5 checklist item
+   3: never surface a raw error payload, token, or credential). Errors
+   carrying such a payload are logged as code + SDK message only; everything
+   else (network, popup-blocked, unauthorized-domain -- the codes this
+   file's header comment says the full dump exists for) is unchanged. */
+function carriesCredentialPayload(err) {
+  return !!(err && (err.customData || err.credential || err._tokenResponse));
+}
+
 export function logAuthError(context, err) {
   const code = (err && err.code) || 'no-code';
+  if (carriesCredentialPayload(err)) {
+    console.error(`[phonebox] ${context} failed: ${code} (payload redacted)`, (err && err.message) || '');
+    return;
+  }
   console.error(`[phonebox] ${context} failed: ${code}`, err);
 }

@@ -1,0 +1,74 @@
+/* ============================================================
+   accountPanel.css -- styles for the dashboard's Account panel
+   (dashboard.html's #dashAccountCard, built by website/js/accountPanel.js +
+   accountDelete.js). Split into its own file, loaded after dashboard.css,
+   purely because dashboard.css is already at this project's 500-line
+   guideline -- this is new markup for a new panel, not a fix to anything
+   dashboard.css already owns, so nothing below duplicates a rule already
+   there. Reuses dashboard.css's :root tokens (--card, --text, --text-2,
+   --unlocked, --locked, --border-soft, --radius-sm, --ease-snap) and
+   styles.css's .card/.btn/.form-msg components exactly like dashboard.css
+   itself does -- no parallel design system.
+   ============================================================ */
+
+.acct__section { margin-bottom: 22px; }
+.acct__section:last-child { margin-bottom: 0; }
+.acct__label {
+  color: var(--text-2); font-size: 12px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 8px;
+}
+.acct__name { font-size: 16px; font-weight: 700; color: var(--text); }
+.acct__email { color: var(--text-2); font-size: 14px; margin-top: 2px; }
+.acct__email-unverified { color: var(--closed); font-weight: 600; }
+
+.acct__chips { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 10px 0; }
+.acct__chip-group { display: inline-flex; align-items: center; gap: 6px; }
+.acct__unlink-btn {
+  border: none; background: none; cursor: pointer; font: inherit;
+  font-size: 12px; font-weight: 600; color: var(--text-2);
+  text-decoration: underline; padding: 0;
+  transition: color 0.15s var(--ease-snap);
+}
+.acct__unlink-btn:hover { color: var(--text); }
+.acct__unlink-btn--danger { color: var(--locked); }
+.acct__unlink-btn--danger:hover { color: var(--locked); filter: brightness(1.2); }
+/* Inline "Unlink X? Cancel/Unlink" swap, in place of a chip's own
+   Unlink button -- same "replace the trigger with an inline confirm"
+   idiom as dashboard.css's .dash__labels-confirm, scaled down to fit
+   inline in a chip row instead of taking a whole row of its own. */
+.acct__inline-confirm { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-2); }
+
+.acct__linkrow { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+.acct__meta { color: var(--text-2); font-size: 13px; margin-top: 10px; }
+
+.acct__data-row { display: flex; align-items: center; gap: 12px; color: var(--text-2); font-size: 14px; }
+
+.acct__mode-row { display: flex; gap: 8px; margin-bottom: 12px; }
+/* .acct__mode-btn rides on .btn.btn--sm.btn--ghost's existing chrome; this
+   only adds the pressed/selected treatment, same accent-fill language
+   .dash__goals-fill--met and .dash__outcome--completed use elsewhere on this
+   page for "this one is the active/good state". */
+.acct__mode-btn[aria-pressed="true"] {
+  background: var(--unlocked); color: var(--accent-text); border-color: transparent;
+}
+
+.acct__privacy { color: var(--text-2); font-size: 13.5px; line-height: 1.6; }
+
+.acct__danger { border-top: 1px solid var(--border-soft); margin-top: 4px; padding-top: 18px; }
+.acct__danger-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+
+/* Second-step delete confirm (accountDelete.js's buildDeleteConfirm) -- a
+   left-accented danger box, same visual family as dashboard.css's
+   .dash__state--error left-accent bar, scaled up since this holds a full
+   paragraph + an input + two actions rather than one line. */
+.acct__confirm {
+  margin-top: 14px; padding: 16px; border-left: 3px solid var(--locked);
+  border-radius: var(--radius-sm); background: rgba(239, 68, 68, 0.06);
+}
+.acct__confirm p { color: var(--text-2); font-size: 13.5px; line-height: 1.5; margin-bottom: 12px; }
+.acct__confirm-input {
+  display: block; width: 100%; max-width: 220px; padding: 9px 12px; font-size: 14px;
+  font-family: var(--font-body); color: var(--text); background: var(--bg);
+  border: 1px solid var(--border-soft); border-radius: var(--radius-sm); margin-bottom: 12px;
+}
+.acct__confirm-actions { display: flex; gap: 10px; flex-wrap: wrap; }

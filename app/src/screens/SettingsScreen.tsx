@@ -130,7 +130,12 @@ export default function SettingsScreen() {
         </View>
       </ScrollView>
 
-      <Sheet visible={sheet === 'account'} onClose={closeSheet} size="auto">
+      {/* size="large" (was "auto") -- the Account page grew from one flat
+          section into six (identity, sign-in methods, sync, account
+          settings, data & privacy, danger zone); "auto"'s hug-content sizing
+          left it either clipped or fighting its own ScrollView on shorter
+          screens. */}
+      <Sheet visible={sheet === 'account'} onClose={closeSheet} size="large">
         <AccountSection color={c} />
       </Sheet>
 

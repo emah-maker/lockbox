@@ -15,7 +15,15 @@
 // Firebase issues and manages its own session from `signInWithCredential`
 // onward, persisted only through secureStorePersistence (§2.2).
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
-import { GoogleAuthProvider, signInWithCredential, deleteUser, reauthenticateWithCredential, type User } from 'firebase/auth';
+import {
+  GoogleAuthProvider,
+  signInWithCredential,
+  linkWithCredential,
+  deleteUser,
+  reauthenticateWithCredential,
+  type AuthCredential,
+  type User,
+} from 'firebase/auth';
 import * as SecureStore from 'expo-secure-store';
 import { getFirebaseAuth } from './firebase';
 import { SECURE_STORE_OPTS, FIREBASE_AUTH_SECURE_STORE_KEYS } from './secureStoreKeys';
@@ -34,12 +42,14 @@ function ensureConfigured(): void {
 }
 
 /**
- * Runs the native Google Sign-In account picker, exchanges the resulting ID
- * token for a Firebase session, and returns the signed-in Firebase user.
+ * Runs the native Google Sign-In account picker and exchanges the resulting
+ * ID token for a Firebase credential. Shared by signInWithGoogle (below) and
+ * linkGoogleToCurrentUser -- both need the same "run the native picker, get
+ * a fresh credential" step, they just do different things with the result.
  * Throws if the user cancels or the flow otherwise fails -- callers should
- * treat that as "stay signed out", not a fatal error.
+ * treat that as "stay signed out"/"link not completed", not a fatal error.
  */
-export async function signInWithGoogle(): Promise<User> {
+async function getGoogleCredential(): Promise<AuthCredential> {
   ensureConfigured();
   await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
   const response = await GoogleSignin.signIn();
@@ -50,12 +60,38 @@ export async function signInWithGoogle(): Promise<User> {
   if (!idToken) {
     throw new Error('Google Sign-In did not return an ID token.');
   }
-  const credential = GoogleAuthProvider.credential(idToken);
+  return GoogleAuthProvider.credential(idToken);
+  // `idToken` falls out of scope here -- used once, never persisted.
+}
+
+/**
+ * Runs the native Google Sign-In account picker, exchanges the resulting ID
+ * token for a Firebase session, and returns the signed-in Firebase user.
+ * Throws if the user cancels or the flow otherwise fails -- callers should
+ * treat that as "stay signed out", not a fatal error.
+ */
+export async function signInWithGoogle(): Promise<User> {
+  const credential = await getGoogleCredential();
   const userCredential = await signInDetectingLinkConflict('google', credential, () =>
     signInWithCredential(getFirebaseAuth(), credential),
   );
-  // `idToken` and `credential` fall out of scope here -- used once, never persisted.
+  // `credential` falls out of scope here -- used once, never persisted.
   return userCredential.user;
+}
+
+/**
+ * Links a fresh Google credential to `user` -- the additive "I'm already
+ * signed in and want to also add Google" case (Account page §2 ask),
+ * distinct from signInWithGoogle's sign-in-time conflict path above: this
+ * deliberately never calls signInWithCredential, which would authenticate as
+ * a DIFFERENT (or brand-new) Firebase user tied to this Google account
+ * instead of attaching the credential to the one already signed in. Callers
+ * must pass the CURRENT signed-in user (useAuthStore.linkProvider does).
+ */
+export async function linkGoogleToCurrentUser(user: User): Promise<User> {
+  const credential = await getGoogleCredential();
+  const result = await linkWithCredential(user, credential);
+  return result.user;
 }
 
 /**

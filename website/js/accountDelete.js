@@ -1,0 +1,165 @@
+/* =========================================================================
+   accountDelete.js -- owns the account-deletion confirm box + the cascade
+   delete itself. Split out of accountPanel.js purely to keep that file
+   under the project's 500-line guideline (same reasoning as goalForm.js
+   being split out of goalsPanel.js) -- this is one bounded, high-stakes
+   chunk of that panel's Danger zone, not a separately-mounted feature, so
+   it has no ctx/mount shape of its own; it's called directly from
+   accountPanel.js's buildDangerSection with the same `els`/`ctx` that
+   module already has in hand.
+
+   The delete cascade mirrors app/src/sync/firestoreSync.ts's
+   deleteAllUserData byte-for-byte (same subcollections, same batch chunk
+   size, same Firestore-data-before-Auth-user ordering -- see
+   account-spec.md §4): Firestore data must go first, while still
+   authenticated as this uid, because an owner-scoped rule can't authorize a
+   delete once the Auth user performing it no longer exists.
+   ========================================================================= */
+import {
+  GoogleAuthProvider,
+  OAuthProvider,
+  deleteUser,
+  reauthenticateWithPopup,
+} from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js';
+import {
+  doc,
+  deleteDoc,
+  collection,
+  getDocs,
+  writeBatch,
+} from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
+import { showMessage } from './dashMessage.js';
+import { friendlyErrorMessage, isIgnorableAuthError, logAuthError } from './authErrors.js';
+
+const DELETE_CONFIRM_WORD = 'DELETE';
+const BATCH_LIMIT = 500; // Firestore's per-batch write cap -- mirrors firestoreSync.ts's deleteAllUserData
+// Same three subcollections deleteAllUserData wipes, in the same order --
+// see firestore.rules: settings/devices/goals all `allow delete: if isOwner`,
+// while sessions is `allow delete: if false` and is deliberately excluded
+// (retained-but-orphaned by design; the confirm copy below says so).
+const DELETABLE_SUBCOLLECTIONS = ['settings', 'devices', 'goals'];
+
+/** Cascade-deletes everything firestore.rules permits, chunked to Firestore's
+ * per-batch write limit (defensive -- one account's data is expected to stay
+ * far under it). */
+async function deleteFirestoreData(db, uid) {
+  for (const sub of DELETABLE_SUBCOLLECTIONS) {
+    const snap = await getDocs(collection(db, 'users', uid, sub));
+    let batch = writeBatch(db);
+    let count = 0;
+    for (const d of snap.docs) {
+      batch.delete(d.ref);
+      count += 1;
+      if (count === BATCH_LIMIT) {
+        await batch.commit();
+        batch = writeBatch(db);
+        count = 0;
+      }
+    }
+    if (count > 0) await batch.commit();
+  }
+  await deleteDoc(doc(db, 'users', uid));
+}
+
+/** Picks one already-linked provider to re-authenticate with when Firebase
+ * demands a fresh credential. Google preferred when both are linked --
+ * mirrors useAuthStore.deleteAccount's own tie-break (avoids double-
+ * prompting with both a Google picker and an Apple sheet for one delete). */
+function primaryReauthProvider(user) {
+  const ids = user.providerData.map((p) => p.providerId);
+  if (ids.includes('google.com')) return new GoogleAuthProvider();
+  if (ids.includes('apple.com')) return new OAuthProvider('apple.com');
+  return null;
+}
+
+async function runDeleteAccount(user, els, ctx, controls) {
+  controls.input.disabled = true;
+  controls.cancel.disabled = true;
+  controls.confirmBtn.disabled = true;
+  try {
+    await deleteFirestoreData(ctx.getDb(), user.uid);
+    try {
+      await deleteUser(user);
+    } catch (err) {
+      // Firebase requires a recent credential for this destructive op --
+      // re-authenticate once with the account's own primary provider, then
+      // retry the delete exactly once (account-spec.md §4).
+      if (err && err.code === 'auth/requires-recent-login') {
+        const provider = primaryReauthProvider(user);
+        if (!provider) throw err;
+        await reauthenticateWithPopup(user, provider);
+        await deleteUser(user);
+      } else {
+        throw err;
+      }
+    }
+    // Success: onAuthStateChanged (dashboard.js) observes the now-null user
+    // and redirects to login.html on its own -- no manual redirect needed
+    // here, and nothing left to render on this panel.
+  } catch (err) {
+    if (isIgnorableAuthError(err)) {
+      // The re-auth popup was dismissed -- not a failure worth an error
+      // banner, just let the user retry.
+    } else {
+      logAuthError('account deletion', err);
+      showMessage(els.accountMsg, friendlyErrorMessage(err), { kind: 'err', autoDismissMs: 8000 });
+    }
+    controls.input.disabled = false;
+    controls.cancel.disabled = false;
+    controls.input.value = '';
+    controls.confirmBtn.disabled = true;
+  }
+}
+
+/** Builds the second-step confirm box: warning copy, a "type DELETE" input
+ * gating the destructive button, Cancel, and the destructive action itself.
+ * `onCancel` is accountPanel.js's own responsibility (clears its
+ * openConfirmKey singleton and re-renders the panel) -- kept as a callback
+ * rather than this module reaching back into that module's state, so the
+ * two files don't need a circular import. */
+export function buildDeleteConfirm(user, els, ctx, onCancel) {
+  const box = document.createElement('div');
+  box.className = 'acct__confirm';
+
+  const warning = document.createElement('p');
+  // Copy pinned to account-spec.md §4 -- identical guarantees to the app's
+  // native Alert (AccountSection.tsx's handleDeleteAccount), including the
+  // orphaned-sessions caveat, which is easy to forget precisely because
+  // firestore.rules makes it invisible (the delete just silently no-ops).
+  warning.textContent = 'This permanently deletes your account and its cloud data: profile, settings, '
+    + 'custom labels, focus goals, and linked devices. Your session history stays in the cloud but is '
+    + 'orphaned -- Firestore keeps session records undeletable for integrity, so they are retained but '
+    + 'no longer linked to a live account. The physical Phone Box and anything stored locally on this '
+    + 'phone are not affected. This cannot be undone.';
+  box.appendChild(warning);
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'acct__confirm-input';
+  input.placeholder = DELETE_CONFIRM_WORD;
+  input.setAttribute('aria-label', `Type ${DELETE_CONFIRM_WORD} to confirm account deletion`);
+  input.autocomplete = 'off';
+  box.appendChild(input);
+
+  const actions = document.createElement('div');
+  actions.className = 'acct__confirm-actions';
+  const cancel = document.createElement('button');
+  cancel.type = 'button';
+  cancel.className = 'btn btn--sm btn--ghost';
+  cancel.textContent = 'Cancel';
+  cancel.addEventListener('click', onCancel);
+  const confirmBtn = document.createElement('button');
+  confirmBtn.type = 'button';
+  confirmBtn.className = 'dash__labels-confirm-delete';
+  confirmBtn.textContent = 'Permanently delete account';
+  confirmBtn.disabled = true; // enabled only once the typed text matches exactly (case-sensitive)
+  actions.append(cancel, confirmBtn);
+  box.appendChild(actions);
+
+  input.addEventListener('input', () => {
+    confirmBtn.disabled = input.value !== DELETE_CONFIRM_WORD;
+  });
+  confirmBtn.addEventListener('click', () => runDeleteAccount(user, els, ctx, { input, cancel, confirmBtn }));
+
+  return box;
+}

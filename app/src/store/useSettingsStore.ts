@@ -51,12 +51,26 @@ interface SettingsState {
   // fields -- compared against Firestore's settings/app.updatedAt for the
   // two-way last-write-wins merge (sync/firestoreSync.ts).
   settingsUpdatedAt: number;
+  // Local-only per-device preference (Account page §3): whether
+  // useAuthStore.init's onAuthStateChanged handler should auto-trigger
+  // syncNow() on sign-in/auth-state change. Deliberately NOT a
+  // SyncableSettings field and NOT touched by resetSyncableSettings below --
+  // unlike themeMode/accent/etc. (which represent "what the user wants
+  // right now" and should follow them to every device), whether THIS device
+  // should auto-sync is closer in nature to boxSettings' per-physical-device
+  // scoping (§3.1's "deliberate scoping decision", extended here to a
+  // per-installation UI preference rather than a per-box one): switching or
+  // signing out of an account on this device must not silently flip a
+  // preference the user set for this device back to its default. The
+  // manual "Sync now" button is never gated by this -- see useAuthStore.
+  autoSyncEnabled: boolean;
 
   hydrate: () => Promise<void>;
   setThemeMode: (mode: ThemeMode) => void;
   setAccent: (accent: AccentKey) => void;
   setCallAlertsEnabled: (on: boolean) => void;
   setBoxSettings: (patch: Partial<Settings>) => void;
+  setAutoSyncEnabled: (on: boolean) => void;
   addCustomLabel: (name: string, color: string) => void;
   renameCustomLabel: (id: string, name: string) => void;
   removeCustomLabel: (id: string) => void;
@@ -68,7 +82,11 @@ interface SettingsState {
   /** Resets the four account-syncable fields to their defaults and zeroes
    * settingsUpdatedAt, so a signed-out device carries no prior account's
    * preferences into whichever account (or none) signs in next -- see
-   * sync/localDataOwner.ts. Leaves boxSettings and hydrated untouched. */
+   * sync/localDataOwner.ts. Leaves boxSettings, autoSyncEnabled, and
+   * hydrated untouched -- autoSyncEnabled is a per-device preference, not
+   * account state (see its own field comment above), so a sign-out/
+   * account-switch on this device must not silently re-enable (or disable)
+   * it against the user's own choice for this installation. */
   resetSyncableSettings: () => void;
 }
 
@@ -77,10 +95,11 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   ...SYNCABLE_SETTINGS_DEFAULTS,
   boxSettings: DEFAULT_BOX_SETTINGS,
   settingsUpdatedAt: 0,
+  autoSyncEnabled: true,
 
   hydrate: async () => {
     if (get().hydrated) return;
-    const [themeMode, accent, callAlertsEnabled, customLabels, boxSettings, settingsUpdatedAt] =
+    const [themeMode, accent, callAlertsEnabled, customLabels, boxSettings, settingsUpdatedAt, autoSyncEnabled] =
       await Promise.all([
         getJSON<ThemeMode>('themeMode', SYNCABLE_SETTINGS_DEFAULTS.themeMode),
         getJSON<AccentKey>('accent', SYNCABLE_SETTINGS_DEFAULTS.accent),
@@ -88,6 +107,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         getJSON<CustomLabel[]>('customLabels', SYNCABLE_SETTINGS_DEFAULTS.customLabels),
         getJSON<Settings>('boxSettings', DEFAULT_BOX_SETTINGS),
         getJSON<number>('settingsUpdatedAt', 0),
+        getJSON<boolean>('autoSyncEnabled', true),
       ]);
     set({
       hydrated: true,
@@ -97,6 +117,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       customLabels,
       boxSettings,
       settingsUpdatedAt,
+      autoSyncEnabled,
     });
   },
 
@@ -127,6 +148,13 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     const next = { ...get().boxSettings, ...patch };
     set({ boxSettings: next });
     setJSON('boxSettings', next);
+  },
+
+  setAutoSyncEnabled: (on) => {
+    // Deliberately not part of settingsUpdatedAt/sync, same reasoning as
+    // setBoxSettings above -- see this field's own interface comment.
+    set({ autoSyncEnabled: on });
+    setJSON('autoSyncEnabled', on);
   },
 
   addCustomLabel: (name, color) => {

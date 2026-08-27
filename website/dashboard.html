@@ -12,6 +12,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Archivo:wght@400;500;600;700&family=Courier+Prime:wght@400;700&family=VT323&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="css/styles.css" />
   <link rel="stylesheet" href="css/dashboard.css" />
+  <link rel="stylesheet" href="css/accountPanel.css" />
 </head>
 <body>
   <!-- impeccable:direction
@@ -179,6 +180,17 @@
                 <tbody id="dashSessionsBody"></tbody>
               </table>
             </div>
+          </div>
+
+          <!-- Account -- accountPanel.js owns this panel's render + writes
+               end-to-end (see its header), the same split as the Focus
+               goals/Manage labels panels above. Markup here is just the
+               panel shell + message slot; everything inside #dashAccountBody
+               is built in JS from the signed-in user + the loaded settings. -->
+          <div class="card dash__panel" id="dashAccountCard">
+            <h2>Account</h2>
+            <p id="dashAccountMsg" class="form-msg dash__msg" role="status"></p>
+            <div id="dashAccountBody"></div>
           </div>
         </div>
       </div>

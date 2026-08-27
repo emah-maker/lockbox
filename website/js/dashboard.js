@@ -71,6 +71,7 @@ import { createLabelPicker } from './sessionLabelPicker.js';
 import { mountLabelsPanel, renderLabelsList } from './labelsPanel.js';
 import { mountGoalsPanel, renderGoalsList } from './goalsPanel.js';
 import { sanitizeRemoteGoals, computeGoalProgress, pruneArchivedGoals } from './goals.js';
+import { mountAccountPanel, renderAccountPanel } from './accountPanel.js';
 
 const TOP_FACTS = 5;
 // Defensive cap, not a product window: the summary tiles/streak/calendar all
@@ -116,6 +117,8 @@ const els = {
   goalsList: document.getElementById('dashGoalsList'),
   goalFormSlot: document.getElementById('dashGoalFormSlot'),
   goalsCapMsg: document.getElementById('dashGoalsCapMsg'),
+  accountMsg: document.getElementById('dashAccountMsg'),
+  accountBody: document.getElementById('dashAccountBody'),
 };
 
 // ---------- Write state (populated once loadDashboard resolves) ----------
@@ -130,6 +133,19 @@ const els = {
 let dashDb = null;
 let dashUid = null;
 let currentSettings = { themeMode: DEFAULT_THEME_MODE, accent: DEFAULT_ACCENT, callAlertsEnabled: true };
+
+// ---------- Account panel wiring (accountPanel.js owns render + writes) ----------
+// dashAuth/dashUser mirror dashDb/dashUid's "set once per sign-in" shape
+// above, for the same reason: accountCtx (below) is built once at module
+// init, before sign-in resolves any of these. dashUser (unlike dashUid) is
+// the live firebase User object itself -- accountPanel.js's render needs
+// providerData/emailVerified/metadata off it, not just the uid string.
+// lastLoadedAt is stamped after every successful loadDashboard (the initial
+// load and every manual "Refresh") so the account panel's data-freshness
+// caption never has to guess.
+let dashAuth = null;
+let dashUser = null;
+let lastLoadedAt = null;
 
 function showWriteError(err) {
   console.error(err);
@@ -168,6 +184,29 @@ const goalsCtx = {
   getThemeMode: () => themeMode,
   writeGoals: (next) => writeGoals(next),
   rerender: () => renderDataViews(calSessions, calCustomLabels),
+};
+
+// ---------- Account panel ctx (accountPanel.js owns render + writes) ----------
+// Same live-getter shape as labelsCtx/goalsCtx above, for the same reason.
+// onThemeWritten/onRefresh/onSignOut are callbacks rather than getters
+// because accountPanel.js triggers these as one-shot actions (a write, a
+// reload, a sign-out) instead of reading live state through them.
+const accountCtx = {
+  getAuth: () => dashAuth,
+  getDb: () => dashDb,
+  getUid: () => dashUid,
+  getSettings: () => currentSettings,
+  getCustomLabels: () => calCustomLabels,
+  getLastLoadedAt: () => lastLoadedAt,
+  onThemeWritten: (nextThemeMode, nextAccent) => {
+    themeMode = nextThemeMode;
+    currentSettings = { ...currentSettings, themeMode: nextThemeMode, accent: nextAccent };
+    theme = resolveTheme(themeMode, nextAccent);
+    applyTheme(theme);
+    renderDataViews(calSessions, calCustomLabels);
+  },
+  onRefresh: () => { if (dashDb && dashUid) loadDashboard(dashDb, dashUid); },
+  onSignOut: () => { signOut(dashAuth).catch(showError); },
 };
 
 // ---------- Per-session relabel picker ctx (sessionLabelPicker.js owns render + writes) ----------
@@ -682,15 +721,27 @@ async function loadDashboard(db, uid) {
     };
     applyTheme(theme);
     renderAll(sessions, customLabels, goals);
+    // Stamped after a successful load (initial or a manual "Refresh" from
+    // the account panel), not before -- a failed/timed-out load shouldn't
+    // claim the data is fresh. renderAccount() re-renders from `dashUser`
+    // rather than the `user` this function doesn't have in scope; dashUser
+    // is set by onAuthStateChanged below before every loadDashboard call.
+    lastLoadedAt = Date.now();
+    renderAccount();
     showState('content');
   } catch (err) {
     showError(err);
   }
 }
 
+function renderAccount() {
+  if (dashUser) renderAccountPanel(dashUser, els, accountCtx);
+}
+
 function init() {
   mountLabelsPanel(els, labelsCtx);
   mountGoalsPanel();
+  mountAccountPanel();
 
   if (!isFirebaseConfigured()) {
     showState('notConfigured');
@@ -700,6 +751,7 @@ function init() {
   const app = initializeApp(firebaseConfig);
   const auth = getAuth(app);
   const db = getFirestore(app);
+  dashAuth = auth;
 
   els.signOutBtn.addEventListener('click', () => {
     signOut(auth).catch(showError);
@@ -709,10 +761,16 @@ function init() {
     if (!user) {
       // Gated page: signed-out visitors belong on login.html, not on a
       // "please sign in" state rendered here. `replace` so the gated view
-      // never sits in history for the back button to land on.
+      // never sits in history for the back button to land on. Also covers
+      // the account panel's own delete-account success path -- deleteUser()
+      // firing this same callback with `user === null` is exactly how that
+      // panel lands back on the signed-out surface, with no redirect logic
+      // of its own.
+      dashUser = null;
       window.location.replace('login.html');
       return;
     }
+    dashUser = user;
     els.signOutBtn.hidden = false;
     loadDashboard(db, user.uid);
   });
