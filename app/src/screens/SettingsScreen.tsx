@@ -35,11 +35,12 @@ import { CustomLabelsSection } from './CustomLabelsSection';
 import { BoxBehaviorSection, boxBehaviorSummary } from './settings/BoxBehaviorSection';
 import { AppearanceSection, appearanceSummary } from './settings/AppearanceSection';
 import { AlertsSection, alertsSummary } from './settings/AlertsSection';
+import { NotificationsSection, notificationsSummary } from './settings/NotificationsSection';
 import { RingBaselineSection, ringBaselineSummary } from './settings/RingBaselineSection';
 import { typeScale, elevation, radius } from '../theme/tokens';
 import { withAlpha } from '../theme/theme';
 
-type SheetKey = 'account' | 'goals' | 'labels' | 'box' | 'appearance' | 'alerts' | 'ringBaseline';
+type SheetKey = 'account' | 'goals' | 'labels' | 'box' | 'appearance' | 'alerts' | 'notifications' | 'ringBaseline';
 
 export default function SettingsScreen() {
   const c = useTheme();
@@ -58,6 +59,8 @@ export default function SettingsScreen() {
   const callAlertsEnabled = useSettingsStore((s) => s.callAlertsEnabled);
   const setCallAlertsEnabled = useSettingsStore((s) => s.setCallAlertsEnabled);
   const customLabels = useSettingsStore((s) => s.customLabels);
+  const notificationsEnabled = useSettingsStore((s) => s.notificationsEnabled);
+  const quietHoursEnabled = useSettingsStore((s) => s.quietHoursEnabled);
   const ringBaselineWindow = useSettingsStore((s) => s.ringBaselineWindow);
   const setRingBaselineWindow = useSettingsStore((s) => s.setRingBaselineWindow);
   const authUser = useAuthStore((s) => s.user);
@@ -66,11 +69,12 @@ export default function SettingsScreen() {
   const [sheet, setSheet] = React.useState<SheetKey | null>(null);
   const closeSheet = () => setSheet(null);
 
-  // GoalsSection's H/M target wheels are vertical scrollers -- same
+  // GoalsSection's target/reminder wheels and NotificationsSection's
+  // quiet-hours wheels are vertical scrollers -- same
   // ScrollView-surrenders-the-drag-to-the-wheel contract StatsScreen already
-  // has for this exact component (see its own onWheelActiveChange comment),
-  // needed again here since GoalsSection is now also mounted inside this
-  // screen's Goals sheet, unchanged.
+  // has for GoalsSection (see its own onWheelActiveChange comment), needed
+  // again here since both sections are mounted inside this screen's own
+  // sheets. One piece of state serves both: only one sheet is ever open.
   const [wheelActive, setWheelActive] = React.useState(false);
   const wheelSafetyTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const onWheelActiveChange = (active: boolean) => {
@@ -100,6 +104,7 @@ export default function SettingsScreen() {
   const boxValue = boxBehaviorSummary(conn, boxSettings);
   const appearanceValue = appearanceSummary(themeMode, accent);
   const alertsValue = alertsSummary(callAlertsEnabled);
+  const notificationsValue = notificationsSummary(notificationsEnabled, quietHoursEnabled);
   const ringBaselineValue = ringBaselineSummary(ringBaselineWindow);
 
   return (
@@ -132,6 +137,13 @@ export default function SettingsScreen() {
           <Divider color={c} />
           <DisclosureRow label="Alerts" value={alertsValue} onPress={() => setSheet('alerts')} color={c} />
           <Divider color={c} />
+          <DisclosureRow
+            label="Notifications"
+            value={notificationsValue}
+            onPress={() => setSheet('notifications')}
+            color={c}
+          />
+
           <DisclosureRow label="Focus ring" value={ringBaselineValue} onPress={() => setSheet('ringBaseline')} color={c} />
         </View>
       </ScrollView>
@@ -185,6 +197,13 @@ export default function SettingsScreen() {
           callDetectionAvailable={callDetectionAvailable}
           lastAlert={lastAlert}
         />
+      </Sheet>
+
+      {/* Its quiet-hours wheels are vertical scrollers inside this sheet's
+          own scroller -- same `wheelActive` handoff the goals sheet above
+          uses, for the identical reason. */}
+      <Sheet visible={sheet === 'notifications'} onClose={closeSheet} size="large" scrollEnabled={!wheelActive}>
+        <NotificationsSection color={c} onWheelActiveChange={onWheelActiveChange} />
       </Sheet>
 
       <Sheet visible={sheet === 'ringBaseline'} onClose={closeSheet} size="auto">

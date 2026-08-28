@@ -1,10 +1,15 @@
-// GoalFormExtras.tsx -- the "flexible goals" extension controls split out
-// of GoalForm.tsx (same 500-line-guideline reasoning as GoalForm.tsx's own
-// split from GoalsSection.tsx): the weekday chip row (daysOfWeek, Daily
-// only), the optional session-count target stepper, and the notify
-// toggle + reminder-time wheels. Three small, independent controls bundled
-// into one file because none of them is big enough to earn its own module,
-// and all three are used from exactly one call site (GoalForm.tsx).
+// GoalFormExtras.tsx -- the small "flexible goals" extension controls split
+// out of GoalForm.tsx (same 500-line-guideline reasoning as GoalForm.tsx's
+// own split from GoalsSection.tsx): the weekday chip row (daysOfWeek, Daily
+// only) and the optional session-count target stepper. Two small,
+// independent controls bundled into one file because neither is big enough
+// to earn its own module.
+//
+// The reminder block used to be the third control here. It moved to
+// GoalReminderControl.tsx once a reminder stopped being "one toggle and two
+// wheels" and became a list of times plus its own weekday set and a
+// progress-aware flag -- see that file's header. WeekdayChips below is now
+// shared by both files rather than used from one call site.
 //
 // Owns no validation and no persistence, same discipline GoalForm.tsx's own
 // header describes for itself -- every value here is a plain, uncommitted
@@ -17,7 +22,6 @@ import { View, Text, StyleSheet, Switch } from 'react-native';
 import { useTheme } from '../theme/useTheme';
 import { withAlpha } from '../theme/theme';
 import { AnimatedPressable } from '../ui/AnimatedPressable';
-import { WheelPicker } from '../ui/WheelPicker';
 import { typeScale, spacing } from '../theme/tokens';
 
 // Two-letter abbreviations rather than single letters -- 'S'/'S' and
@@ -140,104 +144,6 @@ export function SessionTargetControl({
   );
 }
 
-// 24h clock wheel for the reminder time's hour component -- distinct from
-// GoalForm.tsx's own PERIOD_MAX_HOURS-derived hour wheel, which counts a
-// DURATION (0..MAX_*_TARGET_S/3600), not a time-of-day; the two are
-// unrelated ranges that happen to both be "hours" in the same form.
-const CLOCK_HOUR_LABELS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'));
-// Reuses GoalForm.tsx's own 5-minute step convention (matches
-// DashboardScreen's lock-duration wheel) so every minute wheel in this app
-// snaps to the same grid.
-const NOTIFY_MINUTE_STEP = 5;
-const NOTIFY_MINUTE_VALUES = Array.from({ length: 60 / NOTIFY_MINUTE_STEP }, (_, i) => i * NOTIFY_MINUTE_STEP);
-const NOTIFY_MINUTE_LABELS = NOTIFY_MINUTE_VALUES.map((m) => String(m).padStart(2, '0'));
-const DEFAULT_NOTIFY_AT = '09:00';
-
-/** Parses a "HH:MM" string into wheel indices, snapping an off-grid minute
- * (e.g. a notifyAt written by some future non-5-minute-step writer) onto
- * the nearest wheel stop -- same defensive snap GoalForm.tsx's own target
- * wheels already apply to a dashboard-written targetS. Falls back to
- * DEFAULT_NOTIFY_AT's own components for a missing/malformed value, so the
- * wheels always have SOME valid position to render even before the user
- * has touched them. */
-function parseNotifyAt(notifyAt: string | undefined): { hour: number; minuteIndex: number } {
-  const match = /^(\d{2}):(\d{2})$/.exec(notifyAt ?? DEFAULT_NOTIFY_AT);
-  const hour = match ? Math.min(23, parseInt(match[1], 10)) : 9;
-  const minute = match ? parseInt(match[2], 10) : 0;
-  const minuteIndex = NOTIFY_MINUTE_VALUES.reduce(
-    (best, v, i) => (Math.abs(v - minute) < Math.abs(NOTIFY_MINUTE_VALUES[best] - minute) ? i : best),
-    0,
-  );
-  return { hour, minuteIndex };
-}
-
-function formatNotifyAt(hour: number, minute: number): string {
-  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
-}
-
-/** Reminder opt-in: a toggle gating two clock wheels (hour + 5-minute-step
- * minute), the time-of-day counterpart to GoalForm's own duration wheels.
- * Turning the toggle on for the first time (no notifyAt yet) seeds
- * DEFAULT_NOTIFY_AT rather than leaving the wheels on some arbitrary
- * "unset" display -- there's no such thing as a Goal with notify:true and
- * no notifyAt that would ever reach goals.ts's validateGoalExtras (it
- * requires both or neither), so the wheels need a real value the instant
- * the toggle flips. */
-export function NotifyControl({
-  notify,
-  notifyAt,
-  onNotifyChange,
-  onNotifyAtChange,
-  onWheelActiveChange,
-  color,
-}: {
-  notify: boolean;
-  notifyAt: string | undefined;
-  onNotifyChange: (value: boolean) => void;
-  onNotifyAtChange: (value: string) => void;
-  onWheelActiveChange: (active: boolean) => void;
-  color: ReturnType<typeof useTheme>;
-}) {
-  const { hour, minuteIndex } = parseNotifyAt(notifyAt);
-  const setToggle = (next: boolean) => {
-    onNotifyChange(next);
-    if (next && !notifyAt) onNotifyAtChange(DEFAULT_NOTIFY_AT);
-  };
-  return (
-    <View style={styles.toggleRow}>
-      <View style={styles.toggleRowLabel}>
-        <Text style={[styles.formLabel, { color: color.textDim }]}>Remind me</Text>
-        <Switch value={notify} onValueChange={setToggle} accessibilityLabel="Remind me about this goal" />
-      </View>
-      {notify ? (
-        <View
-          style={styles.wheelRow}
-          onTouchStart={() => onWheelActiveChange(true)}
-          onTouchEnd={() => onWheelActiveChange(false)}
-          onTouchCancel={() => onWheelActiveChange(false)}
-        >
-          <WheelPicker
-            labels={CLOCK_HOUR_LABELS}
-            selectedIndex={hour}
-            onChange={(i) => onNotifyAtChange(formatNotifyAt(i, NOTIFY_MINUTE_VALUES[minuteIndex]))}
-            onDragStart={() => onWheelActiveChange(true)}
-            onDragEnd={() => onWheelActiveChange(false)}
-            accessibilityLabel="Reminder time, hour"
-          />
-          <WheelPicker
-            labels={NOTIFY_MINUTE_LABELS}
-            selectedIndex={minuteIndex}
-            onChange={(i) => onNotifyAtChange(formatNotifyAt(hour, NOTIFY_MINUTE_VALUES[i]))}
-            onDragStart={() => onWheelActiveChange(true)}
-            onDragEnd={() => onWheelActiveChange(false)}
-            accessibilityLabel="Reminder time, minute"
-          />
-        </View>
-      ) : null}
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   formLabel: { ...typeScale.label },
   weekdayRow: { flexDirection: 'row', gap: 6, flexWrap: 'wrap' },
@@ -249,5 +155,4 @@ const styles = StyleSheet.create({
   stepperBtn: { width: 32, height: 32, borderRadius: 16, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
   stepperBtnText: { fontSize: 18, fontWeight: '700', lineHeight: 20 },
   stepperValue: { ...typeScale.body, minWidth: 90, textAlign: 'center' },
-  wheelRow: { flexDirection: 'row', justifyContent: 'center', gap: 8 },
 });
