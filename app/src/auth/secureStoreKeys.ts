@@ -27,7 +27,29 @@ export const SECURE_STORE_OPTS: SecureStore.SecureStoreOptions = {
 // can't drift out of sync with firebaseConfig.
 const FIREBASE_APP_NAME = '[DEFAULT]';
 
+/**
+ * Maps a Firebase Auth persistence key name onto one expo-secure-store will
+ * actually accept.
+ *
+ * expo-secure-store validates every key against `/^[\w.-]+$/` and *throws*
+ * otherwise (SecureStore.js's `ensureValidKey`). The SDK's own key format --
+ * `firebase:authUser:<apiKey>:[DEFAULT]` -- contains `:`, `[` and `]`, so
+ * every raw read/write through the adapter rejected. That broke sign-in
+ * outright: PersistenceUserManager.create() swallows the first `_get`, but
+ * initializeCurrentUser()'s getCurrentUser() does not, so Auth's
+ * initialization promise rejected, onAuthStateChanged never fired, `ready`
+ * never flipped, and the 10s watchdog in useAuthStore surfaced "Couldn't
+ * start sign-in. Check your connection and try again." on every launch.
+ *
+ * The substitution is applied in exactly one place so the persistence adapter
+ * (which writes) and the wipe paths (which delete) can never disagree about
+ * the name a value actually lives under.
+ */
+export function secureStoreKey(name: string): string {
+  return name.replace(/[^\w.-]/g, '_');
+}
+
 export const FIREBASE_AUTH_SECURE_STORE_KEYS: string[] = [
-  `firebase:authUser:${firebaseConfig.apiKey}:${FIREBASE_APP_NAME}`,
-  `firebase:persistence:${firebaseConfig.apiKey}:${FIREBASE_APP_NAME}`,
+  secureStoreKey(`firebase:authUser:${firebaseConfig.apiKey}:${FIREBASE_APP_NAME}`),
+  secureStoreKey(`firebase:persistence:${firebaseConfig.apiKey}:${FIREBASE_APP_NAME}`),
 ];

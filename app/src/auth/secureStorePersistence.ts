@@ -10,7 +10,7 @@
 // requirement.
 import * as SecureStore from 'expo-secure-store';
 import type { Persistence } from 'firebase/auth';
-import { SECURE_STORE_OPTS } from './secureStoreKeys';
+import { SECURE_STORE_OPTS, secureStoreKey } from './secureStoreKeys';
 
 // Firebase's public `Persistence` type (firebase/auth) only declares `type`;
 // the actual storage contract every custom persistence must implement
@@ -41,9 +41,14 @@ const impl: AuthPersistenceImpl = {
       return false;
     }
   },
-  _set: (key, value) => SecureStore.setItemAsync(key, value, SECURE_STORE_OPTS),
-  _get: (key) => SecureStore.getItemAsync(key, SECURE_STORE_OPTS),
-  _remove: (key) => SecureStore.deleteItemAsync(key, SECURE_STORE_OPTS),
+  // Every key the SDK hands us goes through secureStoreKey() -- its own
+  // `firebase:authUser:<apiKey>:[DEFAULT]` format is rejected outright by
+  // expo-secure-store's key validation, which is not a silent no-op but a
+  // throw, and one that took all of sign-in down with it. See
+  // secureStoreKeys.ts.
+  _set: (key, value) => SecureStore.setItemAsync(secureStoreKey(key), value, SECURE_STORE_OPTS),
+  _get: (key) => SecureStore.getItemAsync(secureStoreKey(key), SECURE_STORE_OPTS),
+  _remove: (key) => SecureStore.deleteItemAsync(secureStoreKey(key), SECURE_STORE_OPTS),
   _addListener: () => {}, // single-tab RN app: no cross-tab sync needed
   _removeListener: () => {},
 };
