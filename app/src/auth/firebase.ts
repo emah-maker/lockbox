@@ -9,7 +9,7 @@
 // before anything else touches auth or Firestore.
 import 'react-native-get-random-values'; // polyfills crypto.getRandomValues for the firebase JS SDK on RN; must load before firebase/app
 import { initializeApp, getApps, FirebaseApp } from 'firebase/app';
-import { initializeAuth, Auth } from 'firebase/auth';
+import { initializeAuth, getAuth, Auth } from 'firebase/auth';
 import { getFirestore, Firestore } from 'firebase/firestore';
 import { firebaseConfig } from './firebaseConfig';
 import { secureStorePersistence } from './secureStorePersistence';
@@ -29,10 +29,35 @@ let initPromise: Promise<void> | null = null;
  */
 export function initFirebaseAuth(): Promise<void> {
   if (!initPromise) {
-    initPromise = wipeStaleSessionOnFreshInstall().then(() => {
-      auth = initializeAuth(app, { persistence: secureStorePersistence });
-      db = getFirestore(app);
-    });
+    initPromise = wipeStaleSessionOnFreshInstall()
+      .then(() => {
+        try {
+          auth = initializeAuth(app, { persistence: secureStorePersistence });
+        } catch (e: any) {
+          // Fast Refresh re-evaluates this module, resetting `initPromise` and
+          // `auth` to their initial values -- but the underlying FirebaseApp
+          // survives, so the second initializeAuth() for it throws
+          // auth/already-initialized. That instance is the one this very
+          // module configured with secureStorePersistence, so adopting it via
+          // getAuth() is exact, not a fallback to different behavior. Without
+          // this, one edit in a dev client permanently killed sign-in for the
+          // rest of the session (useAuthStore.init() never reached
+          // onAuthStateChanged, so `ready` never flipped and both sign-in
+          // buttons stayed disabled).
+          if (e?.code !== 'auth/already-initialized') throw e;
+          auth = getAuth(app);
+        }
+        db = getFirestore(app);
+      })
+      .catch((e) => {
+        // Never leave a rejected promise cached: `initPromise` is the only
+        // memo here, so holding a rejected one made a single transient
+        // failure (a SecureStore/AsyncStorage hiccup in the wipe step above)
+        // permanent for the whole app session, with no retry path. Clearing
+        // it lets the next caller genuinely try again.
+        initPromise = null;
+        throw e;
+      });
   }
   return initPromise;
 }

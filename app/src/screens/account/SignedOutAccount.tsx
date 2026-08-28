@@ -12,6 +12,7 @@ import { Button, captionStyle } from '../SettingsPrimitives';
 
 export function SignedOutAccount({ color, ready }: { color: ReturnType<typeof useTheme>; ready: boolean }) {
   const syncError = useAuthStore((s) => s.syncError);
+  const initError = useAuthStore((s) => s.initError);
   const pendingLink = useAuthStore((s) => s.pendingLink);
   const signInWithGoogle = useAuthStore((s) => s.signInWithGoogle);
   const signInWithApple = useAuthStore((s) => s.signInWithApple);
@@ -60,6 +61,7 @@ export function SignedOutAccount({ color, ready }: { color: ReturnType<typeof us
         Back up your stats and settings, and sync them to another phone. Optional -- the box works
         fully without this.
       </Text>
+      {initError ? <Text style={[styles.subtitle, { color: color.danger }]}>{initError}</Text> : null}
       {syncError ? <Text style={[styles.subtitle, { color: color.danger }]}>{syncError}</Text> : null}
       {signInError ? <Text style={[styles.subtitle, { color: color.danger }]}>{signInError}</Text> : null}
       {pendingLink ? (

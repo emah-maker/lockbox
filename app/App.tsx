@@ -86,10 +86,15 @@ export default function App() {
     // as early as possible, and nothing else in this file should import
     // firebase/auth directly. Entirely additive: nothing else in the app
     // waits on this or is gated by it (§6.1 -- not a sign-in gate).
-    useAuthStore.getState().init().catch(() => {
+    useAuthStore.getState().init().catch((e) => {
       // Non-fatal: sign-in/sync is additive (§6.1, not a gate) -- a failure
       // here (e.g. SecureStore unavailable) just means the account section
       // stays in its signed-out state; nothing else in the app depends on it.
+      // init() handles its own failures now (it surfaces initError and leaves
+      // the sign-in buttons operable so they can retry), so reaching this is
+      // itself unexpected -- log it rather than swallowing it silently, which
+      // is how a dead sign-in button came to have no diagnostic at all.
+      console.warn('[App] useAuthStore.init() rejected:', e?.message ?? e);
     });
     startSettingsSyncBridge();
     startSessionsSyncBridge();

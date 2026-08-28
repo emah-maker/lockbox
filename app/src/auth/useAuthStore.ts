@@ -86,6 +86,12 @@ function toAccountUser(u: User): AccountUser {
 
 interface AuthState {
   ready: boolean; // Firebase Auth has finished its initial "do we have a session" check
+  /** Set when Firebase Auth failed to start at all (see init() below), so the
+   * Account page can say so instead of just showing two dead buttons. Distinct
+   * from syncError (auth is up, a Firestore sync failed) and from a sign-in
+   * attempt's own error (auth is up, the provider flow failed). Generic,
+   * credential-free string, same discipline as the rest of this file. */
+  initError: string | null;
   user: AccountUser | null;
   syncing: boolean;
   // The uid syncNow's currently in-flight call was started for, or null when
@@ -192,8 +198,64 @@ async function handleProviderSignIn(
   }
 }
 
+const AUTH_INIT_ERROR = "Couldn't start sign-in. Check your connection and try again.";
+// Watchdog for init(): everything it awaits is local (SecureStore/AsyncStorage
+// reads, then initializeAuth -- no network; Firebase fires onAuthStateChanged
+// off local persistence without waiting on a token refresh), so taking this
+// long means it isn't coming. Covers the failure mode a try/catch can't: a
+// promise that never settles rather than one that rejects, which left `ready`
+// false -- and both sign-in buttons greyed out -- just as permanently.
+// Deliberately self-healing: if auth does come up late, onAuthStateChanged
+// sets ready and clears initError, so a false positive costs a stale message
+// for a moment and nothing else.
+const AUTH_INIT_TIMEOUT_MS = 10_000;
+
+/** Registered exactly once, by whichever of init() or a sign-in retry first
+ * gets initFirebaseAuth() to resolve. The unsubscribe onAuthStateChanged
+ * returns is deliberately never called (the listener lives as long as the
+ * process), so a second registration would be a permanent duplicate --
+ * every auth change would fire syncNow() twice. */
+let authListenerAttached = false;
+
+/** startFirebaseAuth() for the sign-in path: same retry, but any failure
+ * surfaces as this file's one generic, credential-free string rather than a
+ * raw SDK message (design doc §5 checklist item 3 -- SignedOutAccount renders
+ * `e.message` verbatim). The underlying error is logged, not shown. */
+async function requireFirebaseAuth(
+  set: (partial: Partial<AuthState>) => void,
+  get: () => AuthState,
+): Promise<void> {
+  try {
+    await startFirebaseAuth(set, get);
+  } catch (e: any) {
+    console.warn('[useAuthStore] Firebase Auth init failed on sign-in:', e?.message ?? e);
+    set({ initError: AUTH_INIT_ERROR });
+    throw new Error(AUTH_INIT_ERROR);
+  }
+}
+
+async function startFirebaseAuth(
+  set: (partial: Partial<AuthState>) => void,
+  get: () => AuthState,
+): Promise<void> {
+  await initFirebaseAuth();
+  if (authListenerAttached) return;
+  authListenerAttached = true;
+  onAuthStateChanged(getFirebaseAuth(), (u) => {
+    set({ ready: true, initError: null, user: u ? toAccountUser(u) : null });
+    // autoSyncEnabled (useSettingsStore) gates ONLY this automatic call --
+    // a local-only per-device preference (§3), off by exception rather
+    // than by default. The manual "Sync now" button calls syncNow()
+    // directly and is unaffected either way.
+    if (u && useSettingsStore.getState().autoSyncEnabled) {
+      get().syncNow(); // fire-and-forget: migration/sync never blocks the UI
+    }
+  });
+}
+
 export const useAuthStore = create<AuthState>((set, get) => ({
   ready: false,
+  initError: null,
   user: null,
   syncing: false,
   syncingUid: null,
@@ -202,30 +264,47 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   pendingLink: null,
 
   init: async () => {
-    const lastSyncedAt = await getJSON<number | null>(LAST_SYNCED_KEY, null);
+    // Its own catch: a read failure here is cosmetic (a missing "last synced"
+    // timestamp) and must not take auth down with it, which is exactly what
+    // it used to do by rejecting before initFirebaseAuth() was even reached.
+    // Armed before the first await, so it also covers a hang in the
+    // lastSyncedAt read below. Never cleared: it self-cancels via the `ready`
+    // check, and one pending 10s timer per app launch is not worth tracking.
+    setTimeout(() => {
+      if (get().ready) return;
+      console.warn(
+        `[useAuthStore] Firebase Auth did not start within ${AUTH_INIT_TIMEOUT_MS}ms; releasing the sign-in gate.`,
+      );
+      set({ ready: true, initError: AUTH_INIT_ERROR });
+    }, AUTH_INIT_TIMEOUT_MS);
+    const lastSyncedAt = await getJSON<number | null>(LAST_SYNCED_KEY, null).catch(() => null);
     set({ lastSyncedAt });
-    await initFirebaseAuth();
-    const auth = getFirebaseAuth();
-    onAuthStateChanged(auth, (u) => {
-      set({ ready: true, user: u ? toAccountUser(u) : null });
-      // autoSyncEnabled (useSettingsStore) gates ONLY this automatic call --
-      // a local-only per-device preference (§3), off by exception rather
-      // than by default. The manual "Sync now" button calls syncNow()
-      // directly and is unaffected either way.
-      if (u && useSettingsStore.getState().autoSyncEnabled) {
-        get().syncNow(); // fire-and-forget: migration/sync never blocks the UI
-      }
-    });
+    try {
+      await startFirebaseAuth(set, get);
+    } catch (e: any) {
+      // `ready` gates both sign-in buttons (SignedOutAccount), and it was only
+      // ever set inside the onAuthStateChanged callback above -- which is
+      // never reached if this throws. Combined with App.tsx swallowing the
+      // rejection silently, one failure here left the buttons permanently
+      // disabled with nothing logged and nothing shown: "logging in doesn't
+      // work", with no error to report. Release the gate and say so instead;
+      // initFirebaseAuth() no longer caches its rejection, so the retry the
+      // sign-in actions below make can actually succeed.
+      console.warn('[useAuthStore] Firebase Auth init failed:', e?.message ?? e);
+      set({ ready: true, initError: AUTH_INIT_ERROR });
+    }
   },
 
   signInWithGoogle: async () => {
     set({ syncError: null });
+    await requireFirebaseAuth(set, get); // no-op once started; retries a failed init()
     await handleProviderSignIn('google', signInWithGoogleAuth, set);
     // onAuthStateChanged (above) picks up the new user and triggers syncNow().
   },
 
   signInWithApple: async () => {
     set({ syncError: null });
+    await requireFirebaseAuth(set, get); // no-op once started; retries a failed init()
     await handleProviderSignIn('apple', signInWithAppleAuth, set);
     // onAuthStateChanged (above) picks up the new user and triggers syncNow().
   },
