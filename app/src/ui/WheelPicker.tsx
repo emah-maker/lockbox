@@ -9,7 +9,7 @@
 // since the interaction (drag, momentum-snap, VoiceOver increment/decrement)
 // is identical either way and only the scroll axis changes.
 import * as Haptics from 'expo-haptics';
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useReducer, useRef } from 'react';
 import {
   Animated,
   NativeScrollEvent,
@@ -29,6 +29,12 @@ const VISIBLE_COUNT = 5; // odd, so exactly one row/column centers under the hig
 // every platform -- this is the velocity threshold below which onScrollEndDrag
 // commits the snap itself instead of waiting for momentum that may not come.
 const DRAG_SETTLE_VELOCITY = 0.05;
+// Outlasts one animated scrollTo (UIScrollView's own ~300ms, Android's
+// smoothScrollTo ~250ms). Only a backstop: correctingRef below is normally
+// cleared by the trailing onMomentumScrollEnd that corrective scroll fires
+// when it lands, and this just guarantees the flag can't stick if some
+// platform/version declines to emit that event for a programmatic scroll.
+const CORRECTION_SETTLE_MS = 400;
 
 export function WheelPicker({
   labels,
@@ -105,6 +111,46 @@ export function WheelPicker({
   // own bounce-vs-manual-snap comment in commit() below for the sibling bug
   // of the same shape).
   const isBusyRef = useRef(false);
+  // True while commit()'s *own* corrective scrollTo() is still animating.
+  // isBusyRef alone can't cover that window: scrollTo() has no completion
+  // callback, so commit() used to clear isBusyRef in the very same tick it
+  // *started* the correction, calling that settle "fully resolved" while it
+  // was still in flight. The resync effect below then saw an unguarded wheel,
+  // and if commit()'s onChange landed on a different selectedIndex in the
+  // next render -- routine here, via a paired wheel's clamp (GoalForm's
+  // setDaysClamped, DashboardScreen's 0h00m guard) or a box-sync tick -- it
+  // fired a second animated scrollTo into the middle of the first. Two
+  // imperative scrolls fighting over one ScrollView is the same shape as the
+  // bounce-vs-manual-snap fight commit() already guards against below:
+  // visible jitter between the two targets, or a wedged gesture responder
+  // that reads as the wheel freezing.
+  const correctingRef = useRef(false);
+  const correctingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The resync effect below is skipped while a correction runs, and the
+  // render that would let it catch up afterwards may never arrive on its own
+  // -- a correction's trailing onMomentumScrollEnd is deduped by committedRef
+  // into a no-op, so it changes no state and schedules no render. Forcing one
+  // here is what keeps a deferred resync from being a dropped one (which
+  // would strand the wheel showing an index the caller had already rejected).
+  const [, forceResync] = useReducer((n: number) => n + 1, 0);
+
+  const cancelCorrecting = () => {
+    correctingRef.current = false;
+    if (correctingTimerRef.current) {
+      clearTimeout(correctingTimerRef.current);
+      correctingTimerRef.current = null;
+    }
+  };
+
+  const endCorrecting = () => {
+    if (!correctingRef.current) return;
+    cancelCorrecting();
+    forceResync();
+  };
+
+  // Belt-and-suspenders: the safety timer must not outlive the component.
+  useEffect(() => cancelCorrecting, []);
+
   // Dedupes a single physical release from committing twice. With
   // snapToInterval set, iOS keeps running its own momentum/settle pass to
   // glide to the snap point even after a release velocity near zero -- so
@@ -139,8 +185,12 @@ export function WheelPicker({
   // touch/momentum settles, onDragEnd's caller-side state update (see
   // DashboardScreen's lockOuterScroll/unlockOuterScroll) triggers the next
   // render this effect needs to actually catch up.
+  // Skipped while correctingRef is set for the same reason: commit()'s own
+  // corrective scroll is an imperative animation on this very ScrollView, so
+  // scrolling again before it lands is the same fight as interrupting a drag.
+  // endCorrecting() forces the render that re-runs this once it does land.
   useEffect(() => {
-    if (isBusyRef.current) return;
+    if (isBusyRef.current || correctingRef.current) return;
     if (settledIndexRef.current === selectedIndex) return;
     settledIndexRef.current = selectedIndex;
     scrollToIndex(selectedIndex, true);
@@ -177,11 +227,22 @@ export function WheelPicker({
     // already-committed no-op below, instead of a second, spurious commit.
     const alreadyCommitted = committedRef.current === index;
     if (Math.abs(pos - snappedPos) > 0.5 && pos >= -0.5 && pos <= maxOffset + 0.5) {
+      // Hold the resync effect off until this correction actually lands --
+      // see correctingRef's own comment. Normally cleared by the trailing
+      // onMomentumScrollEnd this scroll fires, which re-enters commit() with
+      // pos already on the snap point and so takes the else branch below.
+      correctingRef.current = true;
+      if (correctingTimerRef.current) clearTimeout(correctingTimerRef.current);
+      correctingTimerRef.current = setTimeout(endCorrecting, CORRECTION_SETTLE_MS);
       scrollToIndex(index, true);
+    } else {
+      endCorrecting();
     }
     committedRef.current = index;
     settledIndexRef.current = index;
-    isBusyRef.current = false; // this settle is fully resolved -- safe for the resync effect to scrollTo again
+    // The touch and its momentum are done. A corrective scroll may still be
+    // animating, but that's correctingRef's job to cover, not this flag's.
+    isBusyRef.current = false;
     if (alreadyCommitted) return; // see committedRef's own comment -- the other event already handled this exact settle
     if (index !== selectedIndex) {
       Haptics.selectionAsync();
@@ -196,6 +257,7 @@ export function WheelPicker({
   const changeBy = (delta: number) => {
     const next = Math.max(0, Math.min(labels.length - 1, selectedIndex + delta));
     if (next === selectedIndex) return;
+    cancelCorrecting(); // this explicit scroll supersedes any in-flight correction
     settledIndexRef.current = next;
     scrollToIndex(next, true);
     Haptics.selectionAsync();
@@ -245,6 +307,11 @@ export function WheelPicker({
         scrollEventThrottle={16}
         onScrollBeginDrag={() => {
           isBusyRef.current = true;
+          // A new touch supersedes any correction still in flight from the
+          // last one; cancel rather than end it, since this drag will drive
+          // the next commit anyway and forcing a resync render mid-gesture
+          // would be pure noise.
+          cancelCorrecting();
           committedRef.current = null; // a fresh gesture -- the dedupe below must not carry over from the last one
           onDragStart?.();
         }}
