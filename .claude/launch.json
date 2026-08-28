@@ -6,6 +6,12 @@
       "runtimeExecutable": "npx",
       "runtimeArgs": ["--yes", "serve", "website", "-l", "4173"],
       "port": 4173
+    },
+    {
+      "name": "website-static",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["-y", "http-server", "website", "-p", "5599", "-c-1"],
+      "port": 5599
     }
   ]
 }

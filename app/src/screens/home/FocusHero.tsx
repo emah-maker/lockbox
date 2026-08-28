@@ -9,11 +9,13 @@
 // screen's blocks appearing/disappearing and shoving layout around.
 //
 // The ring's idle (non-running) arc used to just sit at 0 -- it now shows
-// today's actual progress (toward a daily goal, or toward a baseline best
-// day) via idleRing, computed by DashboardScreen from
-// screens/home/idleRingState.ts. See the precedence in this file's own
-// headline/caption branching below: running beats not-connected beats
-// closed beats an empty day beats "today has some progress".
+// today's actual progress via idleRing, computed by DashboardScreen from
+// screens/home/idleRingState.ts against whichever source the user picked in
+// Settings > Focus ring (daily goal/baseline, a weekly goal, one specific
+// chosen goal, a 7-day average, or a streak). See the precedence in this
+// file's own headline/caption branching below: running beats not-connected
+// beats closed beats an empty day beats "today has some progress", and the
+// last of those branches on idleRing.source for per-source wording.
 //
 // Renders only -- every actual control here (opening the duration/tag sheet,
 // opening the retag sheet) is a callback prop; DashboardScreen still owns
@@ -123,7 +125,11 @@ export function FocusHero({
   // its own top-level branch -- a completed session either already shows up
   // in todayFocusS (today-has-progress) or, on the rare chance it hasn't yet
   // (e.g. still logging), just changes the empty-day caption's wording below
-  // rather than the bucket itself.
+  // rather than the bucket itself. The last branch further splits on
+  // idleRing.source -- one per ring source the user can pick in Settings >
+  // Focus ring (RingBaselineSection.tsx) -- since each reads a different
+  // comparison ("of today's goal" vs "of your best day..." vs a streak
+  // count), and this is the one place that wording is written.
   let headline: string;
   let caption: string;
   if (running && status) {
@@ -138,13 +144,33 @@ export function FocusHero({
   } else if (idleRing.source === 'empty') {
     headline = 'Tap to schedule a session';
     caption = done ? 'Session complete -- set up your next one' : 'No focus time yet today';
+  } else if (idleRing.source === 'streak') {
+    // Not a percentage-of-something like every other source below -- a
+    // streak reads as a day count against a day count, so the headline
+    // itself is the streak (the ring's own fill is current/longest, see
+    // idleRingState.ts's computeStreakRingProgress), not today's duration.
+    const { current, longest } = idleRing.streak ?? { current: 0, longest: 0 };
+    headline = `${current}-day streak`;
+    caption = longest > current ? `Best: ${longest} days` : current > 0 ? 'Your best streak yet' : 'Start one today';
   } else {
     headline = formatDuration(todayFocusS);
     const pct = Math.round(idleRing.progress * 100);
-    caption =
-      idleRing.source === 'goal'
-        ? `${pct}% of today's goal`
-        : `${pct}% of your best day ${ringBaselineWindowLabel(ringBaselineWindow)}`;
+    switch (idleRing.source) {
+      case 'weeklyGoal':
+        caption = `${pct}% of your weekly goal`;
+        break;
+      case 'chosenGoal':
+        caption = `${pct}% of ${idleRing.chosenGoalName ?? 'your goal'}`;
+        break;
+      case 'rollingAverage':
+        caption = `${pct}% of your 7-day average`;
+        break;
+      case 'goal':
+        caption = `${pct}% of today's goal`;
+        break;
+      default: // 'baseline'
+        caption = `${pct}% of your best day ${ringBaselineWindowLabel(ringBaselineWindow)}`;
+    }
   }
 
   const onPress = running ? onPressTag : onPressIdle;
@@ -160,7 +186,24 @@ export function FocusHero({
       accessibilityLabel={label}
     >
       <Animated.View style={{ opacity: fade, alignItems: 'center' }}>
-        <ProgressRing progress={progress} color={ringColor} trackColor={trackColor}>
+        <ProgressRing
+          progress={progress}
+          color={ringColor}
+          trackColor={trackColor}
+          // Battery glyph now sits IN the ring's own bottom cut-out (manager
+          // brief, ring redesign task) rather than docked below it -- a
+          // second concentric arc was the rejected first idea (see
+          // BatteryBadge.tsx's own header for why), but placing the same
+          // glyph inside the gap the arc already leaves open needs no such
+          // second arc: it just fills space the ring was going to leave
+          // empty anyway. Self-supplies status.bat the same way this
+          // component already self-supplies everything else it reads off
+          // `status`; DashboardScreen never threads a battery prop through.
+          // Always mounted (never gated on `status` existing) so its own
+          // reserved space never causes a layout jump while `status` is
+          // briefly null (e.g. right after a disconnect).
+          bottomSlot={<BatteryBadge pct={status?.bat ?? -1} />}
+        >
           <Text style={[styles.headline, { color: theme.text }]} numberOfLines={1} adjustsFontSizeToFit>
             {headline}
           </Text>
@@ -168,15 +211,6 @@ export function FocusHero({
             {caption}
           </Text>
         </ProgressRing>
-
-        {/* Large battery glyph, docked directly below the ring and above the
-            topic pill (manager brief, task 2) -- self-supplies status.bat the
-            same way this component already self-supplies everything else it
-            reads off `status`; DashboardScreen never threads a battery prop
-            through. Always mounted (never gated on `status` existing) so its
-            own reserved row height never causes a layout jump while `status`
-            is briefly null (e.g. right after a disconnect). */}
-        <BatteryBadge pct={status?.bat ?? -1} />
 
         {/* Topic pill -- always reserves its row (even with empty content)
             so the hero's overall height never changes between a tagged and

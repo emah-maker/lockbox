@@ -23,7 +23,12 @@
 //     scoped to the right period via useNav's intent) for the rest.
 // What's left fits in a fixed-height layout with no ScrollView: the
 // home/FocusHero.tsx anchor, the Close/Open remote-control row, and
-// TodaySummary.
+// TodaySummary -- plus, since then, home/TopicBreakdownStrip.tsx (manager
+// brief: "find something more to put on the home screen to fill the
+// space"), a compact today's-topic-split block between the control row and
+// TodaySummary. It's deliberately just one more fixed block in this same
+// space-between column, not a new ScrollView -- the empty space it fills was
+// this layout's own slack, not a sign the layout needed to change shape.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, View, Text, StyleSheet } from 'react-native';
 import * as Haptics from 'expo-haptics';
@@ -33,19 +38,17 @@ import { useGoalsStore } from '../store/useGoalsStore';
 import { useTheme } from '../theme/useTheme';
 import { aggregate, clampLockSeconds, MAX_LOCK_HOURS, MAX_LOCK_SECONDS } from '../stats/stats';
 import { filterByWindow } from '../stats/sessionHistory';
-import { bestDay } from '../stats/trend';
-import { resolveTopic } from '../stats/customLabels';
-import { computeGoalProgress } from '../goals/goalProgress';
 import type { Goal } from '../goals/goals';
 import { AnimatedPressable } from '../ui/AnimatedPressable';
 import { useReducedMotion } from '../ui/useReducedMotion';
 import { useNav } from '../nav/useNav';
 import { typeScale, opacity } from '../theme/tokens';
 import { FocusHero } from './home/FocusHero';
-import { computeIdleRingProgress } from './home/idleRingState';
 import { DurationSheet } from './home/DurationSheet';
 import { TagSheet } from './home/TagSheet';
-import { TodaySummary, GoalHighlight } from './home/TodaySummary';
+import { TodaySummary } from './home/TodaySummary';
+import { TopicBreakdownStrip } from './home/TopicBreakdownStrip';
+import { useHomeGoalRing } from './home/useHomeGoalRing';
 
 const DISABLED_OPACITY = opacity.disabled;
 
@@ -76,27 +79,9 @@ const MINUTE_VALUES = Array.from({ length: 60 / MINUTE_STEP }, (_, i) => i * MIN
 const HOUR_LABELS = HOUR_VALUES.map((h) => `${h}h`);
 const MINUTE_LABELS = MINUTE_VALUES.map((m) => `${String(m).padStart(2, '0')}m`);
 
-/** Display name for a goal's stored topic string -- same convention
- * GoalsSection.tsx's own (unexported) describeTopic uses: null is "All
- * focus time", otherwise resolveTopic's label, falling back to "Deleted
- * label" for a since-deleted saved custom label. Kept as a small local
- * copy rather than importing GoalsSection's version (not exported, and
- * GoalsSection.tsx belongs to the `stats`/`goals` ownership, not this
- * screen's) -- same "each screen keeps its own tiny display helper"
- * precedent this file already had for the old batteryColor. */
-function describeGoalTopic(
-  topic: string | null,
-  customLabels: ReturnType<typeof useSettingsStore.getState>['customLabels'],
-  themeMode: ReturnType<typeof useSettingsStore.getState>['themeMode'],
-): string {
-  if (topic === null) return 'All focus time';
-  return resolveTopic(topic, customLabels, themeMode)?.label ?? 'Deleted label';
-}
-
 export default function DashboardScreen() {
   const {
     conn,
-    error,
     status,
     sessions,
     currentTopic,
@@ -112,6 +97,8 @@ export default function DashboardScreen() {
   const themeMode = useSettingsStore((st) => st.themeMode);
   const customLabels = useSettingsStore((st) => st.customLabels);
   const ringBaselineWindow = useSettingsStore((st) => st.ringBaselineWindow);
+  const ringSourceKind = useSettingsStore((st) => st.ringSourceKind);
+  const ringGoalId = useSettingsStore((st) => st.ringGoalId);
   const goals = useGoalsStore((st) => st.goals);
   const theme = useTheme();
   const s = styles(theme);
@@ -184,48 +171,27 @@ export default function DashboardScreen() {
   // only copy, and the only place these aggregates can come from.
   // Headline "focus time today" comes from filterByWindow('day', ...), the
   // same local-midnight-anchored helper StatsScreen's own "day" window uses.
-  const todayStats = useMemo(() => aggregate(filterByWindow(sessions, 'day')), [sessions]);
+  // Kept as its own memo (rather than inlined into todayStats below) since
+  // the new TopicBreakdownStrip filler block (task 5) also needs the raw,
+  // untotaled session list, not just its aggregate.
+  const todaySessions = useMemo(() => filterByWindow(sessions, 'day'), [sessions]);
+  const todayStats = useMemo(() => aggregate(todaySessions), [todaySessions]);
 
-  // The single most-relevant goal for TodaySummary -- computeGoalProgress is
-  // goalProgress.ts's shared, canonical math (never reimplemented here): the
-  // nearest-to-completion unmet goal wins, so this card always shows
-  // whichever goal is closest to a milestone; if every goal is already met,
-  // the first one just shows as met rather than the card going empty.
-  const goalHighlight: GoalHighlight | null = useMemo(() => {
-    const progress = computeGoalProgress(goals, sessions, Date.now());
-    if (progress.length === 0) return null;
-    const unmet = progress.filter((p) => !p.met).sort((a, b) => a.remainingS - b.remainingS);
-    const chosen = unmet[0] ?? progress[0];
-    const goal = goals.find((g: Goal) => g.id === chosen.goalId);
-    return {
-      name: describeGoalTopic(goal ? goal.topic : null, customLabels, themeMode),
-      percent: Math.round(chosen.ratio * 100),
-      remainingS: chosen.remainingS,
-      met: chosen.met,
-    };
-  }, [goals, sessions, customLabels, themeMode]);
-
-  // The Home hero ring's idle (non-running) fill -- see
-  // home/idleRingState.ts for the actual precedence math. "The daily goal"
-  // is the single goal with !archived && period === 'daily' && topic ===
-  // null: only an untopic'd daily goal's target is directly comparable to
-  // todayStats.foc (today's OVERALL focus total, not scoped to any one
-  // topic) -- a topic-scoped daily goal's progress lives in its own
-  // computeGoalProgress ratio (goalHighlight above), which this deliberately
-  // does not reuse or reimplement here. bestDay's window comes straight from
-  // the user's own ringBaselineWindow preference (Settings > Focus ring);
-  // its ?? 0 covers "no history in that window yet", which
-  // computeIdleRingProgress itself guards against dividing by.
-  const dailyGoal = goals.find((g: Goal) => !g.archived && g.period === 'daily' && g.topic === null);
-  const idleRing = useMemo(
-    () =>
-      computeIdleRingProgress(
-        todayStats.foc,
-        dailyGoal ? dailyGoal.targetS : null,
-        bestDay(sessions, ringBaselineWindow)?.focusS ?? 0,
-      ),
-    [todayStats.foc, dailyGoal, sessions, ringBaselineWindow],
-  );
+  // Goal-highlight (TodaySummary) + idle-ring (FocusHero) computations --
+  // both depend on the same goals/sessions/settings state, so they're
+  // bundled into one hook (home/useHomeGoalRing.ts) rather than computed
+  // inline here; see that file's own header for why this moved out of this
+  // screen once the ring gained more sources of its own to look up.
+  const { goalHighlight, idleRing } = useHomeGoalRing({
+    sessions,
+    todayFocusS: todayStats.foc,
+    goals,
+    customLabels,
+    themeMode,
+    ringBaselineWindow,
+    ringSourceKind,
+    ringGoalId,
+  });
 
   const connected = conn === 'connected';
   const canClose = connected && (status?.st === 'idle' || status?.st === 'done');
@@ -317,15 +283,20 @@ export default function DashboardScreen() {
     <View style={s.container}>
       {/* Minimal connect action -- the connection dot/label/battery display
           itself lives once, globally, in foundation's StatusStrip (App.tsx)
-          now, so this is only the one action StatusStrip doesn't own. */}
+          now, so this is only the one action StatusStrip doesn't own.
+          Used to also render the store's `error` string here (e.g. BLE's own
+          "No PhoneBox found in range" scan-timeout message, ble/
+          PhoneBoxClient.ts) whenever conn === 'error' -- removed (manager
+          brief: "just the connect/disconnect button", no error text next to
+          it). The underlying error is left alone in useStore -- this is a
+          presentation change only, not a "stop tracking the error" change;
+          FocusHero's own !connected copy ("Connect your box") already covers
+          "not connected" without repeating BLE's internal scan-failure
+          wording. `s.topBar` keeps justify-content: space-between so the
+          Connect/Disconnect button stays pinned to the row's trailing edge
+          exactly as before, now with nothing on the leading edge. */}
       <View style={s.topBar}>
-        {error && conn === 'error' ? (
-          <Text style={s.error} numberOfLines={1}>
-            {error}
-          </Text>
-        ) : (
-          <View />
-        )}
+        <View />
         <AnimatedPressable
           style={s.connectBtn}
           onPress={connected ? disconnect : connect}
@@ -385,6 +356,20 @@ export default function DashboardScreen() {
           : ''}
       </Text>
 
+      {/* Fill-space block (manager brief, task 5): today's topic split, the
+          one "at a glance" fact TodaySummary below doesn't already show.
+          Reuses stats/customLabels.ts's own topicBreakdownWithCustom, so it
+          can never disagree with what Stats/Calendar compute for the same
+          day. Empty-safe (see TopicBreakdownStrip's own header) -- a
+          disconnected or brand-new-install Home never renders this looking
+          broken, just its calm "nothing tagged yet" state. */}
+      <TopicBreakdownStrip
+        todaySessions={todaySessions}
+        customLabels={customLabels}
+        themeMode={themeMode}
+        onPress={() => navigate('stats', { statsPeriod: 'day' })}
+      />
+
       <TodaySummary
         todayFocusS={todayStats.foc}
         highlight={goalHighlight}
@@ -424,7 +409,6 @@ const styles = (t: ReturnType<typeof useTheme>) =>
     // screens use for top clearance under the tab bar/notch.
     container: { flex: 1, padding: 20, paddingTop: 50, paddingBottom: 24, backgroundColor: t.bg, justifyContent: 'space-between' },
     topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 32 },
-    error: { color: t.danger, fontSize: 13, flex: 1, marginRight: 8 },
     connectBtn: { paddingVertical: 6, paddingHorizontal: 14, borderRadius: 10, backgroundColor: t.surface },
     connectBtnText: { color: t.text, ...typeScale.label },
     controlRow: { flexDirection: 'row', gap: 10, marginTop: 8 },

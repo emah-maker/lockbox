@@ -1,0 +1,39 @@
+/* ============================================================
+   goalFormExtras.css -- the "flexible goals" extension fields in the
+   Focus-goals add/edit form (goalForm.js's weekday-restriction row, "also
+   track session count" toggle, and "remind me" toggle). Split into its own
+   file, loaded after dashboard.css, purely because dashboard.css is already
+   at this project's 500-line guideline -- same precedent as accountPanel.css
+   (see that file's own header). Reuses dashboard.css's :root tokens
+   (--card-2, --text, --text-2, --border-soft, --radius-sm, --unlocked,
+   --unlocked-2, --accent-text, --ease-snap) exactly like accountPanel.css
+   does -- no parallel design system.
+
+   Confirmed 1:1 against app/src/screens/GoalForm.tsx +
+   GoalFormExtras.tsx's own WeekdayChips/SessionTargetControl/NotifyControl,
+   just as native button/checkbox/time controls instead of the app's
+   chips/stepper/wheels -- the same accepted divergence dashboard.css's own
+   header already notes for the plain hours/minutes target inputs.
+   ============================================================ */
+.dash__goal-field--full { flex: 1 0 100%; }
+.dash__goal-weekdays { display: flex; flex-wrap: wrap; gap: var(--space-1-5); }
+.dash__goal-weekday {
+  padding: var(--space-1-5) var(--space-2-5); font-size: var(--fs-2xs); font-weight: 600; font-family: var(--font-body);
+  color: var(--text-2); background: var(--card-2); border: 1.5px solid var(--border-soft);
+  border-radius: 999px; cursor: pointer;
+  transition: background var(--dur-base) var(--ease-snap), border-color var(--dur-base) var(--ease-snap), color var(--dur-base) var(--ease-snap);
+}
+.dash__goal-weekday:hover { border-color: var(--unlocked-2); }
+/* Same accent-fill "this one is selected" language as .acct__mode-btn and
+   .dash__goals-fill--met elsewhere on this page. */
+.dash__goal-weekday[aria-pressed="true"] { background: var(--unlocked); color: var(--accent-text); border-color: transparent; }
+.dash__goal-toggle-row {
+  display: flex; align-items: center; gap: var(--space-2); cursor: pointer;
+  color: var(--text-2); font-size: var(--fs-xs); font-weight: 600;
+}
+.dash__goal-toggle-row input[type="checkbox"] { accent-color: var(--unlocked); width: 16px; height: 16px; cursor: pointer; }
+.dash__goal-sessions-row { display: flex; align-items: center; gap: var(--space-1-5); margin-top: var(--space-1-5); }
+.dash__goal-time {
+  margin-top: var(--space-1-5); padding: var(--space-2) var(--space-2-5); font-size: var(--fs-xs); font-family: var(--font-body);
+  color: var(--text); background: var(--card-2); border: 1px solid var(--border-soft); border-radius: var(--radius-sm);
+}

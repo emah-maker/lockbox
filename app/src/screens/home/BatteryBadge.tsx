@@ -1,13 +1,15 @@
-// BatteryBadge.tsx -- large "how's the box's battery doing" glyph docked
-// directly below the Home hero ring (FocusHero.tsx), above the topic-pill
-// row (manager brief, task 2). A second concentric arc on ProgressRing
-// itself was the obvious first idea for this -- rejected, and noted here
-// rather than tried and reverted: ProgressRing's single arc now means
-// "today's focus progress" (see screens/home/idleRingState.ts), and
-// overlaying a second, unrelated meaning (battery level) onto that same
-// shape would compete with that new read instead of sitting alongside it.
-// A separate glyph keeps "today's focus" (the ring) and "box battery" (this)
-// visually distinct despite sharing the hero's general vicinity.
+// BatteryBadge.tsx -- "how's the box's battery doing" glyph docked in the
+// Home hero ring's own bottom cut-out (ProgressRing's `bottomSlot`, wired up
+// by FocusHero.tsx) -- ring redesign task. A second concentric arc on
+// ProgressRing itself was the obvious first idea for showing battery here --
+// rejected, and noted here rather than tried and reverted: ProgressRing's
+// single arc means "today's focus progress" (see screens/home/
+// idleRingState.ts), and overlaying a second, unrelated meaning (battery
+// level) onto that same arc shape would compete with that read instead of
+// sitting alongside it. Docking this glyph in the gap the redesigned ring
+// already leaves open at 6 o'clock gets the "share the hero's anchor
+// spot" without either problem: it's visually inside the ring, but it is
+// not a second arc.
 //
 // Self-supplies its data the same way FocusHero self-supplies status.bat --
 // DashboardScreen never threads a battery prop through (see this task's own
@@ -24,9 +26,11 @@ import { batteryColor } from '../../battery/batteryColor';
 import { useBatteryStore } from '../../battery/useBatteryStore';
 import { estimateRemainingMs, formatRemaining } from '../../battery/batteryEstimate';
 
-// Large enough to read as its own glyph at a glance from across the hero,
-// not merely a bigger version of StatusStrip's small inline one.
-const BADGE_SCALE = 2.2;
+// Was 2.2 (bigger, for the old "docked below the ring" placement, which had
+// a full row's own width to spend) -- trimmed down now that this renders
+// inside the ring's gap, a tighter space it shares with the ring's own
+// stroke geometry either side of it.
+const BADGE_SCALE = 1.7;
 
 export function BatteryBadge({ pct }: { pct: number }) {
   const theme = useTheme();
@@ -58,8 +62,11 @@ const styles = StyleSheet.create({
   // FocusHero always mounts this component (never conditionally on `status`
   // being non-null), so the row itself never appears/disappears; minHeight
   // just keeps its height stable regardless of whether the optional
-  // `remaining` caption happens to be present this render.
-  row: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 30, marginTop: 12 },
+  // `remaining` caption happens to be present this render. No marginTop
+  // (unlike the pre-redesign "docked below the ring" version) -- this now
+  // renders inside ProgressRing's own absolutely-positioned bottomSlot,
+  // which already centers it on the gap itself.
+  row: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 30 },
   pct: { ...typeScale.sectionTitle },
   caption: { ...typeScale.caption },
 });

@@ -2,9 +2,14 @@
 // add/edit/delete forms) that used to sit permanently at the bottom of
 // StatsScreen's long scroll. Moved into a Sheet so the main Stats body stays
 // a fixed, mostly-one-screen view (this task's "stop the screen growing
-// vertically" requirement) without touching GoalsSection's own file -- it's
-// rendered completely unmodified here, same props it always took from
-// StatsScreen, just mounted inside a popover instead of inline.
+// vertically" requirement).
+//
+// `initialCreate` (bug fix): StatsScreen sets this when this Sheet is opened
+// via GoalsProgressView's empty-state "Start adding goals" CTA specifically,
+// as opposed to the ordinary "Manage goals" button -- see
+// StatsScreen.tsx's manageSheetAutoCreate comment for the double-empty-state
+// dead end this fixes. Threaded straight through to GoalsSection's own
+// `autoOpenCreate`, which is the thing that actually opens GoalForm.
 //
 // Reached only from the Goals period view's own "Manage goals" affordance,
 // deliberately: editing a goal while you're looking at that goal is the one
@@ -32,13 +37,17 @@ import { GoalsSection } from '../GoalsSection';
 export function ManageSheet({
   color,
   onWheelActiveChange,
+  initialCreate,
 }: {
   color: ReturnType<typeof useTheme>;
   onWheelActiveChange: (active: boolean) => void;
+  /** See this file's header -- forwarded verbatim to GoalsSection's own
+   * `autoOpenCreate`. */
+  initialCreate?: boolean;
 }) {
   return (
     <View>
-      <GoalsSection color={color} onWheelActiveChange={onWheelActiveChange} />
+      <GoalsSection color={color} onWheelActiveChange={onWheelActiveChange} autoOpenCreate={initialCreate} />
     </View>
   );
 }

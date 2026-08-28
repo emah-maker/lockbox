@@ -9,7 +9,7 @@ import { getJSON, setJSON } from '../storage/storage';
 import { ThemeMode, AccentKey } from '../theme/theme';
 import type { Settings } from '../ble/protocol';
 import { CustomLabel, createCustomLabel, renameCustomLabel as renameCustomLabelIn, deleteCustomLabel as deleteCustomLabelIn } from '../stats/customLabels';
-import type { RingBaselineWindow } from '../screens/home/idleRingState';
+import type { RingBaselineWindow, RingSourceKind } from '../screens/home/idleRingState';
 
 // Mirrors the firmware's own defaults (Box-code/lib/lock_config.py /
 // lock_settings.py) so the Settings screen shows sane values before the
@@ -80,6 +80,28 @@ interface SettingsState {
   // silently reset which baseline window this device's Home tab happens to
   // be showing.
   ringBaselineWindow: RingBaselineWindow;
+  // Local-only per-device VIEW preference, same category and same reasoning
+  // as ringBaselineWindow just above (this field's sibling, added alongside
+  // it for the "more things you can put on the focus ring" extension --
+  // see screens/home/idleRingState.ts's RingSourceKind): which of the ring's
+  // five sources (auto/weeklyGoal/chosenGoal/rollingAverage/streak) the Home
+  // hero ring shows. Explicitly NOT a SyncableSettings field and NOT touched
+  // by resetSyncableSettings/applyRemoteSettings below, for the identical
+  // reason ringBaselineWindow isn't -- a sign-out/account-switch on this
+  // device must not silently reset which ring view this device's Home tab
+  // happens to be showing.
+  ringSourceKind: RingSourceKind;
+  // Local-only per-device preference, paired with ringSourceKind above: the
+  // id of the one goal the 'chosenGoal' ring source tracks, or null when
+  // none has been picked yet (or the ring source isn't 'chosenGoal' at all).
+  // Deliberately just a goal id, not a denormalized copy of the goal itself
+  // -- useGoalsStore.goals is the only source of truth for what a goal
+  // currently targets; DashboardScreen looks this id up fresh every render
+  // (same "never cache a goal's own fields elsewhere" discipline
+  // goalProgress.ts's own callers already follow). Same non-synced,
+  // non-syncable-settings treatment as ringSourceKind/ringBaselineWindow --
+  // a picked goal id is this device's own view choice, not account state.
+  ringGoalId: string | null;
 
   hydrate: () => Promise<void>;
   setThemeMode: (mode: ThemeMode) => void;
@@ -88,6 +110,8 @@ interface SettingsState {
   setBoxSettings: (patch: Partial<Settings>) => void;
   setAutoSyncEnabled: (on: boolean) => void;
   setRingBaselineWindow: (w: RingBaselineWindow) => void;
+  setRingSourceKind: (k: RingSourceKind) => void;
+  setRingGoalId: (id: string | null) => void;
   addCustomLabel: (name: string, color: string) => void;
   renameCustomLabel: (id: string, name: string) => void;
   removeCustomLabel: (id: string) => void;
@@ -114,6 +138,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   settingsUpdatedAt: 0,
   autoSyncEnabled: true,
   ringBaselineWindow: 'week',
+  ringSourceKind: 'auto',
+  ringGoalId: null,
 
   hydrate: async () => {
     if (get().hydrated) return;
@@ -126,6 +152,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       settingsUpdatedAt,
       autoSyncEnabled,
       ringBaselineWindow,
+      ringSourceKind,
+      ringGoalId,
     ] = await Promise.all([
       getJSON<ThemeMode>('themeMode', SYNCABLE_SETTINGS_DEFAULTS.themeMode),
       getJSON<AccentKey>('accent', SYNCABLE_SETTINGS_DEFAULTS.accent),
@@ -135,6 +163,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       getJSON<number>('settingsUpdatedAt', 0),
       getJSON<boolean>('autoSyncEnabled', true),
       getJSON<RingBaselineWindow>('ringBaselineWindow', 'week'),
+      getJSON<RingSourceKind>('ringSourceKind', 'auto'),
+      getJSON<string | null>('ringGoalId', null),
     ]);
     set({
       hydrated: true,
@@ -146,6 +176,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       settingsUpdatedAt,
       autoSyncEnabled,
       ringBaselineWindow,
+      ringSourceKind,
+      ringGoalId,
     });
   },
 
@@ -191,6 +223,20 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     // setAutoSyncEnabled above).
     set({ ringBaselineWindow: w });
     setJSON('ringBaselineWindow', w);
+  },
+
+  setRingSourceKind: (k) => {
+    // Deliberately not part of settingsUpdatedAt/sync -- see this field's
+    // own interface comment.
+    set({ ringSourceKind: k });
+    setJSON('ringSourceKind', k);
+  },
+
+  setRingGoalId: (id) => {
+    // Deliberately not part of settingsUpdatedAt/sync -- see this field's
+    // own interface comment.
+    set({ ringGoalId: id });
+    setJSON('ringGoalId', id);
   },
 
   addCustomLabel: (name, color) => {

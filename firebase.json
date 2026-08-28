@@ -4,7 +4,10 @@
     "ignore": [
       "firebase.json",
       "**/.*",
-      "**/node_modules/**"
+      "**/node_modules/**",
+      "assets/video/*-master.mp4",
+      "assets/video/seeds/**",
+      "assets/video/screen/*_frames/**"
     ],
     "headers": [
       {

@@ -11,6 +11,25 @@
 // whose length itself changes smoothly tick over tick as `progress` ticks
 // upward, which is a different animation (continuously re-targeted, like
 // AnimatedFill) rather than TopicDonut's single reveal-once sweep.
+//
+// Ring redesign (manager brief): no longer a full circle -- the bottom is
+// cut off by an open `gapDegrees`-wide gap centered on 6 o'clock, both the
+// track and the progress arc respect it, and `progress` maps 0..1 across the
+// *drawn* sweep (360 - gapDegrees), never across the full 360. The math:
+// rotate the whole arc group so local angle 0 (where a plain Circle's own
+// stroke naturally starts, at 3 o'clock) lands at `startAngle` = 90 +
+// gapDegrees/2 -- 90 is due south (6 o'clock) in this rotation prop's own
+// convention (0 = east/3 o'clock, positive = clockwise, so 90 = south, 180 =
+// west, 270 = north; this is the same convention -90 already relied on below
+// to land the old full circle's start at 12 o'clock). Sweeping clockwise for
+// `sweepDegrees` = 360 - gapDegrees from there lands exactly at 90 -
+// gapDegrees/2, so the two arc ends straddle 90 symmetrically and the open
+// gap sits centered at the bottom regardless of `gapDegrees`. The track is a
+// FIXED reveal of the whole sweep (dashoffset = circumference - arcLength,
+// constant); the progress arc reuses the exact same rotation/dasharray but
+// reveals only `arcLength * progress` of it, so a partial `progress` can
+// never bleed into the gap the way naively animating dashoffset across the
+// full circumference (the pre-redesign technique) would.
 import React, { useEffect, useRef } from 'react';
 import { Animated, View, StyleSheet } from 'react-native';
 import Svg, { Circle, G } from 'react-native-svg';
@@ -18,19 +37,35 @@ import { useReducedMotion } from '../../ui/useReducedMotion';
 
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
+// ~90-100 degrees reads clearly as "an arc, not a circle" without eating so
+// much of the ring that the remaining sweep looks thin or lopsided -- picked
+// from that range per the manager brief's own suggestion, not load-bearing
+// on any other math here (every angle below derives from this one constant).
+const DEFAULT_GAP_DEGREES = 100;
+
 export function ProgressRing({
-  size = 208,
-  strokeWidth = 14,
+  // Bigger than the pre-redesign default (208) so the ring reads as the
+  // screen's anchor (manager brief) -- FocusHero mounts this with no size
+  // override, so this default IS the Home hero's actual on-screen size.
+  size = 260,
+  strokeWidth = 16,
+  gapDegrees = DEFAULT_GAP_DEGREES,
   progress,
   color,
   trackColor,
   children,
+  bottomSlot,
 }: {
   size?: number;
   strokeWidth?: number;
-  /** 0..1. Values outside that range are clamped -- callers derive this from
-   * live BLE ticks (elapsedFraction in FocusHero.tsx), which can very briefly
-   * disagree with the box by a hair around a tick boundary. */
+  /** Degrees of open gap centered at 6 o'clock -- see this file's header for
+   * the angle math. Exposed (rather than hardcoded) so a future caller could
+   * tune it, but every current caller uses the default. */
+  gapDegrees?: number;
+  /** 0..1 across the *drawn* sweep (360 - gapDegrees), not across a full
+   * circle -- callers derive this from live BLE ticks (elapsedFraction in
+   * FocusHero.tsx) or from idleRingState.ts, which can very briefly disagree
+   * by a hair around a tick boundary; clamped below regardless. */
   progress: number;
   color: string;
   trackColor: string;
@@ -38,6 +73,12 @@ export function ProgressRing({
    * absolute positioning over the SVG rather than passed as SVG children,
    * so it can be ordinary RN Text/View. */
   children?: React.ReactNode;
+  /** Content docked in the bottom gap itself (FocusHero's BatteryBadge) --
+   * positioned to visually fill the cut-out the arc leaves open, distinct
+   * from `children`'s vertically-centered slot. Optional: a caller with no
+   * gap content (there is none today, but a future bare progress ring might
+   * have none) simply omits it. */
+  bottomSlot?: React.ReactNode;
 }) {
   const reducedMotion = useReducedMotion();
   const clamped = Math.max(0, Math.min(1, progress));
@@ -60,11 +101,40 @@ export function ProgressRing({
   const cx = size / 2;
   const cy = size / 2;
 
+  // See this file's header comment for the full derivation.
+  const sweepDegrees = 360 - gapDegrees;
+  const startAngle = 90 + gapDegrees / 2;
+  const arcLength = circumference * (sweepDegrees / 360);
+
   return (
     <View style={{ width: size, height: size }}>
       <Svg width={size} height={size}>
-        <Circle cx={cx} cy={cy} r={r} stroke={trackColor} strokeWidth={strokeWidth} fill="none" />
-        <G rotation={-90} originX={cx} originY={cy}>
+        <G rotation={startAngle} originX={cx} originY={cy}>
+          {/* Track -- a fixed reveal of the whole sweep (never animated):
+              dasharray's "on" length is the full circumference so the same
+              formula the progress arc uses below still applies, and a
+              constant dashoffset of (circumference - arcLength) reveals
+              exactly `arcLength` starting at this <G>'s rotated zero point,
+              i.e. the whole sweep, gap included by omission. */}
+          <Circle
+            cx={cx}
+            cy={cy}
+            r={r}
+            stroke={trackColor}
+            strokeWidth={strokeWidth}
+            fill="none"
+            strokeLinecap="round"
+            strokeDasharray={`${circumference} ${circumference}`}
+            strokeDashoffset={circumference - arcLength}
+          />
+          {/* Progress -- identical dasharray/rotation as the track above, so
+              its drawn arc always starts at the exact same point; only the
+              revealed LENGTH changes with `progress`, animated between 0 (at
+              progress 0) and `arcLength` (the full sweep, at progress 1).
+              Interpolating the offset down to `circumference - arcLength`
+              (never all the way to 0, unlike the pre-redesign full-circle
+              version) is what keeps a filling ring from ever drawing past
+              the sweep and into the gap. */}
           <AnimatedCircle
             cx={cx}
             cy={cy}
@@ -74,17 +144,38 @@ export function ProgressRing({
             fill="none"
             strokeLinecap="round"
             strokeDasharray={`${circumference} ${circumference}`}
-            strokeDashoffset={anim.interpolate({ inputRange: [0, 1], outputRange: [circumference, 0] })}
+            strokeDashoffset={anim.interpolate({
+              inputRange: [0, 1],
+              outputRange: [circumference, circumference - arcLength],
+            })}
           />
         </G>
       </Svg>
       <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
         <View style={styles.center}>{children}</View>
       </View>
+      {bottomSlot ? (
+        <View
+          // Centered horizontally, anchored so its own vertical center lands
+          // roughly on the ring's true bottom point (cx, cy + r) -- the
+          // geometric center of the gap regardless of gapDegrees, since the
+          // gap is always symmetric about 6 o'clock (see header comment).
+          // The `-14` is a fixed visual nudge (half of BatteryBadge's own
+          // ~28px row height), not a computed exact center -- "visually
+          // filling the gap" doesn't need pixel-perfect centering, and
+          // hardcoding half of one specific child's height would be more
+          // fragile than a judgment-call constant.
+          style={[styles.bottomSlot, { top: cy + r - 14 }]}
+          pointerEvents="box-none"
+        >
+          {bottomSlot}
+        </View>
+      ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  bottomSlot: { position: 'absolute', left: 0, right: 0, alignItems: 'center' },
 });

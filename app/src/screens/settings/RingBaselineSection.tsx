@@ -1,16 +1,36 @@
-// RingBaselineSection.tsx -- the settings hub's "Focus ring" sheet: which
-// window's best day the Home hero ring's idle arc compares today's focus
-// time against, when the user hasn't set a (single, untopic'd) daily goal --
-// see screens/home/idleRingState.ts for the actual precedence rule and
-// DashboardScreen.tsx for how the daily goal is resolved. Shaped exactly
-// like AppearanceSection.tsx: one Section, one row of Chips (ChipPicker.tsx),
-// plus an exported one-line hub summary.
+// RingBaselineSection.tsx -- the settings hub's "Focus ring" sheet: what the
+// Home hero ring's idle arc measures. Originally just the best-day baseline
+// window (still here, for the 'auto' source's fallback when no daily goal is
+// set -- see screens/home/idleRingState.ts for that precedence rule and
+// DashboardScreen.tsx for how the daily goal is resolved); extended here
+// (manager brief: "more things you can put on the focus ring") with a ring
+// SOURCE picker covering idleRingState.ts's full RingSourceKind set, plus a
+// goal picker that only appears for the 'chosenGoal' source.
+//
+// SettingsScreen.tsx (which mounts this in a Sheet) only ever passes
+// `color`/`ringBaselineWindow`/`setRingBaselineWindow` -- unchanged from
+// before this extension, and deliberately left alone (SettingsScreen.tsx
+// belongs to a different file's ownership than this one). The new source/
+// goal state below is read straight from useSettingsStore/useGoalsStore
+// inside this component instead of threading two more prop pairs through a
+// parent this file can't touch -- same "a Section reads its own store slice"
+// shape AccountSettingsSection.tsx and friends already use elsewhere in
+// Settings, just not one this file itself had needed until now.
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { useTheme } from '../../theme/useTheme';
-import { Section, rowLabelStyle } from '../SettingsPrimitives';
+import { useSettingsStore } from '../../store/useSettingsStore';
+import { useGoalsStore } from '../../store/useGoalsStore';
+import { resolveTopic } from '../../stats/customLabels';
+import { Section, rowLabelStyle, captionStyle } from '../SettingsPrimitives';
 import { Chip } from './ChipPicker';
-import { RingBaselineWindow, ringBaselineWindowLabel } from '../home/idleRingState';
+import {
+  RingBaselineWindow,
+  ringBaselineWindowLabel,
+  RingSourceKind,
+  RING_SOURCE_KINDS,
+  ringSourceKindLabel,
+} from '../home/idleRingState';
 
 const WINDOWS: RingBaselineWindow[] = ['week', 'month', 'year', 'all'];
 const WINDOW_CHIP_LABELS: Record<RingBaselineWindow, string> = {
@@ -19,6 +39,23 @@ const WINDOW_CHIP_LABELS: Record<RingBaselineWindow, string> = {
   year: 'Year',
   all: 'All',
 };
+
+/** Display name for a goal's topic -- same "All focus time" / label /
+ * "Deleted label" convention DashboardScreen.tsx's own (unexported)
+ * describeGoalTopic uses for the exact same purpose (a goal-highlight
+ * caption). Kept as its own small local copy rather than importing
+ * DashboardScreen's version (not exported, and DashboardScreen.tsx is a
+ * different file's own concern) -- same "each file keeps its own tiny
+ * display helper" precedent DashboardScreen's own comment already
+ * describes for why IT doesn't import GoalsSection's copy either. */
+function describeGoalTopic(
+  topic: string | null,
+  customLabels: ReturnType<typeof useSettingsStore.getState>['customLabels'],
+  themeMode: ReturnType<typeof useSettingsStore.getState>['themeMode'],
+): string {
+  if (topic === null) return 'All focus time';
+  return resolveTopic(topic, customLabels, themeMode)?.label ?? 'Deleted label';
+}
 
 export function RingBaselineSection({
   color,
@@ -29,35 +66,76 @@ export function RingBaselineSection({
   ringBaselineWindow: RingBaselineWindow;
   setRingBaselineWindow: (w: RingBaselineWindow) => void;
 }) {
+  const ringSourceKind = useSettingsStore((s) => s.ringSourceKind);
+  const setRingSourceKind = useSettingsStore((s) => s.setRingSourceKind);
+  const ringGoalId = useSettingsStore((s) => s.ringGoalId);
+  const setRingGoalId = useSettingsStore((s) => s.setRingGoalId);
+  const customLabels = useSettingsStore((s) => s.customLabels);
+  const themeMode = useSettingsStore((s) => s.themeMode);
+  const goals = useGoalsStore((s) => s.goals);
+  const activeGoals = goals.filter((g) => !g.archived);
+
   return (
-    <Section
-      title="Focus ring"
-      // Makes the scoping explicit (task brief) -- a daily goal, when set,
-      // always drives the ring instead; this only ever matters on a day/
-      // account with no daily goal to compare against.
-      subtitle="Only used when you haven't set a daily goal -- with one, the ring fills toward that instead"
-      color={color}
-    >
-      <Text style={[styles.label, { color: color.textDim, marginBottom: 8 }]}>
-        Compare today to your best day this...
-      </Text>
+    <Section title="Focus ring" subtitle="What the Home ring fills toward while nothing is running" color={color}>
+      <Text style={[styles.label, { color: color.textDim, marginBottom: 8 }]}>What should the ring show?</Text>
       <View style={styles.chipRow}>
-        {WINDOWS.map((w) => (
-          <Chip key={w} active={ringBaselineWindow === w} onPress={() => setRingBaselineWindow(w)} color={color}>
-            {WINDOW_CHIP_LABELS[w]}
+        {RING_SOURCE_KINDS.map((k) => (
+          <Chip key={k} active={ringSourceKind === k} onPress={() => setRingSourceKind(k)} color={color}>
+            {ringSourceKindLabel(k)}
           </Chip>
         ))}
       </View>
+
+      {ringSourceKind === 'auto' ? (
+        <View>
+          <Text style={[styles.label, { color: color.textDim, marginBottom: 8, marginTop: 4 }]}>
+            With no daily goal set, compare today to your best day this...
+          </Text>
+          <View style={styles.chipRow}>
+            {WINDOWS.map((w) => (
+              <Chip key={w} active={ringBaselineWindow === w} onPress={() => setRingBaselineWindow(w)} color={color}>
+                {WINDOW_CHIP_LABELS[w]}
+              </Chip>
+            ))}
+          </View>
+        </View>
+      ) : null}
+
+      {ringSourceKind === 'chosenGoal' ? (
+        activeGoals.length > 0 ? (
+          <View>
+            <Text style={[styles.label, { color: color.textDim, marginBottom: 8, marginTop: 4 }]}>Which goal?</Text>
+            <View style={styles.chipRow}>
+              {activeGoals.map((g) => (
+                <Chip key={g.id} active={ringGoalId === g.id} onPress={() => setRingGoalId(g.id)} color={color}>
+                  {describeGoalTopic(g.topic, customLabels, themeMode)}
+                </Chip>
+              ))}
+            </View>
+          </View>
+        ) : (
+          <Text style={[styles.hint, { color: color.textDim, marginTop: 4 }]}>
+            Add a goal on the Stats tab first, then pick it here.
+          </Text>
+        )
+      ) : null}
     </Section>
   );
 }
 
-/** One-line hub summary for the Focus ring row, e.g. "Best day this week". */
+/** One-line hub summary for the Focus ring row -- deliberately still just the
+ * baseline-window phrasing regardless of the actual ringSourceKind:
+ * SettingsScreen.tsx's hub row calls this with only `w` (its own call site
+ * predates the source picker and is out of this file's ownership to change),
+ * so this keeps that exact one-argument signature working rather than
+ * silently going stale for one source while describing another incorrectly.
+ * The sheet this opens (above) always shows the real, current state. */
 export function ringBaselineSummary(w: RingBaselineWindow): string {
   return `Best day ${ringBaselineWindowLabel(w)}`;
 }
 
 const styles = StyleSheet.create({
   label: rowLabelStyle,
+  hint: captionStyle,
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
 });

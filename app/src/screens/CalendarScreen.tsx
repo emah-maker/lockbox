@@ -9,8 +9,47 @@
 // lives in src/ui/calendar/* and src/screens/calendar/* (split out to stay
 // under this project's 500-line file guideline -- this file was already
 // over budget before this pass).
+//
+// No "Focus Calendar" h1 (task brief, same as StatsScreen's own h1 removal):
+// the tab bar already says which screen this is, and reclaiming that row
+// matters here more than most screens, per the next paragraph.
+//
+// Fits on one page, no scrolling (task brief: "the calendar does not fit the
+// singular page"). The outer ScrollView is gone (a plain `flex:1` View, same
+// "let overflow spill and be visibly wrong instead of silently scrollable"
+// reasoning as StatsScreen.tsx's own header), and the day-cell grid is no
+// longer sized purely off screen WIDTH (the old `width:'14.2857%'`/
+// `aspectRatio:1` cells,7-per-row, made a 6-row month's height whatever 6x
+// that width happened to be, with no regard for whether that fit under the
+// month header/weekday row/recent-sessions row/heat legend/summary strip
+// sharing this same screen). Cell size is now computed to fit: this file
+// measures (via onLayout, not a guessed constant) how much vertical room is
+// actually left after every OTHER piece of chrome on this screen has laid
+// itself out, divides that by the grid's own row count (4/5/6, from
+// buildGrid), and caps the grid container's WIDTH to `cellSize * 7` --
+// DayCell.tsx's own cell is already a 14.2857% (1/7) width of ITS parent
+// with aspectRatio:1, so constraining the parent's width is enough to make
+// every cell scale to that computed size without editing DayCell.tsx itself
+// (out of this task's ownership). onLayout, not
+// `useWindowDimensions() - <hardcoded StatusStrip/tab-bar heights>`: this
+// screen is mounted as App.tsx's `<Screen/>`, a sibling (not a child) of
+// StatusStrip and the tab bar under one shared flex column (see App.tsx) --
+// measuring what this screen's own root actually receives is exact and
+// can't drift if either sibling's height ever changes, where a copied-in
+// pixel constant for "StatusStrip's height" would.
+//
+// DayCell's own ring/circle/flame-badge/stack-row are fixed pixel sizes
+// (CIRCLE_SIZE/RING_SIZE etc, not relative to its parent's width) -- since
+// that file is out of this task's ownership, cellSize is clamped to a floor
+// (MIN_CELL_SIZE) comfortably above DayCell's own natural footprint so
+// those fixed-size glyphs are never asked to render inside a cell smaller
+// than they need, which would overflow/overlap neighbouring cells instead of
+// truly "scaling to fit". On a screen too short even for MIN_CELL_SIZE
+// cells (a genuinely tiny device), the grid stays at that floor and may
+// slightly exceed the ideal budget rather than render broken.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, Animated, Easing, PanResponder } from 'react-native';
+import { View, Text, StyleSheet, Animated, Easing, PanResponder, useWindowDimensions } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import { Feather } from '@expo/vector-icons';
 import { useStore } from '../store/useStore';
@@ -36,6 +75,27 @@ import {
 import { useReducedMotion, configureLayoutAnimation } from '../ui/useReducedMotion';
 import { typeScale } from '../theme/tokens';
 import { useNav } from '../nav/useNav';
+
+// DayCell.tsx's own tallest content stack is its RING_SIZE (CIRCLE_SIZE 34 +
+// 6 = 40) ring PLUS its topic stack-row underneath (3px bar + 3px margin =
+// 6), centered vertically in the cell -- 46px total, fixed regardless of
+// this cell's own computed size. A few px of breathing room above that
+// (not exactly 46) so the ring doesn't visually touch the cell's edge. See
+// this file's header for why this floor exists at all.
+const MIN_CELL_SIZE = 52;
+// Above the original ungoverned (deviceWidth-40)/7 (~47-55px on most phones)
+// there's nothing left in a 7-wide row worth spending on a single day cell --
+// capped so a short, wide month grid on a tall/narrow phone doesn't blow up
+// into oversized cells just because the vertical budget technically allows it.
+const MAX_CELL_SIZE = 60;
+const HORIZONTAL_PADDING = 20; // this screen's own container paddingHorizontal, both sides
+// This screen's own root flex column `gap` (styles.container below) --
+// shared as a constant, not just duplicated into that StyleSheet entry,
+// because the cellSize math a few lines down also has to subtract it twice
+// (the two gaps around the grid: above-chrome<->grid and grid<->below-chrome)
+// to know the grid's own true budget; a copy that drifted from
+// styles.container.gap would silently mis-size the grid.
+const CONTAINER_GAP = 8;
 
 const WEEKDAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 
@@ -113,9 +173,11 @@ export default function CalendarScreen() {
   // Swipe-to-change-month. No gesture-handler/reanimated dependency in this
   // app (see SettingsPrimitives.tsx's SliderRow precedent) -- PanResponder
   // from RN core is the established way to read a raw drag here. Claims the
-  // gesture only once it's clearly more horizontal than vertical, so a
-  // vertical scroll on the page (this screen is itself inside a ScrollView)
-  // is never hijacked into a month change.
+  // gesture only once it's clearly more horizontal than vertical, so an
+  // incidental vertical brush elsewhere on the page is never hijacked into a
+  // month change (this screen no longer scrolls at all -- see this file's
+  // header -- but the same more-horizontal-than-vertical check still guards
+  // against e.g. a slightly-diagonal tap being misread as a swipe).
   const panResponder = useRef(
     PanResponder.create({
       onMoveShouldSetPanResponder: (_evt, gesture) =>
@@ -201,54 +263,95 @@ export default function CalendarScreen() {
     setDaySheetVisible(true);
   };
 
+  // Fit-to-viewport sizing (task brief: no scrolling to see the month) --
+  // see this file's header for why this measures actual rendered heights
+  // (onLayout) rather than computing "screen height minus known constants"
+  // for App.tsx's StatusStrip/tab bar. Three numbers: this screen's own
+  // root (the exact space App.tsx's flex column left for it, already net of
+  // StatusStrip/tab bar/safe areas), and the two chrome blocks that sit
+  // above and below the grid on THIS screen (recent-sessions row + month
+  // nav + weekday row; heat legend + summary strip) -- whatever's left over
+  // is the grid's own budget.
+  const insets = useSafeAreaInsets();
+  const { width: windowWidth } = useWindowDimensions();
+  const [rootHeight, setRootHeight] = useState(0);
+  const [aboveGridHeight, setAboveGridHeight] = useState(0);
+  const [belowGridHeight, setBelowGridHeight] = useState(0);
+
+  const numRows = grid.length / 7;
+  const availableWidth = windowWidth - insets.left - insets.right - HORIZONTAL_PADDING;
+  const availableGridHeight = Math.max(
+    0,
+    rootHeight - aboveGridHeight - belowGridHeight - CONTAINER_GAP * 2,
+  );
+  // Before the first onLayout pass reports real numbers (rootHeight still
+  // 0), fall back to the old width-only sizing rather than the floor/ceiling
+  // clamp below -- clamping against a height budget of 0 would floor every
+  // cell to MIN_CELL_SIZE for one frame regardless of what actually fits,
+  // which is a worse flash than briefly showing the width-only size while
+  // the real measurement catches up (typically the very first frame only).
+  const cellSize =
+    rootHeight > 0
+      ? Math.min(
+          MAX_CELL_SIZE,
+          Math.max(MIN_CELL_SIZE, Math.min(availableWidth / 7, availableGridHeight / numRows)),
+        )
+      : Math.min(MAX_CELL_SIZE, availableWidth / 7);
+
   return (
-    <ScrollView style={{ backgroundColor: c.bg }} contentContainerStyle={styles.container}>
-      <Text style={[styles.h1, { color: c.text }]}>Focus Calendar</Text>
+    <View
+      style={[styles.container, { backgroundColor: c.bg }]}
+      onLayout={(e) => setRootHeight(e.nativeEvent.layout.height)}
+    >
+      <View onLayout={(e) => setAboveGridHeight(e.nativeEvent.layout.height)} style={styles.aboveGrid}>
+        <RecentSessionsRow
+          sessions={recentSessions}
+          selectedKey={selectedKey}
+          theme={c}
+          customLabels={customLabels}
+          themeMode={themeMode}
+          onSelect={jumpToSession}
+        />
 
-      <RecentSessionsRow
-        sessions={recentSessions}
-        selectedKey={selectedKey}
-        theme={c}
-        customLabels={customLabels}
-        themeMode={themeMode}
-        onSelect={jumpToSession}
-      />
-
-      <View style={styles.monthHeader}>
-        <AnimatedPressable
-          style={styles.navBtn}
-          accessibilityRole="button"
-          accessibilityLabel="Previous month"
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          onPress={() => goToMonth(-1)}
-        >
-          <Feather name="chevron-left" size={22} color={c.accent} />
-        </AnimatedPressable>
-        <Text style={[styles.monthLabel, { color: c.text }]}>
-          {cursor.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}
-        </Text>
-        <AnimatedPressable
-          style={styles.navBtn}
-          accessibilityRole="button"
-          accessibilityLabel="Next month"
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          onPress={() => goToMonth(1)}
-        >
-          <Feather name="chevron-right" size={22} color={c.accent} />
-        </AnimatedPressable>
-      </View>
-
-      <View style={styles.weekRow}>
-        {WEEKDAY_LABELS.map((w, i) => (
-          <Text key={i} style={[styles.weekday, { color: c.textDim }]}>
-            {w}
+        <View style={styles.monthHeader}>
+          <AnimatedPressable
+            style={styles.navBtn}
+            accessibilityRole="button"
+            accessibilityLabel="Previous month"
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            onPress={() => goToMonth(-1)}
+          >
+            <Feather name="chevron-left" size={22} color={c.accent} />
+          </AnimatedPressable>
+          <Text style={[styles.monthLabel, { color: c.text }]}>
+            {cursor.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}
           </Text>
-        ))}
+          <AnimatedPressable
+            style={styles.navBtn}
+            accessibilityRole="button"
+            accessibilityLabel="Next month"
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            onPress={() => goToMonth(1)}
+          >
+            <Feather name="chevron-right" size={22} color={c.accent} />
+          </AnimatedPressable>
+        </View>
+
+        <View style={styles.weekRow}>
+          {WEEKDAY_LABELS.map((w, i) => (
+            <Text key={i} style={[styles.weekday, { color: c.textDim }]}>
+              {w}
+            </Text>
+          ))}
+        </View>
       </View>
 
       <Animated.View
         {...panResponder.panHandlers}
-        style={[styles.grid, { opacity: monthOpacity, transform: [{ translateX: monthSlideX }] }]}
+        style={[
+          styles.grid,
+          { width: cellSize * 7, alignSelf: 'center', opacity: monthOpacity, transform: [{ translateX: monthSlideX }] },
+        ]}
       >
         {dayCells.map((cell, i) => {
           if (!cell) return <View key={i} style={styles.emptyCell} />;
@@ -271,8 +374,10 @@ export default function CalendarScreen() {
         })}
       </Animated.View>
 
-      <HeatLegend theme={c} />
-      <MonthSummaryStrip summary={monthSummary} theme={c} />
+      <View onLayout={(e) => setBelowGridHeight(e.nativeEvent.layout.height)} style={styles.belowGrid}>
+        <HeatLegend theme={c} />
+        <MonthSummaryStrip summary={monthSummary} theme={c} />
+      </View>
 
       <DaySheet
         visible={daySheetVisible}
@@ -286,13 +391,14 @@ export default function CalendarScreen() {
         themeMode={themeMode}
         onRetag={(target, topic) => retagSessionAction(target, topic)}
       />
-    </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { padding: 20, paddingTop: 50, gap: 16 },
-  h1: { ...typeScale.title, marginBottom: 4 },
+  container: { flex: 1, paddingHorizontal: HORIZONTAL_PADDING, paddingTop: 8, paddingBottom: 8, gap: CONTAINER_GAP },
+  aboveGrid: { gap: 6 },
+  belowGrid: { gap: 8 },
   monthHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   monthLabel: {
     fontSize: 17,

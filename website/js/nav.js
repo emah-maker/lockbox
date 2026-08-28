@@ -68,7 +68,7 @@
 
   // If the viewport grows past the mobile breakpoint while the menu is open,
   // drop the open state so it can't reappear stuck-open on shrink-back.
-  var mq = window.matchMedia("(min-width: 721px)");
+  var mq = window.matchMedia("(min-width: 901px)");
   var onBreakpointChange = function (e) { if (e.matches) { setOpen(false); } };
   if (mq.addEventListener) { mq.addEventListener("change", onBreakpointChange); }
   else if (mq.addListener) { mq.addListener(onBreakpointChange); }

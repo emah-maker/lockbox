@@ -29,7 +29,7 @@
    whole-minute targetS, so nothing about the STORED shape or the sync
    semantics differs -- only the widget.
    ========================================================================= */
-import { createGoal, updateGoal, archiveGoal, goalWindow, MAX_GOALS } from './goals.js';
+import { createGoal, updateGoal, archiveGoal, goalWindow, isGoalDueOn, MAX_GOALS } from './goals.js';
 import { resolveTopic, formatDuration } from './focusStats.js';
 import { showMessage } from './dashMessage.js';
 import { buildGoalForm } from './goalForm.js';
@@ -84,14 +84,36 @@ function barGeometry(ratio) {
   return { fillPct: (ratio / denom) * 100, targetPct: ratio > 1 ? (1 / denom) * 100 : null };
 }
 
-/** The window's own date range, so "this week" is never ambiguous about
- * which week. goalWindow is Sunday-start (see its comment in goals.js and
- * app/src/goals/goalProgress.ts's weeklyWindow) -- do not introduce a
- * Monday-start label here. */
+/** The window's own date range, so "this week"/"this month" is never
+ * ambiguous about which one. goalWindow is Sunday-start for weekly (see its
+ * comment in goals.js and app/src/goals/goalProgress.ts's weeklyWindow) --
+ * do not introduce a Monday-start label here. */
 function describeWindow(period, nowMs) {
   const { startMs } = goalWindow(period, nowMs);
   if (period === 'daily') return new Date(startMs).toLocaleDateString(undefined, { weekday: 'long' });
+  if (period === 'monthly') return new Date(startMs).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
   return `Week of ${new Date(startMs).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
+}
+
+/** Period label for the row's pill tag -- confirmed against
+ * GoalsSection.tsx's own PERIOD_LABEL / GoalsProgressView.tsx's
+ * PERIOD_LABELS. */
+function periodLabel(period) {
+  if (period === 'daily') return 'Daily';
+  if (period === 'monthly') return 'Monthly';
+  return 'Weekly';
+}
+
+/** Compact "Sun, Wed, Fri" summary for a day-restricted daily goal's
+ * daysOfWeek -- `null` when there's nothing to show (unset, empty, or the
+ * "every weekday selected" case the form already collapses to `undefined`
+ * on submit). Confirmed against GoalsSection.tsx's own
+ * weekdayRestrictionLabel / GoalsProgressView.tsx's identical helper. */
+function weekdayRestrictionLabel(goal) {
+  const days = goal.daysOfWeek;
+  if (!days || days.length === 0 || days.length >= 7) return null;
+  const abbr = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  return days.map((d) => abbr[d] ?? '?').join(', ');
 }
 
 
@@ -109,6 +131,9 @@ function buildGoalRow(goal, result, els, ctx) {
   const ratio = result ? result.ratio : 0;
   const met = result ? result.met : false;
   const remainingS = result ? result.remainingS : goal.targetS;
+  const sessionCount = result ? result.sessionCount : 0;
+  const dueToday = result ? result.dueToday : isGoalDueOn(goal, Date.now());
+  const restriction = weekdayRestrictionLabel(goal);
   const { fillPct, targetPct } = barGeometry(ratio);
   const percent = Math.round(ratio * 100);
 
@@ -129,8 +154,20 @@ function buildGoalRow(goal, result, els, ctx) {
   nameEl.textContent = name;
   const periodTag = document.createElement('span');
   periodTag.className = 'dash__goals-period';
-  periodTag.textContent = goal.period === 'daily' ? 'Daily' : 'Weekly';
+  periodTag.textContent = periodLabel(goal.period);
   head.append(swatch, nameEl, periodTag);
+  if (restriction) {
+    const restrictionTag = document.createElement('span');
+    restrictionTag.className = 'dash__goals-period';
+    restrictionTag.textContent = restriction;
+    head.appendChild(restrictionTag);
+  }
+  if (!dueToday) {
+    const dueTag = document.createElement('span');
+    dueTag.className = 'dash__goals-period';
+    dueTag.textContent = 'Not due today';
+    head.appendChild(dueTag);
+  }
 
   const track = document.createElement('div');
   track.className = 'dash__goals-track';
@@ -161,9 +198,10 @@ function buildGoalRow(goal, result, els, ctx) {
   const meta = document.createElement('div');
   meta.className = 'dash__goals-meta';
   const metaText = document.createElement('span');
+  const sessionsPart = goal.targetSessions !== undefined ? ` · ${sessionCount}/${goal.targetSessions} sessions` : '';
   metaText.textContent = met
-    ? `${formatDuration(focusS)} of ${formatDuration(goal.targetS)}`
-    : `${formatDuration(focusS)} of ${formatDuration(goal.targetS)} · ${formatDuration(remainingS)} to go`;
+    ? `${formatDuration(focusS)} of ${formatDuration(goal.targetS)}${sessionsPart}`
+    : `${formatDuration(focusS)} of ${formatDuration(goal.targetS)} · ${formatDuration(remainingS)} to go${sessionsPart}`;
   const metaPct = document.createElement('span');
   metaPct.className = met ? 'dash__goals-pct dash__goals-pct--met' : 'dash__goals-pct';
   metaPct.textContent = `${percent}%`;
@@ -257,11 +295,26 @@ function buildGoalRow(goal, result, els, ctx) {
       submitLabel: 'Save goal',
       customLabels,
       themeMode,
-      onSubmit: async (topic, period, targetS) => {
+      onSubmit: async (topic, period, targetS, extra) => {
         // updateGoal (goals.js) validates the MERGED result and throws a
         // renderable message; the form's own catch renders it. Thrown here,
         // openFormKey is untouched, so the form simply stays open.
-        const next = updateGoal(ctx.getGoals(), goal.id, { topic, period, targetS });
+        //
+        // The form always hands back every extension field's current value
+        // (undefined = "not set/toggled off"), mapped here to GoalPatch's own
+        // explicit-`null`-clears convention (goals.js/goals.ts) for
+        // daysOfWeek/targetSessions/notifyAt -- confirmed against
+        // GoalsSection.tsx's own handleSave. `notify` is always a defined
+        // boolean, so it needs no such mapping.
+        const next = updateGoal(ctx.getGoals(), goal.id, {
+          topic,
+          period,
+          targetS,
+          daysOfWeek: extra.daysOfWeek ?? null,
+          targetSessions: extra.targetSessions ?? null,
+          notify: extra.notify,
+          notifyAt: extra.notifyAt ?? null,
+        });
         // Cleared BEFORE the write, because a successful writeGoals
         // re-renders this whole panel from inside -- if the flag were still
         // set at that moment, renderGoalsList would rebuild the edit form
@@ -308,7 +361,7 @@ export function renderGoalsList(goals, progress, els, ctx) {
   if (visible.length === 0) {
     const li = document.createElement('li');
     li.className = 'dash__labels-empty';
-    li.textContent = "No goals yet -- add one to track how much of your target you've hit this day or week.";
+    li.textContent = "No goals yet -- add one to track how much of your target you've hit this day, week, or month.";
     els.goalsList.appendChild(li);
   } else {
     for (const goal of visible) {
@@ -328,10 +381,13 @@ export function renderGoalsList(goals, progress, els, ctx) {
       submitLabel: 'Add goal',
       customLabels: ctx.getCustomLabels(),
       themeMode: ctx.getThemeMode(),
-      onSubmit: async (topic, period, targetS) => {
+      onSubmit: async (topic, period, targetS, extra) => {
         // Same throw-keeps-the-form-open / clear-before-write ordering as the
-        // edit path in buildGoalRow -- see its comment for why.
-        const next = createGoal(ctx.getGoals(), topic, period, targetS);
+        // edit path in buildGoalRow -- see its comment for why. `extra` is
+        // handed straight to createGoal as its own GoalCreateExtras-shaped
+        // trailing param -- an `undefined` field there simply means "not
+        // set", the same as a create call on the app side.
+        const next = createGoal(ctx.getGoals(), topic, period, targetS, undefined, extra);
         openFormKey = null;
         try {
           await ctx.writeGoals(next);

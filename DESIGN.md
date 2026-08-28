@@ -38,30 +38,66 @@ reset, and stats rendered as bold graphic marks rather than soft numerals.
 
 ## Palette
 
-Status colors are unchanged real product truth, pulled directly from the
-firmware theme (`Box-code/lib/lock_config.py`) exactly as before — this
-redesign restyles the chrome around them, never the status semantics
-themselves.
+**Unified to the app palette (2026-08-28, user decision).** The Persuade
+surface's bespoke Checkpoint palette (charcoal `--bg`, coral-red
+`--accent`/committed-brand color) described below as a considered choice has
+been superseded: `website/css/styles.css`'s `:root` now ports
+`app/src/theme/theme.ts`'s `MODES.dark` + `ACCENTS.dark.mint` token values
+verbatim — the same values `dashboard.css` already used for
+dashboard.html/login.html — so the marketing site, dashboard, and app read as
+one product instead of two palettes. The WORLD itself (Checkpoint
+Claim-Ticket framing, stainless tray, thermal ticket paper, rubber
+ink-stamp, steel structural chrome, the Bebas Neue/Archivo/Courier
+Prime/VT323 type system below) is unchanged — only the color roles are.
+Status colors still map to the real firmware theme
+(`Box-code/lib/lock_config.py`) exactly as before, just re-expressed through
+the app's own `danger`/`warn`/`success` roles (whose hex values already read
+as close kin to the old coral/amber/mint). The one deliberate semantic
+change: the page's primary brand accent (buttons, focus rings, selection,
+the price/waitlist emphasis borders) moved off status-red onto the app's
+own accent role (mint, `#22C55E`) instead of coincidentally reusing the
+locked-status color the way the original build did. Current table:
 
 | Token | Value | Role |
 |---|---|---|
-| `--locked` / `--locked-2` | `#EF5350` / `#FF8783` | **committed accent.** Firmware's fixed "locked"/SEIZED state. Override mechanism, primary CTAs, countdown, ink-stamp marks. |
-| `--closed` | `#F2B84B` | "closed"/HOLDING/transitional status only |
-| `--unlocked` / `--unlocked-2` | `#35D07F` / `#6EE6AB` | "unlocked"/CLEARED/success status only |
-| `--bg` / `--bg-2` | `#1A1A1C` / `#131314` | matte institutional charcoal (replaces the old blue-black slate) |
-| `--surface` / `--card` / `--card-2` | `#212123` / `#242426` / `#2A2A2D` | panels |
-| `--text` / `--text-2` / `--text-3` | `#F2F1EC` / `#B2AFA5` / `#8F8C82` | ink (`--text-3` lightened from an earlier `#7D7A70`, which measured ~4.04:1 on `--bg` — below the 4.5:1 floor it's actually used at for fine print/captions; now ~5.16:1) |
-| `--steel` / `--steel-dim` / `--steel-ink` | `#C9CBCE` / `#83868A` / `#17181A` | **structural chrome, replaces brass.** Deliberately achromatic so it never collides with a status color — the comparison table highlights the "Phone Box" column with a steel barcode strip, not a status hue. |
-| `--paper` / `--paper-dim` / `--paper-ink` | `#ECE6D6` / `#C8C1A8` / `#201E18` | thermal claim-ticket paper — used only on stub/tag/badge components, never the page ground, so the checkpoint counter and the ticket it hands you read as two distinct materials. |
-
-Color strategy: Committed (coral-red carries the override/CTA/stamp story at
-page scale) on the Persuade surface; the dashboard inherits the same tokens
-without the Persuade flourishes.
+| `--locked` / `--locked-2` | `#EF4444` / `#F87171` | app `danger` — "locked"/SEIZED status only (was `#EF5350`/`#FF8783`) |
+| `--closed` | `#F2B84B` | app `warn` — "closed"/HOLDING/transitional status only (unchanged) |
+| `--unlocked` / `--unlocked-2` | `#22C55E` / `#4ADE80` | app `success` — "unlocked"/CLEARED status only (was `#35D07F`/`#6EE6AB`) |
+| `--accent` / `--accent-text` | `#22C55E` / `#04210F` | app `accent` (mint) — the page's brand accent: primary CTAs, focus rings, selection, emphasis borders (was the same value as `--locked`, i.e. coral) |
+| `--bg` / `--bg-2` | `#0B0B0C` / `#08080A` | app `bg` (was `#1A1A1C`/`#131314` charcoal); `--bg-2` stays a hair darker than `--bg` (dashboard.css sets both flat) purely so the page's own ambient depth-wash still has two shades to gradient between |
+| `--surface` / `--card` / `--card-2` | `#17181B` / `#17181B` / `#17181B` | app `surface` (was `#212123`/`#242426`/`#2A2A2D`) |
+| `--text` / `--text-2` / `--text-3` | `#FFFFFF` / `#9AA0A6` / `#9AA0A6` | app `text`/`textDim` (was `#F2F1EC`/`#B2AFA5`/`#8F8C82`); the app has no third text tier, so `--text-3` now aliases `--text-2` instead of inventing a hue the app palette doesn't have |
+| `--steel` / `--steel-dim` / `--steel-ink` | `#C9CBCE` / `#83868A` / `#17181A` | **structural chrome, replaces brass.** Not an app theme role — unaffected by the unification, still deliberately achromatic. |
+| `--paper` / `--paper-dim` / `--paper-ink` | `#ECE6D6` / `#C8C1A8` / `#201E18` | thermal claim-ticket paper. Not an app theme role — unaffected, still a material color, not a theme hue. |
 
 **Rule enforced throughout:** red/amber/green are status semantics inherited
 from the real product (locked=red/SEIZED, closed=amber/HOLDING,
 unlocked=green/CLEARED; extended to the comparison table's yes/mid/no
 stamps). Steel is structural only and never carries status meaning.
+
+Recaptured 2026-08-28 against the live mint palette: the three marketing
+renders at the repo root (`hero-top.png`, `pricing-costbars.png`,
+`pricing-revealed.png`) were re-shot at their original viewport sizes, same
+framing as before, so the filenames' established meanings hold even though
+two of them describe their contents poorly. `hero-top.png` (1041x835,
+desktop) is the untouched hero section at the top of the page — nav bar,
+"The smart focus lockbox." heading, device mock. `pricing-costbars.png`
+(389x842, mobile) is **not** a pricing cost breakdown — it's the mobile nav
+menu open, scrolled down far enough that only a sliver of the hero device,
+the claim-ticket graphic, and the top edge of the hero heading peek out
+below the menu panel. `pricing-revealed.png` (389x842, mobile) is the one
+that actually matches its name: the `#pricing` section scrolled to the top,
+showing the "Pay once. Focus for years." heading and the full $79/$99
+price card. `hero.png` / `phonebox-hero.png` predate even the coral palette
+(different nav/copy entirely) and `phonebox-desktop-1280.png` happens to
+already be mint-toned but is likewise stale content-wise — none of those
+three were touched by this pass; whether to replace them is a separate,
+human call.
+
+---
+
+The design history below (world selection, prior palette rationale) is kept
+for the record; the palette values in it are superseded by the table above.
 
 ## Type
 

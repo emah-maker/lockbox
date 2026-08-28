@@ -59,7 +59,6 @@ import { HeatmapGrid } from './stats/HeatmapGrid';
 import { GoalsProgressView } from './stats/GoalsProgressView';
 import { SessionListSheet } from './stats/SessionListSheet';
 import { ManageSheet } from './stats/ManageSheet';
-import { typeScale } from '../theme/tokens';
 
 const TOP_N = 5;
 const TIME_WINDOW_KEY = 'statsTimeWindow';
@@ -89,6 +88,18 @@ export default function StatsScreen() {
   const [heatmapSheetOpen, setHeatmapSheetOpen] = useState(false);
   const [allTopicsSheetOpen, setAllTopicsSheetOpen] = useState(false);
   const [manageSheetOpen, setManageSheetOpen] = useState(false);
+  // Set true only by the Goals-empty-state's own "Start adding goals" CTA
+  // (openManageToCreate below) -- bug fix: that CTA used to just call the
+  // same open-the-sheet handler the ordinary "Manage goals" button uses,
+  // which opened onto GoalsSection's OWN "no goals yet" empty state (a
+  // SECOND "Start adding goals" button, requiring a second identical tap to
+  // actually reach GoalForm). This flag tells ManageSheet/GoalsSection to
+  // open straight into the create form instead. Reset back to false on
+  // close (closeManageSheet below) so it's a fresh false->true edge next
+  // time, not a value GoalsSection (which stays mounted between opens, see
+  // ui/Sheet.tsx -- Modal's own `visible` only hides it) would otherwise
+  // see as "already true" and ignore.
+  const [manageSheetAutoCreate, setManageSheetAutoCreate] = useState(false);
   const [highlightGoalId, setHighlightGoalId] = useState<string | null>(null);
   // Guards the mount load below against overwriting a selection the user
   // (or an incoming deep link) already made while the AsyncStorage read was
@@ -211,18 +222,33 @@ export default function StatsScreen() {
     setTopicSheetKey(key);
   };
 
+  // The Goals-empty-state's own CTA (see manageSheetAutoCreate's own
+  // comment) -- opens the same ManageSheet the ordinary "Manage goals"
+  // button does, but flagged to land straight on GoalForm instead of on
+  // GoalsSection's own empty state.
+  const openManageToCreate = () => {
+    setManageSheetAutoCreate(true);
+    setManageSheetOpen(true);
+  };
+  const closeManageSheet = () => {
+    setManageSheetOpen(false);
+    setManageSheetAutoCreate(false);
+  };
+
   return (
-    <View style={{ flex: 1, backgroundColor: c.bg, paddingHorizontal: 20, paddingTop: 14, paddingBottom: 10 }}>
-      <View style={{ gap: 8 }}>
-        <Text style={[styles.h1, { color: c.text }]}>Stats</Text>
-        <PeriodSelector period={period} onSelect={selectPeriod} />
-      </View>
+    <View style={{ flex: 1, backgroundColor: c.bg, paddingHorizontal: 20, paddingTop: 8, paddingBottom: 10 }}>
+      {/* No "Stats" h1 here -- the tab bar (App.tsx) already says which
+          screen this is, so a repeated title only cost vertical space this
+          no-scroll layout can't spare (task brief: reclaim it rather than
+          leave a gap, hence paddingTop trimmed from 14 to 8 too). */}
+      <PeriodSelector period={period} onSelect={selectPeriod} />
 
       {period === 'goals' ? (
         <View style={{ flex: 1, marginTop: 10 }}>
           <GoalsProgressView
             onOpenGoalInSettings={(goalId) => useNav.getState().navigate('settings', { settingsSection: 'goals', goalId })}
             onManage={() => setManageSheetOpen(true)}
+            onAddGoal={openManageToCreate}
             highlightGoalId={highlightGoalId}
           />
         </View>
@@ -316,18 +342,17 @@ export default function StatsScreen() {
           ScrollView, just handed to Sheet's own body scroll instead. */}
       <Sheet
         visible={manageSheetOpen}
-        onClose={() => setManageSheetOpen(false)}
+        onClose={closeManageSheet}
         title="Manage goals"
         size="large"
         scrollEnabled={!wheelActive}
       >
-        <ManageSheet color={c} onWheelActiveChange={onWheelActiveChange} />
+        <ManageSheet color={c} onWheelActiveChange={onWheelActiveChange} initialCreate={manageSheetAutoCreate} />
       </Sheet>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  h1: { ...typeScale.title, marginBottom: 4 },
   factSheetRow: { fontSize: 15, lineHeight: 20 },
 });

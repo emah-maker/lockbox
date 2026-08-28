@@ -114,9 +114,18 @@ export function GoalsSection({
    * own `formWheelActive` state below for what actually gates the nested
    * form Sheet's `scrollEnabled`. */
   onWheelActiveChange,
+  autoOpenCreate,
 }: {
   color: ReturnType<typeof useTheme>;
   onWheelActiveChange: (active: boolean) => void;
+  /** Set by StatsScreen's ManageSheet when this section is reached via
+   * GoalsProgressView's empty-state "Start adding goals" CTA rather than its
+   * ordinary "Manage goals" button (see ManageSheet.tsx's own comment) --
+   * opens straight into the create form (openForm(null) below) instead of
+   * landing on this section's own "no goals yet" empty state, which used to
+   * make that CTA a two-tap dead end: the first tap only got you to ANOTHER
+   * identical "Start adding goals" button (below), not the form itself. */
+  autoOpenCreate?: boolean;
 }) {
   const sessions = useStore((s) => s.sessions);
   const customLabels = useSettingsStore((s) => s.customLabels);
@@ -181,6 +190,21 @@ export function GoalsSection({
     setFormWheelActive(false);
     onWheelActiveChange(false);
   };
+
+  // Fires openForm(null) on `autoOpenCreate`'s false->true edge, not merely
+  // "the first time it's ever true" -- this component stays mounted for as
+  // long as its host Sheet does (ui/Sheet.tsx passes `children` to Modal
+  // unconditionally; only the modal's own OS-level visibility toggles), so a
+  // ref that only guarded "has this ever fired" would silently do nothing on
+  // a SECOND "Start adding goals" tap (cancel out of the form once, still no
+  // goals, tap it again) since it would already be marking a stale true.
+  // Tracking the previous prop value instead makes each rising edge count on
+  // its own, matching StatsScreen's own manageSheetAutoCreate reset-on-close.
+  const prevAutoOpenCreateRef = React.useRef(false);
+  React.useEffect(() => {
+    if (autoOpenCreate && !prevAutoOpenCreateRef.current) openForm(null);
+    prevAutoOpenCreateRef.current = !!autoOpenCreate;
+  }, [autoOpenCreate]);
 
   const handleCreate = (values: GoalFormValues) => {
     try {

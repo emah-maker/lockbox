@@ -92,22 +92,32 @@
 
 .dash { padding-top: clamp(40px, 6vw, 72px); }
 .dash__head { max-width: 640px; margin-bottom: clamp(28px, 4vw, 44px); }
-.dash__head h1 { font-size: clamp(1.75rem, 3vw, 2rem); margin-top: 10px; }
-.dash__head .section-sub { margin-top: 14px; }
+.dash__head h1 { font-size: clamp(1.75rem, 3vw, 2rem); margin-top: var(--space-2-5); }
+.dash__head .section-sub { margin-top: var(--space-3-5); }
 
-.dash__state { padding: 24px 20px; }
-.dash__state h2 { font-size: 1.1rem; margin-bottom: 10px; }
-.dash__state p { color: var(--text-2); font-size: 15px; max-width: 60ch; }
+.dash__state { padding: var(--space-6) var(--space-5); }
+.dash__state h2 { font-size: 1.1rem; margin-bottom: var(--space-2-5); }
+.dash__state p { color: var(--text-2); font-size: var(--fs-base); max-width: 60ch; }
 .dash__state code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  background: rgba(255, 255, 255, 0.08); padding: 2px 6px; border-radius: 6px; font-size: 0.92em;
+  background: rgba(255, 255, 255, 0.08); padding: var(--space-0-5) var(--space-1-5); border-radius: 6px; font-size: 0.92em;
 }
 /* A left accent bar reads as "this card is an alert" without needing the
    all-around border the flat/shadow card system above just removed. */
-.dash__state--error { border-left: 3px solid var(--locked); padding-left: 17px; }
+.dash__state--error { border-left: 3px solid var(--locked); padding-left: var(--space-4); }
 .dash__state--error h2 { color: var(--locked); }
+/* Was a bare unstyled <p> -- no card, no spinner, indistinguishable from a
+   stalled page. Now matches #dashNotConfigured/#dashError's card treatment. */
+.dash__state--loading { display: flex; align-items: center; gap: var(--space-3); }
+.dash__state--loading p { margin: 0; }
+.dash__spinner {
+  flex: none; width: var(--space-5); height: var(--space-5); border-radius: 50%;
+  border: 2px solid var(--border-soft); border-top-color: var(--unlocked);
+  animation: dashSpin 0.8s linear infinite;
+}
+@keyframes dashSpin { to { transform: rotate(360deg); } }
 #dashLoading p { color: var(--text-2); }
-.dash__state .btn { margin-top: 18px; }
+.dash__state .btn { margin-top: var(--space-4-5); }
 
 /* State crossfade -- was an instant `hidden`-attribute swap between five
    mutually-exclusive containers (dashboard.js showState()); now settles in
@@ -115,45 +125,45 @@
    hand-off on index.html (styles.css .waitlist__thanks), reusing --ease-snap
    rather than forking a new curve. Applied to all five state containers,
    including #dashContent which carries no other .dash__state styling. */
-.dash__fade { opacity: 0; transform: translateY(10px); transition: opacity 0.28s var(--ease-snap), transform 0.28s var(--ease-snap); }
+.dash__fade { opacity: 0; transform: translateY(10px); transition: opacity var(--dur-slow) var(--ease-snap), transform var(--dur-slow) var(--ease-snap); }
 .dash__fade.is-in { opacity: 1; transform: none; }
 
 /* Smaller-scale sibling of .dash__fade above -- same curve/technique, a
    shorter distance/duration because this fades a one-line inline status
    message (#dashWriteError, #dashLabelsMsg), not a whole panel. */
-.dash__msg { opacity: 0; transform: translateY(-4px); transition: opacity 0.2s var(--ease-snap), transform 0.2s var(--ease-snap); }
+.dash__msg { opacity: 0; transform: translateY(-4px); transition: opacity var(--dur-base) var(--ease-snap), transform var(--dur-base) var(--ease-snap); }
 .dash__msg.is-in { opacity: 1; transform: none; }
 
 /* Another .dash__fade sibling, scaled for an inline pill-sized swap: the
    label chip<->picker swap, the recolor-popover swatches, and the
    add-form<->at-capacity-message toggle all reuse this one class rather
    than inventing a third fade variant per surface. */
-.dash__pick-fade { opacity: 0; transform: scale(0.94); transition: opacity 0.15s var(--ease-snap), transform 0.15s var(--ease-snap); }
+.dash__pick-fade { opacity: 0; transform: scale(0.94); transition: opacity var(--dur-base) var(--ease-snap), transform var(--dur-base) var(--ease-snap); }
 .dash__pick-fade.is-in { opacity: 1; transform: none; }
 
-.dash__hint { color: var(--text-2); font-size: 14.5px; margin: -6px 0 28px; }
+.dash__hint { color: var(--text-2); font-size: var(--fs-sm); margin: -6px 0 var(--space-7); }
 
 /* ---------- Summary card (mirrors StatsScreen.tsx's "Total focus time" card) ---------- */
-.dash__summary-card { margin-bottom: 18px; }
-.dash__summary-label { color: var(--text-2); font-size: 13px; font-weight: 600; }
+.dash__summary-card { margin-bottom: var(--space-4-5); }
+.dash__summary-label { color: var(--text-2); font-size: var(--fs-xs); font-weight: 600; }
 .dash__summary-total {
   font-weight: 800; letter-spacing: -0.5px; color: var(--unlocked);
-  font-size: clamp(1.8rem, 4vw, 2.5rem); margin-top: 2px;
+  font-size: clamp(1.8rem, 4vw, 2.5rem); margin-top: var(--space-0-5);
 }
-.dash__summary-sub { color: var(--text-2); font-size: 14px; margin-top: 2px; }
-.dash__mini-row { display: flex; gap: 20px; margin-top: 12px; }
+.dash__summary-sub { color: var(--text-2); font-size: var(--fs-sm); margin-top: var(--space-0-5); }
+.dash__mini-row { display: flex; gap: var(--space-5); margin-top: var(--space-3); }
 .dash__mini-stat { display: flex; flex-direction: column; align-items: flex-start; }
-.dash__mini-value { font-size: 18px; font-weight: 700; color: var(--text); }
-.dash__mini-label { font-size: 12px; color: var(--text-2); margin-top: 2px; }
+.dash__mini-value { font-size: var(--fs-lg); font-weight: 700; color: var(--text); }
+.dash__mini-label { font-size: var(--fs-2xs); color: var(--text-2); margin-top: var(--space-0-5); }
 
 /* ---------- Two-panel grid ---------- */
-.dash__grid { display: grid; grid-template-columns: 1.2fr 1fr; gap: 18px; margin-bottom: 18px; align-items: stretch; }
-.dash__panel h2 { font-size: 1.05rem; margin-bottom: 18px; }
+.dash__grid { display: grid; grid-template-columns: 1.2fr 1fr; gap: var(--space-4-5); margin-bottom: var(--space-4-5); align-items: stretch; }
+.dash__panel h2 { font-size: 1.1rem; margin-bottom: var(--space-4-5); }
 
 /* ---------- Trend bars (mirrors StatsScreen.tsx's pill-shaped accent bars
    over an accent-tinted track, not a flat gray/gradient bar) ---------- */
-.dash__trend { display: flex; align-items: flex-end; gap: 10px; height: 140px; }
-.dash__trend-day { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; gap: 8px; }
+.dash__trend { display: flex; align-items: flex-end; gap: var(--space-2-5); height: 140px; }
+.dash__trend-day { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; gap: var(--space-2); }
 .dash__trend-track {
   position: relative; width: 100%; max-width: 18px; flex: 1;
   border-radius: 9px; overflow: hidden; background: var(--accent-soft);
@@ -165,16 +175,16 @@
   border-radius: 9px;
   background: var(--unlocked);
   transform-origin: bottom; transform: scaleY(var(--h, 0.04));
-  transition: transform 0.4s var(--ease);
+  transition: transform var(--dur-slower) var(--ease);
 }
-.dash__trend-label { color: var(--text-2); font-size: 12px; font-weight: 600; }
+.dash__trend-label { color: var(--text-2); font-size: var(--fs-2xs); font-weight: 600; }
 
 /* ---------- Label breakdown (same pill/tint language as the trend bars
    above, for one consistent "meter" idiom across the page) ---------- */
-.dash__breakdown { display: flex; flex-direction: column; gap: 12px; }
-.dash__breakdown-row { display: grid; grid-template-columns: 14px 1fr auto; align-items: center; gap: 10px; }
+.dash__breakdown { display: flex; flex-direction: column; gap: var(--space-3); }
+.dash__breakdown-row { display: grid; grid-template-columns: 14px 1fr auto; align-items: center; gap: var(--space-2-5); }
 .dash__breakdown-swatch { width: 12px; height: 12px; border-radius: 50%; }
-.dash__breakdown-meta { display: flex; justify-content: space-between; gap: 10px; font-size: 14px; }
+.dash__breakdown-meta { display: flex; justify-content: space-between; gap: var(--space-2-5); font-size: var(--fs-sm); }
 .dash__breakdown-name { color: var(--text); font-weight: 600; }
 .dash__breakdown-value { color: var(--text-2); white-space: nowrap; }
 /* background is set per-row inline by dashboard.js, tinted with that row's
@@ -183,35 +193,35 @@
 .dash__breakdown-fill {
   height: 100%; width: 100%; border-radius: 3px;
   transform-origin: left; transform: scaleX(var(--w, 0));
-  transition: transform 0.5s var(--ease);
+  transition: transform var(--dur-slower) var(--ease);
 }
 
 /* ---------- Sessions table ---------- */
 .dash__table { width: 100%; border-collapse: collapse; min-width: 560px; }
-.dash__table th, .dash__table td { text-align: left; padding: 11px 16px; font-size: 14.5px; border-bottom: 1px solid var(--border-soft); }
-.dash__table th { color: var(--text-2); font-size: 12.5px; font-weight: 600; }
+.dash__table th, .dash__table td { text-align: left; padding: var(--space-3) var(--space-4); font-size: var(--fs-sm); border-bottom: 1px solid var(--border-soft); }
+.dash__table th { color: var(--text-2); font-size: var(--fs-2xs); font-weight: 600; }
 .dash__table tbody tr:last-child td { border-bottom: none; }
 .dash__chip {
-  display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: 999px; font-size: 12.5px; font-weight: 600;
+  display: inline-flex; align-items: center; gap: var(--space-1-5); padding: var(--space-1) var(--space-2); border-radius: 999px; font-size: var(--fs-2xs); font-weight: 600;
 }
 .dash__outcome--completed { color: var(--unlocked); }
 .dash__outcome--overridden { color: var(--closed); }
 
 /* ---------- Fun facts (best-day banner + icon rows, mirrors StatsScreen.tsx) ---------- */
-.dash__facts-card { margin-bottom: 18px; }
-.dash__facts { display: flex; flex-direction: column; gap: 6px; }
-.dash__facts-empty { color: var(--text-2); font-size: 14.5px; }
+.dash__facts-card { margin-bottom: var(--space-4-5); }
+.dash__facts { display: flex; flex-direction: column; gap: var(--space-1-5); }
+.dash__facts-empty { color: var(--text-2); font-size: var(--fs-sm); }
 .dash__best-day {
-  display: flex; align-items: center; gap: 8px; border-radius: 10px; padding: 10px;
-  margin-bottom: 6px; background: var(--accent-soft); color: var(--unlocked);
+  display: flex; align-items: center; gap: var(--space-2); border-radius: 10px; padding: var(--space-2-5);
+  margin-bottom: var(--space-1-5); background: var(--accent-soft); color: var(--unlocked);
 }
-.dash__best-day span { color: var(--text); font-weight: 600; font-size: 15px; }
-.dash__fact-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; color: var(--text-2); }
-.dash__fact-row span { color: var(--text); font-size: 15px; }
+.dash__best-day span { color: var(--text); font-weight: 600; font-size: var(--fs-base); }
+.dash__fact-row { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-1) 0; color: var(--text-2); }
+.dash__fact-row span { color: var(--text); font-size: var(--fs-base); }
 
 /* ---------- Calendar ---------- */
-.dash__cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
-.dash__cal-nav { display: flex; align-items: center; gap: 4px; }
+.dash__cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--space-4); }
+.dash__cal-nav { display: flex; align-items: center; gap: var(--space-1); }
 /* Bare icon buttons, no visible box -- matches the app's chevron-only month
    nav (Feather icons, accent-colored, no background/border square). A
    generous hit area (44px) replaces the app's native hitSlop for the same
@@ -220,18 +230,18 @@
   display: flex; align-items: center; justify-content: center;
   background: transparent; border: none; color: var(--unlocked); padding: 0;
   width: 44px; height: 44px; border-radius: 50%; cursor: pointer;
-  transition: background 0.15s var(--ease-snap), transform 0.08s var(--ease-snap);
+  transition: background var(--dur-base) var(--ease-snap), transform var(--dur-fast) var(--ease-snap);
 }
 .dash__cal-navbtn:hover { background: rgba(255, 255, 255, 0.06); }
 .dash__cal-navbtn:active { transform: scale(0.9); }
-.dash__cal-month { font-size: 17px; font-weight: 600; color: var(--text); min-width: 140px; text-align: center; }
+.dash__cal-month { font-size: var(--fs-lg); font-weight: 600; color: var(--text); min-width: 140px; text-align: center; }
 .dash__cal-weekdays, .dash__cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); }
-.dash__cal-weekdays span { text-align: center; color: var(--text-3); font-size: 12px; padding-bottom: 8px; }
-.dash__cal-cell { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 3px 0 10px; }
+.dash__cal-weekdays span { text-align: center; color: var(--text-3); font-size: var(--fs-2xs); padding-bottom: var(--space-2); }
+.dash__cal-cell { display: flex; flex-direction: column; align-items: center; gap: var(--space-1); padding: var(--space-1) 0 var(--space-2-5); }
 .dash__cal-daynum {
   width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
-  font-size: 13px; color: var(--text-2); background: transparent; border: none; cursor: pointer; font-family: inherit;
-  transition: background 0.15s var(--ease-snap), transform 0.08s var(--ease-snap);
+  font-size: var(--fs-xs); color: var(--text-2); background: transparent; border: none; cursor: pointer; font-family: inherit;
+  transition: background var(--dur-base) var(--ease-snap), transform var(--dur-fast) var(--ease-snap);
 }
 .dash__cal-daynum:hover { background: rgba(255, 255, 255, 0.06); }
 .dash__cal-daynum:active { transform: scale(0.96); }
@@ -242,34 +252,34 @@
    against the resulting shade) -- this is a fallback only. */
 .dash__cal-cell--focus .dash__cal-daynum { font-weight: 700; }
 .dash__cal-dot { width: 5px; height: 5px; border-radius: 50%; }
-.dash__cal-day { margin-top: 14px; border-top: 1px solid var(--border-soft); padding-top: 14px; }
-.dash__cal-day h3 { font-size: 14px; color: var(--text); margin-bottom: 8px; }
-.dash__cal-daylist { display: flex; flex-direction: column; gap: 8px; }
+.dash__cal-day { margin-top: var(--space-3-5); border-top: 1px solid var(--border-soft); padding-top: var(--space-3-5); }
+.dash__cal-day h3 { font-size: var(--fs-sm); color: var(--text); margin-bottom: var(--space-2); }
+.dash__cal-daylist { display: flex; flex-direction: column; gap: var(--space-2); }
 .dash__cal-daylist li {
-  display: flex; align-items: center; justify-content: space-between; gap: 10px;
-  font-size: 13.5px; color: var(--text-2); padding: 2px 0;
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-2-5);
+  font-size: var(--fs-xs); color: var(--text-2); padding: var(--space-0-5) 0;
 }
 .dash__cal-daylist .dash__cal-dot { flex: none; }
-.dash__cal-empty { color: var(--text-2); font-size: 14px; }
+.dash__cal-empty { color: var(--text-2); font-size: var(--fs-sm); }
 
 /* ---------- Manage labels (catalog CRUD + per-session relabel picker) ---------- */
-.dash__labels-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
-.dash__labels-row { display: flex; align-items: center; gap: 10px; }
-.dash__labels-row-main { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; }
+.dash__labels-list { display: flex; flex-direction: column; gap: var(--space-2-5); margin-bottom: var(--space-4); }
+.dash__labels-row { display: flex; align-items: center; gap: var(--space-2-5); }
+.dash__labels-row-main { display: flex; align-items: center; gap: var(--space-2-5); flex: 1; min-width: 0; }
 .dash__labels-name {
-  flex: 1; min-width: 0; padding: 8px 12px; font-size: 14px; font-family: var(--font-body);
+  flex: 1; min-width: 0; padding: var(--space-2) var(--space-3); font-size: var(--fs-sm); font-family: var(--font-body);
   color: var(--text); background: var(--bg); border: 1px solid var(--border-soft); border-radius: var(--radius-sm);
 }
-.dash__labels-empty { color: var(--text-2); font-size: 14px; }
+.dash__labels-empty { color: var(--text-2); font-size: var(--fs-sm); }
 .dash__label-delete {
   flex: none; width: 30px; height: 30px; border-radius: 50%; border: none; cursor: pointer;
-  background: transparent; color: var(--text-2); font-size: 16px; line-height: 1;
-  transition: background 0.15s var(--ease-snap), color 0.15s var(--ease-snap);
+  background: transparent; color: var(--text-2); font-size: var(--fs-md); line-height: 1;
+  transition: background var(--dur-base) var(--ease-snap), color var(--dur-base) var(--ease-snap);
 }
 .dash__label-delete:hover { background: rgba(239, 68, 68, 0.12); color: var(--locked); }
-.dash__label-add { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.dash__label-add { display: flex; align-items: center; gap: var(--space-2-5); flex-wrap: wrap; }
 .dash__label-add input[type="text"] {
-  flex: 1; min-width: 160px; padding: 10px 14px; font-size: 14px; font-family: var(--font-body);
+  flex: 1; min-width: 160px; padding: var(--space-2-5) var(--space-3-5); font-size: var(--fs-sm); font-family: var(--font-body);
   color: var(--text); background: var(--bg); border: 1px solid var(--border-soft); border-radius: var(--radius-sm);
 }
 .dash__labels-cap-msg { color: var(--text-2); }
@@ -282,13 +292,13 @@
    compact-popover for an existing row's recolor (.dash__swatch-pop) -- showing
    all 12 swatches inline per row would be visually heavy once several labels
    exist. */
-.dash__swatch-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.dash__swatch-row { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .dash__swatch-row .dash__swatch-opt { width: 26px; height: 26px; }
 
 .dash__labels-swatch-wrap { position: relative; flex: none; }
 .dash__labels-swatch {
   width: 28px; height: 28px; padding: 0; border: none; border-radius: 50%; cursor: pointer;
-  transition: transform 0.12s var(--ease-snap);
+  transition: transform var(--dur-fast) var(--ease-snap);
 }
 .dash__labels-swatch:hover { transform: scale(1.08); }
 /* Anchored to its trigger via `position: absolute` -- safe today since no
@@ -310,26 +320,26 @@
    actively break this, since it measures from the trigger's *right* edge
    while the trigger itself sits near the viewport's *left* edge. */
 .dash__swatch-pop {
-  position: absolute; top: 100%; left: 0; margin-top: 6px; z-index: 5;
-  display: grid; grid-template-columns: repeat(6, 22px); gap: 6px;
-  padding: 8px; background: var(--card-2); border: 1px solid var(--border-soft);
+  position: absolute; top: 100%; left: 0; margin-top: var(--space-1-5); z-index: 5;
+  display: grid; grid-template-columns: repeat(6, 22px); gap: var(--space-1-5);
+  padding: var(--space-2); background: var(--card-2); border: 1px solid var(--border-soft);
   border-radius: var(--radius-sm); box-shadow: 0 8px 20px -8px rgba(0, 0, 0, 0.4);
 }
 .dash__swatch-opt {
   width: 22px; height: 22px; padding: 0; border-radius: 50%; cursor: pointer;
   border: 2px solid transparent;
-  transition: transform 0.1s var(--ease-snap), border-color 0.1s var(--ease-snap);
+  transition: transform var(--dur-fast) var(--ease-snap), border-color var(--dur-fast) var(--ease-snap);
 }
 .dash__swatch-opt:hover { transform: scale(1.1); }
 .dash__swatch-opt[aria-pressed="true"] { border-color: var(--text); }
 
 /* ---------- Inline delete confirmation (replaces window.confirm) ---------- */
-.dash__labels-confirm { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.dash__labels-confirm-text { color: var(--text-2); font-size: 13.5px; flex: 1 1 220px; }
+.dash__labels-confirm { display: flex; align-items: center; gap: var(--space-2-5); flex-wrap: wrap; }
+.dash__labels-confirm-text { color: var(--text-2); font-size: var(--fs-xs); flex: 1 1 220px; }
 .dash__labels-confirm-delete {
   background: var(--locked); color: #fff; border: none; border-radius: 12px;
-  font-family: var(--font-body); font-weight: 600; padding: 9px 18px; font-size: 14px;
-  cursor: pointer; transition: transform 0.12s var(--ease-snap), box-shadow 0.2s;
+  font-family: var(--font-body); font-weight: 600; padding: var(--space-2) var(--space-4-5); font-size: var(--fs-sm);
+  cursor: pointer; transition: transform var(--dur-fast) var(--ease-snap), box-shadow var(--dur-base);
 }
 .dash__labels-confirm-delete:hover { box-shadow: 0 8px 20px -8px var(--locked); }
 .dash__labels-confirm-delete:active { transform: scale(0.97); }
@@ -349,9 +359,9 @@
 .dash__label-picker { position: relative; display: inline-flex; align-items: center; min-height: 24px; }
 .dash__chip-btn {
   border: none; background: none; cursor: pointer; font: inherit;
-  display: inline-flex; align-items: center; gap: 5px;
+  display: inline-flex; align-items: center; gap: var(--space-1);
   max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  transition: filter 0.15s var(--ease-snap);
+  transition: filter var(--dur-base) var(--ease-snap);
 }
 /* Small caret affordance -- same Feather-outline icon language as
    .dash__cal-navbtn's chevrons, not a new icon system -- so a static-looking
@@ -363,14 +373,14 @@
   -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpolyline points='6 9 12 15 18 9' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
   mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpolyline points='6 9 12 15 18 9' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
   opacity: 0.55;
-  transition: opacity 0.15s var(--ease-snap);
+  transition: opacity var(--dur-base) var(--ease-snap);
 }
 .dash__chip-btn:hover, .dash__chip-btn:focus-visible { filter: brightness(1.08); }
 .dash__chip-btn:hover::after, .dash__chip-btn:focus-visible::after { opacity: 0.9; }
 .dash__chip-select {
-  font-size: 12.5px; font-weight: 600; font-family: var(--font-body);
+  font-size: var(--fs-2xs); font-weight: 600; font-family: var(--font-body);
   color: var(--text); background: var(--card-2); border: 1px solid var(--border-soft);
-  border-radius: 999px; padding: 3px 8px;
+  border-radius: 999px; padding: var(--space-1) var(--space-2);
 }
 /* Generic "this control is mid-write" dimming -- applied to the relabel
    <select> while its updateDoc is in flight, and reused as-is (not
@@ -383,12 +393,12 @@
    NO-GSAP header comment: a single low-key 2px ring is not the repeated
    overshoot beat that decision was written against. Both durations are
    covered by styles.css's existing global prefers-reduced-motion rule. */
-.dash__save-flash { animation: dashSaveFlash 0.9s var(--ease) forwards; }
+.dash__save-flash { animation: dashSaveFlash var(--dur-flash) var(--ease) forwards; }
 @keyframes dashSaveFlash {
   0% { box-shadow: 0 0 0 2px var(--unlocked); }
   100% { box-shadow: 0 0 0 0 rgba(0, 0, 0, 0); }
 }
-.dash__save-flash--err { animation-name: dashSaveFlashErr; animation-duration: 1.4s; }
+.dash__save-flash--err { animation-name: dashSaveFlashErr; animation-duration: var(--dur-flash-err); }
 @keyframes dashSaveFlashErr {
   0% { box-shadow: 0 0 0 2px var(--locked); }
   100% { box-shadow: 0 0 0 0 rgba(0, 0, 0, 0); }
@@ -402,17 +412,17 @@
    chrome (empty state, inline delete confirm, action buttons) is likewise
    shared with the Manage-labels rules above wherever the class is identical
    -- only the goal-specific pieces are new here. */
-.dash__goals-list { display: flex; flex-direction: column; gap: 18px; margin-bottom: 14px; }
-.dash__goals-row-main { display: flex; flex-direction: column; gap: 7px; }
-.dash__goals-head { display: flex; align-items: center; gap: 8px; }
+.dash__goals-list { display: flex; flex-direction: column; gap: var(--space-4-5); margin-bottom: var(--space-3-5); }
+.dash__goals-row-main { display: flex; flex-direction: column; gap: var(--space-2); }
+.dash__goals-head { display: flex; align-items: center; gap: var(--space-2); }
 .dash__goals-swatch { width: 10px; height: 10px; border-radius: 50%; flex: none; }
 .dash__goals-name {
-  color: var(--text); font-weight: 600; font-size: 14.5px;
+  color: var(--text); font-weight: 600; font-size: var(--fs-sm);
   flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .dash__goals-period {
-  flex: none; font-size: 11.5px; font-weight: 600; color: var(--text-2);
-  background: rgba(255, 255, 255, 0.07); border-radius: 8px; padding: 2px 8px;
+  flex: none; font-size: var(--fs-3xs); font-weight: 600; color: var(--text-2);
+  background: rgba(255, 255, 255, 0.07); border-radius: 8px; padding: var(--space-0-5) var(--space-2);
 }
 /* position: relative anchors .dash__goals-notch, which is the one thing this
    track has that .dash__breakdown-track doesn't. overflow: hidden still
@@ -430,7 +440,7 @@
 .dash__goals-fill {
   height: 100%; width: 100%; border-radius: 4px; background: var(--text-3);
   transform-origin: left; transform: scaleX(var(--w, 0));
-  transition: transform 0.5s var(--ease);
+  transition: transform var(--dur-slower) var(--ease);
 }
 /* A met goal switches to the page's "good" status color rather than staying
    on its own topic color, so "target hit" is legible at a glance down a list
@@ -445,45 +455,45 @@
   position: absolute; top: 0; bottom: 0; width: 2px;
   background: var(--card); transform: translateX(-1px);
 }
-.dash__goals-meta { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; font-size: 13px; color: var(--text-2); }
+.dash__goals-meta { display: flex; justify-content: space-between; align-items: baseline; gap: var(--space-2-5); font-size: var(--fs-xs); color: var(--text-2); }
 .dash__goals-pct { font-weight: 700; color: var(--text-2); flex: none; }
 .dash__goals-pct--met { color: var(--unlocked); }
-.dash__goals-actions { display: flex; align-items: center; gap: 14px; }
-.dash__goals-window { flex: 1; min-width: 0; color: var(--text-3); font-size: 12.5px; }
+.dash__goals-actions { display: flex; align-items: center; gap: var(--space-3-5); }
+.dash__goals-window { flex: 1; min-width: 0; color: var(--text-3); font-size: var(--fs-2xs); }
 /* Text-only affordances, matching the app row's "Edit"/"Delete" links rather
    than the page's filled .btn -- two filled buttons per goal would out-weigh
    the progress bar they sit under. */
 .dash__goals-action {
   flex: none; border: none; background: none; cursor: pointer;
-  font: inherit; font-size: 13px; font-weight: 600; padding: 2px 0;
-  color: var(--unlocked); transition: filter 0.15s var(--ease-snap);
+  font: inherit; font-size: var(--fs-xs); font-weight: 600; padding: var(--space-0-5) 0;
+  color: var(--unlocked); transition: filter var(--dur-base) var(--ease-snap);
 }
 .dash__goals-action:hover { filter: brightness(1.15); }
 .dash__goals-action--danger { color: var(--locked); }
-.dash__goals-confirm { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.dash__goals-confirm { display: flex; align-items: center; gap: var(--space-2-5); flex-wrap: wrap; }
 
 /* The add/edit form, built by goalsPanel.js's buildGoalForm and mounted
    either in #dashGoalFormSlot (create) or in place of a row (edit) -- one
    ruleset covers both, since it is literally the same DOM either way. */
 .dash__goal-form-slot { display: flex; }
 .dash__goal-form {
-  display: flex; align-items: flex-end; flex-wrap: wrap; gap: 12px;
-  width: 100%; padding: 14px; border: 1px solid var(--border-soft); border-radius: var(--radius-sm);
+  display: flex; align-items: flex-end; flex-wrap: wrap; gap: var(--space-3);
+  width: 100%; padding: var(--space-3-5); border: 1px solid var(--border-soft); border-radius: var(--radius-sm);
   background: var(--bg);
 }
-.dash__goal-field { display: flex; flex-direction: column; gap: 6px; }
-.dash__goal-field-label { color: var(--text-2); font-size: 12px; font-weight: 600; }
+.dash__goal-field { display: flex; flex-direction: column; gap: var(--space-1-5); }
+.dash__goal-field-label { color: var(--text-2); font-size: var(--fs-2xs); font-weight: 600; }
 /* The selects inherit .dash__chip-select (the relabel dropdown's pill), but
    that one is sized for a table cell -- these sit in a form row, so they get
    the form controls' own padding/size without redefining color or chrome. */
-.dash__goal-form .dash__chip-select { font-size: 13.5px; padding: 8px 12px; border-radius: var(--radius-sm); }
-.dash__goal-target-row { display: flex; align-items: center; gap: 6px; }
+.dash__goal-form .dash__chip-select { font-size: var(--fs-xs); padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); }
+.dash__goal-target-row { display: flex; align-items: center; gap: var(--space-1-5); }
 .dash__goal-num {
-  width: 66px; padding: 8px 10px; font-size: 13.5px; font-family: var(--font-body);
+  width: 66px; padding: var(--space-2) var(--space-2-5); font-size: var(--fs-xs); font-family: var(--font-body);
   color: var(--text); background: var(--card-2); border: 1px solid var(--border-soft); border-radius: var(--radius-sm);
 }
-.dash__goal-unit { color: var(--text-2); font-size: 13px; font-weight: 600; }
-.dash__goal-form-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.dash__goal-unit { color: var(--text-2); font-size: var(--fs-xs); font-weight: 600; }
+.dash__goal-form-actions { display: flex; align-items: center; gap: var(--space-2); margin-left: auto; }
 /* Full-width so a validation message from goals.js (which can be a full
    sentence, e.g. "Goal target must be between 60 and 604800 seconds for a
    weekly goal.") wraps under the fields instead of squeezing them. */

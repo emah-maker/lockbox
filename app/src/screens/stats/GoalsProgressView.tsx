@@ -52,10 +52,23 @@ function weekdayRestrictionLabel(goal: Goal): string | null {
 export function GoalsProgressView({
   onOpenGoalInSettings,
   onManage,
+  onAddGoal,
   highlightGoalId,
 }: {
   onOpenGoalInSettings: (goalId: string) => void;
+  /** The always-visible "Manage goals" button below the card list -- opens
+   * ManageSheet on whatever it normally shows (the goal list, or its own
+   * empty state if there happen to be none). */
   onManage: () => void;
+  /** The EMPTY-state's own "Start adding goals" CTA -- deliberately a
+   * different callback from `onManage` above, not the same one reused (bug
+   * fix: this used to just be `onManage`, which opened ManageSheet onto
+   * GoalsSection.tsx's OWN "no goals yet" empty state -- a second, identical
+   * "Start adding goals" button the user then had to tap AGAIN to actually
+   * reach GoalForm). StatsScreen wires this to open the same sheet but with
+   * its create form already open, so tapping this button reaches the form
+   * in one step instead of two. */
+  onAddGoal: () => void;
   highlightGoalId?: string | null;
 }) {
   const c = useTheme();
@@ -70,7 +83,7 @@ export function GoalsProgressView({
   const progressById = React.useMemo(() => new Map(progress.map((p) => [p.goalId, p])), [progress]);
 
   if (active.length === 0) {
-    return <GoalsEmptyState onAddGoal={onManage} color={c} />;
+    return <GoalsEmptyState onAddGoal={onAddGoal} color={c} />;
   }
 
   return (

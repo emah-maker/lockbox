@@ -60,3 +60,9 @@ fraim/*
 # Expo Router dynamic routes ([id].tsx) -- silently untracked is worse than
 # visibly junk. Zero-byte junk shows up in `git status`; clean it with:
 #   node scripts/clean-junk-files.js [--delete]
+
+# Video build intermediates (regenerable; deliverables are the .webm/.mp4)
+website/assets/video/*-master.mp4
+website/assets/video/screen/*_frames/
+website/assets/video/seeds/
+/Base-marketing video.mp4
