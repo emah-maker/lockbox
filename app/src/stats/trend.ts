@@ -1,6 +1,6 @@
 // trend.ts -- last-N-days focus totals for the Stats screen's trend bar
 // chart. Pure/no deps, unit-testable like stats.ts and comparisons.ts.
-import { dayKey, groupByDay, LoggedSession } from './sessionHistory';
+import { dayKey, filterByWindow, groupByDay, LoggedSession, TimeWindow } from './sessionHistory';
 
 export interface DayTotal {
   key: string; // Y-M-D
@@ -16,12 +16,25 @@ export interface BestDay {
   focusS: number;
 }
 
-/** The single calendar day (across all logged history, not just the last 7)
- * with the most total focus time -- a real personal-record fact for the
- * Stats screen's "Fun facts" card, computed from the same local session log
- * as every other stat here, not invented. Null on an empty/all-zero log. */
-export function bestDay(sessions: LoggedSession[]): BestDay | null {
-  const byDay = groupByDay(sessions);
+/** The single calendar day with the most total focus time -- a real
+ * personal-record fact for the Stats screen's "Fun facts" card, computed
+ * from the same local session log as every other stat here, not invented.
+ * Null on an empty/all-zero log.
+ *
+ * `window` defaults to 'all' (all logged history), which is what the Fun
+ * facts card wants and what every pre-existing caller already relied on.
+ * The Home ring passes a narrower window instead (see
+ * screens/home/idleRingState.ts): with no daily goal set, "today vs. your
+ * best day this week/month/year" is the baseline its arc fills against, and
+ * which window that means is a user setting (useSettingsStore's
+ * ringBaselineWindow). Filtering here rather than at each call site keeps
+ * the day-bucketing math in one place. */
+export function bestDay(
+  sessions: LoggedSession[],
+  window: TimeWindow = 'all',
+  nowMs: number = Date.now(),
+): BestDay | null {
+  const byDay = groupByDay(window === 'all' ? sessions : filterByWindow(sessions, window, nowMs));
   let best: BestDay | null = null;
   for (const [key, daySessions] of byDay) {
     const focusS = daySessions.reduce((sum, s) => sum + s.actualS, 0);
@@ -57,7 +70,14 @@ export interface HeatmapDay {
 
 const HEATMAP_DAYS = 35; // 5 full weeks, GitHub-contributions-style grid
 
-function heatmapLevel(focusS: number, max: number): 0 | 1 | 2 | 3 | 4 {
+/** Bucket a day's focus time into 5 intensity levels relative to the busiest
+ * day in whatever window the caller is drawing. Exported so the calendar's
+ * month grid uses this exact scheme rather than a second, incompatible one:
+ * ui/calendar/DayCell.tsx used to compute its own continuous alpha against
+ * an all-time global max, which a heat legend can't describe (a legend needs
+ * discrete, nameable steps). screens/calendar/monthGrid.ts's monthHeatLevels
+ * now routes the calendar through here too. */
+export function heatmapLevel(focusS: number, max: number): 0 | 1 | 2 | 3 | 4 {
   if (focusS <= 0) return 0;
   const ratio = focusS / max;
   if (ratio > 0.75) return 4;

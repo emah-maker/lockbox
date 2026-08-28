@@ -17,7 +17,7 @@
 // exports -- see that file's header for why it doesn't duplicate any of
 // goalProgress.ts's actual window/ratio logic).
 import React, { useEffect, useRef } from 'react';
-import { Animated, View, Text, StyleSheet } from 'react-native';
+import { Animated, View, Text, StyleSheet, ScrollView } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { useStore } from '../../store/useStore';
 import { useSettingsStore } from '../../store/useSettingsStore';
@@ -33,6 +33,8 @@ import { AnimatedPressable } from '../../ui/AnimatedPressable';
 import { useReducedMotion } from '../../ui/useReducedMotion';
 import { typeScale } from '../../theme/tokens';
 import { GoalRing } from './GoalRing';
+import { GoalsEmptyState } from './GoalsEmptyState';
+import { PeriodIcon, useMetCelebration } from './goalVisuals';
 
 const WEEKDAY_ABBR = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const PERIOD_LABELS: Record<Goal['period'], string> = { daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly' };
@@ -68,25 +70,13 @@ export function GoalsProgressView({
   const progressById = React.useMemo(() => new Map(progress.map((p) => [p.goalId, p])), [progress]);
 
   if (active.length === 0) {
-    return (
-      <View style={[styles.card, { backgroundColor: c.surface }]}>
-        <Text style={[styles.hint, { color: c.textDim }]}>
-          No goals yet. Add one to track how much of your target you've hit this day or week.
-        </Text>
-        <AnimatedPressable
-          style={[styles.manageBtn, { borderColor: withAlpha(c.accent, 0.5) }]}
-          onPress={onManage}
-          accessibilityRole="button"
-        >
-          <Text style={[styles.manageBtnText, { color: c.accent }]}>Add a goal</Text>
-        </AnimatedPressable>
-      </View>
-    );
+    return <GoalsEmptyState onAddGoal={onManage} color={c} />;
   }
 
   return (
-    <View style={{ gap: 10 }}>
-      {active.map((goal) => {
+    <View style={{ flex: 1, gap: 10 }}>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ gap: 10, paddingBottom: 8 }}>
+        {active.map((goal) => {
         const result = progressById.get(goal.id);
         const focusS = result?.focusS ?? 0;
         const ratio = result?.ratio ?? 0;
@@ -129,7 +119,18 @@ export function GoalsProgressView({
             onPress={() => onOpenGoalInSettings(goal.id)}
           />
         );
-      })}
+        })}
+      </ScrollView>
+      {/* Outside the ScrollView on purpose -- "Manage goals" must stay
+          reachable regardless of how far the card list is scrolled, the same
+          "always-visible action below a scroller" shape DashboardScreen's own
+          bottom controls use. No scrollEnabled hand-off is needed between
+          this scroller and anything else: this screen (StatsScreen) no
+          longer has its own outer ScrollView (see StatsScreen's header), so
+          this is the ONLY vertical scroller in the tree, not one of two
+          fighting over the same drag the way Sheet's own scrollEnabled prop
+          exists to resolve elsewhere in this app. Reintroducing a page-level
+          scroll above this one would bring that hazard back. */}
       <AnimatedPressable
         style={[styles.manageBtn, { borderColor: withAlpha(c.textDim, 0.3) }]}
         onPress={onManage}
@@ -180,6 +181,12 @@ function GoalCard({
 }) {
   const reducedMotion = useReducedMotion();
   const highlightAnim = useRef(new Animated.Value(0)).current;
+  // A DIFFERENT trigger from highlightAnim above -- that one is a deep-link
+  // "look here" cue driven by NavIntent.goalId; this is "this goal's target
+  // was just met", driven by the met flag flipping false->true. Layered on
+  // the same GoalRing in addition to, not instead of, highlightAnim (see
+  // useMetCelebration's own header comment).
+  const metPulse = useMetCelebration(met, reducedMotion);
 
   // Deep-linking here from a NavIntent.goalId (StatsScreen's consumeIntent
   // handling) is a one-shot "look here" cue, not a persistent selection --
@@ -217,17 +224,20 @@ function GoalCard({
           { borderRadius: 14, backgroundColor: withAlpha(color.accent, 0.15), opacity: highlightAnim },
         ]}
       />
-      <GoalRing ratio={ratio} color={ringColor} trackColor={withAlpha(color.textDim, 0.2)}>
-        <Text style={[styles.ringPercent, { color: color.text }]}>{percent}%</Text>
-      </GoalRing>
+      <Animated.View style={{ transform: [{ scale: metPulse }] }}>
+        <GoalRing ratio={ratio} color={ringColor} trackColor={withAlpha(color.textDim, 0.2)}>
+          <Text style={[styles.ringPercent, { color: color.text }]}>{percent}%</Text>
+        </GoalRing>
+      </Animated.View>
       <View style={styles.cardBody}>
         <View style={styles.cardHead}>
           <View style={[styles.swatch, { backgroundColor: swatch }]} />
           <Text style={[styles.cardName, { color: color.text }]} numberOfLines={1}>
             {name}
           </Text>
+          <PeriodIcon period={period} color={color.textDim} />
         </View>
-        <Text style={[styles.cardSub, { color: color.textDim }]}>{subtitle}</Text>
+        <Text style={[styles.cardSub, { color: color.textDim }]} numberOfLines={1}>{subtitle}</Text>
         <View style={styles.badgeRow}>
           {streak > 0 ? (
             <View style={[styles.badge, { backgroundColor: withAlpha(color.accent, 0.16) }]}>
@@ -258,7 +268,6 @@ function GoalCard({
 
 const styles = StyleSheet.create({
   card: { borderRadius: 14, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12 },
-  hint: { ...typeScale.body, marginBottom: 10 },
   manageBtn: { alignItems: 'center', paddingVertical: 10, borderRadius: 12, borderWidth: 1.5 },
   manageBtnText: { ...typeScale.label },
   ringPercent: { fontSize: 13, fontWeight: '700' },

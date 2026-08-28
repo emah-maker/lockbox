@@ -4,9 +4,16 @@
 // separate, always-mounted rows (a status line, a thin linear meter, and a
 // duration/topic block that only existed inline) -- none of them read as
 // *the* thing on the screen. This component owns every visual state that
-// deserves the anchor spot (no box, idle/done, closed, running) behind one
+// deserves the anchor spot (no box, idle, closed, running) behind one
 // fixed-size ProgressRing, cross-fading between states instead of the old
 // screen's blocks appearing/disappearing and shoving layout around.
+//
+// The ring's idle (non-running) arc used to just sit at 0 -- it now shows
+// today's actual progress (toward a daily goal, or toward a baseline best
+// day) via idleRing, computed by DashboardScreen from
+// screens/home/idleRingState.ts. See the precedence in this file's own
+// headline/caption branching below: running beats not-connected beats
+// closed beats an empty day beats "today has some progress".
 //
 // Renders only -- every actual control here (opening the duration/tag sheet,
 // opening the retag sheet) is a callback prop; DashboardScreen still owns
@@ -23,6 +30,8 @@ import { formatDuration } from '../../stats/stats';
 import { resolveTopic } from '../../stats/customLabels';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import { ProgressRing } from './ProgressRing';
+import { BatteryBadge } from './BatteryBadge';
+import { IdleRingState, RingBaselineWindow, ringBaselineWindowLabel } from './idleRingState';
 
 /** Fraction of the configured lock duration elapsed so far. Moved here
  * unchanged from DashboardScreen.tsx (where the old linear meter used the
@@ -40,20 +49,40 @@ export function FocusHero({
   currentTopic,
   customLabels,
   themeMode,
+  todayFocusS,
+  idleRing,
+  ringBaselineWindow,
   onPressIdle,
   onPressTag,
 }: {
   status: Status | null;
   connected: boolean;
-  /** The wheel-picker's currently previewed duration, in seconds -- shown as
-   * the hero's headline number while there's no live session to count down. */
+  /** The wheel-picker's currently previewed duration, in seconds -- no longer
+   * shown as the hero's headline (that's now today's focus time or a
+   * connection/box-state prompt, see the branching below), but still
+   * threaded through as a prop since DashboardScreen's DurationSheet/tag
+   * flow is unchanged and some future idle-state copy may want it again. */
   pickSeconds: number;
   currentTopic: string | null;
   customLabels: ReturnType<typeof useSettingsStore.getState>['customLabels'];
   themeMode: ReturnType<typeof useSettingsStore.getState>['themeMode'];
-  /** Opens the duration+tag sheet. Called for every non-running state (idle/
-   * done/no-box, and closed) -- duration preview and pre-session tagging are
-   * both meaningful right up until a session is actually counting down. */
+  /** Today's total focus time in seconds (DashboardScreen's own todayStats
+   * memo) -- the idle-state headline once any focus has happened today. */
+  todayFocusS: number;
+  /** Precomputed idle-ring progress + which source produced it (goal vs.
+   * baseline vs. empty) -- see screens/home/idleRingState.ts. Only consulted
+   * outside the running state; this component never recomputes it itself,
+   * same "props only, no BLE/goals/settings state owned here" contract as
+   * every other FocusHero prop. */
+  idleRing: IdleRingState;
+  /** Which best-day window idleRing's 'baseline' source (when present) was
+   * computed against -- used only to word the caption ("...this week" vs
+   * "...this month"), never to re-derive the ring's own math. */
+  ringBaselineWindow: RingBaselineWindow;
+  /** Opens the duration+tag sheet. Called for every non-running state (no
+   * box, closed, and both idle-ring states) -- duration preview and
+   * pre-session tagging are both meaningful right up until a session is
+   * actually counting down. */
   onPressIdle: () => void;
   /** Opens the retag sheet. Only meaningful, and only wired up by
    * DashboardScreen, while a session is running. */
@@ -65,7 +94,11 @@ export function FocusHero({
   const closed = status?.st === 'closed';
   const done = status?.st === 'done';
 
-  const progress = running && status ? elapsedFraction(status) : 0;
+  // Every non-running state's arc is idleRing.progress -- including the
+  // empty-day case, since computeIdleRingProgress itself already forces
+  // `progress: 0` whenever todayFocusS <= 0 (see that module's own doc
+  // comment), so there's no separate "arc = 0" branch needed here.
+  const progress = running && status ? elapsedFraction(status) : idleRing.progress;
   const resolved = currentTopic ? resolveTopic(currentTopic, customLabels, themeMode) : null;
 
   // Cross-fade between states (manager brief: state changes should "cross-
@@ -85,23 +118,33 @@ export function FocusHero({
   const ringColor = running ? theme.accent : withAlpha(theme.accent, closed ? 0.55 : 0.3);
   const trackColor = withAlpha(theme.accent, 0.14);
 
+  // Precedence: running -> not connected -> closed -> today-empty ->
+  // today-has-progress (manager brief's own ordering). `done` no longer gets
+  // its own top-level branch -- a completed session either already shows up
+  // in todayFocusS (today-has-progress) or, on the rare chance it hasn't yet
+  // (e.g. still logging), just changes the empty-day caption's wording below
+  // rather than the bucket itself.
   let headline: string;
   let caption: string;
   if (running && status) {
     headline = formatDuration(status.rem);
     caption = 'left';
+  } else if (!connected) {
+    headline = 'Connect your box';
+    caption = 'Connect to preview and start a session';
   } else if (closed) {
     headline = 'Closed';
     caption = 'Press LOCK on the box to start';
-  } else if (done) {
-    headline = formatDuration(pickSeconds);
-    caption = 'Session complete -- tap to set up the next one';
-  } else if (!connected) {
-    headline = formatDuration(pickSeconds);
-    caption = 'Tap to set duration & tag, then connect';
+  } else if (idleRing.source === 'empty') {
+    headline = 'Tap to schedule a session';
+    caption = done ? 'Session complete -- set up your next one' : 'No focus time yet today';
   } else {
-    headline = formatDuration(pickSeconds);
-    caption = 'Tap to set duration & tag -- lock at the box';
+    headline = formatDuration(todayFocusS);
+    const pct = Math.round(idleRing.progress * 100);
+    caption =
+      idleRing.source === 'goal'
+        ? `${pct}% of today's goal`
+        : `${pct}% of your best day ${ringBaselineWindowLabel(ringBaselineWindow)}`;
   }
 
   const onPress = running ? onPressTag : onPressIdle;
@@ -125,6 +168,15 @@ export function FocusHero({
             {caption}
           </Text>
         </ProgressRing>
+
+        {/* Large battery glyph, docked directly below the ring and above the
+            topic pill (manager brief, task 2) -- self-supplies status.bat the
+            same way this component already self-supplies everything else it
+            reads off `status`; DashboardScreen never threads a battery prop
+            through. Always mounted (never gated on `status` existing) so its
+            own reserved row height never causes a layout jump while `status`
+            is briefly null (e.g. right after a disconnect). */}
+        <BatteryBadge pct={status?.bat ?? -1} />
 
         {/* Topic pill -- always reserves its row (even with empty content)
             so the hero's overall height never changes between a tagged and

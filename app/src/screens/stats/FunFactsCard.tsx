@@ -1,9 +1,10 @@
 // FunFactsCard.tsx -- "Fun facts" card, extracted from StatsScreen.tsx (same
 // 500-line-guideline split as the other screens/stats/*.tsx files) and
-// trimmed to a fixed-height two-fact strip with a "More" sheet for the rest,
-// instead of an unbounded inline list -- part of this task's "stop the
-// screen growing vertically" requirement (TOP_N used to render up to 5
-// comparison rows directly into the scroll).
+// trimmed to a fixed-height one-fact strip with a "More" sheet for the rest,
+// instead of an unbounded inline list -- part of this task's "every period
+// fits one screen with no scrolling" requirement (TOP_N used to render up to
+// 5 comparison rows directly into the scroll; this then held 2 inline before
+// the no-scroll layout's tighter per-card budget trimmed it to 1).
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Feather } from '@expo/vector-icons';
@@ -15,7 +16,7 @@ import { Comparison, formatComparison } from '../../stats/comparisons';
 import { AnimatedPressable } from '../../ui/AnimatedPressable';
 import { typeScale, elevation } from '../../theme/tokens';
 
-const INLINE_COUNT = 2;
+const INLINE_COUNT = 1;
 
 export function FunFactsCard({
   hasFocus,
@@ -33,7 +34,7 @@ export function FunFactsCard({
   const more = comparisons.length - inline.length;
 
   return (
-    <View style={[styles.card, { backgroundColor: c.surface, minHeight: 120 }]}>
+    <View style={[styles.card, { backgroundColor: c.surface, minHeight: 90 }]}>
       <Text style={[styles.h2, { color: c.text }]}>Fun facts</Text>
       {!hasFocus ? (
         <Text style={[styles.sub, { color: c.textDim }]}>Start a focus session to see how it stacks up.</Text>
@@ -67,7 +68,7 @@ export function FunFactsCard({
 }
 
 const styles = StyleSheet.create({
-  card: { borderRadius: 14, padding: 16, gap: 6, ...elevation.card },
+  card: { borderRadius: 14, padding: 12, gap: 6, ...elevation.card },
   h2: { ...typeScale.sectionTitle, marginBottom: 4 },
   sub: { ...typeScale.body },
   fact: { fontSize: 15, letterSpacing: typeScale.body.letterSpacing, lineHeight: typeScale.body.lineHeight, flex: 1 },

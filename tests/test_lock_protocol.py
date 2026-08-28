@@ -162,5 +162,17 @@ check("decode_labels non-list JSON -> None",
 check("decode_labels valid empty list -> [] (distinct from None)",
       lock_protocol.decode_labels("[]") == [])
 
+# ----- decode_pending_topic -----
+check("decode_pending_topic real id passes through unchanged",
+      lock_protocol.decode_pending_topic("work") == "work")
+check("decode_pending_topic empty string -> None",
+      lock_protocol.decode_pending_topic("") is None)
+check("decode_pending_topic None -> None",
+      lock_protocol.decode_pending_topic(None) is None)
+check("decode_pending_topic over-length truncates to 40",
+      len(lock_protocol.decode_pending_topic("x" * 60)) == 40)
+check("decode_pending_topic truncation keeps the leading characters",
+      lock_protocol.decode_pending_topic("a" * 40 + "b" * 20) == "a" * 40)
+
 print("\n{} passed, {} failed".format(_passed, _failed))
 sys.exit(1 if _failed else 0)

@@ -7,6 +7,7 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
+import { Ionicons } from '@expo/vector-icons';
 import { AnimatedPressable } from '../AnimatedPressable';
 import { ThemeColors, withAlpha } from '../../theme/theme';
 import { typeScale } from '../../theme/tokens';
@@ -22,20 +23,41 @@ const RING_STROKE = 2;
 // glance-level hint of "how mixed was this day".
 const MAX_STACK_SEGMENTS = 4;
 
+// The single source of truth mapping a discrete heat level (stats/trend.ts's
+// heatmapLevel, now also monthGrid.ts's monthHeatLevels) to a fill alpha.
+// Exported so HeatLegend.tsx's swatches are built from the exact same table
+// this cell's own background comes from -- that's what guarantees the
+// legend and the grid never drift apart the way the old continuous-alpha
+// scheme and trend.ts's discrete one silently did.
+export const ALPHA_FOR_LEVEL: Record<0 | 1 | 2 | 3 | 4, number> = {
+  0: 0,
+  1: 0.25,
+  2: 0.5,
+  3: 0.75,
+  4: 1,
+};
+
 export function DayCell({
   date,
   focusS,
-  maxFocus,
+  level,
   topicStats,
   goalMet,
   selected,
   isToday,
   theme,
   onPress,
+  streakEdge,
+  showFlame,
 }: {
   date: Date;
   focusS: number;
-  maxFocus: number;
+  /** Discrete heat level (monthGrid.ts's monthHeatLevels, itself routed
+   * through stats/trend.ts's heatmapLevel) -- replaces the old continuous
+   * `maxFocus`-relative alpha. Looked up through the exported
+   * `ALPHA_FOR_LEVEL` table below for the cell's own fill; HeatLegend.tsx
+   * reads the exact same table for its swatches, so the two can't drift. */
+  level: 0 | 1 | 2 | 3 | 4;
   /** This day's topic breakdown (stats/customLabels.ts's
    * topicBreakdownWithCustom), already sorted highest-focus-first. */
   topicStats: LabelStat[];
@@ -48,13 +70,24 @@ export function DayCell({
   isToday: boolean;
   theme: ThemeColors;
   onPress: () => void;
+  /** Whether this cell sits inside a streak run (monthGrid.ts's
+   * computeStreakRuns) alongside its immediate left/right grid neighbour --
+   * drawn as a thin connector bar reaching toward that neighbour so a run of
+   * days reads as one connected chain instead of a row of isolated dots.
+   * Undefined/omitted draws no connector, same as both false. */
+  streakEdge?: { left: boolean; right: boolean };
+  /** Small flame badge (Ionicons "flame") marking the most recent day of a
+   * streak run -- CalendarScreen.tsx only sets this for runs of length >= 3
+   * (see its own comment), so a casual 2-day pair doesn't litter the grid. */
+  showFlame?: boolean;
 }) {
-  const intensity = focusS > 0 ? 0.25 + 0.75 * Math.min(1, focusS / maxFocus) : 0;
   const dayA11yLabel = `${date.toLocaleDateString(undefined, {
     weekday: 'long',
     month: 'long',
     day: 'numeric',
-  })}${focusS > 0 ? `, ${formatDuration(focusS)} focused` : ', no focus time'}${goalMet ? ', goal met' : ''}`;
+  })}${focusS > 0 ? `, ${formatDuration(focusS)} focused` : ', no focus time'}${goalMet ? ', goal met' : ''}${
+    showFlame ? ', streak' : ''
+  }`;
 
   const stackTotal = topicStats.reduce((sum, t) => sum + t.focusS, 0);
   const stackSegments = topicStats.slice(0, MAX_STACK_SEGMENTS);
@@ -67,6 +100,18 @@ export function DayCell({
       accessibilityState={{ selected }}
       onPress={onPress}
     >
+      {streakEdge?.left && (
+        <View
+          pointerEvents="none"
+          style={[styles.connector, styles.connectorLeft, { backgroundColor: withAlpha(theme.accent, 0.35) }]}
+        />
+      )}
+      {streakEdge?.right && (
+        <View
+          pointerEvents="none"
+          style={[styles.connector, styles.connectorRight, { backgroundColor: withAlpha(theme.accent, 0.35) }]}
+        />
+      )}
       <View style={styles.ringWrap}>
         {goalMet && (
           <Svg width={RING_SIZE} height={RING_SIZE} style={StyleSheet.absoluteFill}>
@@ -85,13 +130,18 @@ export function DayCell({
             styles.dayCircle,
             selected && { borderColor: theme.accent, borderWidth: 2 },
             isToday && !selected && { borderColor: theme.textDim, borderWidth: 1 },
-            focusS > 0 && { backgroundColor: withAlpha(theme.accent, intensity) },
+            level > 0 && { backgroundColor: withAlpha(theme.accent, ALPHA_FOR_LEVEL[level]) },
           ]}
         >
           <Text style={[styles.dayNum, { color: focusS > 0 ? theme.accentText : theme.text }]}>
             {date.getDate()}
           </Text>
         </View>
+        {showFlame && (
+          <View style={[styles.flameBadge, { backgroundColor: theme.surface }]}>
+            <Ionicons name="flame" size={10} color={theme.warn} />
+          </View>
+        )}
       </View>
       {stackSegments.length > 0 && (
         <View style={styles.stackRow}>
@@ -118,6 +168,25 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   dayNum: { ...typeScale.label },
+  // Absolutely positioned within `cell` (View's default `position: relative`
+  // needs no extra style here), rendered before `ringWrap` in JSX so it
+  // paints behind the day circle without an explicit zIndex. Each half
+  // spans from the cell's own edge to its horizontal center, so a run's
+  // adjacent cells' bars meet exactly at the shared cell boundary and read
+  // as one continuous chain rather than two separate stubs.
+  connector: { position: 'absolute', height: 4, borderRadius: 2, top: '50%', marginTop: -2 },
+  connectorLeft: { left: 0, width: '50%' },
+  connectorRight: { right: 0, width: '50%' },
+  flameBadge: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   stackRow: {
     flexDirection: 'row',
     width: CIRCLE_SIZE,

@@ -64,6 +64,15 @@ interface AppState {
   autoConnect: boolean;
   sessions: LoggedSession[];
   currentTopic: string | null; // topic tagged for the box's in-progress session, if any
+  // A topic picked in the app *before* a session exists, pushed to the box so
+  // pressing LOCK there can show a confirm screen for it -- see
+  // PhoneBoxClient.setPendingTopic / protocol.ts's cmdSetPendingTopic. This is
+  // the mirror-image of currentTopic above, not a duplicate of it:
+  // currentTopic is the *backward* reconciliation of a tag onto a session
+  // that's already running (from handleStatus's on-box echo or
+  // tagCurrentSession), while pendingBoxTopic is the *forward* suggestion
+  // sent to the box before any session -- running or not -- exists yet.
+  pendingBoxTopic: string | null;
   // Whether the native CXCallObserver module is actually linked into this build
   // (false in Expo Go, Android, or if the module failed to link) -- surfaced so
   // the "alert box on incoming calls" toggle doesn't silently do nothing.
@@ -87,6 +96,10 @@ interface AppState {
    * since labels aren't part of Settings, and there's no mirror to keep in
    * sync -- customLabels already lives durably in useSettingsStore. */
   pushLabels: () => Promise<void>;
+  /** Best-effort push of a topic picked in the app before a session exists --
+   * see pendingBoxTopic's comment above and PhoneBoxClient.setPendingTopic.
+   * Pass null to clear (the box's own picker then applies as normal). */
+  setPendingBoxTopic: (topic: string | null) => void;
   tagCurrentSession: (topic: string) => void;
   /** Retag (or clear the tag on) a past, already-logged session -- see
    * CalendarScreen's per-day list. Identifies the session by the same
@@ -223,12 +236,38 @@ export const useStore = create<AppState>((set, get) => {
       // otherwise a topic chosen at the box has no way to reach the app's
       // durable session log at all (the box's own NVM history entries have
       // no room for a topic id -- see lock_log.py).
-      if (status.st === 'running' && status.tp && status.tp !== state.currentTopic) {
+      // Rewriting the PENDING_TOPIC_KEY timestamp only on a *different* tp
+      // used to mean: pick a topic in the app (pendingBoxTopic), walk over,
+      // press LOCK, and confirm the box's own echo of that same pick back --
+      // status.tp === state.currentTopic in that case, so the rewrite was
+      // skipped and reconciliation fell back on the stale timestamp written
+      // when the topic was first picked in the app, minutes earlier. If that
+      // gap exceeded PENDING_TOPIC_PRE_SLACK_MS (120s), buildLoggedSessions
+      // would miss the window entirely and the tag was lost. `freshRun` --
+      // status.st just flipped to 'running' this tick -- is exactly the
+      // signal that a new pending-tag timestamp is needed even when the
+      // topic id itself didn't change.
+      if (status.st === 'running' && status.tp && (status.tp !== state.currentTopic || freshRun)) {
         setJSON<PendingTopicTag>(PENDING_TOPIC_KEY, { topic: status.tp, at: Date.now() });
-        return { status, currentTopic: status.tp };
+        // pendingBoxTopic is cleared here too, not only on the fall-through
+        // below: this branch IS the feature's main success path (pick in the
+        // app -> press LOCK -> CONFIRM -> the box echoes that same id back as
+        // status.tp on a fresh run), so returning early without clearing
+        // would leave the consumed suggestion set and let afterConnected
+        // re-push last session's topic on the next reconnect -- the exact
+        // resurrection the clear exists to prevent.
+        return { status, currentTopic: status.tp, pendingBoxTopic: freshRun ? null : state.pendingBoxTopic };
       }
-      // A fresh run needs a fresh tag; clear the label from whatever finished before.
-      return { status, currentTopic: freshRun ? null : state.currentTopic };
+      // A fresh run needs a fresh tag; clear the label from whatever finished
+      // before. Also drop any still-pending app-side suggestion (pure local
+      // bookkeeping -- the box already clears its own copy in go_running, so
+      // this does NOT push '' over BLE) so afterConnected doesn't resurrect
+      // last session's pick and re-send it on the next reconnect.
+      return {
+        status,
+        currentTopic: freshRun ? null : state.currentTopic,
+        pendingBoxTopic: freshRun ? null : state.pendingBoxTopic,
+      };
     });
 
   const afterConnected = async () => {
@@ -246,6 +285,14 @@ export const useStore = create<AppState>((set, get) => {
     // own pre-session tag picker (box-firmware-batch, parallel task) has
     // something to offer without waiting for the next label edit.
     client.setLabels(useSettingsStore.getState().customLabels).catch(() => {});
+    // Re-push any still-pending app-side pick too, same reasoning as
+    // setLabels just above: a drop/reconnect shouldn't lose a topic the user
+    // already chose in the app but hasn't walked over to confirm at the box
+    // yet. handleStatus clears pendingBoxTopic to null on freshRun, so a pick
+    // that was already consumed by a session starting is never resurrected
+    // here.
+    const pending = get().pendingBoxTopic;
+    if (pending !== null) client.setPendingTopic(pending).catch(() => {});
   };
 
   return {
@@ -257,6 +304,7 @@ export const useStore = create<AppState>((set, get) => {
     autoConnect: true,
     sessions: [],
     currentTopic: null,
+    pendingBoxTopic: null,
     callDetectionAvailable: monitor.available,
 
     init: async () => {
@@ -402,6 +450,16 @@ export const useStore = create<AppState>((set, get) => {
     pushLabels: async () => {
       if (!client.connected) return;
       await client.setLabels(useSettingsStore.getState().customLabels).catch(() => {});
+    },
+
+    // Best-effort, like pushLabels: sets the app-side state immediately, then
+    // pushes it to the box if connected -- see pendingBoxTopic's comment on
+    // the AppState shape above for how this differs from tagCurrentSession
+    // below (that one reconciles backward onto a session already running;
+    // this one is a forward suggestion for a session that doesn't exist yet).
+    setPendingBoxTopic: (topic) => {
+      set({ pendingBoxTopic: topic });
+      client.setPendingTopic(topic).catch(() => {});
     },
 
     // Optimistic, like pushBoxSettings: shows the tag immediately and is

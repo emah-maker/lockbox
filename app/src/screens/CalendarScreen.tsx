@@ -22,9 +22,17 @@ import { topicBreakdownWithCustom } from '../stats/customLabels';
 import { AnimatedPressable } from '../ui/AnimatedPressable';
 import { DayCell } from '../ui/calendar/DayCell';
 import { MonthSummaryStrip } from '../ui/calendar/MonthSummaryStrip';
+import { HeatLegend } from '../ui/calendar/HeatLegend';
 import { RecentSessionsRow } from '../ui/calendar/RecentSessionsRow';
 import { DaySheet } from './calendar/DaySheet';
-import { buildGrid, computeMonthSummary, goalsMetOnDay, startOfMonth } from './calendar/monthGrid';
+import {
+  buildGrid,
+  computeMonthSummary,
+  computeStreakRuns,
+  goalsMetOnDay,
+  monthHeatLevels,
+  startOfMonth,
+} from './calendar/monthGrid';
 import { useReducedMotion, configureLayoutAnimation } from '../ui/useReducedMotion';
 import { typeScale } from '../theme/tokens';
 import { useNav } from '../nav/useNav';
@@ -123,33 +131,48 @@ export default function CalendarScreen() {
   const grid = useMemo(() => buildGrid(cursor), [cursor]);
   const todayKey = dayKey(Date.now());
 
-  // Global max (across all logged days, not just the displayed month) so a
-  // day's heat intensity reads consistently no matter which month is on
-  // screen -- paging to a quieter month shouldn't make its best day look as
-  // saturated as this app's all-time busiest day.
-  const maxFocus = useMemo(() => {
-    let max = 0;
-    for (const list of byDay.values()) {
-      const total = list.reduce((sum, s) => sum + s.actualS, 0);
-      if (total > max) max = total;
-    }
-    return max || 1;
-  }, [byDay]);
+  // Discrete heat level per day, scoped to the currently displayed month
+  // (not an all-time-global max the old continuous-alpha scheme used) --
+  // see monthGrid.ts's monthHeatLevels doc comment for why: a legend needs
+  // nameable discrete steps, and "the month's busiest day" should mean the
+  // busiest day actually on screen, not one from a month the user isn't
+  // looking at.
+  const heatLevels = useMemo(() => monthHeatLevels(grid, byDay), [grid, byDay]);
+
+  // Maximal runs of consecutive on-screen days with logged focus time
+  // (monthGrid.ts's computeStreakRuns) -- a different question from
+  // computeMonthSummary's streakDays (that one walks back from today,
+  // independent of the displayed month). Used below to derive each cell's
+  // connector bar and flame badge.
+  const streakRuns = useMemo(() => computeStreakRuns(grid, byDay), [grid, byDay]);
 
   const monthSummary = useMemo(() => computeMonthSummary(grid, byDay), [grid, byDay]);
 
   const dayCells = useMemo(
     () =>
-      grid.map((date) => {
+      grid.map((date, i) => {
         if (!date) return null;
         const key = dayKey(date.getTime());
         const daySessions = byDay.get(key) ?? [];
         const focusS = daySessions.reduce((sum, s) => sum + s.actualS, 0);
         const topicStats = topicBreakdownWithCustom(daySessions, customLabels, themeMode);
         const goalMet = goalsMetOnDay(goals, sessions, date).length > 0;
-        return { date, key, daySessions, focusS, topicStats, goalMet };
+        const level = heatLevels.get(key) ?? 0;
+        // A cell's left/right connector lights up when the *adjacent grid
+        // index* (not adjacent calendar date -- see computeStreakRuns's own
+        // comment on why that's equivalent here) belongs to the same run.
+        // showFlame is reserved for a run's most recent day (its highest
+        // index, since `grid` runs oldest-to-newest) and only for runs of
+        // length >= 3, per the manager brief -- a casual 2-day pair
+        // shouldn't get a flame badge.
+        const run = streakRuns.find((r) => i >= r.startIndex && i <= r.endIndex);
+        const streakEdge = run
+          ? { left: i > run.startIndex, right: i < run.endIndex }
+          : { left: false, right: false };
+        const showFlame = !!run && run.length >= 3 && i === run.endIndex;
+        return { date, key, daySessions, focusS, topicStats, goalMet, level, streakEdge, showFlame };
       }),
-    [grid, byDay, customLabels, themeMode, goals, sessions],
+    [grid, byDay, customLabels, themeMode, goals, sessions, heatLevels, streakRuns],
   );
 
   const selectedSessions: LoggedSession[] = byDay.get(selectedKey) ?? [];
@@ -234,18 +257,21 @@ export default function CalendarScreen() {
               key={i}
               date={cell.date}
               focusS={cell.focusS}
-              maxFocus={maxFocus}
+              level={cell.level}
               topicStats={cell.topicStats}
               goalMet={cell.goalMet}
               selected={cell.key === selectedKey}
               isToday={cell.key === todayKey}
               theme={c}
               onPress={() => selectDay(cell.key)}
+              streakEdge={cell.streakEdge}
+              showFlame={cell.showFlame}
             />
           );
         })}
       </Animated.View>
 
+      <HeatLegend theme={c} />
       <MonthSummaryStrip summary={monthSummary} theme={c} />
 
       <DaySheet

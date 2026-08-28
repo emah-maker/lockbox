@@ -66,6 +66,35 @@ describe('bestDay', () => {
   });
 });
 
+// The Home ring's baseline (screens/home/idleRingState.ts) passes a narrower
+// window than every pre-existing bestDay caller (the Stats "Fun facts" card,
+// which always wants 'all') -- these cover that windowed path specifically,
+// on top of the unwindowed-default coverage above.
+describe('bestDay with a window', () => {
+  it('defaults to \'all\' -- unchanged behavior for every pre-existing caller', () => {
+    const sessions = [sessionOnDaysAgo(60, 500), sessionOnDaysAgo(1, 100)];
+    const best = bestDay(sessions, undefined, NOW);
+    expect(best?.focusS).toBe(500); // the 60-days-ago session still wins, same as the plain bestDay() tests above
+  });
+
+  it('a \'week\' window excludes an older, bigger day', () => {
+    const sessions = [sessionOnDaysAgo(60, 500), sessionOnDaysAgo(1, 100)];
+    const best = bestDay(sessions, 'week', NOW);
+    expect(best?.focusS).toBe(100); // the 500 day is outside the trailing 7-day window
+  });
+
+  it('a \'year\' window includes a day \'week\' would have excluded', () => {
+    const sessions = [sessionOnDaysAgo(60, 500), sessionOnDaysAgo(1, 100)];
+    const best = bestDay(sessions, 'year', NOW);
+    expect(best?.focusS).toBe(500); // 60 days ago is well within the trailing 365-day window
+  });
+
+  it('returns null when the window contains no sessions', () => {
+    const sessions = [sessionOnDaysAgo(60, 500)];
+    expect(bestDay(sessions, 'week', NOW)).toBeNull();
+  });
+});
+
 describe('lastNDaysHeatmap', () => {
   it('returns 35 entries, oldest first, ending on today', () => {
     const days = lastNDaysHeatmap([], NOW);

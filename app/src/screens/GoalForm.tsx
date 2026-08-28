@@ -466,7 +466,9 @@ function TopicChip({
           color, a second dot in that same color is invisible anyway, and the
           filled pill already carries the identity. */}
       {active ? null : <View style={[styles.chipDot, { backgroundColor: swatchColor }]} />}
-      <Text style={[styles.topicChipText, { color: active ? activeTextColor : color.text }]}>{label}</Text>
+      <Text style={[styles.topicChipText, { color: active ? activeTextColor : color.text }]} numberOfLines={1}>
+        {label}
+      </Text>
     </AnimatedPressable>
   );
 }
@@ -478,7 +480,10 @@ const styles = StyleSheet.create({
   formActions: { flexDirection: 'row', gap: 8 },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   topicChip: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingHorizontal: 12, borderRadius: 16, borderWidth: 1.5 },
-  topicChipText: { ...typeScale.label },
+  // maxWidth caps a long custom label/free-typed tag so it can't stretch
+  // this chip past the sheet's width -- numberOfLines alone only stops it
+  // wrapping, not growing wide in the first place.
+  topicChipText: { ...typeScale.label, maxWidth: 160 },
   chipDot: { width: 8, height: 8, borderRadius: 4 },
   periodChip: { paddingVertical: 8, paddingHorizontal: 20, borderRadius: 12, borderWidth: 1.5 },
   periodChipText: { ...typeScale.label, fontWeight: '600' },

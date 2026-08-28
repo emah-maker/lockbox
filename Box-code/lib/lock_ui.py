@@ -94,6 +94,7 @@ class LockUI:
         self._mode_idx = DEFAULT_MODE_IDX
         self._accent_idx = DEFAULT_ACCENT_IDX
         self._fg_color = C_WHITE
+        self._dim_color = C_GREY
         self._accent_color = C_GREEN
 
         # ----- color-transition engine (see _start_color_transition /
@@ -139,6 +140,7 @@ class LockUI:
         self._build_settings(W, H)
         self._build_setting_detail(W, H)
         self._build_tag_picker(W, H)
+        self._build_topic_confirm(W, H)
 
         self.view = "control"
         display.root_group = self.control_group
@@ -194,6 +196,7 @@ class LockUI:
         accent = accent_set[accent_idx]
         on_accent = C_ON_ACCENT_LIGHT if mode_idx == 1 else C_ON_ACCENT_DARK
         self._fg_color = fg
+        self._dim_color = dim
         self._accent_color = accent
 
         for tile in self._bg_tiles:
@@ -1847,6 +1850,132 @@ class LockUI:
         self._tp_swipe_last_key = None
         while len(self.tp_swipe_fill_group):
             self.tp_swipe_fill_group.pop()
+
+    # =================== pre-session topic confirm ===================
+    # Shown instead of the tag picker (see LockController.go_confirming) when
+    # the app has already pushed a topic the box recognises -- CONFIRM starts
+    # the session with it unchanged, CHANGE falls through to the tag picker
+    # above to pick something else. Geometry below is reasoned the same way
+    # every other from-source geometry constant in this file is (see
+    # lock_config.py's DONE_MSG_Y comment) -- needs an on-device visual check,
+    # no host-runnable renderer exists for this display stack.
+    def _build_topic_confirm(self, W, H):
+        group = displayio.Group()
+        self.topic_confirm_group = group
+        _tile = _bg_tile(W, H, C_BG)
+        group.append(_tile)
+        self._bg_tiles.append(_tile)
+
+        ttl = label.Label(terminalio.FONT, text="CONFIRM TOPIC", color=C_GREY,
+                          scale=2)
+        ttl.anchor_point = (0.5, 0.5)
+        ttl.anchored_position = (W // 2, 30)
+        group.append(ttl)
+        self._dim_widgets.append((ttl, 'color'))
+
+        _card = RoundRect(12, 80, 148, 60, RADIUS_CARD, fill=C_SURFACE,
+                          outline=C_GREY, stroke=2)
+        group.append(_card)
+        self._surface_widgets.append((_card, 'fill'))
+        self._dim_widgets.append((_card, 'outline'))
+
+        # scale=2 (12px/glyph), not 3 -- fits the wire's full
+        # BLE_LABEL_NAME_MAX_LEN=12-char custom-label name (12 * 12px =
+        # 144px) inside this 148px card with a hair of margin; scale=3
+        # (18px/glyph) would force truncation to ~8 chars. Built-in topic
+        # names (see lock_config.BUILTIN_TOPICS) are all well under either
+        # bound.
+        self.tc_name = label.Label(terminalio.FONT, text="", color=C_WHITE,
+                                   scale=2)
+        self.tc_name.anchor_point = (0.5, 0.5)
+        self.tc_name.anchored_position = (W // 2, 110)
+        group.append(self.tc_name)
+        self._fg_widgets.append((self.tc_name, 'color'))
+
+        # CONFIRM: primary action -- fg-weighted outline/label, like the
+        # LOCK/OPEN button's own outline convention in _build_control.
+        self._tc_confirm_x, self._tc_confirm_y = 21, 168
+        self._tc_confirm_w, self._tc_confirm_h = 130, 64
+        self.tc_confirm_btn = RoundRect(self._tc_confirm_x, self._tc_confirm_y,
+                                        self._tc_confirm_w, self._tc_confirm_h,
+                                        RADIUS_BTN_LG, fill=C_SURFACE,
+                                        outline=C_WHITE, stroke=2)
+        group.append(self.tc_confirm_btn)
+        self._fg_widgets.append((self.tc_confirm_btn, 'outline'))
+        confirm_lbl = label.Label(terminalio.FONT, text="CONFIRM", color=C_WHITE,
+                                  scale=2)
+        confirm_lbl.anchor_point = (0.5, 0.5)
+        confirm_lbl.anchored_position = (self._tc_confirm_x + self._tc_confirm_w // 2,
+                                         self._tc_confirm_y + self._tc_confirm_h // 2)
+        group.append(confirm_lbl)
+        self._fg_widgets.append((confirm_lbl, 'color'))
+
+        # CHANGE: secondary weight -- dim-tracked outline/label, like the
+        # tag picker's own SKIP/MORE labels, so it reads as the lesser of
+        # the two actions without needing a separate visual language.
+        self._tc_change_x, self._tc_change_y = 21, 260
+        self._tc_change_w, self._tc_change_h = 130, 48
+        self.tc_change_btn = RoundRect(self._tc_change_x, self._tc_change_y,
+                                       self._tc_change_w, self._tc_change_h,
+                                       RADIUS_BTN_SM, fill=C_SURFACE,
+                                       outline=C_GREY, stroke=2)
+        group.append(self.tc_change_btn)
+        self._dim_widgets.append((self.tc_change_btn, 'outline'))
+        change_lbl = label.Label(terminalio.FONT, text="CHANGE", color=C_GREY,
+                                 scale=2)
+        change_lbl.anchor_point = (0.5, 0.5)
+        change_lbl.anchored_position = (self._tc_change_x + self._tc_change_w // 2,
+                                        self._tc_change_y + self._tc_change_h // 2)
+        group.append(change_lbl)
+        self._dim_widgets.append((change_lbl, 'color'))
+
+    def show_topic_confirm(self, name):
+        # .text= reassignment on an already-built Label -- same
+        # build-once-then-mutate idiom show_tag_picker's row labels and
+        # _build_setting_detail's sd_value already use; see this module's
+        # header comment on why a fresh Label per call is never acceptable
+        # here. Does NOT pass max_glyphs -- this board's installed
+        # adafruit_display_text.Label raises TypeError on that kwarg (see
+        # the _build_override comment for where that was actually hit
+        # on-device).
+        self.tc_name.text = name
+        self.display.root_group = self.topic_confirm_group
+
+    def hide_topic_confirm(self):
+        # Same "safe to call even if this screen was never shown" contract
+        # as hide_tag_picker -- LockController.go_running calls both
+        # unconditionally from one chokepoint. Also clears any left-over
+        # press highlight so the next time this screen shows, it doesn't
+        # briefly flash a stale highlighted button from the previous visit.
+        self.press_topic_confirm(None)
+        self.show_view(self.view)
+
+    def in_topic_confirm_confirm(self, x, y):
+        return (self._tc_confirm_x <= x <= self._tc_confirm_x + self._tc_confirm_w and
+                self._tc_confirm_y <= y <= self._tc_confirm_y + self._tc_confirm_h)
+
+    def in_topic_confirm_change(self, x, y):
+        return (self._tc_change_x <= x <= self._tc_change_x + self._tc_change_w and
+                self._tc_change_y <= y <= self._tc_change_y + self._tc_change_h)
+
+    def press_topic_confirm(self, which):
+        """Press-highlight for CONFIRM/CHANGE (see lock_topic_confirm.
+        TopicConfirm) -- `which` is 'confirm', 'change', or None to clear
+        both. A simple outline-color swap rather than the button/status-bar
+        press-ring machinery in _build_control: those rings are driven by
+        LockController.process's on_touch_down/on_touch_up, which only fire
+        while self.view == "control" -- the same reason the tag picker
+        above has no press feedback of its own either. This screen isn't a
+        top-level view (same as the picker), so TopicConfirm calls this
+        directly from its own on_touch instead.
+
+        Restores each button's un-pressed outline from self._fg_color /
+        self._dim_color (the SAME live values set_theme just applied) rather
+        than a build-time literal -- if a theme push lands while a press
+        happens to be in progress, releasing still leaves the right color
+        instead of reverting to whatever shade was compiled in."""
+        self.tc_confirm_btn.outline = self._accent_color if which == 'confirm' else self._fg_color
+        self.tc_change_btn.outline = self._accent_color if which == 'change' else self._dim_color
 
     # =================== hit testing ===================
     def in_button(self, x, y):

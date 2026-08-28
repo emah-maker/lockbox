@@ -22,6 +22,7 @@ import {
   encodeAlert,
   cmdHistoryAck,
   cmdSetLabels,
+  cmdSetPendingTopic,
 } from './protocol';
 
 const b64 = (s: string) => Buffer.from(s, 'utf8').toString('base64');
@@ -281,6 +282,15 @@ export class PhoneBoxClient {
    * dispatcher. */
   setLabels(labels: { id: string; name: string; color: string }[]) {
     return this.write(CHAR.labels, cmdSetLabels(labels));
+  }
+
+  /** Best-effort, one-way push of the topic already picked in the app, ahead
+   * of a session existing -- see protocol.ts's cmdSetPendingTopic for the
+   * wire format and rationale. Its own dedicated characteristic, same
+   * reasoning as setLabels above: the box's apply_ble_command opcode path is
+   * rate-limited and this shouldn't have to wait behind it. */
+  setPendingTopic(topicId: string | null) {
+    return this.write(CHAR.pendingTopic, cmdSetPendingTopic(topicId));
   }
 
   get connected() {

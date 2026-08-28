@@ -6,6 +6,7 @@ import {
   cmdSetLabels,
   BLE_LABEL_MAX_COUNT,
   BLE_LABEL_NAME_MAX_LEN,
+  cmdSetPendingTopic,
 } from './protocol';
 
 const FULL: Settings = { ovr: 25, auto: 1, sleep: 20, bright: 50, unlk: 0, ucal: 1, thm: 1, acc: 3, flip: 1, langle: 45, uangle: 0 };
@@ -141,5 +142,15 @@ describe('cmdSetLabels', () => {
     const decoded = JSON.parse(cmdSetLabels(labels));
     expect(decoded).toHaveLength(BLE_LABEL_MAX_COUNT);
     expect(decoded[0].i).toBe('custom:0');
+  });
+});
+
+describe('cmdSetPendingTopic', () => {
+  it('round-trips a real topic id unchanged', () => {
+    expect(cmdSetPendingTopic('custom:abc')).toBe('custom:abc');
+  });
+
+  it('encodes null as the empty-string "nothing pending" sentinel', () => {
+    expect(cmdSetPendingTopic(null)).toBe('');
   });
 });

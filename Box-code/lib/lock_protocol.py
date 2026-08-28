@@ -182,6 +182,30 @@ def decode_settings(text):
     return updates
 
 
+def decode_pending_topic(text):
+    """Parse a BLE `pendingTopic` write (see lock_config.BLE_UUID_PENDING_TOPIC)
+    -- a bare topic id string, or '' meaning "nothing pending" (same
+    ''-is-untagged convention encode_status's "tp" field uses). Returns None
+    for any falsy input (covers both '' and a missing/None value alike --
+    the caller treats them identically), else the id truncated to the same
+    40-char bound decode_labels applies to its own "i" field.
+
+    Deliberately does NOT validate the id against known topics (built-in or
+    synced-custom) -- unlike decode_labels, which validates everything
+    itself since it owns the only copy of that data. A pending-topic id has
+    to be validated TWICE: once here, at receipt, and again later at
+    LOCK-press time, since a custom label can be deleted/renamed on the app
+    side in between (see LockController.apply_ble_pending_topic and
+    _handle_release's LOCK-button branch, both of which call
+    lock_topic_confirm.find_topic against self._all_topics()). Duplicating
+    that lookup here would just be a third copy of the same check that adds
+    nothing -- the controller is the only place that already knows both
+    "now" and "at LOCK-press time"."""
+    if not text:
+        return None
+    return str(text)[:40]
+
+
 def decode_labels(text):
     """Parse+validate a BLE `labels` JSON write (app/src/ble/protocol.ts's
     cmdSetLabels) into [(id, name, color), ...], or None if the payload was

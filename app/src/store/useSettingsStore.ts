@@ -9,6 +9,7 @@ import { getJSON, setJSON } from '../storage/storage';
 import { ThemeMode, AccentKey } from '../theme/theme';
 import type { Settings } from '../ble/protocol';
 import { CustomLabel, createCustomLabel, renameCustomLabel as renameCustomLabelIn, deleteCustomLabel as deleteCustomLabelIn } from '../stats/customLabels';
+import type { RingBaselineWindow } from '../screens/home/idleRingState';
 
 // Mirrors the firmware's own defaults (Box-code/lib/lock_config.py /
 // lock_settings.py) so the Settings screen shows sane values before the
@@ -64,6 +65,21 @@ interface SettingsState {
   // preference the user set for this device back to its default. The
   // manual "Sync now" button is never gated by this -- see useAuthStore.
   autoSyncEnabled: boolean;
+  // Local-only per-device VIEW preference (Home ring, screens/home/
+  // idleRingState.ts + settings/RingBaselineSection.tsx): which window's
+  // best day the Home hero ring compares today's focus time against when no
+  // daily goal is set. Same category as autoSyncEnabled just above -- and,
+  // outside this settings-sync system entirely, StatsScreen's own
+  // TIME_WINDOW_KEY (that screen's own comment makes the identical call for
+  // its period selector) -- a device-local *display* choice, not an
+  // account-level fact about the user, so it deliberately does NOT ride
+  // along with themeMode/accent/etc. to every device the way those do.
+  // Explicitly NOT a SyncableSettings field and NOT touched by
+  // resetSyncableSettings/applyRemoteSettings below, for the same reason
+  // autoSyncEnabled isn't: a sign-out/account-switch on this device must not
+  // silently reset which baseline window this device's Home tab happens to
+  // be showing.
+  ringBaselineWindow: RingBaselineWindow;
 
   hydrate: () => Promise<void>;
   setThemeMode: (mode: ThemeMode) => void;
@@ -71,6 +87,7 @@ interface SettingsState {
   setCallAlertsEnabled: (on: boolean) => void;
   setBoxSettings: (patch: Partial<Settings>) => void;
   setAutoSyncEnabled: (on: boolean) => void;
+  setRingBaselineWindow: (w: RingBaselineWindow) => void;
   addCustomLabel: (name: string, color: string) => void;
   renameCustomLabel: (id: string, name: string) => void;
   removeCustomLabel: (id: string) => void;
@@ -96,19 +113,29 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   boxSettings: DEFAULT_BOX_SETTINGS,
   settingsUpdatedAt: 0,
   autoSyncEnabled: true,
+  ringBaselineWindow: 'week',
 
   hydrate: async () => {
     if (get().hydrated) return;
-    const [themeMode, accent, callAlertsEnabled, customLabels, boxSettings, settingsUpdatedAt, autoSyncEnabled] =
-      await Promise.all([
-        getJSON<ThemeMode>('themeMode', SYNCABLE_SETTINGS_DEFAULTS.themeMode),
-        getJSON<AccentKey>('accent', SYNCABLE_SETTINGS_DEFAULTS.accent),
-        getJSON<boolean>('callAlertsEnabled', SYNCABLE_SETTINGS_DEFAULTS.callAlertsEnabled),
-        getJSON<CustomLabel[]>('customLabels', SYNCABLE_SETTINGS_DEFAULTS.customLabels),
-        getJSON<Settings>('boxSettings', DEFAULT_BOX_SETTINGS),
-        getJSON<number>('settingsUpdatedAt', 0),
-        getJSON<boolean>('autoSyncEnabled', true),
-      ]);
+    const [
+      themeMode,
+      accent,
+      callAlertsEnabled,
+      customLabels,
+      boxSettings,
+      settingsUpdatedAt,
+      autoSyncEnabled,
+      ringBaselineWindow,
+    ] = await Promise.all([
+      getJSON<ThemeMode>('themeMode', SYNCABLE_SETTINGS_DEFAULTS.themeMode),
+      getJSON<AccentKey>('accent', SYNCABLE_SETTINGS_DEFAULTS.accent),
+      getJSON<boolean>('callAlertsEnabled', SYNCABLE_SETTINGS_DEFAULTS.callAlertsEnabled),
+      getJSON<CustomLabel[]>('customLabels', SYNCABLE_SETTINGS_DEFAULTS.customLabels),
+      getJSON<Settings>('boxSettings', DEFAULT_BOX_SETTINGS),
+      getJSON<number>('settingsUpdatedAt', 0),
+      getJSON<boolean>('autoSyncEnabled', true),
+      getJSON<RingBaselineWindow>('ringBaselineWindow', 'week'),
+    ]);
     set({
       hydrated: true,
       themeMode,
@@ -118,6 +145,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       boxSettings,
       settingsUpdatedAt,
       autoSyncEnabled,
+      ringBaselineWindow,
     });
   },
 
@@ -155,6 +183,14 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     // setBoxSettings above -- see this field's own interface comment.
     set({ autoSyncEnabled: on });
     setJSON('autoSyncEnabled', on);
+  },
+
+  setRingBaselineWindow: (w) => {
+    // Deliberately not part of settingsUpdatedAt/sync -- see this field's
+    // own interface comment (same per-device-view-preference reasoning as
+    // setAutoSyncEnabled above).
+    set({ ringBaselineWindow: w });
+    setJSON('ringBaselineWindow', w);
   },
 
   addCustomLabel: (name, color) => {

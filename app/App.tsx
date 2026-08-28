@@ -23,6 +23,8 @@ import { useAuthStore } from './src/auth/useAuthStore';
 import { startSettingsSyncBridge } from './src/sync/settingsSyncBridge';
 import { startSessionsSyncBridge } from './src/sync/sessionsSyncBridge';
 import { startGoalsSyncBridge } from './src/sync/goalsSyncBridge';
+import { useBatteryStore } from './src/battery/useBatteryStore';
+import { startBatterySampling } from './src/battery/batterySamplingBridge';
 import { AnimatedPressable } from './src/ui/AnimatedPressable';
 import { StatusStrip } from './src/ui/StatusStrip';
 import { useReducedMotion, configureLayoutAnimation } from './src/ui/useReducedMotion';
@@ -68,6 +70,14 @@ export default function App() {
     // this file awaits either, and hydrate() itself no-ops past its first
     // call, so a re-render can't double-hydrate.
     useGoalsStore.getState().hydrate();
+    // Battery sample log (task 2): hydrate the persisted log, then start the
+    // BLE-status subscription that feeds it -- same "hydrate, then start the
+    // bridge that writes to it" ordering as useSettingsStore/useGoalsStore's
+    // own hydrate() calls above and startSettingsSyncBridge() below. Both
+    // StatusStrip and Home's BatteryBadge now read this same shared store
+    // instead of StatusStrip privately recording its own copy.
+    useBatteryStore.getState().hydrate();
+    startBatterySampling();
 
     // Account sign-in/sync (docs/rfcs/google-signin-cross-device-sync-architecture.md
     // §2.5, §4.3, §6). useAuthStore.init() runs wipeStaleSessionOnFreshInstall()

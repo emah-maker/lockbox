@@ -15,6 +15,7 @@ export const CHAR = {
   timeSync: '6b9a7e00-4c2a-4f8e-9b21-9d7a5e3c0006', // WRITE       (epoch seconds)
   alert: '6b9a7e00-4c2a-4f8e-9b21-9d7a5e3c0007', // WRITE          (call label)
   labels: '6b9a7e00-4c2a-4f8e-9b21-9d7a5e3c0008', // WRITE         (label list)
+  pendingTopic: '6b9a7e00-4c2a-4f8e-9b21-9d7a5e3c0009', // WRITE  (app -> box, forward tag suggestion)
 } as const;
 
 // ----- box -> app payloads -----
@@ -237,3 +238,18 @@ export const cmdSetLabels = (labels: { id: string; name: string; color: string }
       .slice(0, BLE_LABEL_MAX_COUNT)
       .map((l) => ({ i: l.id, n: l.name.slice(0, BLE_LABEL_NAME_MAX_LEN), c: l.color })),
   );
+
+// One-way app -> box push of the topic the user already picked in the app,
+// *before* a session exists -- so pressing LOCK on the box can show a
+// confirm screen for it instead of falling back to the box's own picker.
+// Writes CHAR.pendingTopic directly (Box-code/lib/lock_ble.py's dedicated
+// `pending_topic` characteristic / LockController.apply_ble_pending_topic),
+// NOT an opcode through CHAR.command -- apply_ble_command is rate-limited to
+// one accepted command per second (BLE_CMD_MIN_INTERVAL = 1.0), so an opcode
+// here could starve a concurrent start/dur/historyAck. This is occasional
+// declarative state, not a time-sensitive command -- the same category
+// cmdSetLabels above is already in, which is why it has its own
+// characteristic too. `''` means "nothing pending" -- the same
+// empty-string-means-cleared convention Status.tp already uses on the way
+// back.
+export const cmdSetPendingTopic = (topicId: string | null) => topicId ?? '';

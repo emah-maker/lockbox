@@ -26,7 +26,7 @@
 // CustomLabelsSection.tsx renders createCustomLabel's "Label name is
 // required." string.
 import React from 'react';
-import { View, Text, StyleSheet, Alert } from 'react-native';
+import { Animated, View, Text, StyleSheet, Alert } from 'react-native';
 import { useStore } from '../store/useStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useGoalsStore } from '../store/useGoalsStore';
@@ -43,6 +43,8 @@ import { AnimatedPressable } from '../ui/AnimatedPressable';
 import { AnimatedFill } from '../ui/AnimatedFill';
 import { useReducedMotion, configureLayoutAnimation } from '../ui/useReducedMotion';
 import { typeScale } from '../theme/tokens';
+import { GoalsEmptyState } from './stats/GoalsEmptyState';
+import { PeriodIcon, useMetCelebration } from './stats/goalVisuals';
 
 const PERIOD_LABEL: Record<GoalPeriod, string> = { daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly' };
 const WEEKDAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -247,25 +249,38 @@ export function GoalsSection({
       color={color}
     >
       {visible.length === 0 ? (
-        <Text style={[styles.caption, { color: color.textDim }]}>
-          No goals yet. Add one to track how much of your target you've hit this day, week, or month.
-        </Text>
-      ) : null}
+        // Real empty state (task brief: the plain caption here used to have
+        // NO button of its own, while the unconditional "New goal" Button
+        // right after it -- now suppressed below -- was the only CTA,
+        // meaning it stuck around unnecessarily once a goal existed too.
+        // GoalsEmptyState carries its own "Start adding goals" CTA, shared
+        // with GoalsProgressView.tsx's identical empty case; `compact` trims
+        // its graphic/padding for this Sheet-hosted context (Section is
+        // already inside Settings' or ManageSheet's own Sheet chrome).
+        <GoalsEmptyState onAddGoal={() => openForm(null)} color={color} compact />
+      ) : (
+        <>
+          {visible.map((goal) => (
+            <GoalRow
+              key={goal.id}
+              goal={goal}
+              result={progressById.get(goal.id)}
+              customLabels={customLabels}
+              themeMode={themeMode}
+              color={color}
+              onEdit={() => openForm(goal.id)}
+              onDelete={() => handleDelete(goal)}
+            />
+          ))}
 
-      {visible.map((goal) => (
-        <GoalRow
-          key={goal.id}
-          goal={goal}
-          result={progressById.get(goal.id)}
-          customLabels={customLabels}
-          themeMode={themeMode}
-          color={color}
-          onEdit={() => openForm(goal.id)}
-          onDelete={() => handleDelete(goal)}
-        />
-      ))}
-
-      <Button label="New goal" variant="outline" onPress={() => openForm(null)} color={color} />
+          {/* Suppressed while the list is empty -- GoalsEmptyState's own CTA
+              above is the only "add a goal" affordance in that case, so this
+              doesn't duplicate it (the exact problem the task brief flagged:
+              this used to render unconditionally alongside a caption with no
+              button of its own). */}
+          <Button label="New goal" variant="outline" onPress={() => openForm(null)} color={color} />
+        </>
+      )}
 
       {/* The form's own Sheet carries its own error slot (below) -- this
           one only ever covers the delete path, which has no form open to
@@ -350,6 +365,13 @@ function GoalRow({
   const swatch = topicSwatchColor(goal.topic, customLabels, themeMode, color);
   const barColor = met ? color.accent : swatch;
   const percent = Math.round(ratio * 100);
+  const reducedMotion = useReducedMotion();
+  // "This goal's target was just met" -- a one-shot pulse on the percent
+  // readout, layered on top of this row's own fill/percent rather than
+  // replacing anything (see useMetCelebration's own header comment for why
+  // this is deliberately a different trigger from GoalsProgressView's
+  // highlightAnim).
+  const metPulse = useMetCelebration(met, reducedMotion);
   const window = goalWindow(goal.period, Date.now());
   const restriction = weekdayRestrictionLabel(goal);
   // Compact secondary caption -- restriction / session-count target /
@@ -375,6 +397,7 @@ function GoalRow({
           {name}
         </Text>
         <View style={[styles.periodTag, { backgroundColor: withAlpha(color.textDim, 0.18) }]}>
+          <PeriodIcon period={goal.period} size={11} color={color.textDim} />
           <Text style={[styles.periodTagText, { color: color.textDim }]}>{PERIOD_LABEL[goal.period]}</Text>
         </View>
       </View>
@@ -394,23 +417,44 @@ function GoalRow({
         ) : null}
       </View>
 
+      {/* Restructured (task brief) rather than truncated, so no number is
+          ever lost: this row used to concatenate up to three durations on
+          the left ("5h 30m of 8h · 2h 30m to go") against a percent on the
+          right, with no numberOfLines/flexShrink/flex on either -- a long
+          combination overran the row's width with nothing to stop it. Row A
+          keeps the always-present "{focus} of {target}" (flexShrink so it's
+          the side that gives, capped to one line) beside the percent
+          (flexShrink:0, so it's never the side that gets clipped); the
+          remaining-time phrase drops to its own Row B instead of fighting
+          the percent for the same line. */}
       <View style={styles.goalMetaRow}>
-        <Text style={[styles.caption, { color: color.textDim }]}>
+        <Text style={[styles.caption, { color: color.textDim, flexShrink: 1 }]} numberOfLines={1}>
           {formatDuration(focusS)} of {formatDuration(goal.targetS)}
-          {met ? '' : ` · ${formatDuration(result?.remainingS ?? goal.targetS)} to go`}
         </Text>
-        <Text style={[styles.caption, { color: met ? color.accent : color.textDim, fontWeight: '700' }]}>
+        <Animated.Text
+          style={[
+            styles.caption,
+            { color: met ? color.accent : color.textDim, fontWeight: '700', flexShrink: 0, transform: [{ scale: metPulse }] },
+          ]}
+        >
           {percent}%
-        </Text>
+        </Animated.Text>
       </View>
+      {!met ? (
+        <Text style={[styles.caption, { color: color.textDim }]} numberOfLines={1}>
+          {formatDuration(result?.remainingS ?? goal.targetS)} to go
+        </Text>
+      ) : null}
 
       <View style={styles.goalActions}>
-        <Text style={[styles.caption, { color: color.textDim, flex: 1 }]}>
+        <Text style={[styles.caption, { color: color.textDim, flex: 1 }]} numberOfLines={1} ellipsizeMode="tail">
           {/* The window's own date range, so "this week"/"this month" is
               never ambiguous about which one -- goalWindow is Sunday-start
               for weekly (matching CalendarScreen's grid, see
               goalProgress.ts's weeklyWindow) and calendar-month for
-              monthly. */}
+              monthly. flex:1 without numberOfLines used to let this wrap
+              onto a second line and misalign the Edit/Delete pressables
+              beside it -- capped to one line + tail ellipsis instead. */}
           {goal.period === 'daily'
             ? new Date(window.startMs).toLocaleDateString(undefined, { weekday: 'long' })
             : goal.period === 'weekly'
@@ -434,7 +478,7 @@ const styles = StyleSheet.create({
   goalHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   goalName: { fontSize: 15, fontWeight: '600', flex: 1, letterSpacing: typeScale.sectionTitle.letterSpacing, lineHeight: 20 },
   swatch: { width: 10, height: 10, borderRadius: 5 },
-  periodTag: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 8 },
+  periodTag: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 8 },
   periodTagText: { ...typeScale.caption },
   track: { height: 8, borderRadius: 4, overflow: 'hidden', flexDirection: 'row' },
   fill: { height: '100%', borderRadius: 4 },

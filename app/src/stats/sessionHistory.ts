@@ -179,9 +179,18 @@ export function buildLoggedSessions(
   return { sessions, consumedPendingTopic: consumed };
 }
 
-export type TimeWindow = 'day' | 'week' | 'month' | 'all';
+// 'year' exists for the Home ring's best-day baseline (see
+// screens/home/idleRingState.ts and useSettingsStore's ringBaselineWindow),
+// not for the Stats period selector -- StatsScreen's own StatsPeriod union
+// (screens/stats/PeriodSelector.tsx) deliberately doesn't include it, and
+// isTimeWindow there only ever narrows *from* that union, so widening this
+// type adds no Stats UI option.
+export type TimeWindow = 'day' | 'week' | 'month' | 'year' | 'all';
 
-const WINDOW_DAYS: Record<TimeWindow, number | null> = { day: 1, week: 7, month: 30, all: null };
+// Trailing-N-days, same approximation 'month' already uses (30, not a
+// calendar month) -- kept consistent rather than making 'year' the one
+// calendar-accurate member of the set.
+const WINDOW_DAYS: Record<TimeWindow, number | null> = { day: 1, week: 7, month: 30, year: 365, all: null };
 
 /** Filters to sessions started within the selected calendar window, anchored
  * to today (local time): 'day' = today only, 'week'/'month' = the trailing 7

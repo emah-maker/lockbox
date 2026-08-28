@@ -51,6 +51,7 @@ from lock_config import (
     BLE_ADV_REASSERT_S, BLE_CMD_MIN_INTERVAL, BLE_CALL_ALERT_S,
     BLE_SERVICE_UUID, BLE_UUID_STATUS, BLE_UUID_HISTORY, BLE_UUID_COMMAND,
     BLE_UUID_SETTINGS, BLE_UUID_TIME, BLE_UUID_ALERT, BLE_UUID_LABELS,
+    BLE_UUID_PENDING_TOPIC,
 )
 
 _FW = "1.0"
@@ -87,6 +88,14 @@ def _build_service_cls():
         labels = StringCharacteristic(
             uuid=VendorUUID(BLE_UUID_LABELS),
             properties=Characteristic.WRITE | Characteristic.WRITE_NO_RESPONSE)
+        # Pre-session topic pick (best-effort) -- see
+        # lock_config.BLE_UUID_PENDING_TOPIC and
+        # LockController.apply_ble_pending_topic. Its own characteristic
+        # rather than a `command` opcode, same rate-limit-avoidance reason
+        # `labels` already has one -- see that constant's comment.
+        pending_topic = StringCharacteristic(
+            uuid=VendorUUID(BLE_UUID_PENDING_TOPIC),
+            properties=Characteristic.WRITE | Characteristic.WRITE_NO_RESPONSE)
 
     return PhoneBoxService
 
@@ -105,6 +114,7 @@ class PhoneBoxBLE:
         self._last_time = ""
         self._last_settings = ""
         self._last_labels = ""
+        self._last_pending_topic = ""
         self._last_drain_slow = 0.0
         self._last_history = None  # None (not "") so the very first push
                                     # after boot always writes, same as after
@@ -276,3 +286,16 @@ class PhoneBoxBLE:
         if labels and labels != self._last_labels:
             self._last_labels = labels
             ctrl.apply_ble_labels_json(labels)
+
+        # DEDUP GOTCHA: do not copy the truthiness-gated `if x and x !=
+        # self._last_x:` pattern the four blocks above use. That leading
+        # truthiness check is only correct for characteristics where ''
+        # means "never written" -- for pending_topic, '' is a REAL payload
+        # (the app explicitly clearing a previously-picked topic), so
+        # gating on truthiness would make a clear indistinguishable from
+        # "nothing new to read" and it would never be observed. Compare
+        # against the cached value ALONE, with no truthiness short-circuit.
+        pending_topic = self._svc.pending_topic
+        if pending_topic != self._last_pending_topic:
+            self._last_pending_topic = pending_topic
+            ctrl.apply_ble_pending_topic(pending_topic)

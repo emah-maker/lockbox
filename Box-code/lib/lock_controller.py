@@ -15,6 +15,7 @@ from lock_servo import Servo
 from lock_settings import Settings
 from lock_log import SessionLog
 from lock_tag_picker import TagPicker, Select, Cancel
+from lock_topic_confirm import TopicConfirm, Confirm, Change, find_topic
 
 COMPLETED = "completed"
 OVERRIDDEN = "overridden"
@@ -105,6 +106,22 @@ class LockController:
                                       # result's Cancel handling)
         self._session_topic = None  # topic tagged to the session in progress
                                      # (set by go_running's topic= argument)
+        # ----- pre-session topic confirm (app-pushed pending topic) -----
+        # Owns the confirm/change screen's own touch state -- see
+        # lock_topic_confirm.TopicConfirm.on_touch, mirroring how
+        # self.tag_picker above owns the picker's.
+        self.topic_confirm = TopicConfirm(self.ui)
+        self._pending_app_topic = None  # topic id most recently pushed over
+                                         # BLE_UUID_PENDING_TOPIC and still
+                                         # validated against self._all_topics()
+                                         # -- None means nothing pending, an
+                                         # unknown/stale id, OR already
+                                         # consumed by a session start (see
+                                         # apply_ble_pending_topic /
+                                         # go_running). LOCK falls straight
+                                         # through to the tag picker whenever
+                                         # this is None -- the explicit
+                                         # no-regression requirement.
         # ----- deferred logging for auto-open-off sessions -----
         # When Settings.auto_open is False, the box stays shut at timer
         # expiry (see go_done) until OPEN is tapped or override forces it --
@@ -207,10 +224,41 @@ class LockController:
         self.state = "picking"
         self.tag_picker.show(0)
 
+    def go_confirming(self, now, name):
+        """Pre-session CONFIRM/CHANGE screen (see lock_topic_confirm.py):
+        shown INSTEAD of go_picking's tag picker when the LOCK-button branch
+        in _handle_release finds self._pending_app_topic still resolves to
+        a real topic. CONFIRM starts the session with that topic as-is;
+        CHANGE falls through to the tag picker to pick something else --
+        see _apply_topic_confirm_result.
+
+        Sets self._picking_from exactly like go_picking does (same "idle" or
+        "closed" -- which state to return to) even though this screen has no
+        swipe-cancel gesture of its own: CHANGE's fallthrough to the picker
+        still needs it, and _apply_topic_confirm_result's Change branch
+        restores self.state to this BEFORE calling go_picking, so
+        go_picking's own `self._picking_from = self.state` line doesn't
+        instead capture "confirming"."""
+        self._picking_from = self.state
+        self.state = "confirming"
+        self.topic_confirm.show(name)
+
     def go_running(self, now, topic=None):
+        # Chokepoint for leaving either pre-session screen (tag picker or
+        # topic-confirm) -- done here, at the very top, UNCONDITIONALLY,
+        # even ahead of the set_seconds<=0 guard below (that guard should
+        # never actually fire in practice; MIN_SECONDS floors set_seconds
+        # everywhere it's settable -- but if it somehow did, this still
+        # can't leave a pending topic stuck live or a pre-session screen
+        # stuck on screen). One chokepoint covers both the direct CONFIRM
+        # path and the CONFIRM -> CHANGE -> pick-something-else path (which
+        # re-enters here via the tag picker's own Select result) -- neither
+        # needs its own separate cleanup call.
+        self._pending_app_topic = None
+        self.ui.hide_tag_picker()      # no-op if the picker was never shown
+        self.ui.hide_topic_confirm()   # no-op if the confirm screen was never shown
         if self.set_seconds <= 0:
             return
-        self.ui.hide_tag_picker()   # no-op if the picker was never shown
         self.state = "running"
         self._override = 0
         self.deadline = now + self.set_seconds
@@ -297,6 +345,26 @@ class LockController:
         labels = lock_protocol.decode_labels(text)
         if labels is not None:
             self._synced_labels = labels
+
+    def apply_ble_pending_topic(self, text):
+        """Best-effort pre-session topic push from the app (see
+        lock_config.BLE_UUID_PENDING_TOPIC) -- feeds the LOCK-button branch
+        in _handle_release only. See lock_protocol.decode_pending_topic for
+        the parsing (no validation there by design).
+
+        Validated against self._all_topics() HERE, via lock_topic_confirm.
+        find_topic, rather than in decode_pending_topic -- this same lookup
+        has to run a SECOND time, at LOCK-press time (_handle_release),
+        since a custom label can be deleted/renamed on the app side between
+        this push and that later press; keeping both call sites next to the
+        state they actually check (self._synced_labels via _all_topics)
+        instead of teaching the wire-format module about topics at all.
+        An unknown id stores None here -- identical to nothing pending, so
+        the no-regression requirement (LOCK falls straight through to the
+        picker) holds without a separate "do I have a real pending topic"
+        flag anywhere."""
+        topic_id = lock_protocol.decode_pending_topic(text)
+        self._pending_app_topic = topic_id if find_topic(self._all_topics(), topic_id) else None
 
     def adjust(self, unit, direction):
         # Box editing is Hours + Minutes only (unit 0/1) -- seconds were
@@ -740,6 +808,11 @@ class LockController:
                 # that same-call double-duty matters.
                 result = self.tag_picker.on_touch(pt, now, released=False)
                 self._apply_tag_picker_result(result, now)
+            elif self.state == "confirming":
+                # Same same-call-arms-and-ticks contract as the "picking"
+                # branch above -- see lock_topic_confirm.TopicConfirm.on_touch.
+                result = self.topic_confirm.on_touch(pt, now, released=False)
+                self._apply_topic_confirm_result(result, now)
         elif self._was_down:
             # The AXS5106L occasionally drops a frame mid-touch; require a few
             # consecutive empty reads before treating it as a real release so
@@ -825,6 +898,29 @@ class LockController:
                 self.go_idle()
         # Page: the picker already redrew itself with show_tag_picker; nothing else to do.
 
+    # ----- pre-session topic confirm: apply a TopicConfirm.on_touch result -----
+    def _apply_topic_confirm_result(self, result, now):
+        """Reacts to whatever lock_topic_confirm.TopicConfirm.on_touch just
+        returned -- called after every on_touch call, from both process()
+        (mid-touch) and _handle_release (on release), mirroring
+        _apply_tag_picker_result above. Confirm/Change are the only real
+        outcomes; None means nothing further to do (the screen already
+        handled its own live press-highlight feedback internally)."""
+        if isinstance(result, Confirm):
+            self.go_running(now, topic=self._pending_app_topic)   # already hides the confirm screen
+        elif isinstance(result, Change):
+            # Subtle, and load-bearing: restore self.state to whatever
+            # go_confirming actually captured into self._picking_from
+            # BEFORE calling go_picking below. go_picking's own first line
+            # is `self._picking_from = self.state` -- if self.state were
+            # still "confirming" (what it is right up to this point) when
+            # that runs, it would capture "confirming" instead of "idle"/
+            # "closed", and the picker's own swipe-up-cancel would then try
+            # to return to a "confirming" state that no longer has a screen
+            # of its own (see _apply_tag_picker_result's Cancel handling).
+            self.state = self._picking_from
+            self.go_picking(now)
+
     def _handle_release(self):
         dx = self._last[0] - self._start[0]
         dy = self._last[1] - self._start[1]
@@ -854,6 +950,17 @@ class LockController:
         if self.state == "picking":
             result = self.tag_picker.on_touch(self._last, self._now, released=True)
             self._apply_tag_picker_result(result, self._now)
+            return
+
+        # Pre-session topic confirm (see go_confirming): tap CONFIRM to
+        # start with the app-pushed topic as-is, tap CHANGE to fall through
+        # to the tag picker above instead. Handled here for the same reason
+        # "picking" is above it -- this screen also occupies the control
+        # view's screen real estate without being one of the top-level
+        # VIEWS.
+        if self.state == "confirming":
+            result = self.topic_confirm.on_touch(self._last, self._now, released=True)
+            self._apply_topic_confirm_result(result, self._now)
             return
 
         # Horizontal swipe -> switch views. self._start/self._last are
@@ -946,7 +1053,21 @@ class LockController:
         # misread as a swipe (the button is taller than SWIPE_MIN_PX).
         if self.ui.in_button(*self._start) and self.ui.in_button(*self._last):
             if self.state in ("idle", "closed"):
-                self.go_picking(self._now)   # tag picker first, then the countdown actually starts
+                # Re-validate self._pending_app_topic against _all_topics()
+                # HERE, at press time -- not just once, at receipt time in
+                # apply_ble_pending_topic -- so a custom label deleted or
+                # renamed between the app's push and this LOCK press falls
+                # back safely to the picker instead of showing a confirm
+                # screen for a topic that no longer exists. Not found (or
+                # nothing was ever pending) -> the picker, UNCHANGED from
+                # before this feature existed -- the explicit no-regression
+                # requirement.
+                found = find_topic(self._all_topics(), self._pending_app_topic)
+                if found is not None:
+                    name, _color = found
+                    self.go_confirming(self._now, name)
+                else:
+                    self.go_picking(self._now)   # tag picker first, then the countdown actually starts
             elif self.state == "done":
                 self.go_idle()               # reset after finishing -> re-arms sensor
             # running: no on-screen cancel -- override button only

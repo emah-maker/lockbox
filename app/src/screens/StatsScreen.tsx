@@ -21,18 +21,23 @@
 // pushing past this project's 500-line guideline (see each sub-file's own
 // header for why it exists separately).
 //
-// "Stop the screen growing vertically" (this task's brief): the
+// "Every period fits one screen with NO scrolling" (this task's explicit
+// brief): the outer ScrollView this screen used to have is gone entirely --
+// not `scrollEnabled={false}`, a plain `View`. A disabled ScrollView still
+// clips whatever overflows its bounds, which would hide a "this doesn't fit"
+// layout bug behind what looks like a "can't scroll" bug during device
+// testing; a plain View lets overflow actually spill and be visibly wrong
+// instead. TotalFocusCard and FunFactsCard size to their own content;
+// TrendCard and TopicCard split whatever's left via `flex:1` on each (see
+// their own headers for what moved into Sheets to make that fit). The
 // write-capable, potentially-long goal forms that used to sit permanently
-// at the bottom of this scroll (GoalsSection's add/edit/delete) now live
+// at the bottom of the old scroll (GoalsSection's add/edit/delete) live
 // inside ManageSheet, reached from the Goals view instead of always
 // rendered inline. CustomLabelsSection moved to Settings' own "Custom
 // labels" row entirely rather than being mounted here too, so there is one
-// canonical place to edit the label catalog -- the main scroll is just the total
-// card, fun facts (capped, with a "see more" sheet), the trend/heatmap
-// card, and the topic card, which is the "fits one screen with light
-// scrolling" the brief asks for.
+// canonical place to edit the label catalog.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 import { useStore } from '../store/useStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useTheme } from '../theme/useTheme';
@@ -49,7 +54,8 @@ import { PeriodSelector, StatsPeriod, isStatsPeriod } from './stats/PeriodSelect
 import { TotalFocusCard } from './stats/TotalFocusCard';
 import { FunFactsCard } from './stats/FunFactsCard';
 import { TrendCard } from './stats/TrendCard';
-import { TopicCard } from './stats/TopicCard';
+import { TopicCard, TopicRows } from './stats/TopicCard';
+import { HeatmapGrid } from './stats/HeatmapGrid';
 import { GoalsProgressView } from './stats/GoalsProgressView';
 import { SessionListSheet } from './stats/SessionListSheet';
 import { ManageSheet } from './stats/ManageSheet';
@@ -59,7 +65,12 @@ const TOP_N = 5;
 const TIME_WINDOW_KEY = 'statsTimeWindow';
 const HIGHLIGHT_MS = 1600;
 
-function isTimeWindow(v: StatsPeriod): v is TimeWindow {
+// Excludes 'year': TimeWindow carries it for the Home ring's best-day
+// baseline (sessionHistory.ts), but this screen's own StatsPeriod union has
+// no 'year' option, so the predicate can only ever narrow to the four
+// windows both types share -- naming that intersection explicitly keeps the
+// predicate assignable to its own parameter type.
+function isTimeWindow(v: StatsPeriod): v is Exclude<TimeWindow, 'year'> {
   return v === 'day' || v === 'week' || v === 'month' || v === 'all';
 }
 
@@ -75,6 +86,8 @@ export default function StatsScreen() {
   const [daySheetKey, setDaySheetKey] = useState<string | null>(null);
   const [topicSheetKey, setTopicSheetKey] = useState<string | null>(null);
   const [funFactsSheetOpen, setFunFactsSheetOpen] = useState(false);
+  const [heatmapSheetOpen, setHeatmapSheetOpen] = useState(false);
+  const [allTopicsSheetOpen, setAllTopicsSheetOpen] = useState(false);
   const [manageSheetOpen, setManageSheetOpen] = useState(false);
   const [highlightGoalId, setHighlightGoalId] = useState<string | null>(null);
   // Guards the mount load below against overwriting a selection the user
@@ -188,38 +201,56 @@ export default function StatsScreen() {
     useNav.getState().navigate('calendar', { calendarDate: dateKey });
   };
 
+  // Sheet is a single Modal, so two can't be visible at once (same
+  // constraint openCalendarDay above already works around for the day/topic
+  // sheets) -- opening the topic-detail sheet from a row tapped inside the
+  // "See all topics" sheet has to close that sheet first, in the same state
+  // update, rather than trying to layer a second Modal on top of it.
+  const openTopicFromAllSheet = (key: string) => {
+    setAllTopicsSheetOpen(false);
+    setTopicSheetKey(key);
+  };
+
   return (
-    <View style={{ flex: 1, backgroundColor: c.bg }}>
-      <ScrollView style={{ backgroundColor: c.bg }} contentContainerStyle={styles.container}>
+    <View style={{ flex: 1, backgroundColor: c.bg, paddingHorizontal: 20, paddingTop: 14, paddingBottom: 10 }}>
+      <View style={{ gap: 8 }}>
         <Text style={[styles.h1, { color: c.text }]}>Stats</Text>
-
         <PeriodSelector period={period} onSelect={selectPeriod} />
+      </View>
 
-        {period === 'goals' ? (
+      {period === 'goals' ? (
+        <View style={{ flex: 1, marginTop: 10 }}>
           <GoalsProgressView
             onOpenGoalInSettings={(goalId) => useNav.getState().navigate('settings', { settingsSection: 'goals', goalId })}
             onManage={() => setManageSheetOpen(true)}
             highlightGoalId={highlightGoalId}
           />
-        ) : (
-          <>
-            <TotalFocusCard stats={stats} unwindowedStreak={unwindowedStats.str} reducedMotion={reducedMotion} />
-            <FunFactsCard
-              hasFocus={stats.foc > 0}
-              best={best}
-              comparisons={comparisons}
-              onSeeMore={() => setFunFactsSheetOpen(true)}
-            />
-            <TrendCard trend={trend} heatmap={heatmap} onInspectDay={setDaySheetKey} />
-            <TopicCard
-              topics={topics}
-              selectedKey={selectedTopic}
-              onSelectTopic={setSelectedTopic}
-              onInspectTopic={setTopicSheetKey}
-            />
-          </>
-        )}
-      </ScrollView>
+        </View>
+      ) : (
+        <View style={{ flex: 1, gap: 8, marginTop: 10 }}>
+          <TotalFocusCard stats={stats} unwindowedStreak={unwindowedStats.str} reducedMotion={reducedMotion} />
+          <FunFactsCard
+            hasFocus={stats.foc > 0}
+            best={best}
+            comparisons={comparisons}
+            onSeeMore={() => setFunFactsSheetOpen(true)}
+          />
+          <TrendCard
+            trend={trend}
+            onInspectDay={setDaySheetKey}
+            onOpenHeatmap={() => setHeatmapSheetOpen(true)}
+            style={{ flex: 1 }}
+          />
+          <TopicCard
+            topics={topics}
+            selectedKey={selectedTopic}
+            onSelectTopic={setSelectedTopic}
+            onInspectTopic={setTopicSheetKey}
+            onSeeAllTopics={() => setAllTopicsSheetOpen(true)}
+            style={{ flex: 1 }}
+          />
+        </View>
+      )}
 
       <Sheet
         visible={daySheetKey !== null}
@@ -259,6 +290,26 @@ export default function StatsScreen() {
         </View>
       </Sheet>
 
+      {/* The heatmap used to render inline in TrendCard -- see that file's
+          header for why it moved here instead (no room left once this
+          screen's outer scroll was removed). Reuses the same
+          onInspectDay -> setDaySheetKey wiring TrendCard's own bars drive. */}
+      <Sheet visible={heatmapSheetOpen} onClose={() => setHeatmapSheetOpen(false)} title="Last 5 weeks">
+        <HeatmapGrid heatmap={heatmap} onInspectDay={setDaySheetKey} />
+      </Sheet>
+
+      {/* TopicCard only renders its first two rows inline (see that file's
+          header) -- this is the rest, reusing TopicCard's own exported
+          TopicRows so the full list renders identically instead of via a
+          second copy of that markup. Tapping a row here closes this sheet
+          first (openTopicFromAllSheet above), since Sheet is a single Modal
+          and can't stack a second one on top of itself. */}
+      <Sheet visible={allTopicsSheetOpen} onClose={() => setAllTopicsSheetOpen(false)} title="By topic">
+        <View style={{ gap: 4 }}>
+          <TopicRows topics={topics} onInspectTopic={openTopicFromAllSheet} />
+        </View>
+      </Sheet>
+
       {/* scrollEnabled hands the vertical gesture to GoalForm's H/M WheelPickers
           while a finger is down on one -- same two-nested-vertical-scrollers
           hazard this screen used to solve for its own (now removed) inline
@@ -277,7 +328,6 @@ export default function StatsScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { padding: 20, paddingTop: 50, gap: 16, paddingBottom: 32 },
   h1: { ...typeScale.title, marginBottom: 4 },
   factSheetRow: { fontSize: 15, lineHeight: 20 },
 });

@@ -7,6 +7,7 @@
 import { dayKey, LoggedSession } from '../../stats/sessionHistory';
 import { computeGoalProgress, GoalProgressResult, isGoalDueOn } from '../../goals/goalProgress';
 import type { Goal } from '../../goals/goals';
+import { heatmapLevel } from '../../stats/trend';
 
 export function startOfMonth(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), 1);
@@ -119,4 +120,101 @@ export function goalsMetOnDay(goals: Goal[], sessions: LoggedSession[], date: Da
       const goal = goalsById.get(r.goalId);
       return goal ? isGoalDueOn(goal, nowMs) : true;
     });
+}
+
+/**
+ * Discrete 0-4 heat level for every day in `grid`, keyed by dayKey. Routes
+ * through stats/trend.ts's exported `heatmapLevel` rather than re-deriving a
+ * second bucketing scheme -- see that function's doc comment: this calendar
+ * used to compute its own *continuous* alpha (0.25 + 0.75*ratio) against an
+ * all-time global max, which is incompatible with a legend (a legend needs
+ * nameable discrete steps, not an unbounded gradient). Adopting the discrete
+ * model here is what makes HeatLegend.tsx possible at all.
+ *
+ * `max` is deliberately the busiest day within `grid` itself, not an
+ * all-time-global max the way DayCell's old `maxFocus` prop (computed in
+ * CalendarScreen.tsx) was. A legend that reads "this is the month's busiest
+ * day" should mean the busiest day actually on screen -- paging to a quiet
+ * month shouldn't leave every cell looking washed-out relative to some other
+ * month's record day the user isn't looking at right now.
+ */
+export function monthHeatLevels(
+  grid: (Date | null)[],
+  byDay: Map<string, LoggedSession[]>,
+): Map<string, 0 | 1 | 2 | 3 | 4> {
+  const focusByKey = new Map<string, number>();
+  let max = 0;
+  for (const date of grid) {
+    if (!date) continue;
+    const key = dayKey(date.getTime());
+    const sessions = byDay.get(key);
+    const focusS = sessions ? sessions.reduce((sum, s) => sum + s.actualS, 0) : 0;
+    focusByKey.set(key, focusS);
+    if (focusS > max) max = focusS;
+  }
+  const levels = new Map<string, 0 | 1 | 2 | 3 | 4>();
+  // Guard an empty/all-zero month: heatmapLevel divides by `max`, so feed it
+  // 1 instead of 0 (matches trend.ts's lastNDaysHeatmap's own Math.max(1, ...)
+  // guard) -- every day is focusS <= 0 in that case anyway, so heatmapLevel
+  // short-circuits to 0 before the ratio is ever computed.
+  const safeMax = max || 1;
+  for (const [key, focusS] of focusByKey) {
+    levels.set(key, heatmapLevel(focusS, safeMax));
+  }
+  return levels;
+}
+
+export interface StreakRun {
+  startIndex: number;
+  endIndex: number;
+  length: number;
+}
+
+/**
+ * Maximal runs of consecutive on-screen days with logged focus time, as
+ * `grid` index ranges -- answers "which visible cells should be drawn as one
+ * connected chain", a different question from computeStreak's "how many
+ * days in a row, walking back from today, regardless of which month is
+ * displayed". A month can show several such runs (or none); computeStreak
+ * only ever tracks the single current one.
+ *
+ * `grid` index adjacency is treated as calendar-day adjacency without a
+ * separate date check: buildGrid's `null` padding only ever appears in the
+ * leading/trailing partial weeks, never mid-month, so any two adjacent
+ * non-null indices are necessarily adjacent calendar days. A `null` cell
+ * (i.e. crossing out of the displayed month) always breaks a run, same as a
+ * logged-day gap does.
+ *
+ * Returns runs of every length, including length-1 -- the "is this worth
+ * drawing as a chain" threshold is a display decision, not a math one, left
+ * to the caller (CalendarScreen.tsx only shows a flame badge at length >= 3,
+ * per the manager brief).
+ */
+export function computeStreakRuns(
+  grid: (Date | null)[],
+  byDay: Map<string, LoggedSession[]>,
+): StreakRun[] {
+  const runs: StreakRun[] = [];
+  let runStart: number | null = null;
+
+  const flush = (endIndex: number) => {
+    if (runStart === null) return;
+    runs.push({ startIndex: runStart, endIndex, length: endIndex - runStart + 1 });
+    runStart = null;
+  };
+
+  grid.forEach((date, i) => {
+    const focusS = date
+      ? (byDay.get(dayKey(date.getTime())) ?? []).reduce((sum, s) => sum + s.actualS, 0)
+      : 0;
+    const active = !!date && focusS > 0;
+    if (active) {
+      if (runStart === null) runStart = i;
+    } else {
+      flush(i - 1);
+    }
+  });
+  flush(grid.length - 1);
+
+  return runs;
 }

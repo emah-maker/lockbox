@@ -119,7 +119,11 @@ export function SessionTargetControl({
           >
             <Text style={[styles.stepperBtnText, { color: color.accent }]}>-</Text>
           </AnimatedPressable>
-          <Text style={[styles.stepperValue, { color: color.text }]} accessibilityLabel={`${value} sessions`}>
+          <Text
+            style={[styles.stepperValue, { color: color.text }]}
+            numberOfLines={1}
+            accessibilityLabel={`${value} sessions`}
+          >
             {value} {value === 1 ? 'session' : 'sessions'}
           </Text>
           <AnimatedPressable

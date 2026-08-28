@@ -298,6 +298,18 @@ BLE_UUID_ALERT = "6b9a7e00-4c2a-4f8e-9b21-9d7a5e3c0007"    # WRITE (call label)
 # objects (name truncated to BLE_LABEL_NAME_MAX_LEN, color a "#rrggbb" hex
 # string).
 BLE_UUID_LABELS = "6b9a7e00-4c2a-4f8e-9b21-9d7a5e3c0008"   # WRITE (label list)
+# Pre-session topic pick (app -> box), best-effort -- see lock_controller.
+# apply_ble_pending_topic / lock_topic_confirm.py. A DEDICATED characteristic,
+# not another apply_ble_command opcode: apply_ble_command is rate-limited to
+# one accepted command per second (BLE_CMD_MIN_INTERVAL below), so a "topic:"
+# opcode landing in that same 1s window as "start"/"dur"/"historyAck" could
+# silently starve one of them. A pre-session topic pick is occasional
+# declarative state -- the same category as `labels` just above, which
+# already got its own characteristic for exactly this reason. Payload is a
+# bare string (no JSON wrapper): the topic id, or '' meaning "nothing
+# pending", the same ''-is-untagged convention encode_status's "tp" field
+# already uses.
+BLE_UUID_PENDING_TOPIC = "6b9a7e00-4c2a-4f8e-9b21-9d7a5e3c0009"  # WRITE (topic id)
 
 # ----- Session log (Box-code/lib/lock_log.py) -----
 # Cap on the box's own on-device queue of sessions finished while no phone

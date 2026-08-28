@@ -35,10 +35,11 @@ import { CustomLabelsSection } from './CustomLabelsSection';
 import { BoxBehaviorSection, boxBehaviorSummary } from './settings/BoxBehaviorSection';
 import { AppearanceSection, appearanceSummary } from './settings/AppearanceSection';
 import { AlertsSection, alertsSummary } from './settings/AlertsSection';
+import { RingBaselineSection, ringBaselineSummary } from './settings/RingBaselineSection';
 import { typeScale, elevation, radius } from '../theme/tokens';
 import { withAlpha } from '../theme/theme';
 
-type SheetKey = 'account' | 'goals' | 'labels' | 'box' | 'appearance' | 'alerts';
+type SheetKey = 'account' | 'goals' | 'labels' | 'box' | 'appearance' | 'alerts' | 'ringBaseline';
 
 export default function SettingsScreen() {
   const c = useTheme();
@@ -57,6 +58,8 @@ export default function SettingsScreen() {
   const callAlertsEnabled = useSettingsStore((s) => s.callAlertsEnabled);
   const setCallAlertsEnabled = useSettingsStore((s) => s.setCallAlertsEnabled);
   const customLabels = useSettingsStore((s) => s.customLabels);
+  const ringBaselineWindow = useSettingsStore((s) => s.ringBaselineWindow);
+  const setRingBaselineWindow = useSettingsStore((s) => s.setRingBaselineWindow);
   const authUser = useAuthStore((s) => s.user);
   const goalCount = useGoalsStore((s) => s.goals.filter((g) => !g.archived).length);
 
@@ -97,6 +100,7 @@ export default function SettingsScreen() {
   const boxValue = boxBehaviorSummary(conn, boxSettings);
   const appearanceValue = appearanceSummary(themeMode, accent);
   const alertsValue = alertsSummary(callAlertsEnabled);
+  const ringBaselineValue = ringBaselineSummary(ringBaselineWindow);
 
   return (
     <>
@@ -127,6 +131,8 @@ export default function SettingsScreen() {
           <DisclosureRow label="Appearance" value={appearanceValue} onPress={() => setSheet('appearance')} color={c} />
           <Divider color={c} />
           <DisclosureRow label="Alerts" value={alertsValue} onPress={() => setSheet('alerts')} color={c} />
+          <Divider color={c} />
+          <DisclosureRow label="Focus ring" value={ringBaselineValue} onPress={() => setSheet('ringBaseline')} color={c} />
         </View>
       </ScrollView>
 
@@ -178,6 +184,14 @@ export default function SettingsScreen() {
           setCallAlertsEnabled={setCallAlertsEnabled}
           callDetectionAvailable={callDetectionAvailable}
           lastAlert={lastAlert}
+        />
+      </Sheet>
+
+      <Sheet visible={sheet === 'ringBaseline'} onClose={closeSheet} size="auto">
+        <RingBaselineSection
+          color={c}
+          ringBaselineWindow={ringBaselineWindow}
+          setRingBaselineWindow={setRingBaselineWindow}
         />
       </Sheet>
     </>

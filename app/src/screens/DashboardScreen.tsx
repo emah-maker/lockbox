@@ -33,6 +33,7 @@ import { useGoalsStore } from '../store/useGoalsStore';
 import { useTheme } from '../theme/useTheme';
 import { aggregate, clampLockSeconds, MAX_LOCK_HOURS, MAX_LOCK_SECONDS } from '../stats/stats';
 import { filterByWindow } from '../stats/sessionHistory';
+import { bestDay } from '../stats/trend';
 import { resolveTopic } from '../stats/customLabels';
 import { computeGoalProgress } from '../goals/goalProgress';
 import type { Goal } from '../goals/goals';
@@ -41,6 +42,7 @@ import { useReducedMotion } from '../ui/useReducedMotion';
 import { useNav } from '../nav/useNav';
 import { typeScale, opacity } from '../theme/tokens';
 import { FocusHero } from './home/FocusHero';
+import { computeIdleRingProgress } from './home/idleRingState';
 import { DurationSheet } from './home/DurationSheet';
 import { TagSheet } from './home/TagSheet';
 import { TodaySummary, GoalHighlight } from './home/TodaySummary';
@@ -104,10 +106,12 @@ export default function DashboardScreen() {
     closeBox,
     openBox,
     tagCurrentSession,
+    setPendingBoxTopic,
   } = useStore();
   const remoteUnlockOn = useSettingsStore((st) => !!st.boxSettings.unlk);
   const themeMode = useSettingsStore((st) => st.themeMode);
   const customLabels = useSettingsStore((st) => st.customLabels);
+  const ringBaselineWindow = useSettingsStore((st) => st.ringBaselineWindow);
   const goals = useGoalsStore((st) => st.goals);
   const theme = useTheme();
   const s = styles(theme);
@@ -201,6 +205,28 @@ export default function DashboardScreen() {
     };
   }, [goals, sessions, customLabels, themeMode]);
 
+  // The Home hero ring's idle (non-running) fill -- see
+  // home/idleRingState.ts for the actual precedence math. "The daily goal"
+  // is the single goal with !archived && period === 'daily' && topic ===
+  // null: only an untopic'd daily goal's target is directly comparable to
+  // todayStats.foc (today's OVERALL focus total, not scoped to any one
+  // topic) -- a topic-scoped daily goal's progress lives in its own
+  // computeGoalProgress ratio (goalHighlight above), which this deliberately
+  // does not reuse or reimplement here. bestDay's window comes straight from
+  // the user's own ringBaselineWindow preference (Settings > Focus ring);
+  // its ?? 0 covers "no history in that window yet", which
+  // computeIdleRingProgress itself guards against dividing by.
+  const dailyGoal = goals.find((g: Goal) => !g.archived && g.period === 'daily' && g.topic === null);
+  const idleRing = useMemo(
+    () =>
+      computeIdleRingProgress(
+        todayStats.foc,
+        dailyGoal ? dailyGoal.targetS : null,
+        bestDay(sessions, ringBaselineWindow)?.focusS ?? 0,
+      ),
+    [todayStats.foc, dailyGoal, sessions, ringBaselineWindow],
+  );
+
   const connected = conn === 'connected';
   const canClose = connected && (status?.st === 'idle' || status?.st === 'done');
   const canOpen = connected && (status?.st === 'running' || status?.st === 'closed');
@@ -264,7 +290,19 @@ export default function DashboardScreen() {
   };
   const handleSelectTopic = (topic: string) => {
     Haptics.selectionAsync().catch(() => {});
+    // Two directions, deliberately both: tagCurrentSession is the BACKWARD
+    // path (remember this pick locally so buildLoggedSessions can attach it
+    // to whichever history entry the box eventually hands over -- the box's
+    // NVM entries have no room for a topic id), while setPendingBoxTopic is
+    // the FORWARD path (push the pick to the box over BLE so pressing LOCK
+    // there opens the confirm screen for this topic instead of the plain
+    // picker -- see Box-code/lib/lock_controller.py's apply_ble_pending_topic
+    // and go_confirming). Neither replaces the other: the forward push is
+    // best-effort and silently no-ops on an old box or while disconnected,
+    // in which case the backward path is still what actually tags the
+    // session.
     tagCurrentSession(topic);
+    setPendingBoxTopic(topic);
   };
   const openDurationSheet = () => {
     Haptics.selectionAsync().catch(() => {});
@@ -305,6 +343,9 @@ export default function DashboardScreen() {
         currentTopic={currentTopic}
         customLabels={customLabels}
         themeMode={themeMode}
+        todayFocusS={todayStats.foc}
+        idleRing={idleRing}
+        ringBaselineWindow={ringBaselineWindow}
         onPressIdle={openDurationSheet}
         onPressTag={openTagSheet}
       />
