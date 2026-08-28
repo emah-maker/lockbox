@@ -30,12 +30,11 @@
 // CustomLabelsSection.tsx renders createCustomLabel's "Label name is
 // required." string.
 import React from 'react';
-import { View, Text, StyleSheet, Alert } from 'react-native';
+import { Text, StyleSheet, Alert } from 'react-native';
 import { useStore } from '../store/useStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useGoalsStore } from '../store/useGoalsStore';
 import { useTheme } from '../theme/useTheme';
-import { withAlpha } from '../theme/theme';
 import { Goal } from '../goals/goals';
 import { computeGoalProgress } from '../goals/goalProgress';
 import { Section, Button } from './SettingsPrimitives';
