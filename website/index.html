@@ -10,7 +10,6 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Archivo:wght@400;500;600;700&family=Courier+Prime:wght@400;700&family=VT323&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="css/styles.css" />
-  <link rel="stylesheet" href="css/scrollScrub.css" />
   <link rel="stylesheet" href="css/overrideInset.css" />
   <noscript><style>.reveal { opacity: 1 !important; transform: none !important; }</style></noscript>
 </head>
@@ -215,46 +214,28 @@
           <h2 id="how-title">Four steps to a focused hour.</h2>
         </div>
 
-        <!-- Scroll-scrubbed video, progressive enhancement over the static
-             steps below (see js/scrollScrub.js + css/scrollScrub.css). The
-             video-wrap starts display:none and the track starts auto-height
-             -- both stay that way, rendering exactly like the old static
-             layout, unless JS confirms the video actually loads. That is
-             the section's real state today: no video file exists yet. -->
-        <div class="how__track" id="howTrack">
-          <div class="how__pin" id="howPin">
-            <div class="how__video-wrap" id="howVideoWrap">
-              <video class="how__video" id="howVideo" muted playsinline preload="none"
-                     poster="assets/video/how-it-works-poster.jpg" aria-hidden="true" tabindex="-1">
-                <source src="assets/video/how-it-works.webm" type="video/webm" />
-                <source src="assets/video/how-it-works.mp4" type="video/mp4" />
-              </video>
-            </div>
-
-            <ol class="steps" id="howSteps">
-              <li class="step reveal">
-                <span class="step__tag">No. 1</span>
-                <h3>Set your timer</h3>
-                <p>Swipe up or down on the touchscreen to dial in hours, minutes and seconds — anywhere from a few minutes to 9 hours.</p>
-              </li>
-              <li class="step reveal">
-                <span class="step__tag">No. 2</span>
-                <h3>Drop the phone in</h3>
-                <p>Place your phone inside and close the opaque lid. Out of sight, out of reach, out of mind.</p>
-              </li>
-              <li class="step reveal">
-                <span class="step__tag">No. 3</span>
-                <h3>The box locks</h3>
-                <p>The servo drives the latch shut and the countdown begins. The box will not open on its own until time is up.</p>
-              </li>
-              <li class="step reveal">
-                <span class="step__tag">No. 4</span>
-                <h3>Unlock when done</h3>
-                <p>When the timer expires the latch releases automatically. In a real emergency, the press-count override lets you out early.</p>
-              </li>
-            </ol>
-          </div>
-        </div>
+        <ol class="steps">
+          <li class="step reveal">
+            <span class="step__tag">No. 1</span>
+            <h3>Set your timer</h3>
+            <p>Swipe up or down on the touchscreen to dial in hours, minutes and seconds — anywhere from a few minutes to 9 hours.</p>
+          </li>
+          <li class="step reveal">
+            <span class="step__tag">No. 2</span>
+            <h3>Drop the phone in</h3>
+            <p>Place your phone inside and close the opaque lid. Out of sight, out of reach, out of mind.</p>
+          </li>
+          <li class="step reveal">
+            <span class="step__tag">No. 3</span>
+            <h3>The box locks</h3>
+            <p>The servo drives the latch shut and the countdown begins. The box will not open on its own until time is up.</p>
+          </li>
+          <li class="step reveal">
+            <span class="step__tag">No. 4</span>
+            <h3>Unlock when done</h3>
+            <p>When the timer expires the latch releases automatically. In a real emergency, the press-count override lets you out early.</p>
+          </li>
+        </ol>
       </div>
     </section>
 
@@ -614,6 +595,5 @@
   <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js" integrity="sha384-g4NTh/Iv5PPU4xPyhEWqPcwtNXOvdaDI8LLnyYfyNZOjKJeYQyjzQ9X5275eBjpt" crossorigin="anonymous"></script>
   <script src="js/nav.js"></script>
   <script src="js/script.js"></script>
-  <script src="js/scrollScrub.js"></script>
 </body>
 </html>
