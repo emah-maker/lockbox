@@ -79,6 +79,11 @@ export const MAX_WEEKLY_TARGET_S = 604800;
 // target that's legitimately achievable in a short (28/30-day) one; see
 // app/src/goals/goals.ts's own MAX_MONTHLY_TARGET_S comment.
 export const MAX_MONTHLY_TARGET_S = 31 * 24 * 60 * 60;
+// Mirrors app/src/goals/goalReminders.ts's MAX_NOTIFY_TIMES -- keep the two
+// identical, same convention as every other cap shared across these two
+// surfaces.
+export const MAX_NOTIFY_TIMES = 6;
+
 // Flat cap for targetSessions, independent of period -- "how many sessions"
 // doesn't scale with a period's window length the way a seconds-target does.
 export const MAX_TARGET_SESSIONS = 100;
@@ -315,7 +320,34 @@ export function sanitizeRemoteGoals(input, nowMs = Date.now()) {
         ? entry.targetSessions
         : undefined;
     const notify = entry.notify === true ? true : entry.notify === false ? false : undefined;
-    const notifyAt = typeof entry.notifyAt === 'string' && NOTIFY_AT_RE.test(entry.notifyAt) ? entry.notifyAt : undefined;
+    const rawNotifyAt = typeof entry.notifyAt === 'string' && NOTIFY_AT_RE.test(entry.notifyAt) ? entry.notifyAt : undefined;
+
+    // The multi-time reminder fields (app/src/goals/goalReminders.ts). This
+    // dashboard does not yet EDIT them -- its own goal form still offers a
+    // single reminder time -- but it must carry them through untouched:
+    // this sanitizer rebuilds each goal from a fixed set of keys, so a field
+    // it doesn't know about is silently dropped, and the dashboard would
+    // then write the stripped copy back and collapse a phone-set multi-time
+    // reminder down to one time on every sync. Preserving them here costs
+    // nothing and is what keeps the two surfaces non-destructive to each
+    // other, exactly as this file's header requires.
+    const notifyTimes =
+      Array.isArray(entry.notifyTimes)
+        ? (() => {
+            const kept = Array.from(
+              new Set(entry.notifyTimes.filter((t) => typeof t === 'string' && NOTIFY_AT_RE.test(t))),
+            ).sort().slice(0, MAX_NOTIFY_TIMES);
+            return kept.length > 0 ? kept : undefined;
+          })()
+        : undefined;
+    const notifyDays = Array.isArray(entry.notifyDays)
+      ? normalizeDaysOfWeek(entry.notifyDays.filter((d) => Number.isInteger(d) && d >= 0 && d <= 6))
+      : undefined;
+    const notifyOnlyIfBehind =
+      entry.notifyOnlyIfBehind === true ? true : entry.notifyOnlyIfBehind === false ? false : undefined;
+    // Mirrors goals.ts: the legacy single field is DERIVED from the list
+    // whenever one survived, so the two can never disagree after a sync.
+    const notifyAt = notifyTimes ? notifyTimes[0] : rawNotifyAt;
 
     const cleaned = {
       id,
@@ -329,6 +361,9 @@ export function sanitizeRemoteGoals(input, nowMs = Date.now()) {
       ...(targetSessions !== undefined ? { targetSessions } : {}),
       ...(notify !== undefined ? { notify } : {}),
       ...(notifyAt !== undefined ? { notifyAt } : {}),
+      ...(notifyTimes !== undefined ? { notifyTimes } : {}),
+      ...(notifyDays !== undefined ? { notifyDays } : {}),
+      ...(notifyOnlyIfBehind !== undefined ? { notifyOnlyIfBehind } : {}),
     };
 
     const existing = byId.get(id);
