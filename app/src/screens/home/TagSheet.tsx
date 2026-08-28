@@ -10,6 +10,7 @@ import { Sheet } from '../../ui/Sheet';
 import { TopicPicker } from '../TopicPicker';
 import { useTheme } from '../../theme/useTheme';
 import { useSettingsStore } from '../../store/useSettingsStore';
+import { useStore } from '../../store/useStore';
 
 export function TagSheet({
   visible,
@@ -27,6 +28,11 @@ export function TagSheet({
   onSelect: (topic: string) => void;
 }) {
   const theme = useTheme();
+  // Read here rather than threaded through DashboardScreen: the session log
+  // is only used to rank TopicPicker's "Recent" row, which is that
+  // component's own concern, and this sheet already self-supplies `theme`
+  // the same way.
+  const sessions = useStore((s) => s.sessions);
   return (
     <Sheet visible={visible} onClose={onClose} title="Session topic" size="auto">
       <TopicPicker
@@ -35,6 +41,7 @@ export function TagSheet({
         customLabels={customLabels}
         themeMode={themeMode}
         theme={theme}
+        sessions={sessions}
         onSelect={(topic) => {
           onSelect(topic);
           onClose(); // picking a tag is the sheet's whole purpose -- close it immediately rather than making the user dismiss separately

@@ -58,6 +58,8 @@ import { TopicCard, TopicRows } from './stats/TopicCard';
 import { HeatmapGrid } from './stats/HeatmapGrid';
 import { GoalsProgressView } from './stats/GoalsProgressView';
 import { SessionListSheet } from './stats/SessionListSheet';
+import { LabelPickerSheet } from '../ui/calendar/LabelPickerSheet';
+import { allLabelChoices, resolveTopic } from '../stats/customLabels';
 import { ManageSheet } from './stats/ManageSheet';
 
 const TOP_N = 5;
@@ -78,6 +80,13 @@ export default function StatsScreen() {
   const sessions = useStore((s) => s.sessions);
   const themeMode = useSettingsStore((s) => s.themeMode);
   const customLabels = useSettingsStore((s) => s.customLabels);
+  const retagSession = useStore((s) => s.retagSession);
+  // The session whose label is being changed, or null. Reuses the exact
+  // picker + retagSession path CalendarScreen's day sheet already uses, so
+  // "fix this session's label" behaves identically wherever you notice the
+  // mistake -- see SessionListSheet's own header for why noticing it here
+  // and having to go to Calendar to act on it was the problem.
+  const [retagTarget, setRetagTarget] = useState<LoggedSession | null>(null);
   const reducedMotion = useReducedMotion();
 
   const [period, setPeriod] = useState<StatsPeriod>('all');
@@ -288,6 +297,7 @@ export default function StatsScreen() {
           customLabels={customLabels}
           themeMode={themeMode}
           onOpenCalendarDay={openCalendarDay}
+          onRetag={setRetagTarget}
           emptyLabel="No sessions on this day."
         />
       </Sheet>
@@ -302,9 +312,32 @@ export default function StatsScreen() {
           customLabels={customLabels}
           themeMode={themeMode}
           onOpenCalendarDay={openCalendarDay}
+          onRetag={setRetagTarget}
           emptyLabel="No sessions for this topic in the selected period."
         />
       </Sheet>
+
+      {/* Stacked on top of whichever session-list sheet is open -- the same
+          two-Modal layering DaySheet.tsx already uses for this picker. */}
+      <LabelPickerSheet
+        visible={retagTarget !== null}
+        choices={allLabelChoices(customLabels, themeMode)}
+        current={retagTarget ? resolveTopic(retagTarget.topic, customLabels, themeMode)?.id : undefined}
+        theme={c}
+        onClose={() => setRetagTarget(null)}
+        onPick={(id) => {
+          if (retagTarget) retagSession(retagTarget, id);
+          setRetagTarget(null);
+        }}
+        onClear={
+          retagTarget?.topic
+            ? () => {
+                if (retagTarget) retagSession(retagTarget, undefined);
+                setRetagTarget(null);
+              }
+            : undefined
+        }
+      />
 
       <Sheet visible={funFactsSheetOpen} onClose={() => setFunFactsSheetOpen(false)} title="Fun facts">
         <View style={{ gap: 8 }}>

@@ -7,6 +7,14 @@
 // what's already resolved by the caller (StatsScreen passes the exact
 // session slice + display strings so this file stays agnostic to whether
 // it's showing a day's sessions or a topic's).
+//
+// Retagging: each row now carries a small tag affordance beside it when the
+// caller supplies `onRetag`. Fixing a mislabelled session used to be
+// reachable ONLY from the Calendar tab's day sheet, so noticing the mistake
+// here -- which is exactly where you notice it, staring at a topic total
+// that looks wrong -- meant navigating to Calendar, finding the right day,
+// and starting over. The row's main press still deep-links to Calendar; the
+// tag button is a separate target so neither action steals the other.
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { useTheme } from '../../theme/useTheme';
@@ -24,12 +32,17 @@ export function SessionListSheet({
   themeMode,
   onOpenCalendarDay,
   emptyLabel = 'No sessions in this slice.',
+  onRetag,
 }: {
   sessions: LoggedSession[];
   customLabels: CustomLabel[];
   themeMode: ThemeMode;
   onOpenCalendarDay: (dateKey: string) => void;
   emptyLabel?: string;
+  /** Opens the caller's own label picker for this session. Omitted by a
+   * caller with no retag path of its own, in which case no tag affordance
+   * renders at all and this behaves exactly as it did before. */
+  onRetag?: (session: LoggedSession) => void;
 }) {
   const c = useTheme();
   // Most recent first -- a detail popup reads naturally newest-on-top, the
@@ -48,8 +61,8 @@ export function SessionListSheet({
         const resolved = resolveTopic(s.topic, customLabels, themeMode);
         const date = new Date(s.startedAt);
         return (
+          <View key={`${s.startedAt}:${s.plannedS}:${s.actualS}`} style={styles.rowWrap}>
           <AnimatedPressable
-            key={`${s.startedAt}:${s.plannedS}:${s.actualS}`}
             style={[styles.row, { borderColor: withAlpha(c.textDim, 0.18) }]}
             onPress={() => onOpenCalendarDay(dayKey(s.startedAt))}
             accessibilityRole="button"
@@ -70,6 +83,17 @@ export function SessionListSheet({
               </Text>
             </View>
           </AnimatedPressable>
+          {onRetag ? (
+            <AnimatedPressable
+              onPress={() => onRetag(s)}
+              accessibilityRole="button"
+              accessibilityLabel={`Change the label on this ${formatDuration(s.actualS)} session`}
+              style={[styles.retagBtn, { borderColor: withAlpha(c.accent, 0.5) }]}
+            >
+              <Text style={[styles.retagText, { color: c.accent }]}>Tag</Text>
+            </AnimatedPressable>
+          ) : null}
+          </View>
         );
       })}
     </View>
@@ -79,7 +103,10 @@ export function SessionListSheet({
 const styles = StyleSheet.create({
   empty: { ...typeScale.body, padding: 16 },
   list: { gap: 8, paddingBottom: 8 },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, borderRadius: 12, padding: 10 },
+  rowWrap: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  row: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, borderRadius: 12, padding: 10 },
+  retagBtn: { paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10, borderWidth: 1.5 },
+  retagText: { ...typeScale.label, fontWeight: '600' },
   swatch: { width: 10, height: 10, borderRadius: 5 },
   rowBody: { flex: 1 },
   rowTitle: { fontSize: 14, fontWeight: '600', letterSpacing: typeScale.body.letterSpacing, lineHeight: typeScale.body.lineHeight },
