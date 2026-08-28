@@ -14,13 +14,25 @@
 // surface can import the other's file, but keeping this module free of any
 // app-only dependency is what makes porting it 1:1 possible at all.
 //
-// sanitizeRemoteGoals below is the boundary-validation choke point: every
+// sanitizeRemoteGoals (now in goalSanitize.ts, re-exported below) is the
+// boundary-validation choke point: every
 // array that comes from outside this device's own CRUD calls (a Firestore
 // pull in sync/, or a future direct read from the dashboard's write) must be
 // pushed through it before anything here or in goalProgress.ts trusts it as
 // a real Goal[] -- see this file's own header precedent in
 // sessionHistory.ts's loadSessions, which heals untrusted-shape data at its
 // one choke point rather than expecting every caller to re-validate.
+//
+// The reminder-schedule fields (notifyTimes/notifyDays/notifyOnlyIfBehind)
+// have their own leaf module, goalReminders.ts -- see that file's header for
+// why they live there rather than here.
+import { validateNotifySchedule, normalizeNotifyTimes } from './goalReminders';
+
+// The untrusted-input boundary lives in goalSanitize.ts (see its header for
+// why it was split out). Re-exported here so every existing
+// `import { sanitizeRemoteGoals } from './goals'` call site -- sync/, the
+// store, the tests -- keeps working against its original module path.
+export { sanitizeRemoteGoals } from './goalSanitize';
 
 /** A goal's recurrence window. Matches goalProgress.ts's three window kinds
  * exactly -- this stays a closed union (not an open string type) so adding a
@@ -76,8 +88,31 @@ export interface Goal {
   notify?: boolean;
   /** 'HH:MM' local 24-hour reminder time (see NOTIFY_AT_RE below) --
    * meaningful only when `notify` is true, but kept independent of it (see
-   * `notify`'s own comment) so it survives a notify:false round-trip. */
+   * `notify`'s own comment) so it survives a notify:false round-trip.
+   *
+   * Superseded by `notifyTimes` below, but deliberately still written (as
+   * `notifyTimes[0]`) and still read: the website dashboard and every goal
+   * recorded before multi-time reminders existed know only this field, so
+   * keeping it populated is what lets a goal edited here still show a
+   * sensible reminder there. goalReminders.ts's goalNotifyTimes is the one
+   * place the two are reconciled -- nothing else should read either field
+   * directly. */
   notifyAt?: string;
+  /** Every 'HH:MM' local reminder time for this goal, canonical (sorted,
+   * deduped, at most goalReminders.ts's MAX_NOTIFY_TIMES). `undefined`
+   * means "no multi-time list recorded", which goalNotifyTimes reads as
+   * falling back to a lone `notifyAt`. */
+  notifyTimes?: string[];
+  /** Which weekdays the reminders fire on, 0=Sun..6=Sat -- distinct from
+   * `daysOfWeek` above, which is about which days COUNT toward the target.
+   * `undefined` defers to the goal's own schedule; see goalReminders.ts's
+   * goalNotifyDays for the precedence. */
+  notifyDays?: number[];
+  /** Skip the reminder entirely when this goal's current window is already
+   * met -- a "you're 40m short" nudge is useful, the same nudge after
+   * you've already hit the target is just noise. Enforced at schedule time
+   * by goalNotifications.ts, which re-reconciles whenever progress moves. */
+  notifyOnlyIfBehind?: boolean;
   createdAt: number; // epoch ms
   /** Per-goal logical clock (epoch ms), NOT a server timestamp -- compared
    * by goalMerge.ts's last-write-wins merge the same way sessionHistory.ts's
@@ -138,7 +173,9 @@ export function makeGoalId(): string {
   return `${GOAL_ID_PREFIX}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function maxTargetSFor(period: GoalPeriod): number {
+// Exported for goalSanitize.ts, which re-checks the same per-period bound
+// on the untrusted side.
+export function maxTargetSFor(period: GoalPeriod): number {
   if (period === 'daily') return MAX_DAILY_TARGET_S;
   if (period === 'weekly') return MAX_WEEKLY_TARGET_S;
   return MAX_MONTHLY_TARGET_S;
@@ -149,7 +186,7 @@ function maxTargetSFor(period: GoalPeriod): number {
 // (dropping path) and goalNotifications.ts (which re-derives, rather than
 // imports, this exact pattern -- see that file's header for why it stays a
 // leaf module with no import of this one).
-const NOTIFY_AT_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
+export const NOTIFY_AT_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
 
 /** Dedupes and sorts an untrusted-but-already-int-checked daysOfWeek array
  * into Goal.daysOfWeek's own canonical form, collapsing an empty result
@@ -159,7 +196,7 @@ const NOTIFY_AT_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
  * sanitizeOneGoal's dropping path). Callers are responsible for having
  * already rejected/dropped anything that isn't an integer 0-6 -- this
  * function only normalizes shape, it doesn't itself validate values. */
-function normalizeDaysOfWeek(daysOfWeek: number[]): number[] | undefined {
+export function normalizeDaysOfWeek(daysOfWeek: number[]): number[] | undefined {
   const unique = Array.from(new Set(daysOfWeek)).sort((a, b) => a - b);
   return unique.length > 0 ? unique : undefined;
 }
@@ -198,6 +235,15 @@ function validateGoalExtras(
   targetSessions: number | undefined,
   notify: boolean | undefined,
   notifyAt: string | undefined,
+  // The multi-time reminder schedule -- validated by goalReminders.ts (see
+  // that module's header for why it isn't inlined here), but called from
+  // this one function so every create/update path still has exactly ONE
+  // extras-validation entry point, as before.
+  schedule: {
+    notifyTimes?: string[];
+    notifyDays?: number[];
+    notifyOnlyIfBehind?: boolean;
+  } = {},
 ): void {
   if (daysOfWeek !== undefined) {
     if (period !== 'daily') throw new Error('daysOfWeek only applies to a daily goal.');
@@ -216,6 +262,7 @@ function validateGoalExtras(
   if (notifyAt !== undefined && (typeof notifyAt !== 'string' || !NOTIFY_AT_RE.test(notifyAt))) {
     throw new Error('Goal notifyAt must be a 24-hour "HH:MM" time.');
   }
+  validateNotifySchedule(schedule.notifyTimes, schedule.notifyDays, schedule.notifyOnlyIfBehind);
 }
 
 /** The "flexible goals" extension fields a caller can supply on create,
@@ -229,6 +276,13 @@ export interface GoalCreateExtras {
   targetSessions?: number;
   notify?: boolean;
   notifyAt?: string;
+  /** Every reminder time for the new goal. When supplied, it is the
+   * authority and `notifyAt` above is DERIVED from it (set to the earliest
+   * entry) rather than read -- see Goal.notifyAt's own comment on why that
+   * legacy field keeps being written at all. */
+  notifyTimes?: string[];
+  notifyDays?: number[];
+  notifyOnlyIfBehind?: boolean;
 }
 
 /** Appends a new goal, stamping createdAt/updatedAt to `nowMs`. Rejects (via
@@ -246,9 +300,21 @@ export function createGoal(
   extra: GoalCreateExtras = {},
 ): Goal[] {
   validateGoalFields(topic, period, targetS);
-  validateGoalExtras(period, extra.daysOfWeek, extra.targetSessions, extra.notify, extra.notifyAt);
+  validateGoalExtras(period, extra.daysOfWeek, extra.targetSessions, extra.notify, extra.notifyAt, {
+    notifyTimes: extra.notifyTimes,
+    notifyDays: extra.notifyDays,
+    notifyOnlyIfBehind: extra.notifyOnlyIfBehind,
+  });
   if (goals.length >= MAX_GOALS) throw new Error(`You can have at most ${MAX_GOALS} goals.`);
   const daysOfWeek = extra.daysOfWeek !== undefined ? normalizeDaysOfWeek(extra.daysOfWeek) : undefined;
+  const notifyTimes = normalizeNotifyTimes(extra.notifyTimes);
+  const notifyDays = extra.notifyDays !== undefined ? normalizeDaysOfWeek(extra.notifyDays) : undefined;
+  // `notifyAt` is a derived mirror of the list's earliest entry whenever a
+  // list exists -- never an independent second source of truth (see
+  // Goal.notifyAt). Only when NO list was supplied does an explicitly
+  // passed `notifyAt` stand on its own, which is what keeps every existing
+  // single-time caller working byte-for-byte as before.
+  const notifyAt = notifyTimes ? notifyTimes[0] : extra.notifyAt;
   const goal: Goal = {
     id: makeGoalId(),
     topic,
@@ -260,7 +326,10 @@ export function createGoal(
     ...(daysOfWeek !== undefined ? { daysOfWeek } : {}),
     ...(extra.targetSessions !== undefined ? { targetSessions: extra.targetSessions } : {}),
     ...(extra.notify !== undefined ? { notify: extra.notify } : {}),
-    ...(extra.notifyAt !== undefined ? { notifyAt: extra.notifyAt } : {}),
+    ...(notifyAt !== undefined ? { notifyAt } : {}),
+    ...(notifyTimes !== undefined ? { notifyTimes } : {}),
+    ...(notifyDays !== undefined ? { notifyDays } : {}),
+    ...(extra.notifyOnlyIfBehind !== undefined ? { notifyOnlyIfBehind: extra.notifyOnlyIfBehind } : {}),
   };
   return [...goals, goal];
 }
@@ -278,8 +347,15 @@ export interface GoalPatch {
   targetSessions?: number | null;
   notify?: boolean;
   /** `undefined` = leave unchanged, `null` = clear, a string = replace --
-   * same three-way shape as `daysOfWeek`/`targetSessions` above. */
+   * same three-way shape as `daysOfWeek`/`targetSessions` above. Ignored
+   * when `notifyTimes` is also present in the same patch, since `notifyAt`
+   * is derived from the list in that case (see Goal.notifyAt). */
   notifyAt?: string | null;
+  /** Same three-way shape again: `undefined` = leave unchanged, `null` =
+   * clear every reminder time, an array = replace the whole list. */
+  notifyTimes?: string[] | null;
+  notifyDays?: number[] | null;
+  notifyOnlyIfBehind?: boolean;
 }
 
 /** Updates the one goal matching `id` (topic/period/targetS plus the
@@ -301,11 +377,38 @@ export function updateGoal(goals: Goal[], id: string, patch: GoalPatch, nowMs: n
     const targetSessions =
       patch.targetSessions !== undefined ? (patch.targetSessions === null ? undefined : patch.targetSessions) : g.targetSessions;
     const notify = patch.notify !== undefined ? patch.notify : g.notify;
-    const notifyAt = patch.notifyAt !== undefined ? (patch.notifyAt === null ? undefined : patch.notifyAt) : g.notifyAt;
+    const patchedNotifyAt = patch.notifyAt !== undefined ? (patch.notifyAt === null ? undefined : patch.notifyAt) : g.notifyAt;
+    const rawNotifyTimes =
+      patch.notifyTimes !== undefined ? (patch.notifyTimes === null ? undefined : patch.notifyTimes) : g.notifyTimes;
+    const rawNotifyDays =
+      patch.notifyDays !== undefined ? (patch.notifyDays === null ? undefined : patch.notifyDays) : g.notifyDays;
+    const notifyOnlyIfBehind = patch.notifyOnlyIfBehind !== undefined ? patch.notifyOnlyIfBehind : g.notifyOnlyIfBehind;
     validateGoalFields(topic, period, targetS);
-    validateGoalExtras(period, rawDaysOfWeek, targetSessions, notify, notifyAt);
+    validateGoalExtras(period, rawDaysOfWeek, targetSessions, notify, patchedNotifyAt, {
+      notifyTimes: rawNotifyTimes,
+      notifyDays: rawNotifyDays,
+      notifyOnlyIfBehind,
+    });
     const daysOfWeek = rawDaysOfWeek !== undefined ? normalizeDaysOfWeek(rawDaysOfWeek) : undefined;
-    return { ...g, topic, period, targetS, daysOfWeek, targetSessions, notify, notifyAt, updatedAt: nowMs };
+    const notifyTimes = normalizeNotifyTimes(rawNotifyTimes);
+    const notifyDays = rawNotifyDays !== undefined ? normalizeDaysOfWeek(rawNotifyDays) : undefined;
+    // Re-derived from the list on every write, so the legacy mirror can
+    // never drift out of step with it -- see Goal.notifyAt.
+    const notifyAt = notifyTimes ? notifyTimes[0] : patchedNotifyAt;
+    return {
+      ...g,
+      topic,
+      period,
+      targetS,
+      daysOfWeek,
+      targetSessions,
+      notify,
+      notifyAt,
+      notifyTimes,
+      notifyDays,
+      notifyOnlyIfBehind,
+      updatedAt: nowMs,
+    };
   });
 }
 
@@ -322,128 +425,4 @@ export function archiveGoal(goals: Goal[], id: string, nowMs: number = Date.now(
  * observe a tombstone before it can vanish out from under a pending merge. */
 export function pruneArchivedGoals(goals: Goal[], nowMs: number = Date.now()): Goal[] {
   return goals.filter((g) => !g.archived || nowMs - g.updatedAt <= ARCHIVED_GOAL_PRUNE_MS);
-}
-
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v);
-}
-
-/** Hardens one arbitrary/untrusted candidate object into a Goal, or returns
- * null if any field fails a hard type/shape/bound check. Unlike
- * validateGoalFields (which throws to reject a *user-initiated* edit with a
- * renderable message), this never throws -- a single malformed entry from a
- * remote array is just dropped, not surfaced as an error the sanitizing
- * caller has to catch. archived/createdAt/updatedAt are coerced/defaulted
- * where it's safe to do so (see inline comments); id/topic/period/targetS
- * are not, because there's no safe default for "which goal is this" or
- * "what does this goal actually target". */
-function sanitizeOneGoal(raw: unknown, nowMs: number): Goal | null {
-  if (!isPlainObject(raw)) return null;
-
-  const id = raw.id;
-  if (typeof id !== 'string' || !id || id.length > MAX_GOAL_ID_LENGTH) return null;
-
-  const topic = raw.topic === null || raw.topic === undefined ? null : raw.topic;
-  if (topic !== null && (typeof topic !== 'string' || !topic || topic.length > MAX_TOPIC_LENGTH)) return null;
-
-  const period = raw.period;
-  if (period !== 'daily' && period !== 'weekly' && period !== 'monthly') return null;
-
-  const targetS = raw.targetS;
-  if (typeof targetS !== 'number' || !Number.isInteger(targetS)) return null;
-  if (targetS < MIN_TARGET_S || targetS > maxTargetSFor(period)) return null;
-
-  // createdAt only affects sort order (goalMerge.ts's tiebreak, and this
-  // module's own display sort), so a missing/malformed value falls back to
-  // `nowMs` -- worst case a corrupt entry sorts as if created "just now",
-  // which is a cosmetic ordering nit, not a data-integrity problem.
-  const createdAt = typeof raw.createdAt === 'number' && Number.isFinite(raw.createdAt) ? raw.createdAt : nowMs;
-  // updatedAt is load-bearing for goalMerge.ts's last-write-wins compare, so
-  // it must fail CLOSED, not open: falling back to `nowMs` here would make a
-  // clockless entry -- exactly the kind of malformed record this function
-  // exists to catch -- automatically win every LWW compare against a real,
-  // legitimately-newer edit on the other side, since `nowMs` is the largest
-  // plausible clock value at sanitize time. Falling back to 0 instead means
-  // a clockless entry always LOSES a compare against any genuine edit
-  // (whose updatedAt is a real epoch ms, necessarily > 0), which is the safe
-  // direction for a value crossing this trust boundary.
-  const updatedAt = typeof raw.updatedAt === 'number' && Number.isFinite(raw.updatedAt) ? raw.updatedAt : 0;
-
-  // Anything other than a literal `true` is treated as not-archived -- an
-  // untrusted source writing a truthy-but-wrong-typed value (e.g. "true",
-  // the string) should not accidentally tombstone a goal.
-  const archived = raw.archived === true;
-
-  // The four "flexible goals" extension fields, each hardened
-  // independently: unlike id/topic/period/targetS above, an invalid value
-  // for any ONE of these never rejects the whole goal -- it's simply
-  // dropped (comes back as `undefined`, exactly the old-shape case), same
-  // "recoverable, so don't nuke the whole record over it" reasoning
-  // createdAt/archived get above, just with "drop the field" standing in
-  // for "coerce to a safe default" (there IS no safe default for e.g. a
-  // malformed notifyAt to coerce TO). This is also what makes an old-shape
-  // input -- one with none of these keys at all -- sail through unchanged:
-  // every one of the four checks below simply doesn't match and leaves the
-  // corresponding local `undefined`.
-  const daysOfWeek =
-    period === 'daily' && Array.isArray(raw.daysOfWeek) && raw.daysOfWeek.every((d) => Number.isInteger(d) && d >= 0 && d <= 6)
-      ? normalizeDaysOfWeek(raw.daysOfWeek as number[])
-      : undefined;
-
-  const targetSessions =
-    typeof raw.targetSessions === 'number' &&
-    Number.isInteger(raw.targetSessions) &&
-    raw.targetSessions >= 1 &&
-    raw.targetSessions <= MAX_TARGET_SESSIONS
-      ? raw.targetSessions
-      : undefined;
-
-  const notify = raw.notify === true ? true : raw.notify === false ? false : undefined;
-
-  const notifyAt = typeof raw.notifyAt === 'string' && NOTIFY_AT_RE.test(raw.notifyAt) ? raw.notifyAt : undefined;
-
-  return {
-    id,
-    topic,
-    period,
-    targetS,
-    createdAt,
-    updatedAt,
-    archived,
-    ...(daysOfWeek !== undefined ? { daysOfWeek } : {}),
-    ...(targetSessions !== undefined ? { targetSessions } : {}),
-    ...(notify !== undefined ? { notify } : {}),
-    ...(notifyAt !== undefined ? { notifyAt } : {}),
-  };
-}
-
-/**
- * Hardens an arbitrary/untrusted array (a Firestore `goals` field, or
- * anything the dashboard might write) into a valid Goal[]: wrong types,
- * missing fields, over-length strings, and out-of-range targets are dropped
- * per-entry by sanitizeOneGoal; duplicate ids are resolved by the same
- * greater-updatedAt-wins rule goalMerge.ts uses (tie -> first occurrence, so
- * this stays a pure function of its input order); and the result is capped
- * to MAX_GOALS, keeping input order, so a corrupted or maliciously oversized
- * remote array can never blow past this device's own cap. This is the one
- * choke point sync code should push a remote `goals` array through before
- * treating it as trustworthy -- see this file's header comment. */
-export function sanitizeRemoteGoals(input: unknown, nowMs: number = Date.now()): Goal[] {
-  if (!Array.isArray(input)) return [];
-
-  const byId = new Map<string, Goal>();
-  const order: string[] = [];
-  for (const raw of input) {
-    const goal = sanitizeOneGoal(raw, nowMs);
-    if (!goal) continue;
-    const existing = byId.get(goal.id);
-    if (!existing) {
-      order.push(goal.id);
-      byId.set(goal.id, goal);
-    } else if (goal.updatedAt > existing.updatedAt) {
-      byId.set(goal.id, goal); // keep order position of the first occurrence, just replace its value
-    }
-  }
-
-  return order.slice(0, MAX_GOALS).map((id) => byId.get(id)!);
 }

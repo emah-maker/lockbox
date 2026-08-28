@@ -35,7 +35,11 @@ import {
   archiveGoal as archiveGoalIn,
   pruneArchivedGoals,
 } from '../goals/goals';
-import { syncGoalNotifications } from '../goals/goalNotifications';
+// Goes through the bridge rather than calling syncGoalNotifications
+// directly: the reminder plan now depends on the user's global notification
+// prefs and on each goal's current progress, neither of which this store
+// has any business knowing about. See goalNotificationBridge.ts's header.
+import { resyncGoalNotifications } from '../goals/goalNotificationBridge';
 
 const GOALS_KEY = 'focusGoals';
 const GOALS_UPDATED_AT_KEY = 'goalsUpdatedAt';
@@ -86,10 +90,9 @@ function persist(set: (partial: Partial<GoalsState>) => void, goals: Goal[], upd
   set({ goals: pruned, goalsUpdatedAt: updatedAt });
   setJSON(GOALS_KEY, pruned);
   setJSON(GOALS_UPDATED_AT_KEY, updatedAt);
-  // Fire-and-forget: syncGoalNotifications never throws (see its own
-  // header), but `void` makes it explicit at every call site that nothing
-  // here awaits or otherwise gates on the OS's notification scheduler.
-  void syncGoalNotifications(pruned);
+  // Fire-and-forget: this never throws and nothing here awaits or otherwise
+  // gates on the OS's notification scheduler (see goalNotifications.ts).
+  resyncGoalNotifications(pruned);
 }
 
 export const useGoalsStore = create<GoalsState>((set, get) => ({
@@ -104,7 +107,7 @@ export const useGoalsStore = create<GoalsState>((set, get) => ({
       getJSON<number>(GOALS_UPDATED_AT_KEY, 0),
     ]);
     set({ hydrated: true, goals, goalsUpdatedAt });
-    void syncGoalNotifications(goals);
+    resyncGoalNotifications(goals);
   },
 
   addGoal: (topic, period, targetS, extra) => {

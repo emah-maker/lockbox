@@ -102,6 +102,25 @@ interface SettingsState {
   // non-syncable-settings treatment as ringSourceKind/ringBaselineWindow --
   // a picked goal id is this device's own view choice, not account state.
   ringGoalId: string | null;
+  // Local-only per-device NOTIFICATION preferences (goals/
+  // goalNotificationPlan.ts's NotificationPrefs, surfaced in Settings >
+  // Notifications). Same non-synced category as ringSourceKind/
+  // ringBaselineWindow above and for a sharper version of the same reason:
+  // whether THIS phone should buzz, and when it should stay quiet, is a
+  // property of the device sitting on your nightstand, not of the account.
+  // Syncing quiet hours to a tablet in another timezone would be actively
+  // wrong. Explicitly NOT SyncableSettings fields and NOT touched by
+  // resetSyncableSettings/applyRemoteSettings.
+  //
+  // notificationsEnabled is a MASTER switch over every goal's own `notify`:
+  // off means nothing is scheduled at all, without editing (or losing) any
+  // individual goal's reminder configuration.
+  notificationsEnabled: boolean;
+  quietHoursEnabled: boolean;
+  /** 'HH:MM' local. The range may wrap past midnight (the usual case) --
+   * goalNotificationPlan.ts's isInQuietHours owns that arithmetic. */
+  quietStart: string;
+  quietEnd: string;
 
   hydrate: () => Promise<void>;
   setThemeMode: (mode: ThemeMode) => void;
@@ -112,6 +131,9 @@ interface SettingsState {
   setRingBaselineWindow: (w: RingBaselineWindow) => void;
   setRingSourceKind: (k: RingSourceKind) => void;
   setRingGoalId: (id: string | null) => void;
+  setNotificationsEnabled: (on: boolean) => void;
+  setQuietHoursEnabled: (on: boolean) => void;
+  setQuietHours: (start: string, end: string) => void;
   addCustomLabel: (name: string, color: string) => void;
   renameCustomLabel: (id: string, name: string) => void;
   removeCustomLabel: (id: string) => void;
@@ -140,6 +162,10 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   ringBaselineWindow: 'week',
   ringSourceKind: 'auto',
   ringGoalId: null,
+  notificationsEnabled: true,
+  quietHoursEnabled: false,
+  quietStart: '22:00',
+  quietEnd: '07:00',
 
   hydrate: async () => {
     if (get().hydrated) return;
@@ -154,6 +180,10 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       ringBaselineWindow,
       ringSourceKind,
       ringGoalId,
+      notificationsEnabled,
+      quietHoursEnabled,
+      quietStart,
+      quietEnd,
     ] = await Promise.all([
       getJSON<ThemeMode>('themeMode', SYNCABLE_SETTINGS_DEFAULTS.themeMode),
       getJSON<AccentKey>('accent', SYNCABLE_SETTINGS_DEFAULTS.accent),
@@ -165,6 +195,10 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       getJSON<RingBaselineWindow>('ringBaselineWindow', 'week'),
       getJSON<RingSourceKind>('ringSourceKind', 'auto'),
       getJSON<string | null>('ringGoalId', null),
+      getJSON<boolean>('notificationsEnabled', true),
+      getJSON<boolean>('quietHoursEnabled', false),
+      getJSON<string>('quietStart', '22:00'),
+      getJSON<string>('quietEnd', '07:00'),
     ]);
     set({
       hydrated: true,
@@ -178,6 +212,10 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       ringBaselineWindow,
       ringSourceKind,
       ringGoalId,
+      notificationsEnabled,
+      quietHoursEnabled,
+      quietStart,
+      quietEnd,
     });
   },
 
@@ -237,6 +275,27 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     // own interface comment.
     set({ ringGoalId: id });
     setJSON('ringGoalId', id);
+  },
+
+  setNotificationsEnabled: (on) => {
+    // Deliberately not part of settingsUpdatedAt/sync -- see this field's
+    // own interface comment.
+    set({ notificationsEnabled: on });
+    setJSON('notificationsEnabled', on);
+  },
+
+  setQuietHoursEnabled: (on) => {
+    set({ quietHoursEnabled: on });
+    setJSON('quietHoursEnabled', on);
+  },
+
+  setQuietHours: (start, end) => {
+    // Written as a pair, never independently: a half-applied range (a new
+    // start against the old end) is a real, reachable window that would
+    // silence reminders the user never meant to silence.
+    set({ quietStart: start, quietEnd: end });
+    setJSON('quietStart', start);
+    setJSON('quietEnd', end);
   },
 
   addCustomLabel: (name, color) => {

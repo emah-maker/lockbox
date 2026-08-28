@@ -64,7 +64,11 @@ describe('goalNotificationRequests (pure -- no native module involved)', () => {
     const requests = goalNotificationRequests(goal({ period: 'daily', notify: true, notifyAt: '08:30' }));
     expect(requests).toHaveLength(1);
     expect(requests[0]).toMatchObject({
-      identifier: 'goal-notif:goal:a:daily',
+      // The trailing ':0830' is the reminder TIME slot -- part of every
+      // identifier since a goal gained multiple reminder times, which would
+      // otherwise all collide on one id and leave a single surviving
+      // schedule (see GoalNotificationRequest.identifier).
+      identifier: 'goal-notif:goal:a:daily:0830',
       trigger: { kind: 'daily', hour: 8, minute: 30 },
     });
   });
@@ -185,7 +189,7 @@ describe('syncGoalNotifications', () => {
     await syncGoalNotifications([goal({ notify: true, notifyAt: '09:00' })]);
     expect(mockScheduleNotificationAsync).toHaveBeenCalledTimes(1);
     const call = mockScheduleNotificationAsync.mock.calls[0][0];
-    expect(call.identifier).toBe('goal-notif:goal:a:daily');
+    expect(call.identifier).toBe('goal-notif:goal:a:daily:0900');
     expect(call.trigger).toEqual({ type: 'daily', hour: 9, minute: 0 });
   });
 

@@ -25,6 +25,8 @@ import { startSessionsSyncBridge } from './src/sync/sessionsSyncBridge';
 import { startGoalsSyncBridge } from './src/sync/goalsSyncBridge';
 import { useBatteryStore } from './src/battery/useBatteryStore';
 import { startBatterySampling } from './src/battery/batterySamplingBridge';
+import { ensureNotificationSetup } from './src/goals/goalNotifications';
+import { startGoalNotificationBridge } from './src/goals/goalNotificationWatch';
 import { AnimatedPressable } from './src/ui/AnimatedPressable';
 import { StatusStrip } from './src/ui/StatusStrip';
 import { useReducedMotion, configureLayoutAnimation } from './src/ui/useReducedMotion';
@@ -99,6 +101,18 @@ export default function App() {
     startSettingsSyncBridge();
     startSessionsSyncBridge();
     startGoalsSyncBridge();
+
+    // Goal reminders. ensureNotificationSetup() registers the foreground
+    // presentation handler and the Android channel -- WITHOUT it a scheduled
+    // reminder fires and is silently discarded, which is why per-goal
+    // reminders appeared to do nothing at all. Called here (not only from
+    // the scheduler) so a reminder arriving before the first goal mutation
+    // of the session is still presentable. startGoalNotificationBridge()
+    // then keeps the scheduled set in step with logged sessions and the
+    // global notification prefs -- see that module's header for why goal
+    // mutations alone are no longer a sufficient trigger.
+    void ensureNotificationSetup();
+    startGoalNotificationBridge();
 
     // Foundation module (app/modules/background-wake) fires this once, early,
     // on any cold launch the OS performed for a background reason --

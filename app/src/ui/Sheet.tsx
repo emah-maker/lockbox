@@ -188,6 +188,12 @@ export function Sheet({
             style={styles.body}
             contentContainerStyle={styles.bodyContent}
             scrollEnabled={scrollEnabled}
+            // A sheet body that contains a TextInput (TopicPicker's one-time
+            // tag field, CustomLabelsSection's name field) would otherwise
+            // swallow the first tap on any button beside it -- the tap only
+            // dismisses the keyboard. 'handled' lets the child's own press
+            // win while a plain tap on empty body space still dismisses.
+            keyboardShouldPersistTaps="handled"
           >
             {children}
           </ScrollView>
@@ -209,6 +215,19 @@ const styles = StyleSheet.create({
   header: { alignItems: 'center', paddingTop: spacing.sm, paddingBottom: spacing.sm },
   grabber: { width: 36, height: 4, borderRadius: radius.pill, opacity: 0.4 },
   title: { ...typeScale.sectionTitle, marginTop: spacing.sm },
-  body: { flexGrow: 0 },
+  // flexShrink:1 is load-bearing, not cosmetic. RN defaults BOTH flexGrow and
+  // flexShrink to 0, so with only `flexGrow: 0` this ScrollView measured to
+  // its full CONTENT height and overflowed the sheet's own bounded height
+  // (`maxHeight` for size 'auto', a fixed `height` for 'large'). The sheet's
+  // `overflow: 'hidden'` then clipped the bottom off, and -- because the
+  // ScrollView's own frame was as tall as its content -- it believed it had
+  // nothing to scroll, so the clipped part was simply unreachable. That's
+  // what made a tall sheet (the goal form: chips + three target wheels +
+  // session stepper + reminder wheels + Save/Cancel) look like it "almost
+  // fits" while the last rows and the submit button could never be scrolled
+  // to. flexShrink:1 lets it give back the overflow, at which point it has
+  // real scrollable overflow and behaves. flexGrow stays 0 so a SHORT sheet
+  // still hugs its content instead of stretching to fill.
+  body: { flexGrow: 0, flexShrink: 1 },
   bodyContent: { paddingHorizontal: spacing.xl, paddingBottom: spacing.md },
 });

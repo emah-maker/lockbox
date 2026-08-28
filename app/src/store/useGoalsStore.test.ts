@@ -12,7 +12,14 @@
 // file only needs to confirm the STORE calls it at the right times (after
 // hydrate, after every mutation) with the right (pruned) goals array;
 // syncGoalNotifications's own scheduling/permission logic is goalNotifications.
-// test.ts's coverage, not this file's. Run with `npm test`.
+// test.ts's coverage, not this file's.
+//
+// The store reaches it through goalNotificationBridge.ts, which is NOT
+// mocked -- it's the piece that adds the global notification prefs and the
+// per-goal progress map to the call, so every assertion below matches those
+// two trailing arguments loosely (their contents are goalNotificationPlan.
+// test.ts's concern) while still pinning the goals array exactly.
+// Run with `npm test`.
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useGoalsStore } from './useGoalsStore';
 import { getJSON } from '../storage/storage';
@@ -211,12 +218,16 @@ describe('syncGoalNotifications integration', () => {
 
     await useGoalsStore.getState().hydrate();
 
-    expect(mockSyncGoalNotifications).toHaveBeenCalledWith(stored);
+    expect(mockSyncGoalNotifications).toHaveBeenCalledWith(stored, expect.any(Object), expect.any(Map));
   });
 
   it('is called after addGoal, with the post-mutation (pruned) goals array', () => {
     useGoalsStore.getState().addGoal('work', 'daily', 1800);
-    expect(mockSyncGoalNotifications).toHaveBeenCalledWith(useGoalsStore.getState().goals);
+    expect(mockSyncGoalNotifications).toHaveBeenCalledWith(
+      useGoalsStore.getState().goals,
+      expect.any(Object),
+      expect.any(Map),
+    );
   });
 
   it('is called after updateGoal', () => {
@@ -226,7 +237,11 @@ describe('syncGoalNotifications integration', () => {
 
     useGoalsStore.getState().updateGoal(id, { notify: true, notifyAt: '09:00' });
 
-    expect(mockSyncGoalNotifications).toHaveBeenCalledWith(useGoalsStore.getState().goals);
+    expect(mockSyncGoalNotifications).toHaveBeenCalledWith(
+      useGoalsStore.getState().goals,
+      expect.any(Object),
+      expect.any(Map),
+    );
   });
 
   it('is called after archiveGoal', () => {
@@ -236,16 +251,24 @@ describe('syncGoalNotifications integration', () => {
 
     useGoalsStore.getState().archiveGoal(id);
 
-    expect(mockSyncGoalNotifications).toHaveBeenCalledWith(useGoalsStore.getState().goals);
+    expect(mockSyncGoalNotifications).toHaveBeenCalledWith(
+      useGoalsStore.getState().goals,
+      expect.any(Object),
+      expect.any(Map),
+    );
   });
 
   it('is called after applyRemoteGoals and after resetGoals', () => {
     useGoalsStore.getState().applyRemoteGoals([goal('goal:a', 42)], 42);
-    expect(mockSyncGoalNotifications).toHaveBeenCalledWith(useGoalsStore.getState().goals);
+    expect(mockSyncGoalNotifications).toHaveBeenCalledWith(
+      useGoalsStore.getState().goals,
+      expect.any(Object),
+      expect.any(Map),
+    );
 
     mockSyncGoalNotifications.mockClear();
     useGoalsStore.getState().resetGoals();
-    expect(mockSyncGoalNotifications).toHaveBeenCalledWith([]);
+    expect(mockSyncGoalNotifications).toHaveBeenCalledWith([], expect.any(Object), expect.any(Map));
   });
 
   it('is never called when addGoal throws (validation failure never triggers a reschedule)', () => {
