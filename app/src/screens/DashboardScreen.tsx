@@ -44,6 +44,7 @@ import { useReducedMotion } from '../ui/useReducedMotion';
 import { useNav } from '../nav/useNav';
 import { typeScale, opacity } from '../theme/tokens';
 import { FocusHero } from './home/FocusHero';
+import { nextRingSourceKind } from './home/idleRingState';
 import { DurationSheet } from './home/DurationSheet';
 import { TagSheet } from './home/TagSheet';
 import { TodaySummary } from './home/TodaySummary';
@@ -99,6 +100,12 @@ export default function DashboardScreen() {
   const ringBaselineWindow = useSettingsStore((st) => st.ringBaselineWindow);
   const ringSourceKind = useSettingsStore((st) => st.ringSourceKind);
   const ringGoalId = useSettingsStore((st) => st.ringGoalId);
+  const ringShowTopicMix = useSettingsStore((st) => st.ringShowTopicMix);
+  // Tap-to-cycle on the hero's own source chip writes straight back to the
+  // same per-device setting Settings > Focus ring edits -- one piece of
+  // state, so the two surfaces can never disagree about which source is
+  // showing.
+  const setRingSourceKind = useSettingsStore((st) => st.setRingSourceKind);
   const goals = useGoalsStore((st) => st.goals);
   const theme = useTheme();
   const s = styles(theme);
@@ -191,6 +198,7 @@ export default function DashboardScreen() {
     ringBaselineWindow,
     ringSourceKind,
     ringGoalId,
+    ringShowTopicMix,
   });
 
   const connected = conn === 'connected';
@@ -317,6 +325,8 @@ export default function DashboardScreen() {
         todayFocusS={todayStats.foc}
         idleRing={idleRing}
         ringBaselineWindow={ringBaselineWindow}
+        ringSourceKind={ringSourceKind}
+        onCycleRingSource={() => setRingSourceKind(nextRingSourceKind(ringSourceKind))}
         onPressIdle={openDurationSheet}
         onPressTag={openTagSheet}
       />

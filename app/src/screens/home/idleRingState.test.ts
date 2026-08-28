@@ -8,6 +8,7 @@ import {
   computeRollingAverageS,
   ringSourceKindLabel,
   RING_SOURCE_KINDS,
+  nextRingSourceKind,
   type IdleRingInputs,
 } from './idleRingState';
 import type { LoggedSession } from '../../stats/sessionHistory';
@@ -40,9 +41,13 @@ function baseInputs(overrides: Partial<IdleRingInputs>): IdleRingInputs {
     dailyGoalTargetS: null,
     baselineFocusS: 0,
     weeklyGoalRatio: null,
+    monthlyGoalRatio: null,
     chosenGoalRatio: null,
     chosenGoalName: null,
     rollingAverageS: 0,
+    todaySessionCount: 0,
+    dailySessionTarget: null,
+    nowMs: NOW,
     streakCurrent: 0,
     streakLongest: 0,
     ...overrides,
@@ -241,5 +246,64 @@ describe('computeRollingAverageS', () => {
     const sessions = [1, 2, 3, 4, 5, 6, 7].map((n) => session(daysAgo(n), 600));
     sessions.push(session(daysAgo(0), 999999));
     expect(computeRollingAverageS(sessions, NOW)).toBe(600);
+  });
+});
+
+describe('the sources added after the original five', () => {
+  it("dispatches 'monthlyGoal' to the shared goal-ratio shape, and reads as empty with no such goal", () => {
+    expect(computeIdleRingState(baseInputs({ ringSource: 'monthlyGoal', monthlyGoalRatio: 0.4 }))).toEqual({
+      progress: 0.4,
+      source: 'monthlyGoal',
+    });
+    expect(computeIdleRingState(baseInputs({ ringSource: 'monthlyGoal', monthlyGoalRatio: null }))).toEqual({
+      progress: 0,
+      source: 'empty',
+    });
+  });
+
+  it("dispatches 'sessionCount' and 'pace' to their own modules", () => {
+    const counted = computeIdleRingState(
+      baseInputs({ ringSource: 'sessionCount', todaySessionCount: 3, dailySessionTarget: 4 }),
+    );
+    expect(counted.source).toBe('sessionCount');
+    expect(counted.sessionCount).toEqual({ count: 3, target: 4 });
+
+    const paced = computeIdleRingState(
+      baseInputs({ ringSource: 'pace', todayFocusS: 1800, dailyGoalTargetS: 7200, nowMs: NOW }),
+    );
+    expect(paced.source).toBe('pace');
+    expect(paced.pace).toBeDefined();
+  });
+});
+
+describe('segments ride along with every source', () => {
+  const segments = [
+    { key: 'work', fraction: 0.6, color: '#111' },
+    { key: 'read', fraction: 0.4, color: '#222' },
+  ];
+
+  it('attaches the topic mix regardless of which source produced the ring', () => {
+    for (const ringSource of RING_SOURCE_KINDS) {
+      const state = computeIdleRingState(baseInputs({ ringSource, segments }));
+      expect(state.segments).toEqual(segments);
+    }
+  });
+
+  it('leaves segments absent when the arc is off or nothing was logged', () => {
+    expect(computeIdleRingState(baseInputs({ ringSource: 'auto' })).segments).toBeUndefined();
+    expect(computeIdleRingState(baseInputs({ ringSource: 'auto', segments: [] })).segments).toBeUndefined();
+  });
+});
+
+describe('nextRingSourceKind', () => {
+  it('advances through RING_SOURCE_KINDS and wraps at the end', () => {
+    for (let i = 0; i < RING_SOURCE_KINDS.length; i++) {
+      const expected = RING_SOURCE_KINDS[(i + 1) % RING_SOURCE_KINDS.length];
+      expect(nextRingSourceKind(RING_SOURCE_KINDS[i])).toBe(expected);
+    }
+  });
+
+  it('restarts at the first entry for an unrecognized value rather than getting stuck', () => {
+    expect(nextRingSourceKind('nonsense' as never)).toBe(RING_SOURCE_KINDS[0]);
   });
 });

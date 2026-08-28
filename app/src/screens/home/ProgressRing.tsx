@@ -34,6 +34,7 @@ import React, { useEffect, useRef } from 'react';
 import { Animated, View, StyleSheet } from 'react-native';
 import Svg, { Circle, G } from 'react-native-svg';
 import { useReducedMotion } from '../../ui/useReducedMotion';
+import type { RingSegment } from './idleRingState';
 
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
@@ -55,6 +56,7 @@ export function ProgressRing({
   trackColor,
   children,
   bottomSlot,
+  segments,
 }: {
   size?: number;
   strokeWidth?: number;
@@ -79,6 +81,18 @@ export function ProgressRing({
    * gap content (there is none today, but a future bare progress ring might
    * have none) simply omits it. */
   bottomSlot?: React.ReactNode;
+  /** A second, INNER concentric arc showing today's topic mix -- each
+   * segment a contiguous slice of the same swept range the main arc uses,
+   * drawn in that topic's own color. Deliberately a separate ring rather
+   * than a recolouring of the main one: the outer arc answers "how far
+   * toward the target" and this answers "spent on what", and overloading
+   * one arc with both makes neither readable.
+   *
+   * Never animated. Its lengths are fixed for a given day's data (unlike
+   * `progress`, which re-targets continuously as a session ticks), so it's
+   * a static reveal exactly like the track -- and animating a dozen slices
+   * on every BLE status tick would be a lot of work to show nothing new. */
+  segments?: RingSegment[];
 }) {
   const reducedMotion = useReducedMotion();
   const clamped = Math.max(0, Math.min(1, progress));
@@ -105,6 +119,28 @@ export function ProgressRing({
   const sweepDegrees = 360 - gapDegrees;
   const startAngle = 90 + gapDegrees / 2;
   const arcLength = circumference * (sweepDegrees / 360);
+
+  // The topic-mix ring sits inside the main one with a small gap between
+  // them, and is drawn thinner so it reads as secondary rather than as a
+  // second equal ring competing for attention.
+  const segmentStroke = Math.max(4, strokeWidth * 0.4);
+  const segmentR = r - strokeWidth / 2 - segmentStroke / 2 - 4;
+  const segmentCircumference = 2 * Math.PI * segmentR;
+  const segmentArcLength = segmentCircumference * (sweepDegrees / 360);
+  // Each slice is drawn as its own full-circumference dash pattern offset to
+  // start where the previous one ended -- the same technique TopicDonut.tsx
+  // uses for the Stats topic ring, and the reason the running offset is
+  // accumulated here rather than derived per index.
+  let segmentOffset = 0;
+  const segmentArcs =
+    segments && segmentR > 0
+      ? segments.map((seg) => {
+          const length = segmentArcLength * Math.max(0, Math.min(1, seg.fraction));
+          const dashOffset = segmentCircumference - segmentOffset - length;
+          segmentOffset += length;
+          return { key: seg.key, color: seg.color, length, dashOffset };
+        })
+      : [];
 
   return (
     <View style={{ width: size, height: size }}>
@@ -149,6 +185,29 @@ export function ProgressRing({
               outputRange: [circumference, circumference - arcLength],
             })}
           />
+          {/* Drawn after the progress arc so a segment can never be hidden
+              under it -- they occupy different radii, but stacking order
+              still decides which wins any antialiasing overlap at the
+              boundary. */}
+          {segmentArcs.map((seg) =>
+            seg.length > 0 ? (
+              <Circle
+                key={seg.key}
+                cx={cx}
+                cy={cy}
+                r={segmentR}
+                stroke={seg.color}
+                strokeWidth={segmentStroke}
+                fill="none"
+                // Butt, not round: adjacent slices with rounded caps overlap
+                // each other by half a stroke width, which visibly eats the
+                // smaller of any two neighbours.
+                strokeLinecap="butt"
+                strokeDasharray={`${segmentCircumference} ${segmentCircumference}`}
+                strokeDashoffset={seg.dashOffset}
+              />
+            ) : null,
+          )}
         </G>
       </Svg>
       <View style={StyleSheet.absoluteFill} pointerEvents="box-none">

@@ -12,7 +12,8 @@
 import { useMemo } from 'react';
 import type { LoggedSession } from '../../stats/sessionHistory';
 import { bestDay } from '../../stats/trend';
-import { resolveTopic } from '../../stats/customLabels';
+import { resolveTopic, topicBreakdownWithCustom } from '../../stats/customLabels';
+import { groupByDay, dayKey } from '../../stats/sessionHistory';
 import { computeGoalProgress } from '../../goals/goalProgress';
 import type { Goal } from '../../goals/goals';
 import { useSettingsStore } from '../../store/useSettingsStore';
@@ -23,8 +24,10 @@ import {
   computeLongestDailyStreak,
   type IdleRingState,
   type RingBaselineWindow,
+  type RingSegment,
   type RingSourceKind,
 } from './idleRingState';
+import { todaySessionCount } from './idleRingSources';
 import type { GoalHighlight } from './TodaySummary';
 
 /** Display name for a goal's stored topic string -- same convention
@@ -54,9 +57,22 @@ export function useHomeGoalRing(params: {
   ringBaselineWindow: RingBaselineWindow;
   ringSourceKind: RingSourceKind;
   ringGoalId: string | null;
+  /** Whether to draw the topic-mix arc inside the main ring (Settings >
+   * Focus ring). Off means `segments` is simply never computed -- the
+   * breakdown pass is skipped entirely rather than computed and discarded. */
+  ringShowTopicMix: boolean;
 }): { goalHighlight: GoalHighlight | null; idleRing: IdleRingState } {
-  const { sessions, todayFocusS, goals, customLabels, themeMode, ringBaselineWindow, ringSourceKind, ringGoalId } =
-    params;
+  const {
+    sessions,
+    todayFocusS,
+    goals,
+    customLabels,
+    themeMode,
+    ringBaselineWindow,
+    ringSourceKind,
+    ringGoalId,
+    ringShowTopicMix,
+  } = params;
 
   // Every non-archived goal's current-window progress -- goalProgress.ts's
   // shared, canonical math (never reimplemented here), computed once and
@@ -99,8 +115,30 @@ export function useHomeGoalRing(params: {
   const dailyGoal = goals.find((g: Goal) => !g.archived && g.period === 'daily' && g.topic === null);
   const weeklyGoal = goals.find((g: Goal) => !g.archived && g.period === 'weekly' && g.topic === null);
   const weeklyGoalResult = weeklyGoal ? goalProgressAll.find((p) => p.goalId === weeklyGoal.id) : undefined;
+  // Same "the single untopic'd goal for that period" rule the daily/weekly
+  // lookups above use, for the same reason -- only an untopic'd goal's
+  // target is directly comparable to a plain focus total.
+  const monthlyGoal = goals.find((g: Goal) => !g.archived && g.period === 'monthly' && g.topic === null);
+  const monthlyGoalResult = monthlyGoal ? goalProgressAll.find((p) => p.goalId === monthlyGoal.id) : undefined;
   const chosenGoal = ringGoalId ? goals.find((g: Goal) => g.id === ringGoalId && !g.archived) : undefined;
   const chosenGoalResult = chosenGoal ? goalProgressAll.find((p) => p.goalId === chosenGoal.id) : undefined;
+  // Today's focus split by topic, as fractions of the day's total. Memoized
+  // separately from the ring state itself so toggling between two ring
+  // SOURCES doesn't redo the breakdown pass -- the mix is the same either
+  // way (see IdleRingState.segments). Skipped entirely when the arc is off.
+  const segments: RingSegment[] | undefined = useMemo(() => {
+    if (!ringShowTopicMix || todayFocusS <= 0) return undefined;
+    const today = groupByDay(sessions).get(dayKey(Date.now())) ?? [];
+    const breakdown = topicBreakdownWithCustom(today, customLabels, themeMode);
+    const total = breakdown.reduce((sum, b) => sum + b.focusS, 0);
+    if (total <= 0) return undefined;
+    // Already sorted largest-first by topicBreakdownWithCustom. Capped so a
+    // day spread across a dozen labels doesn't draw a dozen unreadable
+    // hairline slivers -- the remainder simply isn't drawn, which reads as
+    // the same "rest of the day" gap an under-100% ring already leaves.
+    return breakdown.slice(0, 6).map((b) => ({ key: b.key, fraction: b.focusS / total, color: b.color }));
+  }, [ringShowTopicMix, sessions, todayFocusS, customLabels, themeMode]);
+
   const idleRing = useMemo(
     () =>
       computeIdleRingState({
@@ -109,11 +147,20 @@ export function useHomeGoalRing(params: {
         dailyGoalTargetS: dailyGoal ? dailyGoal.targetS : null,
         baselineFocusS: bestDay(sessions, ringBaselineWindow)?.focusS ?? 0,
         weeklyGoalRatio: weeklyGoalResult ? weeklyGoalResult.ratio : null,
+        monthlyGoalRatio: monthlyGoalResult ? monthlyGoalResult.ratio : null,
         chosenGoalRatio: chosenGoalResult ? chosenGoalResult.ratio : null,
         chosenGoalName: chosenGoal ? describeGoalTopic(chosenGoal.topic, customLabels, themeMode) : null,
         rollingAverageS: computeRollingAverageS(sessions),
         streakCurrent: computeDailyStreak(sessions),
         streakLongest: computeLongestDailyStreak(sessions),
+        todaySessionCount: todaySessionCount(sessions, Date.now()),
+        // The daily goal's own session target -- never invented when it has
+        // none (see computeSessionCountRingProgress), which is what makes
+        // the 'sessionCount' source read as empty rather than as a
+        // meaningless fraction of a made-up number.
+        dailySessionTarget: dailyGoal?.targetSessions ?? null,
+        nowMs: Date.now(),
+        segments,
       }),
     [
       ringSourceKind,
@@ -122,10 +169,12 @@ export function useHomeGoalRing(params: {
       sessions,
       ringBaselineWindow,
       weeklyGoalResult,
+      monthlyGoalResult,
       chosenGoalResult,
       chosenGoal,
       customLabels,
       themeMode,
+      segments,
     ],
   );
 

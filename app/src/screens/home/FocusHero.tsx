@@ -33,7 +33,13 @@ import { resolveTopic } from '../../stats/customLabels';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import { ProgressRing } from './ProgressRing';
 import { BatteryBadge } from './BatteryBadge';
-import { IdleRingState, RingBaselineWindow, ringBaselineWindowLabel } from './idleRingState';
+import {
+  IdleRingState,
+  RingBaselineWindow,
+  RingSourceKind,
+  ringBaselineWindowLabel,
+  ringSourceKindLabel,
+} from './idleRingState';
 
 /** Fraction of the configured lock duration elapsed so far. Moved here
  * unchanged from DashboardScreen.tsx (where the old linear meter used the
@@ -54,6 +60,8 @@ export function FocusHero({
   todayFocusS,
   idleRing,
   ringBaselineWindow,
+  ringSourceKind,
+  onCycleRingSource,
   onPressIdle,
   onPressTag,
 }: {
@@ -81,6 +89,16 @@ export function FocusHero({
    * computed against -- used only to word the caption ("...this week" vs
    * "...this month"), never to re-derive the ring's own math. */
   ringBaselineWindow: RingBaselineWindow;
+  /** Which source the ring is currently showing -- named on the cycle chip
+   * below, so the affordance says what it will change rather than being an
+   * unlabelled mystery tap. */
+  ringSourceKind: RingSourceKind;
+  /** Advances to the next source (idleRingState.ts's nextRingSourceKind,
+   * applied by DashboardScreen against the same setting Settings > Focus
+   * ring edits). Changing what the ring measures used to require leaving
+   * Home for Settings, which is far too much ceremony for a view toggle
+   * you'd want to flick through while looking at the ring itself. */
+  onCycleRingSource: () => void;
   /** Opens the duration+tag sheet. Called for every non-running state (no
    * box, closed, and both idle-ring states) -- duration preview and
    * pre-session tagging are both meaningful right up until a session is
@@ -132,9 +150,16 @@ export function FocusHero({
   // count), and this is the one place that wording is written.
   let headline: string;
   let caption: string;
+  // A third, smaller line inside the ring -- the concrete numbers behind the
+  // caption's percentage (the target you're working toward, what's left, how
+  // many sessions). Left null for the states where there is no second number
+  // worth showing, in which case nothing renders and the ring's centre keeps
+  // its original two-line layout exactly.
+  let detail: string | null = null;
   if (running && status) {
     headline = formatDuration(status.rem);
     caption = 'left';
+    detail = status.set > 0 ? `of ${formatDuration(status.set)}` : null;
   } else if (!connected) {
     headline = 'Connect your box';
     caption = 'Connect to preview and start a session';
@@ -152,12 +177,37 @@ export function FocusHero({
     const { current, longest } = idleRing.streak ?? { current: 0, longest: 0 };
     headline = `${current}-day streak`;
     caption = longest > current ? `Best: ${longest} days` : current > 0 ? 'Your best streak yet' : 'Start one today';
+    detail = formatDuration(todayFocusS) === '0m' ? null : `${formatDuration(todayFocusS)} today`;
+  } else if (idleRing.source === 'sessionCount') {
+    // A count against a count, so like the streak above this reads as the
+    // raw numbers rather than as a duration with a percentage under it.
+    const { count, target } = idleRing.sessionCount ?? { count: 0, target: 0 };
+    headline = `${count}/${target}`;
+    caption = count === 1 ? 'session today' : 'sessions today';
+    detail = count >= target ? 'Target reached' : `${target - count} to go`;
+  } else if (idleRing.source === 'pace') {
+    // 100% here means "exactly on pace", not "goal met" -- so the caption
+    // says ahead/behind rather than a bare percentage, which would read as
+    // completion and be badly misleading at, say, 40% at 9am.
+    const { expectedS, actualS } = idleRing.pace ?? { expectedS: 0, actualS: 0 };
+    headline = formatDuration(todayFocusS);
+    if (expectedS <= 0) {
+      caption = 'Nothing expected yet today';
+      detail = null;
+    } else {
+      const diffS = actualS - expectedS;
+      caption = diffS >= 0 ? 'ahead of pace' : 'behind pace';
+      detail = `${formatDuration(Math.abs(diffS))} · expected ${formatDuration(expectedS)}`;
+    }
   } else {
     headline = formatDuration(todayFocusS);
     const pct = Math.round(idleRing.progress * 100);
     switch (idleRing.source) {
       case 'weeklyGoal':
         caption = `${pct}% of your weekly goal`;
+        break;
+      case 'monthlyGoal':
+        caption = `${pct}% of your monthly goal`;
         break;
       case 'chosenGoal':
         caption = `${pct}% of ${idleRing.chosenGoalName ?? 'your goal'}`;
@@ -170,6 +220,16 @@ export function FocusHero({
         break;
       default: // 'baseline'
         caption = `${pct}% of your best day ${ringBaselineWindowLabel(ringBaselineWindow)}`;
+    }
+    // Every branch above is "today's focus time as a percentage of some
+    // comparison" -- the one number none of them shows is the comparison
+    // itself, which is exactly what makes a bare "62%" hard to act on.
+    if (idleRing.progress > 0) {
+      const comparisonS = todayFocusS / idleRing.progress;
+      detail =
+        idleRing.progress >= 1
+          ? `${formatDuration(todayFocusS - comparisonS)} past ${formatDuration(comparisonS)}`
+          : `${formatDuration(comparisonS - todayFocusS)} to go`;
     }
   }
 
@@ -203,6 +263,10 @@ export function FocusHero({
           // reserved space never causes a layout jump while `status` is
           // briefly null (e.g. right after a disconnect).
           bottomSlot={<BatteryBadge pct={status?.bat ?? -1} />}
+          // Today's topic mix as an inner arc. Passed for every state
+          // including a running session -- what today was spent on doesn't
+          // stop being true while the next session counts down.
+          segments={idleRing.segments}
         >
           <Text style={[styles.headline, { color: theme.text }]} numberOfLines={1} adjustsFontSizeToFit>
             {headline}
@@ -210,7 +274,32 @@ export function FocusHero({
           <Text style={[styles.caption, { color: theme.textDim }]} numberOfLines={2}>
             {caption}
           </Text>
+          {detail ? (
+            <Text style={[styles.detail, { color: theme.textDim }]} numberOfLines={1}>
+              {detail}
+            </Text>
+          ) : null}
         </ProgressRing>
+
+        {/* Tap-to-cycle for what the ring measures. Its own target rather
+            than a gesture on the ring itself: the ring's press is already
+            the screen's primary action (open the duration sheet, or retag a
+            running session), and overloading it with a view toggle would
+            make the main action unpredictable. Hidden while a session runs
+            -- the ring is showing the live countdown then, not a source. */}
+        {!running ? (
+          <AnimatedPressable
+            onPress={onCycleRingSource}
+            accessibilityRole="button"
+            accessibilityLabel={`Ring shows ${ringSourceKindLabel(ringSourceKind)}. Tap to show something else.`}
+            style={[styles.sourceChip, { borderColor: withAlpha(theme.textDim, 0.35) }]}
+          >
+            <Text style={[styles.sourceChipText, { color: theme.textDim }]} numberOfLines={1}>
+              {ringSourceKindLabel(ringSourceKind)}
+            </Text>
+            <Text style={[styles.sourceChipGlyph, { color: theme.textDim }]}>›</Text>
+          </AnimatedPressable>
+        ) : null}
 
         {/* Topic pill -- always reserves its row (even with empty content)
             so the hero's overall height never changes between a tagged and
@@ -236,6 +325,19 @@ const styles = StyleSheet.create({
   wrap: { alignItems: 'center', paddingVertical: 8 },
   headline: { ...typeScale.display, fontSize: 34, lineHeight: 36 },
   caption: { ...typeScale.body, textAlign: 'center', marginTop: 4, maxWidth: 150 },
+  detail: { ...typeScale.caption, textAlign: 'center', marginTop: 2, maxWidth: 150, opacity: 0.85 },
+  sourceChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 10,
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  sourceChipText: { ...typeScale.caption },
+  sourceChipGlyph: { ...typeScale.caption, fontWeight: '700' },
   topicRow: { marginTop: 14, minHeight: 28, justifyContent: 'center' },
   topicPill: { paddingVertical: 6, paddingHorizontal: 14, borderRadius: 16 },
   topicPillText: { ...typeScale.label },

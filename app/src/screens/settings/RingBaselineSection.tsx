@@ -17,12 +17,12 @@
 // shape AccountSettingsSection.tsx and friends already use elsewhere in
 // Settings, just not one this file itself had needed until now.
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, Switch } from 'react-native';
 import { useTheme } from '../../theme/useTheme';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import { useGoalsStore } from '../../store/useGoalsStore';
 import { resolveTopic } from '../../stats/customLabels';
-import { Section, rowLabelStyle, captionStyle } from '../SettingsPrimitives';
+import { Section, Row, rowLabelStyle, captionStyle } from '../SettingsPrimitives';
 import { Chip } from './ChipPicker';
 import {
   RingBaselineWindow,
@@ -72,8 +72,16 @@ export function RingBaselineSection({
   const setRingGoalId = useSettingsStore((s) => s.setRingGoalId);
   const customLabels = useSettingsStore((s) => s.customLabels);
   const themeMode = useSettingsStore((s) => s.themeMode);
+  const ringShowTopicMix = useSettingsStore((s) => s.ringShowTopicMix);
+  const setRingShowTopicMix = useSettingsStore((s) => s.setRingShowTopicMix);
   const goals = useGoalsStore((s) => s.goals);
   const activeGoals = goals.filter((g) => !g.archived);
+  // The two newest sources both read off the untopic'd DAILY goal -- 'pace'
+  // needs its target to know what to expect by now, 'sessionCount' needs its
+  // Goal.targetSessions. Neither invents a number when it's missing (see
+  // idleRingSources.ts), so the ring would just sit empty; saying so here is
+  // better than letting the user pick a source that silently shows nothing.
+  const dailyGoal = activeGoals.find((g) => g.period === 'daily' && g.topic === null);
 
   return (
     <Section title="Focus ring" subtitle="What the Home ring fills toward while nothing is running" color={color}>
@@ -101,6 +109,18 @@ export function RingBaselineSection({
         </View>
       ) : null}
 
+      {ringSourceKind === 'pace' && !dailyGoal ? (
+        <Text style={[styles.hint, { color: color.textDim, marginTop: 4 }]}>
+          Pace needs a daily goal for all focus time -- add one on the Stats tab and this will start filling.
+        </Text>
+      ) : null}
+
+      {ringSourceKind === 'sessionCount' && !dailyGoal?.targetSessions ? (
+        <Text style={[styles.hint, { color: color.textDim, marginTop: 4 }]}>
+          Session count needs a daily goal with "Also track session count" turned on -- set that on the goal itself.
+        </Text>
+      ) : null}
+
       {ringSourceKind === 'chosenGoal' ? (
         activeGoals.length > 0 ? (
           <View>
@@ -119,6 +139,17 @@ export function RingBaselineSection({
           </Text>
         )
       ) : null}
+      <Row label="Show today's topic mix" color={color}>
+        <Switch
+          value={ringShowTopicMix}
+          onValueChange={setRingShowTopicMix}
+          accessibilityLabel="Show today's topic mix on the ring"
+        />
+      </Row>
+      <Text style={[styles.hint, { color: color.textDim }]}>
+        Draws a second, thinner arc inside the ring, split by what today's focus time was actually spent on. It's
+        independent of the choice above -- the mix answers a different question from whatever the outer ring measures.
+      </Text>
     </Section>
   );
 }

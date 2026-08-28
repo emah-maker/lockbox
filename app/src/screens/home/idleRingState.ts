@@ -11,6 +11,11 @@
 //   - 'rollingAverage': today's focus time against the trailing 7-day
 //     average (today excluded from the average itself).
 //   - 'streak': the current daily streak against the longest one on record.
+//   - 'monthlyGoal': progress toward the single untopic'd monthly goal.
+//   - 'sessionCount': today's session count against the daily goal's own
+//     Goal.targetSessions.
+//   - 'pace': today's focus time against how much of the daily goal you'd
+//     expect to have done by this hour -- see idleRingSources.ts.
 // Kept dependency-free of React/stores (no React, no store reads) so it's
 // unit-testable the same way stats/trend.ts's bestDay is, and so FocusHero
 // itself stays a pure render of whatever DashboardScreen computed -- every
@@ -22,6 +27,9 @@
 // just one more pure module reused instead of re-derived.
 import { groupByDay, dayKey, type LoggedSession } from '../../stats/sessionHistory';
 import { lastNDays } from '../../stats/trend';
+// The three sources added after the original five live next door -- see
+// idleRingSources.ts's header for why.
+import { computeSessionCountRingProgress, computePaceRingProgress } from './idleRingSources';
 
 export type RingBaselineWindow = 'week' | 'month' | 'year' | 'all';
 
@@ -29,9 +37,12 @@ export type RingProgressSource =
   | 'goal'
   | 'baseline'
   | 'weeklyGoal'
+  | 'monthlyGoal'
   | 'chosenGoal'
   | 'rollingAverage'
   | 'streak'
+  | 'sessionCount'
+  | 'pace'
   | 'empty';
 
 export interface IdleRingState {
@@ -52,6 +63,32 @@ export interface IdleRingState {
    * never does" convention ringBaselineWindowLabel below and every other
    * caption helper in this app already follows. */
   chosenGoalName?: string;
+  /** Only present when source === 'sessionCount' -- a count against a count,
+   * which no more reads as a percentage than a streak does, so FocusHero
+   * needs the exact numbers (see `streak` above, same reasoning). */
+  sessionCount?: { count: number; target: number };
+  /** Only present when source === 'pace' -- seconds expected by now vs.
+   * seconds actually done, so the caption can say how far ahead or behind
+   * you are in real time rather than only as a ratio. */
+  pace?: { expectedS: number; actualS: number };
+  /** Today's focus time split by topic, largest first, as fractions of the
+   * day's total -- drawn by ProgressRing as a second concentric arc inside
+   * the main one. Independent of `source`: the mix is a different question
+   * from whatever the outer ring is measuring, which is exactly why it can
+   * be shown alongside any of them. Absent when the user has the segment
+   * ring switched off, or when nothing has been logged today. */
+  segments?: RingSegment[];
+}
+
+/** One topic's share of today's focus time. `color` is resolved by the
+ * caller (useHomeGoalRing, via stats/customLabels.ts), the same "caller
+ * resolves display values, this module never does" convention
+ * chosenGoalName follows. */
+export interface RingSegment {
+  key: string;
+  /** 0..1 share of the day's total. The set sums to <= 1. */
+  fraction: number;
+  color: string;
 }
 
 /**
@@ -115,9 +152,39 @@ export function ringBaselineWindowLabel(w: RingBaselineWindow): string {
  * RingBaselineSection.tsx) -- distinct from RingProgressSource above, which
  * is this module's own computed RESULT tag (e.g. 'auto' always resolves to
  * either 'goal', 'baseline', or 'empty', never a literal 'auto' result). */
-export type RingSourceKind = 'auto' | 'weeklyGoal' | 'chosenGoal' | 'rollingAverage' | 'streak';
+export type RingSourceKind =
+  | 'auto'
+  | 'weeklyGoal'
+  | 'monthlyGoal'
+  | 'chosenGoal'
+  | 'rollingAverage'
+  | 'streak'
+  | 'sessionCount'
+  | 'pace';
 
-export const RING_SOURCE_KINDS: RingSourceKind[] = ['auto', 'weeklyGoal', 'chosenGoal', 'rollingAverage', 'streak'];
+// Also the order the Home ring's own tap-to-cycle steps through (FocusHero's
+// source chip), so this array is the single place that order is decided --
+// Settings' chip row and the on-screen cycle can never disagree about what
+// comes next.
+export const RING_SOURCE_KINDS: RingSourceKind[] = [
+  'auto',
+  'weeklyGoal',
+  'monthlyGoal',
+  'chosenGoal',
+  'rollingAverage',
+  'streak',
+  'sessionCount',
+  'pace',
+];
+
+/** The next source in RING_SOURCE_KINDS, wrapping at the end -- what
+ * FocusHero's tap-to-cycle affordance advances to. An unrecognized current
+ * value (a stale persisted string) restarts at the first entry rather than
+ * getting stuck. */
+export function nextRingSourceKind(current: RingSourceKind): RingSourceKind {
+  const i = RING_SOURCE_KINDS.indexOf(current);
+  return RING_SOURCE_KINDS[(i + 1) % RING_SOURCE_KINDS.length];
+}
 
 export function ringSourceKindLabel(k: RingSourceKind): string {
   switch (k) {
@@ -125,12 +192,18 @@ export function ringSourceKindLabel(k: RingSourceKind): string {
       return 'Daily goal / best day';
     case 'weeklyGoal':
       return 'Weekly goal';
+    case 'monthlyGoal':
+      return 'Monthly goal';
     case 'chosenGoal':
       return 'A specific goal';
     case 'rollingAverage':
       return '7-day average';
     case 'streak':
       return 'Streak';
+    case 'sessionCount':
+      return 'Session count';
+    case 'pace':
+      return 'On pace today';
   }
 }
 
@@ -145,7 +218,7 @@ export function ringSourceKindLabel(k: RingSourceKind): string {
  * broken 0%. */
 function computeGoalRatioRingProgress(
   ratio: number | null,
-  source: 'weeklyGoal' | 'chosenGoal',
+  source: 'weeklyGoal' | 'monthlyGoal' | 'chosenGoal',
   chosenGoalName?: string | null,
 ): IdleRingState {
   if (ratio == null) return { progress: 0, source: 'empty' };
@@ -196,6 +269,10 @@ export interface IdleRingInputs {
    * ratio (goals/goalProgress.ts's GoalProgressResult.ratio), or null if no
    * such goal exists. */
   weeklyGoalRatio: number | null;
+  /** 'monthlyGoal' source only -- the untopic'd monthly goal's
+   * current-window ratio, or null if no such goal exists. Same shape and
+   * same treatment as weeklyGoalRatio above. */
+  monthlyGoalRatio: number | null;
   /** 'chosenGoal' source only -- the user's picked goal's current-window
    * ratio, or null if none is picked or the picked one no longer exists
    * (archived/deleted). */
@@ -210,6 +287,21 @@ export interface IdleRingInputs {
   streakCurrent: number;
   /** 'streak' source only -- see computeLongestDailyStreak below. */
   streakLongest: number;
+  /** 'sessionCount' source only -- sessions logged today
+   * (idleRingSources.ts's todaySessionCount). */
+  todaySessionCount: number;
+  /** 'sessionCount' source only -- the daily goal's own Goal.targetSessions,
+   * or null when it has none. Never invented (see
+   * computeSessionCountRingProgress). */
+  dailySessionTarget: number | null;
+  /** 'pace' source only -- the current time, so the day's elapsed fraction
+   * can be computed. Passed in rather than read via Date.now() here, same as
+   * every other time input in this module. */
+  nowMs: number;
+  /** Today's topic mix, already resolved to colors by the caller. Passed
+   * through to the result unchanged for EVERY source -- see
+   * IdleRingState.segments for why it's independent of the source. */
+  segments?: RingSegment[];
 }
 
 /** Single entry point DashboardScreen calls to get the idle ring's state,
@@ -217,9 +309,24 @@ export interface IdleRingInputs {
  * of the pure per-source functions above/below -- this function itself is
  * just the switch, so each source's own math stays independently testable. */
 export function computeIdleRingState(inputs: IdleRingInputs): IdleRingState {
+  // The topic-mix arc rides along with whatever the dispatcher returns
+  // rather than being a source of its own -- it answers a different question
+  // (what today was spent ON) from the outer ring (how today compares to a
+  // target), so the two are shown together, not instead of each other.
+  const state = dispatchIdleRingState(inputs);
+  return inputs.segments && inputs.segments.length > 0 ? { ...state, segments: inputs.segments } : state;
+}
+
+function dispatchIdleRingState(inputs: IdleRingInputs): IdleRingState {
   switch (inputs.ringSource) {
     case 'weeklyGoal':
       return computeGoalRatioRingProgress(inputs.weeklyGoalRatio, 'weeklyGoal');
+    case 'monthlyGoal':
+      return computeGoalRatioRingProgress(inputs.monthlyGoalRatio, 'monthlyGoal');
+    case 'sessionCount':
+      return computeSessionCountRingProgress(inputs.todaySessionCount, inputs.dailySessionTarget);
+    case 'pace':
+      return computePaceRingProgress(inputs.todayFocusS, inputs.dailyGoalTargetS, inputs.nowMs);
     case 'chosenGoal':
       return computeGoalRatioRingProgress(inputs.chosenGoalRatio, 'chosenGoal', inputs.chosenGoalName);
     case 'rollingAverage':

@@ -102,6 +102,13 @@ interface SettingsState {
   // non-syncable-settings treatment as ringSourceKind/ringBaselineWindow --
   // a picked goal id is this device's own view choice, not account state.
   ringGoalId: string | null;
+  // Local-only per-device VIEW preference, same category and reasoning as
+  // ringSourceKind/ringGoalId above: whether the Home ring draws a second,
+  // inner arc showing what today's focus time was actually spent ON (see
+  // screens/home/idleRingState.ts's RingSegment). Independent of
+  // ringSourceKind -- the mix answers a different question from whatever
+  // the outer ring measures, so it can be shown alongside any source.
+  ringShowTopicMix: boolean;
   // Local-only per-device NOTIFICATION preferences (goals/
   // goalNotificationPlan.ts's NotificationPrefs, surfaced in Settings >
   // Notifications). Same non-synced category as ringSourceKind/
@@ -131,6 +138,7 @@ interface SettingsState {
   setRingBaselineWindow: (w: RingBaselineWindow) => void;
   setRingSourceKind: (k: RingSourceKind) => void;
   setRingGoalId: (id: string | null) => void;
+  setRingShowTopicMix: (on: boolean) => void;
   setNotificationsEnabled: (on: boolean) => void;
   setQuietHoursEnabled: (on: boolean) => void;
   setQuietHours: (start: string, end: string) => void;
@@ -162,6 +170,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   ringBaselineWindow: 'week',
   ringSourceKind: 'auto',
   ringGoalId: null,
+  ringShowTopicMix: true,
   notificationsEnabled: true,
   quietHoursEnabled: false,
   quietStart: '22:00',
@@ -180,6 +189,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       ringBaselineWindow,
       ringSourceKind,
       ringGoalId,
+      ringShowTopicMix,
       notificationsEnabled,
       quietHoursEnabled,
       quietStart,
@@ -195,6 +205,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       getJSON<RingBaselineWindow>('ringBaselineWindow', 'week'),
       getJSON<RingSourceKind>('ringSourceKind', 'auto'),
       getJSON<string | null>('ringGoalId', null),
+      getJSON<boolean>('ringShowTopicMix', true),
       getJSON<boolean>('notificationsEnabled', true),
       getJSON<boolean>('quietHoursEnabled', false),
       getJSON<string>('quietStart', '22:00'),
@@ -212,6 +223,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       ringBaselineWindow,
       ringSourceKind,
       ringGoalId,
+      ringShowTopicMix,
       notificationsEnabled,
       quietHoursEnabled,
       quietStart,
@@ -275,6 +287,13 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     // own interface comment.
     set({ ringGoalId: id });
     setJSON('ringGoalId', id);
+  },
+
+  setRingShowTopicMix: (on) => {
+    // Deliberately not part of settingsUpdatedAt/sync -- see this field's
+    // own interface comment.
+    set({ ringShowTopicMix: on });
+    setJSON('ringShowTopicMix', on);
   },
 
   setNotificationsEnabled: (on) => {
