@@ -51,7 +51,7 @@ function reminderLabel(goal: Goal): string | null {
   if (!goal.notify) return null;
   const times = goalNotifyTimes(goal);
   if (times.length === 0) return null;
-  return `${times.length === 1 ? 'Reminder' : 'Reminders'} ${times.map(formatClockTime).join(', ')}`;
+  return `${times.length === 1 ? 'Reminder' : 'Reminders'} ${times.map((t) => formatClockTime(t)).join(', ')}`;
 }
 
 /** Progress bar geometry for one goal, handling the over-target case

@@ -221,7 +221,7 @@ export function GoalReminderControl({
             // muted": the whole failure this warns about is a reminder that
             // silently never arrives, so it has to say WHICH one.
             <Text style={[styles.hint, { color: color.danger }]}>
-              {suppressed.map(formatClockTime).join(', ')} {suppressed.length === 1 ? 'falls' : 'fall'} inside your quiet
+              {suppressed.map((t) => formatClockTime(t)).join(', ')} {suppressed.length === 1 ? 'falls' : 'fall'} inside your quiet
               hours and won't be sent. Change quiet hours in Settings &gt; Notifications.
             </Text>
           ) : null}
