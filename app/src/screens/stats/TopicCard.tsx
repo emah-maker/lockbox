@@ -13,7 +13,7 @@
 // This card now shares a flex:1 budget with TrendCard instead of sizing
 // itself to however many topics exist (see "every period fits one screen"
 // brief) -- the donut shrank (InteractiveTopicDonut's own size/strokeWidth
-// props, not a TopicDonut.tsx edit, which stays off limits) and only the
+// props) and only the
 // first two rows render inline; anything past that is a "See all N topics"
 // tap into a Sheet (StatsScreen's allTopicsSheetOpen) that reuses this same
 // row markup via the exported TopicRows, so the two surfaces can't drift

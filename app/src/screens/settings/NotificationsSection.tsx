@@ -23,7 +23,7 @@ import { useSettingsStore } from '../../store/useSettingsStore';
 import { getGoalNotificationPermission, requestGoalNotificationPermission } from '../../goals/goalNotifications';
 import { Section, Row, rowLabelStyle, captionStyle, Button } from '../SettingsPrimitives';
 import { WheelPicker } from '../../ui/WheelPicker';
-import { typeScale, spacing } from '../../theme/tokens';
+import { spacing } from '../../theme/tokens';
 
 const HOUR_LABELS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'));
 // Quiet-hours boundaries snap to the same 5-minute grid every other minute

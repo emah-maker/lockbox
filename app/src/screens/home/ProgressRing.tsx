@@ -2,15 +2,14 @@
 // for the Home screen's focus hero (DashboardScreen -> FocusHero) so the
 // running-session countdown reads as one calm shape instead of the old
 // screen's thin linear meter bar. Built on the exact same react-native-svg +
-// core Animated technique src/ui/TopicDonut.tsx already uses for the Stats
-// screen's topic ring (AnimatedCircle + animated strokeDashoffset, -90deg
-// rotation so the arc starts at 12 o'clock) -- kept as its own small
-// component here rather than generalizing TopicDonut itself, since
-// TopicDonut's whole reason to exist is *multiple* simultaneous segments
-// (each with a fixed final length) and this needs the opposite: one segment
-// whose length itself changes smoothly tick over tick as `progress` ticks
-// upward, which is a different animation (continuously re-targeted, like
-// AnimatedFill) rather than TopicDonut's single reveal-once sweep.
+// core Animated technique the Stats screen's topic ring uses (AnimatedCircle
+// + animated strokeDashoffset, -90deg rotation so the arc starts at 12
+// o'clock) -- kept as its own small component rather than generalizing that
+// ring, since a topic ring's whole reason to exist is *multiple* simultaneous
+// segments (each with a fixed final length) and this needs the opposite: one
+// segment whose length itself changes smoothly tick over tick as `progress`
+// ticks upward, which is a different animation (continuously re-targeted,
+// like AnimatedFill) rather than a single reveal-once sweep.
 //
 // Ring redesign (manager brief): no longer a full circle -- the bottom is
 // cut off by an open `gapDegrees`-wide gap centered on 6 o'clock, both the
@@ -128,9 +127,9 @@ export function ProgressRing({
   const segmentCircumference = 2 * Math.PI * segmentR;
   const segmentArcLength = segmentCircumference * (sweepDegrees / 360);
   // Each slice is drawn as its own full-circumference dash pattern offset to
-  // start where the previous one ended -- the same technique TopicDonut.tsx
-  // uses for the Stats topic ring, and the reason the running offset is
-  // accumulated here rather than derived per index.
+  // start where the previous one ended -- the same technique the Stats topic
+  // ring uses, and the reason the running offset is accumulated here rather
+  // than derived per index.
   let segmentOffset = 0;
   const segmentArcs =
     segments && segmentR > 0

@@ -27,7 +27,6 @@ import { Chip } from './ChipPicker';
 import {
   RingBaselineWindow,
   ringBaselineWindowLabel,
-  RingSourceKind,
   RING_SOURCE_KINDS,
   ringSourceKindLabel,
 } from '../home/idleRingState';

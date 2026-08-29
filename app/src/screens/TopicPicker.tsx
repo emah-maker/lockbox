@@ -71,7 +71,6 @@ export function TopicPicker({
   const [saveError, setSaveError] = React.useState<string | null>(null);
 
   const choices = allLabelChoices(customLabels, themeMode);
-  const choiceIds = React.useMemo(() => new Set(choices.map((ch) => ch.id)), [choices]);
 
   // Ranked over the full catalog, then resolved for display. `isRenderable`
   // is what drops a since-deleted custom label's id -- recentTopics.ts

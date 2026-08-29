@@ -42,10 +42,6 @@ try {
   nativeModule = null;
 }
 
-export function isBackgroundWakeAvailable(): boolean {
-  return !!nativeModule;
-}
-
 /** 'normal' on Android/Expo Go, or if this cold launch wasn't a background wake. */
 export function getLaunchReason(): LaunchReason {
   return nativeModule?.getLaunchReason() ?? 'normal';

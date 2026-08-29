@@ -51,11 +51,6 @@ export async function loadSessions(): Promise<LoggedSession[]> {
   return kept;
 }
 
-/** Append one completed/overridden session and persist. Returns the updated list. */
-export async function appendSession(session: LoggedSession): Promise<LoggedSession[]> {
-  return appendSessions([session]);
-}
-
 /** Append a batch (e.g. a drained box history queue) in one read/write.
  * De-duped against what's already stored by (startedAt, plannedS): the box
  * resends an un-acked `history` batch verbatim on its next connection (see

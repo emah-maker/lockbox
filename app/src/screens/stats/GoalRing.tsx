@@ -1,11 +1,10 @@
 // GoalRing.tsx -- single-goal progress ring for the Stats screen's Goals
-// period view (GoalsProgressView.tsx). Built the same way ui/TopicDonut.tsx
-// draws its multi-segment ring (react-native-svg Circle + animated
-// strokeDashoffset, no reanimated/gesture-handler) but deliberately its own
-// file rather than a TopicDonut prop variant: TopicDonut belongs to ui/,
-// which this task isn't allowed to touch, and a single-goal ring has a
-// different shape entirely (one fill arc + a track, over-target handling,
-// no per-topic segment list).
+// period view (GoalsProgressView.tsx). Built the same way the multi-segment
+// topic ring is drawn (react-native-svg Circle + animated strokeDashoffset,
+// no reanimated/gesture-handler) but deliberately its own file rather than a
+// prop variant of that ring, since a single-goal ring has a different shape
+// entirely (one fill arc + a track, over-target handling, no per-topic
+// segment list).
 //
 // Over-target handling mirrors GoalsSection.tsx's own linear-bar
 // barGeometry: ratio is deliberately unclamped upstream (goalProgress.ts's

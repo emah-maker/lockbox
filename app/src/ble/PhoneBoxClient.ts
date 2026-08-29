@@ -63,7 +63,6 @@ export class PhoneBoxClient {
     },
   });
   private device: Device | null = null;
-  private subs: Subscription[] = [];
   private alertNonce = 0;
   // The device id of a connect() / connectById() call that's still awaiting
   // the native connect promise, i.e. before it has landed in `this.device`.
@@ -161,10 +160,8 @@ export class PhoneBoxClient {
   private async afterConnect(d: Device, cb: ClientCallbacks): Promise<void> {
     await d.discoverAllServicesAndCharacteristics();
     this.device = d;
-    // Own array per connection session, not the shared `this.subs` field --
-    // see the onDisconnected guard below for why.
+    // Own array per connection session -- see the onDisconnected guard below for why.
     const sessionSubs: Subscription[] = [];
-    this.subs = sessionSubs;
 
     d.onDisconnected(() => {
       // A native disconnect event for THIS device object can arrive after
@@ -178,7 +175,6 @@ export class PhoneBoxClient {
       // looks connected but silently stops receiving status/history.
       if (this.device !== d) return;
       sessionSubs.forEach((s) => s.remove());
-      this.subs = [];
       this.device = null;
       cb.onDisconnect?.();
     });
