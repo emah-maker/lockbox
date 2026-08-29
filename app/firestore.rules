@@ -142,6 +142,44 @@ service cloud.firestore {
       // config doc.
     }
 
+    // Public waitlist signups (website's landing-page form, script.js's
+    // submit handler) -- the first unauthenticated write path in this whole
+    // file. Every collection above is gated on isOwner(uid); this one has to
+    // accept a write from a visitor who has never signed in, so there is no
+    // uid to check against. That makes it the highest-abuse-surface rule
+    // here, so it's deliberately the tightest:
+    //   - create-only, exact 3-key allow-list (no room to smuggle an extra
+    //     field in alongside a valid one), createdAt pinned to request.time
+    //     (a client can't forge/backdate it -- same reasoning as
+    //     users/{uid}'s createdAt), a basic email-shape regex, and a hard
+    //     254-char length cap. The regex and length cap mirror script.js's
+    //     own client-side check, but that check is a UX nicety a visitor's
+    //     browser enforces on itself -- it proves nothing to the server, so
+    //     the real boundary is asserted again here.
+    //   - read: if false, unconditionally, even for a signed-in user. There
+    //     is no per-doc owner field to check a read against (the entire
+    //     point of this collection is that it's written by people who
+    //     aren't signed in), so there is no isOwner(uid)-shaped condition
+    //     that could ever scope a read safely -- "any authenticated user can
+    //     read" would really mean "anyone with a Google account can
+    //     enumerate every email address anyone has ever submitted." The only
+    //     legitimate reads are out-of-band, via the Firebase console or an
+    //     export job running under admin credentials, both of which bypass
+    //     these rules entirely.
+    //   - update, delete: if false -- a signup either gets created or it
+    //     doesn't; there is no legitimate reason for a client to revise or
+    //     remove one afterward.
+    match /waitlist/{docId} {
+      allow create: if request.resource.data.keys().hasOnly(['email', 'createdAt', 'source'])
+                    && request.resource.data.email is string
+                    && request.resource.data.email.size() <= 254
+                    && request.resource.data.email.matches('^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$')
+                    && request.resource.data.createdAt == request.time
+                    && request.resource.data.source == 'website';
+      allow read: if false;
+      allow update, delete: if false;
+    }
+
     // Deny-by-default: anything not explicitly matched above -- any other top-level
     // collection, any other user's uid path, any unauthenticated request -- is denied.
     match /{document=**} {
