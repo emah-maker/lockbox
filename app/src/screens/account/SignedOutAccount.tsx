@@ -7,6 +7,7 @@ import { View, Text, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import { useAuthStore } from '../../auth/useAuthStore';
+import { signInErrorMessage } from '../../auth/accountDisplay';
 import { useTheme } from '../../theme/useTheme';
 import { Button, captionStyle } from '../SettingsPrimitives';
 
@@ -40,16 +41,13 @@ export function SignedOutAccount({ color, ready }: { color: ReturnType<typeof us
     try {
       await signIn();
     } catch (e: any) {
-      // Same "generic message only" discipline as the rest of this file
-      // (design doc §5 checklist item 3) -- these thrown messages are
-      // static, credential-free strings (e.g. "Google Sign-In was
-      // cancelled."), never the underlying token/credential. A plain
-      // cancellation isn't worth surfacing as an error. AccountExistsError's
-      // own message is generic/credential-free too (see accountLinking.ts)
-      // -- pendingLink (rendered below) carries the "sign in with your
-      // other provider" prompt, so it isn't duplicated here.
-      const msg = typeof e?.message === 'string' ? e.message : 'Could not sign in. Please try again.';
-      if (!/cancel/i.test(msg) && e?.name !== 'AccountExistsError') setSignInError(msg);
+      // The raw error (e.name/e.code/e.message) is only ever logged, never
+      // rendered -- signInErrorMessage (design doc §5 checklist item 3) maps
+      // it to a short, credential-free string, or null for "don't show
+      // anything" (a plain cancel, or AccountExistsError -- whose prompt
+      // pendingLink, rendered below, already carries).
+      console.warn('[SignedOutAccount] sign-in failed:', e?.name ?? e?.code ?? e?.message ?? e);
+      setSignInError(signInErrorMessage(e));
     } finally {
       setBusy(false);
     }

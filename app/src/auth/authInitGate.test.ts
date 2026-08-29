@@ -145,6 +145,24 @@ describe('init() releases the sign-in gate', () => {
     expect(store.getState().ready).toBe(true);
   });
 
+  it('reports the not-configured message (not the generic connection one) when init fails on a FirebaseConfigError', async () => {
+    // firebase.ts's initFirebaseAuth() throws this (by name, no `.code`)
+    // before it ever touches the Firebase SDK, when firebaseConfig.ts's
+    // required fields are missing/blank/placeholder -- see
+    // firebaseConfig.test.ts. AUTH_INIT_ERROR's "check your connection"
+    // wording would be actively misleading for this, since no network is
+    // involved and no retry can fix it.
+    const configError = new Error('Firebase config is missing/invalid for: EXPO_PUBLIC_FIREBASE_API_KEY.');
+    configError.name = 'FirebaseConfigError';
+    mockInitFirebaseAuth.mockRejectedValue(configError);
+    const store = freshStore();
+
+    await store.getState().init();
+
+    expect(store.getState().ready).toBe(true);
+    expect(store.getState().initError).toBe("Sign-in isn't configured on this build.");
+  });
+
   it('does not let a lastSyncedAt read failure take auth down with it', async () => {
     const storage = require('../storage/storage');
     jest.spyOn(storage, 'getJSON').mockRejectedValue(new Error('AsyncStorage exploded'));

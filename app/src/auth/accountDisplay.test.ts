@@ -10,6 +10,8 @@ import {
   formatRelative,
   formatShortDate,
   providerActionErrorMessage,
+  signInErrorMessage,
+  SIGN_IN_NOT_CONFIGURED_MESSAGE,
 } from './accountDisplay';
 
 describe('providerLabel', () => {
@@ -110,5 +112,67 @@ describe('providerActionErrorMessage', () => {
   it('falls back to the caller-supplied message for anything else', () => {
     expect(providerActionErrorMessage('auth/network-request-failed', 'fallback')).toBe('fallback');
     expect(providerActionErrorMessage(undefined, 'fallback')).toBe('fallback');
+  });
+});
+
+describe('signInErrorMessage', () => {
+  it('maps a raw Firebase API-key/config error to the same not-configured message, never the raw SDK string', () => {
+    // The exact shape of the bug this covers: native Apple/Google sign-in
+    // succeeds, then Firebase's own REST call rejects with this because the
+    // app's Firebase config is missing/invalid.
+    const raw = {
+      code: 'auth/api-key-not-valid.-please-pass-a-valid-api-key.',
+      message: 'Firebase: Error (auth/api-key-not-valid.-please-pass-a-valid-api-key.)',
+    };
+    expect(signInErrorMessage(raw)).toBe(SIGN_IN_NOT_CONFIGURED_MESSAGE);
+    expect(signInErrorMessage({ code: 'auth/invalid-api-key', message: 'Firebase: Error (auth/invalid-api-key)' })).toBe(
+      SIGN_IN_NOT_CONFIGURED_MESSAGE,
+    );
+    expect(
+      signInErrorMessage({ code: 'auth/configuration-not-found', message: 'Firebase: Error (auth/configuration-not-found)' }),
+    ).toBe(SIGN_IN_NOT_CONFIGURED_MESSAGE);
+  });
+
+  it('maps firebase.ts\'s FirebaseConfigError (thrown before any Firebase SDK call) to the same message', () => {
+    // No `.code` here -- assertFirebaseConfigValid() throws this before
+    // initializeAuth() ever runs, so it's caught by name, not code.
+    expect(signInErrorMessage({ name: 'FirebaseConfigError', message: 'Firebase config is missing/invalid for: EXPO_PUBLIC_FIREBASE_API_KEY.' })).toBe(
+      SIGN_IN_NOT_CONFIGURED_MESSAGE,
+    );
+  });
+
+  it('maps other known Firebase Auth codes to short, human-readable text', () => {
+    expect(signInErrorMessage({ code: 'auth/network-request-failed', message: 'Firebase: Error (auth/network-request-failed).' })).toBe(
+      'No connection. Check your network and try again.',
+    );
+    expect(signInErrorMessage({ code: 'auth/too-many-requests', message: 'Firebase: Error (auth/too-many-requests).' })).toBe(
+      'Too many attempts. Try again later.',
+    );
+  });
+
+  it('falls back to one generic message for an unmapped Firebase SDK error, never its raw string', () => {
+    expect(signInErrorMessage({ code: 'auth/internal-error', message: 'Firebase: Error (auth/internal-error).' })).toBe(
+      'Could not sign in. Please try again.',
+    );
+  });
+
+  it('shows this codebase\'s own thrown (non-Firebase) error messages as-is -- already static and credential-free', () => {
+    expect(signInErrorMessage({ message: 'Apple Sign-In did not return an identity token.' })).toBe(
+      'Apple Sign-In did not return an identity token.',
+    );
+  });
+
+  it('returns null (show nothing) for a user-initiated cancel', () => {
+    expect(signInErrorMessage({ message: 'Apple Sign-In was cancelled.' })).toBeNull();
+    expect(signInErrorMessage({ message: 'Google Sign-In was cancelled.' })).toBeNull();
+  });
+
+  it('returns null (show nothing) for AccountExistsError -- pendingLink already carries its prompt', () => {
+    expect(signInErrorMessage({ name: 'AccountExistsError', message: 'An account already exists for this email.' })).toBeNull();
+  });
+
+  it('returns null for no error', () => {
+    expect(signInErrorMessage(null)).toBeNull();
+    expect(signInErrorMessage(undefined)).toBeNull();
   });
 });

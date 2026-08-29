@@ -39,7 +39,7 @@ import {
   type AuthProviderKind,
   type PendingAccountLink,
 } from './accountLinking';
-import { toProviderKinds, canUnlink } from './accountDisplay';
+import { toProviderKinds, canUnlink, SIGN_IN_NOT_CONFIGURED_MESSAGE } from './accountDisplay';
 import { runMigrationAndSync, deleteAllUserData, beginAccountDeletion, endAccountDeletion } from '../sync/firestoreSync';
 import { clearLocalAccountData } from '../sync/localDataOwner';
 import { useStore } from '../store/useStore';
@@ -199,6 +199,14 @@ async function handleProviderSignIn(
 }
 
 const AUTH_INIT_ERROR = "Couldn't start sign-in. Check your connection and try again.";
+// A FirebaseConfigError (firebase.ts) means the build itself is missing/has
+// invalid Firebase config -- no amount of retrying or checking the network
+// fixes that, so it gets its own message rather than AUTH_INIT_ERROR's
+// "check your connection" wording, which would send a user chasing the
+// wrong problem.
+function initErrorMessageFor(e: any): string {
+  return e?.name === 'FirebaseConfigError' ? SIGN_IN_NOT_CONFIGURED_MESSAGE : AUTH_INIT_ERROR;
+}
 // Watchdog for init(): everything it awaits is local (SecureStore/AsyncStorage
 // reads, then initializeAuth -- no network; Firebase fires onAuthStateChanged
 // off local persistence without waiting on a token refresh), so taking this
@@ -229,8 +237,9 @@ async function requireFirebaseAuth(
     await startFirebaseAuth(set, get);
   } catch (e: any) {
     console.warn('[useAuthStore] Firebase Auth init failed on sign-in:', e?.message ?? e);
-    set({ initError: AUTH_INIT_ERROR });
-    throw new Error(AUTH_INIT_ERROR);
+    const message = initErrorMessageFor(e);
+    set({ initError: message });
+    throw new Error(message);
   }
 }
 
@@ -291,7 +300,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       // initFirebaseAuth() no longer caches its rejection, so the retry the
       // sign-in actions below make can actually succeed.
       console.warn('[useAuthStore] Firebase Auth init failed:', e?.message ?? e);
-      set({ ready: true, initError: AUTH_INIT_ERROR });
+      set({ ready: true, initError: initErrorMessageFor(e) });
     }
   },
 

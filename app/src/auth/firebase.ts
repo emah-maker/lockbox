@@ -11,7 +11,7 @@ import 'react-native-get-random-values'; // polyfills crypto.getRandomValues for
 import { initializeApp, getApps, FirebaseApp } from 'firebase/app';
 import { initializeAuth, getAuth, Auth } from 'firebase/auth';
 import { getFirestore, Firestore } from 'firebase/firestore';
-import { firebaseConfig } from './firebaseConfig';
+import { firebaseConfig, findInvalidFirebaseConfigKeys } from './firebaseConfig';
 import { secureStorePersistence } from './secureStorePersistence';
 import { wipeStaleSessionOnFreshInstall } from './wipeStaleSessionOnFreshInstall';
 
@@ -22,6 +22,39 @@ let db: Firestore | null = null;
 let initPromise: Promise<void> | null = null;
 
 /**
+ * Thrown by initFirebaseAuth() before it ever touches the Firebase SDK, when
+ * firebaseConfig.ts's required fields are missing/blank/still the
+ * REPLACE_ME_* placeholder (see findInvalidFirebaseConfigKeys()). Without
+ * this check, initializeApp()/initializeAuth() above accept a garbage
+ * config silently -- Firebase doesn't validate the API key until the first
+ * real network call, so the *first* sign the config is broken was a user
+ * completing the native Google/Apple sheet and then seeing a raw
+ * "Firebase: Error (auth/api-key-not-valid...)" on the Account page.
+ * `missingEnvVars` names exactly which EXPO_PUBLIC_FIREBASE_* vars to set --
+ * safe to log (env var names, not secrets) but this error's `.message`
+ * must never be shown to the user as-is (see useAuthStore.ts/
+ * accountDisplay.ts's signInErrorMessage, which map it to a generic,
+ * user-facing string instead).
+ */
+export class FirebaseConfigError extends Error {
+  constructor(public readonly missingEnvVars: string[]) {
+    super(
+      `Firebase config is missing/invalid for: ${missingEnvVars.join(', ')}. Set these in ` +
+        `app/.env (see firebaseConfig.ts) and restart with 'expo start -c' -- EXPO_PUBLIC_* ` +
+        `vars are inlined at build/transform time, so a stale build keeps the old value.`,
+    );
+    this.name = 'FirebaseConfigError';
+  }
+}
+
+function assertFirebaseConfigValid(): void {
+  const missingEnvVars = findInvalidFirebaseConfigKeys();
+  if (missingEnvVars.length > 0) {
+    throw new FirebaseConfigError(missingEnvVars);
+  }
+}
+
+/**
  * Wipes any stale pre-install Keychain session (§2.5), then initializes
  * Firebase Auth with the SecureStore-backed persistence adapter (§2.2).
  * Idempotent -- safe to call multiple times; only the first call does work,
@@ -29,7 +62,9 @@ let initPromise: Promise<void> | null = null;
  */
 export function initFirebaseAuth(): Promise<void> {
   if (!initPromise) {
-    initPromise = wipeStaleSessionOnFreshInstall()
+    initPromise = Promise.resolve()
+      .then(() => assertFirebaseConfigValid()) // fail loudly here, not three steps later during sign-in
+      .then(() => wipeStaleSessionOnFreshInstall())
       .then(() => {
         try {
           auth = initializeAuth(app, { persistence: secureStorePersistence });

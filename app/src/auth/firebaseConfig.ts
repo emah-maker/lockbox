@@ -19,6 +19,48 @@ export const firebaseConfig = {
   appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID ?? 'REPLACE_ME_FIREBASE_APP_ID',
 };
 
+// Which EXPO_PUBLIC_* env var backs each firebaseConfig field -- the only
+// thing findInvalidFirebaseConfigKeys() (below) needs beyond the REPLACE_ME_*
+// defaults above to name exactly what's missing.
+const FIREBASE_CONFIG_ENV_VARS: Record<keyof typeof firebaseConfig, string> = {
+  apiKey: 'EXPO_PUBLIC_FIREBASE_API_KEY',
+  authDomain: 'EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN',
+  projectId: 'EXPO_PUBLIC_FIREBASE_PROJECT_ID',
+  storageBucket: 'EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET',
+  messagingSenderId: 'EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID',
+  appId: 'EXPO_PUBLIC_FIREBASE_APP_ID',
+};
+
+/** A blank string (an EXPO_PUBLIC_* var set to "" in .env, which Expo still
+ * inlines as-is rather than treating as unset) or one of the REPLACE_ME_*
+ * literals above -- either way, not a real value Firebase could ever accept. */
+function isPlaceholderValue(value: string): boolean {
+  return !value || value.startsWith('REPLACE_ME');
+}
+
+/**
+ * Returns the EXPO_PUBLIC_FIREBASE_* env var names that are missing, blank,
+ * or still this file's REPLACE_ME_* placeholder -- i.e. Firebase Auth cannot
+ * possibly succeed with the current config. Pure and side-effect-free so
+ * firebase.ts's init boundary (see initFirebaseAuth's config check) can call
+ * it directly, instead of only finding out when a sign-in attempt's REST
+ * call comes back with an opaque auth/api-key-not-valid.
+ *
+ * Takes `config` as a parameter (defaulting to this file's own
+ * `firebaseConfig`, read from `process.env.EXPO_PUBLIC_FIREBASE_*` above)
+ * rather than reading `firebaseConfig` directly, so this file's tests can
+ * exercise every combination of set/missing/blank values with a plain
+ * object -- babel-preset-expo inlines `process.env.EXPO_PUBLIC_*` at
+ * transform time (cached per source file), so re-requiring this module
+ * under a mutated `process.env` inside a test does not actually pick up the
+ * new value the way it would in a real per-build .env change.
+ */
+export function findInvalidFirebaseConfigKeys(config: typeof firebaseConfig = firebaseConfig): string[] {
+  return (Object.keys(FIREBASE_CONFIG_ENV_VARS) as (keyof typeof firebaseConfig)[])
+    .filter((key) => isPlaceholderValue(config[key]))
+    .map((key) => FIREBASE_CONFIG_ENV_VARS[key]);
+}
+
 // The "Web client ID" Firebase auto-provisions when the Google provider is
 // enabled (Authentication -> Sign-in method -> Google) -- GoogleSignin.configure()
 // needs this on *both* platforms as the idToken audience Firebase expects.
