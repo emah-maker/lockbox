@@ -64,11 +64,18 @@ def _read32(nvm, off):
 class SessionLog:
     def __init__(self):
         self._pending = []
-        # How many of the currently-pending entries (counted from the front
-        # -- the queue is strictly FIFO/append-only) were included in the
-        # most recently sent, still-unacked `history` push. 0 means nothing
-        # is in flight. See mark_sent()/ack().
-        self._sent_seq = 0
+        # An in-flight `history` push is tracked as two numbers, because the
+        # count the app will ack with and the count still sitting in the queue
+        # stop agreeing the moment the cap evicts from the front:
+        #   _sent_batch -- how many entries that push covered when it was
+        #     sent. This is the number the app echoes back to ack(), so it is
+        #     the batch's identity and must not be adjusted afterwards.
+        #   _sent_live  -- how many of those entries are still at the front of
+        #     _pending. Eviction lowers this; it is what ack() actually
+        #     deletes.
+        # Both 0 means nothing is in flight. See mark_sent()/ack().
+        self._sent_batch = 0
+        self._sent_live = 0
         self._load()
 
     def record(self, planned_s, actual_s, completed, epoch, now=None):
@@ -88,9 +95,14 @@ class SessionLog:
         if len(self._pending) > LOG_MAX_PENDING:
             self._pending.pop(0)
             # The entry being dropped for being too old was, by definition,
-            # part of (or older than) any in-flight batch -- keep sent_seq
-            # from ever exceeding the new length so ack() can't under-clear.
-            self._sent_seq = max(0, self._sent_seq - 1)
+            # part of (or older than) any in-flight batch -- so one fewer of
+            # that batch is still here for ack() to delete. Only _sent_live
+            # moves: _sent_batch is the identity the app will ack with, and
+            # decrementing that too (as this used to) meant a full queue
+            # overflowing mid-flight made the app's legitimate ack no longer
+            # match, so it was dropped and the whole batch was resent on the
+            # next connection for no reason.
+            self._sent_live = max(0, self._sent_live - 1)
         self._save()
 
     def backfill_epoch(self, epoch_for_mono):
@@ -105,7 +117,7 @@ class SessionLog:
         record time, or reloaded from NVM after a reboot -- see record())
         are left untouched.
 
-        Also skips the first `self._sent_seq` entries -- these are already
+        Also skips the first `self._sent_live` entries -- these are already
         in flight to the app (sent via mark_sent(), not yet ack()'d).
         lock_ble._push_outbound resends the `history` characteristic
         whenever to_json()'s text changes, so correcting one of these now
@@ -120,7 +132,7 @@ class SessionLog:
         entries not yet sent get backfilled before their first transmission."""
         changed = False
         for i, entry in enumerate(self._pending):
-            if i < self._sent_seq:
+            if i < self._sent_live:
                 continue
             planned_s, actual_s, completed, epoch, mono = entry
             if epoch < 0 and mono is not None:
@@ -148,8 +160,9 @@ class SessionLog:
         entries (from the front) that batch covered, so a later ack can be
         validated against a specific, resendable batch instead of clearing
         blindly on every notify (the original, non-lossless behavior)."""
-        self._sent_seq = len(self._pending)
-        return self._sent_seq
+        self._sent_batch = len(self._pending)
+        self._sent_live = self._sent_batch
+        return self._sent_batch
 
     def ack(self, seq):
         """The app has durably stored a batch of `seq` entries (see
@@ -161,11 +174,18 @@ class SessionLog:
         ignored rather than risking a clear of entries the app never
         actually got; lock_ble.py resends the current queue on every new
         connection regardless, so an ignored ack just means the box tries
-        again next time."""
-        if seq <= 0 or seq != self._sent_seq:
+        again next time.
+
+        Matched against _sent_batch (what was sent) but applied to _sent_live
+        (what is still here): if the cap evicted from the front while this
+        batch was in flight, those entries are already gone and deleting
+        `seq` of them would eat into sessions the app has never seen."""
+        if seq <= 0 or seq != self._sent_batch:
             return
-        del self._pending[:seq]
-        self._sent_seq = 0
+        if self._sent_live:
+            del self._pending[:self._sent_live]
+        self._sent_batch = 0
+        self._sent_live = 0
         self._save()
 
     def clear(self):
@@ -173,7 +193,8 @@ class SessionLog:
         path anymore (see ack()) -- kept for callers that genuinely want to
         discard pending history outright."""
         self._pending = []
-        self._sent_seq = 0
+        self._sent_batch = 0
+        self._sent_live = 0
         self._save()
 
     # ----- NVM persistence -- mirrors lock_settings.py's pattern exactly: a

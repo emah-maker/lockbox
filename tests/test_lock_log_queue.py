@@ -29,9 +29,9 @@ from lock_config import (
 )
 from lock_log import SessionLog, _BASE, _MAGIC, _ENTRY_SIZE, _EPOCH_NONE
 
-# lock_settings.py is imported only for the NVM region check at the bottom. It
-# pulls in more of lock_config than lock_log does, but nothing
-# CircuitPython-only beyond the `microcontroller` stub already installed above.
+# lock_settings.py is imported only for this region check. It pulls in more of
+# lock_config than lock_log does, but nothing CircuitPython-only beyond the
+# `microcontroller` stub already installed above.
 import lock_settings
 
 _passed = 0
@@ -183,12 +183,12 @@ check("new record during in-flight batch appended, not lost", len(entries_of(log
 log.ack(2)
 check("matching ack clears exactly the acked prefix",
       entries_of(log) == [(3, 3, 1, 3)])
-check("ack resets sent_seq (has_pending entry is not considered in-flight)",
-      log._sent_seq == 0)
+check("ack resets the in-flight bookkeeping (remaining entry is not in-flight)",
+      log._sent_batch == 0 and log._sent_live == 0)
 
 # acking something never sent (sent_seq is 0, nothing marked)
 log.ack(1)
-check("ack when nothing was marked sent is ignored (no matching sent_seq)",
+check("ack when nothing was marked sent is ignored (no batch to match)",
       entries_of(log) == [(3, 3, 1, 3)])
 
 # ===================================================================
@@ -198,7 +198,7 @@ log.record(4, 4, False, 4)
 log.mark_sent()
 log.clear()
 check("clear() empties the queue regardless of in-flight state",
-      log.has_pending is False and log._sent_seq == 0)
+      log.has_pending is False and log._sent_batch == 0 and log._sent_live == 0)
 
 # ===================================================================
 # queue-full / wraparound: the highest-value case -- NVM is small and
@@ -224,21 +224,40 @@ check("full queue marked sent in one batch", sent == LOG_MAX_PENDING)
 log.record(9999, 9999, True, 9999)   # one more session finishes -> overflow
 check("overflow still caps the queue at LOG_MAX_PENDING",
       len(entries_of(log)) == LOG_MAX_PENDING)
-check("sent_seq decremented by exactly the one evicted in-flight entry",
-      log._sent_seq == LOG_MAX_PENDING - 1)
-# The app already durably stored the ORIGINAL full batch of LOG_MAX_PENDING
-# entries and acks with that size -- but the box's own bookkeeping now
-# expects LOG_MAX_PENDING-1 (see record()'s sent_seq decrement above), so
-# this legitimate ack is rejected as "mismatched" and nothing is cleared.
-# This is not a crash or data loss (lock_ble.py resends the queue on every
-# new connection regardless, and the app's own dedupe -- see
-# backfill_epoch()'s docstring -- absorbs the resend), but it does mean an
-# overflow that happens to land while a batch is in flight silently turns
-# one legitimate ack into a no-op and forces a full resend next connection.
-# Documented as an observed fragility, not asserted as "should" behavior.
+check("overflow lowers the still-here count, not the batch's identity",
+      log._sent_batch == LOG_MAX_PENDING and log._sent_live == LOG_MAX_PENDING - 1)
+# The app durably stored the ORIGINAL batch of LOG_MAX_PENDING entries and
+# acks with that size. That ack must still be honoured: the batch identity is
+# what it echoes back, and it has no idea the box evicted one meanwhile.
+# Before this was fixed, record()'s eviction also decremented the expected
+# size, so this legitimate ack no longer matched, was silently dropped, and
+# the entire queue was resent on the next connection for nothing.
 log.ack(LOG_MAX_PENDING)
-check("ack sized to the ORIGINAL sent batch is rejected after an intervening overflow",
-      len(entries_of(log)) == LOG_MAX_PENDING)
+check("ack sized to the ORIGINAL sent batch is honoured after an intervening overflow",
+      len(entries_of(log)) == 1)
+check("only the surviving members of the acked batch are cleared -- the "
+      "post-overflow session is NOT eaten",
+      entries_of(log) == [(9999, 9999, 1, 9999)])
+check("honouring the ack resets the in-flight bookkeeping",
+      log._sent_batch == 0 and log._sent_live == 0)
+
+# The whole in-flight batch evicted before its ack arrives: nothing of it is
+# left to clear, but the ack must still be accepted and must not touch the
+# newer entries that replaced it.
+new_nvm()
+log = SessionLog()
+for i in range(3):
+    log.record(i, i, True, i)
+log.mark_sent()
+for i in range(LOG_MAX_PENDING + 3):
+    log.record(1000 + i, 1000 + i, True, 1000 + i)
+check("entire in-flight batch aged out of the queue", log._sent_live == 0)
+before = entries_of(log)
+log.ack(3)
+check("ack for a fully-evicted batch clears nothing and eats nothing",
+      entries_of(log) == before)
+check("ack for a fully-evicted batch still resets the in-flight bookkeeping",
+      log._sent_batch == 0 and log._sent_live == 0)
 
 # ===================================================================
 # persistence across a simulated reboot: a fresh SessionLog constructed
@@ -252,8 +271,8 @@ reboot = SessionLog()
 check("reboot: entry count survives", len(entries_of(reboot)) == 2)
 check("reboot: field values survive round-trip",
       entries_of(reboot) == [(111, 111, 1, 5000), (222, 222, 0, 6000)])
-check("reboot: in-RAM-only sent_seq resets to 0 (nothing is 'in flight' after a reboot)",
-      reboot._sent_seq == 0)
+check("reboot: in-RAM-only in-flight bookkeeping resets (nothing is in flight after a reboot)",
+      reboot._sent_batch == 0 and reboot._sent_live == 0)
 
 # a mono-only (unsynced) entry does NOT survive a reboot as backfillable --
 # record()'s own docstring: monotonic references don't carry across boots
