@@ -18,8 +18,6 @@ to integrate with.
     policy, CPU scaling, button handling, countdown/animation).
   - `boot.py`, `safemode.py` — boot and brownout-retry safe-mode recovery
     (uses `microcontroller.nvm[0]` as a brownout counter).
-  - `_timer_backup.py` — a backup/older copy of the timer logic (not the live
-    entry point).
   - `lib/` — device modules:
     - `lock_config.py` — **central tunables**: behavior constants, colors,
       the full **GPIO pin map**, battery curve/calibration, servo calibration,

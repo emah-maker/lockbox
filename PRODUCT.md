@@ -78,9 +78,12 @@ share the same product story and BLE feature set (call alerts, live stats).
 
 ## Evidence on Hand
 
-- Existing hero imagery: `hero.png`, `phonebox-hero.png`,
-  `phonebox-desktop-1280.png` at the repo root — real product renders, usable
-  as-is or replaced with better art direction, not fabricated claims.
+- Existing hero imagery: `hero-top.png`, `pricing-costbars.png`,
+  `pricing-revealed.png` at the repo root -- real product renders of the live
+  site, usable as-is or replaced with better art direction, not fabricated
+  claims. See DESIGN.md for what each one actually depicts (two are named
+  misleadingly). Three older renders were deleted once these superseded them;
+  they are recoverable from git history.
 - No testimonials, press, or case studies on hand — do not invent any.
 
 ## Product Principles

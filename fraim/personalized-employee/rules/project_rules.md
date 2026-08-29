@@ -14,9 +14,7 @@
 - touch, LCD pins). Current assignments: servo GPIO5, lock/sense button GPIO1,
 - override button GPIO10. GPIO13-18 (formerly reserved for the SD card's 4-bit
 - SDIO bus) are free since the SD-card feature was removed (2026-07-24).
-- The live entry point is Box-code/code.py. _timer_backup.py is a
-- backup/older copy - do not treat it as the current implementation or edit it
-- expecting runtime effect.
+- The live entry point is Box-code/code.py.
 - Keep the on-device run loop responsive: touch is read before the heavier
 - clock redraw, and CPU-frequency switches must not interrupt an active
 - touch/servo interaction. Preserve this ordering when editing code.py.

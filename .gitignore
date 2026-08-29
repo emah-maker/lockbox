@@ -53,8 +53,10 @@ fraim/*
 !fraim/personalized-employee/
 
 # --- cmd.exe redirect-misparse junk files (2026-08-27) ---
-# Root cause FIXED in .claude/settings.json + .claude/helpers/hook-entry.cjs
-# (broken original: scripts/settings.json.pre-hook-fix.bak).
+# Root cause FIXED in .claude/settings.json + .claude/helpers/hook-entry.cjs.
+# The broken original config was kept at scripts/settings.json.pre-hook-fix.bak
+# until it was deleted as dead weight; recover it from commit d3de407 if the
+# misparse ever needs re-diagnosing.
 # No blanket ignore here on purpose: patterns broad enough to catch names like
 # `0)` or `r.goalId)).toEqual(['g1'])` also swallow legitimate files such as
 # Expo Router dynamic routes ([id].tsx) -- silently untracked is worse than
@@ -66,6 +68,10 @@ website/assets/video/*-master.mp4
 website/assets/video/screen/*_frames/
 website/assets/video/seeds/
 /Base-marketing video.mp4
+
+# Ad-hoc screen recordings dropped at the repo root while debugging with the
+# user (e.g. "Debug this.mp4") -- not a build deliverable, shouldn't be tracked.
+/Debug this.mp4
 
 # Firebase emulator debug logs, dropped in the repo root by
 # `firebase emulators:exec` -- which is now the normal way to run the
