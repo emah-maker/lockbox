@@ -14,7 +14,7 @@ import type { LoggedSession } from '../../stats/sessionHistory';
 import { bestDay } from '../../stats/trend';
 import { resolveTopic, topicBreakdownWithCustom } from '../../stats/customLabels';
 import { groupByDay, dayKey } from '../../stats/sessionHistory';
-import { computeGoalProgress } from '../../goals/goalProgress';
+import { computeGoalProgress, goalDisplayPercent } from '../../goals/goalProgress';
 import type { Goal } from '../../goals/goals';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import {
@@ -92,7 +92,12 @@ export function useHomeGoalRing(params: {
     const goal = goals.find((g: Goal) => g.id === chosen.goalId);
     return {
       name: describeGoalTopic(goal ? goal.topic : null, customLabels, themeMode),
-      percent: Math.round(chosen.ratio * 100),
+      // Clamped display percentage -- see goalProgress.ts's
+      // goalDisplayPercent for why this isn't `Math.round(chosen.ratio *
+      // 100)` off the unclamped ratio (that used to print "1741%" on this
+      // same card alongside a "Goal met" caption for a wildly-exceeded
+      // goal).
+      percent: goalDisplayPercent(chosen.ratio),
       remainingS: chosen.remainingS,
       met: chosen.met,
     };

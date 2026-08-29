@@ -133,9 +133,19 @@ export interface GoalProgressResult {
   focusS: number;
   /** max(0, targetS - focusS) -- never negative, unlike ratio below. */
   remainingS: number;
-  /** focusS / targetS, deliberately NOT clamped to 1 -- exceeding a goal
-   * should read as "180% of target", not cap out at "100% of target" and
-   * hide how far over it actually went. */
+  /** focusS / targetS, deliberately NOT clamped to 1 -- a bar/ring that
+   * still has room to show "how far over" (GoalRow.tsx's barGeometry,
+   * GoalRing.tsx's ratio prop) needs the raw, unbounded number, not one
+   * that's already saturated at "100% of target". A PERCENTAGE LABEL is a
+   * different contract, though -- see goalDisplayPercent below for the
+   * clamped, display-safe counterpart every percent-showing surface in this
+   * app actually renders instead of this field directly.
+   *
+   * Guarded against divide-by-zero: `goal.targetS` is bounded well away
+   * from 0 by goals.ts's own MIN_TARGET_S for anything created on this
+   * device, but this array is also fed by sanitizeRemoteGoals from another
+   * device/the dashboard (see GoalRow.tsx's barGeometry comment) -- a 0 or
+   * negative targetS there computes to 0 rather than NaN/Infinity. */
   ratio: number;
   /** True once BOTH targets are satisfied: focusS >= targetS, AND (if the
    * goal has one) sessionCount >= targetSessions. For a time-only goal
@@ -165,6 +175,37 @@ export interface GoalProgressResult {
    * today" instead of a misleading 0%-unmet bar for a day the goal was
    * never meant to run on. */
   dueToday: boolean;
+}
+
+/**
+ * The percentage a UI actually SHOWS for a goal's progress -- `ratio`
+ * clamped to [0, 1] before the *100 and round, unlike `ratio` itself (see
+ * that field's own comment for why it stays unclamped upstream).
+ *
+ * Root cause this fixes: three call sites (GoalRow.tsx's Manage-goals row,
+ * GoalsProgressView.tsx's Goals-ring card, useHomeGoalRing.ts's Home Today
+ * card) each used to compute their own `Math.round(ratio * 100)` straight
+ * off the unclamped ratio, so a goal at 1740% of target rendered the literal
+ * number "1741%" right next to a bar/ring that -- correctly -- has no more
+ * room to draw past a single full lap (GoalRow.tsx's barGeometry already
+ * saturates `fillPct` at 100 with a target-line marker; GoalRing.tsx already
+ * clamps its arc the same way). The label and the visual disagreed because
+ * only the visual side was ever clamped.
+ *
+ * The rule picked here: cap the number at 100 and let `met` (already true
+ * whenever `ratio >= 1`) carry "you're over" via each surface's existing
+ * "Goal met" copy, rather than inventing a second over-100 display like
+ * "174%". That keeps every under-target reading byte-identical to today
+ * (61% still prints as 61%) and makes the three surfaces agree with each
+ * other AND with their own already-capped bar/ring by construction, since
+ * they all now go through this one function instead of each re-deriving it.
+ *
+ * Also defensively clamps a non-finite input (a stray NaN/Infinity, e.g.
+ * from a divide-by-zero elsewhere) to 0 rather than rendering "NaN%".
+ */
+export function goalDisplayPercent(ratio: number): number {
+  if (!Number.isFinite(ratio)) return 0;
+  return Math.round(Math.min(1, Math.max(0, ratio)) * 100);
 }
 
 /**
@@ -209,7 +250,9 @@ export function computeGoalProgress(goals: Goal[], sessions: LoggedSession[], no
         targetS: goal.targetS,
         focusS,
         remainingS: Math.max(0, goal.targetS - focusS),
-        ratio: focusS / goal.targetS,
+        // See GoalProgressResult.ratio's own comment for why this is
+        // guarded rather than a bare `focusS / goal.targetS`.
+        ratio: goal.targetS > 0 ? focusS / goal.targetS : 0,
         met: focusS >= goal.targetS && (sessionsMet === undefined || sessionsMet),
         sessionCount,
         ...(goal.targetSessions !== undefined ? { targetSessions: goal.targetSessions, sessionsMet } : {}),

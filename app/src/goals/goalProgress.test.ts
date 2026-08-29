@@ -4,7 +4,7 @@
 // the unclamped ratio when a goal is exceeded, and the flexible-goals
 // extension (daysOfWeek/dueToday, targetSessions/sessionCount/sessionsMet,
 // and the combined `met`). Run with `npm test`.
-import { computeGoalProgress, goalWindow, isGoalDueOn } from './goalProgress';
+import { computeGoalProgress, goalDisplayPercent, goalWindow, isGoalDueOn } from './goalProgress';
 import { Goal } from './goals';
 import { LoggedSession } from '../stats/sessionHistory';
 
@@ -178,6 +178,12 @@ describe('computeGoalProgress -- output shape and archived exclusion', () => {
     expect(p.met).toBe(true);
   });
 
+  it('guards against divide-by-zero: an invalid (0) targetS computes ratio: 0, not NaN/Infinity', () => {
+    const [p] = computeGoalProgress([goal({ targetS: 0 })], [session(NOW, 400)], NOW);
+    expect(p.ratio).toBe(0);
+    expect(Number.isNaN(p.ratio)).toBe(false);
+  });
+
   it('excludes archived goals from the result entirely', () => {
     const goals = [goal({ id: 'goal:live' }), goal({ id: 'goal:gone', archived: true })];
     const result = computeGoalProgress(goals, [session(NOW, 100)], NOW);
@@ -273,5 +279,39 @@ describe('computeGoalProgress -- session-count target (targetSessions/sessionCou
     const sessionsMetOnly = computeGoalProgress([g], [session(NOW, 1), session(NOW, 1), session(NOW, 1)], NOW)[0]; // 3 tiny sessions
     expect(sessionsMetOnly.sessionsMet).toBe(true);
     expect(sessionsMetOnly.met).toBe(false); // time target still not met
+  });
+});
+
+// Bug this covers: a goal at 7h15m of a 25m target had its ratio (17.4,
+// deliberately unclamped -- see the "leaves ratio unclamped above 1" test
+// above) printed AS-IS on the Manage-goals row, the Goals-ring card, and the
+// Home Today card, reading "1741%" beside a bar/ring that was already
+// (correctly) capped at a single full lap. goalDisplayPercent is the one
+// clamped, display-safe conversion every one of those three call sites now
+// goes through instead of re-deriving its own `Math.round(ratio * 100)`.
+describe('goalDisplayPercent', () => {
+  it('caps a wildly-over-target ratio at 100, matching an already-full bar/ring', () => {
+    // The reported case: 7h15m (26100s) of focus against a 25m (1500s) daily
+    // target -- ratio 17.4, i.e. 1740%/"1741%" if left unclamped and rounded.
+    const ratio = 26100 / 1500;
+    expect(goalDisplayPercent(ratio)).toBe(100);
+  });
+
+  it('reports 100 exactly at target', () => {
+    expect(goalDisplayPercent(1)).toBe(100);
+  });
+
+  it('reports 0 for zero progress', () => {
+    expect(goalDisplayPercent(0)).toBe(0);
+  });
+
+  it('guards against a non-finite ratio (e.g. from an upstream divide-by-zero), showing 0 rather than NaN%/Infinity%', () => {
+    expect(goalDisplayPercent(NaN)).toBe(0);
+    expect(goalDisplayPercent(Infinity)).toBe(0);
+    expect(goalDisplayPercent(-Infinity)).toBe(0);
+  });
+
+  it('leaves an under-target ratio exactly as before -- the Solidworks 15m-of-25m case', () => {
+    expect(goalDisplayPercent(15 / 25)).toBe(60);
   });
 });

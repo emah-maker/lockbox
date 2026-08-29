@@ -22,7 +22,7 @@ export interface GoalHighlight {
    * (DashboardScreen), same "All focus time" / label / "Deleted label"
    * convention GoalsSection.tsx's own describeTopic uses. */
   name: string;
-  percent: number; // rounded 0..100+ (unclamped, matches GoalsSection's own display)
+  percent: number; // rounded 0..100, clamped -- see goalProgress.ts's goalDisplayPercent
   remainingS: number;
   met: boolean;
 }

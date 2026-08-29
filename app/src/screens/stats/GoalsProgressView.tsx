@@ -27,7 +27,7 @@ import { withAlpha } from '../../theme/theme';
 import { formatDuration } from '../../stats/stats';
 import { resolveTopic } from '../../stats/customLabels';
 import { Goal } from '../../goals/goals';
-import { computeGoalProgress, goalWindow } from '../../goals/goalProgress';
+import { computeGoalProgress, goalWindow, goalDisplayPercent } from '../../goals/goalProgress';
 import { computeGoalStreak, isGoalOnPace } from '../../stats/goalStreak';
 import { AnimatedPressable } from '../../ui/AnimatedPressable';
 import { useReducedMotion } from '../../ui/useReducedMotion';
@@ -214,7 +214,11 @@ function GoalCard({
     Animated.timing(highlightAnim, { toValue: 0, duration: 1400, useNativeDriver: false }).start();
   }, [highlighted, reducedMotion, highlightAnim]);
 
-  const percent = Math.round(ratio * 100);
+  // Clamped display percentage -- see goalProgress.ts's goalDisplayPercent
+  // for why this isn't `Math.round(ratio * 100)` off the unclamped `ratio`
+  // (that used to print "1741%" inside a ring that GoalRing.tsx already
+  // renders as a single full, saturated lap).
+  const percent = goalDisplayPercent(ratio);
   const subtitle = `${formatDuration(focusS)} of ${formatDuration(targetS)}${
     targetSessions !== undefined ? ` · ${sessionCount}/${targetSessions} sessions` : ''
   } · ${PERIOD_LABELS[period]}`;

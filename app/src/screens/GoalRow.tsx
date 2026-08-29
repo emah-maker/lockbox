@@ -20,7 +20,7 @@ import { withAlpha } from '../theme/theme';
 import { formatDuration } from '../stats/stats';
 import { resolveTopic } from '../stats/customLabels';
 import { Goal, GoalPeriod } from '../goals/goals';
-import { goalWindow, GoalProgressResult } from '../goals/goalProgress';
+import { goalWindow, goalDisplayPercent, GoalProgressResult } from '../goals/goalProgress';
 import { goalNotifyTimes } from '../goals/goalReminders';
 import { AnimatedPressable } from '../ui/AnimatedPressable';
 import { AnimatedFill } from '../ui/AnimatedFill';
@@ -148,7 +148,11 @@ export function GoalRow({
   const name = describeTopic(goal.topic, customLabels, themeMode);
   const swatch = topicSwatchColor(goal.topic, customLabels, themeMode, color);
   const barColor = met ? color.accent : swatch;
-  const percent = Math.round(ratio * 100);
+  // Clamped display percentage -- see goalDisplayPercent's own comment for
+  // why this is NOT `Math.round(ratio * 100)` off the unclamped `ratio`
+  // (that used to print "1741%" beside a bar that's already saturated at a
+  // full lap via barGeometry above).
+  const percent = goalDisplayPercent(ratio);
   const reducedMotion = useReducedMotion();
   // "This goal's target was just met" -- a one-shot pulse on the percent
   // readout, layered on top of this row's own fill/percent rather than
