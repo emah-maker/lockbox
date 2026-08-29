@@ -10,7 +10,7 @@ Files created/finalized under `website/`:
 - `website/index.html` (489 lines): single-page site, semantic landmarks, all sections.
 - `website/css/styles.css`: dark focus theme, on-device green accent #00C040, responsive, reduced-motion aware, `[hidden]` guard.
 - `website/js/script.js`: reveal-on-scroll, FAQ accordion, live device-mockup countdown, waitlist form to thank-you swap (client-side only).
-- `website/assets/icons/favicon.svg`.
+- `website/assets/icons/favicon.svg` — since superseded by an inline `data:image/svg+xml` favicon in each page's `<head>` (redesigned alongside the site multiple times over) and deleted as dead weight; still recoverable via `git log --follow -- website/assets/icons/favicon.svg`.
 
 Manager corrections applied after two session-limit-interrupted sub-agent runs left a mismatched fileset:
 - Rewrote `styles.css` and `script.js` to match the surviving `index.html` class/id contract (prior versions used incompatible selectors, leaving the page unstyled and the JS inert).

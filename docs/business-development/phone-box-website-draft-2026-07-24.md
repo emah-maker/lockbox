@@ -15,7 +15,7 @@ A single-page marketing website was built and verified under `website/`. It posi
 - `website/index.html`: full single-page site.
 - `website/css/styles.css`: dark theme, on-device green accent (#00C040), responsive and reduced-motion aware.
 - `website/js/script.js`: reveal-on-scroll, FAQ accordion, live countdown on the device mockup, waitlist form to thank-you swap (client-side only, no backend).
-- `website/assets/icons/favicon.svg`.
+- `website/assets/icons/favicon.svg` — since superseded by an inline `data:image/svg+xml` favicon in each page's `<head>` (redesigned alongside the site multiple times over) and deleted as dead weight; still recoverable via `git log --follow -- website/assets/icons/favicon.svg`.
 
 Sections: sticky nav, hero with animated device mockup, "your phone always wins" problem, four feature pillars, four-step how-it-works, honest comparison table (Phone Box vs kSafe, generic Amazon boxes, Brick, Opal, GoAro), pricing, FAQ accordion, waitlist call to action, footer.
 

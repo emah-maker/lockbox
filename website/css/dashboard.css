@@ -4,7 +4,7 @@
    sign-in gate (login.html) so the two pages share one visual language
    instead of forking a second stylesheet for a single small page.
    Extends styles.css's tokens/components (--card, --border-soft, .card,
-   .btn, .table-scroll, .eyebrow, .section-sub) rather than redefining them.
+   .btn, .table-scroll, .ticket-badge, .section-sub) rather than redefining them.
 
    App-native palette, deliberately breaking from index.html's Checkpoint
    Claim-Ticket chrome: this surface shows the exact same data the companion
