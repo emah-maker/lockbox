@@ -15,7 +15,7 @@ from lock_config import (
     C_BG, C_SURFACE, C_SURFACE_HILITE, C_WHITE, C_BLACK, C_GREY, C_GREEN, C_RED, C_AMBER,
     C_ON_ACCENT_DARK, C_ON_ACCENT_LIGHT,
     C_ALERT_RED, C_ALERT_AMBER,
-    MODE_COLORS, ACCENT_COLORS_DARK, ACCENT_COLORS_LIGHT, DEFAULT_MODE_IDX, DEFAULT_ACCENT_IDX, fmt_hms, fmt_hm,
+    MODE_COLORS, ACCENT_COLORS_DARK, ACCENT_COLORS_LIGHT, DEFAULT_MODE_IDX, DEFAULT_ACCENT_IDX, fmt_hms, fmt_hm, clamp,
     RADIUS_CARD, RADIUS_BTN_SM, RADIUS_BTN_LG, STATUS_TRANSITION_S, lerp_color,
     SPRING_STIFFNESS, SPRING_DAMPING, SPRING_MASS, PRESS_DEPTH_PX,
     DONE_POP_OFFSET_PX, OVR_POP_OFFSET_PX, DONE_MSG_Y, DONE_BTN_CENTER_Y,
@@ -189,7 +189,7 @@ class LockUI:
         # same length by construction, so bounds-checking against either is
         # equivalent.
         accent_set = ACCENT_COLORS_LIGHT if mode_idx == 1 else ACCENT_COLORS_DARK
-        accent_idx = max(0, min(len(accent_set) - 1, accent_idx))
+        accent_idx = clamp(accent_idx, 0, len(accent_set) - 1)
         self._mode_idx = mode_idx
         self._accent_idx = accent_idx
         bg, surface, fg, dim = MODE_COLORS[mode_idx]
@@ -298,7 +298,7 @@ class LockUI:
         elif r.charging:
             txt = "CHG"
         else:
-            txt = "{}%".format(max(0, min(100, r.percent)))
+            txt = "{}%".format(clamp(r.percent, 0, 100))
         for lbl in self._corner_bat_labels:
             lbl.text = txt
 
@@ -1123,7 +1123,7 @@ class LockUI:
                 self.bat_watts.text = "-- W"
                 key = None
             else:
-                pct = max(0, min(100, r.percent))
+                pct = clamp(r.percent, 0, 100)
                 self.bat_pct.text = "{}%".format(pct)
                 # No "On battery" label here (manager request) -- the percent
                 # readout above already implies it whenever bat_chg isn't
@@ -1260,7 +1260,7 @@ class LockUI:
         # Same key-gated redraw idiom as _set_gauge/update_override_timeout
         # -- only touch a dot's .fill when the filled count actually changes,
         # not on every press-counter update.
-        frac = max(0.0, min(1.0, frac))
+        frac = clamp(frac, 0.0, 1.0)
         k = int(round(frac * self.ovr_ring_n))
         if k == self._ovr_ring_k:
             return

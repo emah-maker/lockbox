@@ -8,19 +8,18 @@
 import supervisor
 
 from max17043 import MAX17043
-from lock_config import BAT_GAUGE_ADDR, BAT_CAPACITY_MAH
+from lock_config import BAT_GAUGE_ADDR, BAT_CAPACITY_MAH, clamp
 
 
 class BatteryReading:
-    __slots__ = ("available", "volts", "percent", "charging", "watts", "raw")
+    __slots__ = ("available", "volts", "percent", "charging", "watts")
 
-    def __init__(self, available, volts, percent, charging, watts, raw):
+    def __init__(self, available, volts, percent, charging, watts):
         self.available = available
         self.volts = volts
         self.percent = percent
         self.charging = charging
         self.watts = watts
-        self.raw = raw
 
 
 class Battery:
@@ -44,14 +43,13 @@ class Battery:
 
     def read(self, now):
         if not self.available:
-            return BatteryReading(False, 0.0, 0, False, 0.0, 0)
+            return BatteryReading(False, 0.0, 0, False, 0.0)
         try:
             volts = self._gauge.cell_voltage
-            pct = max(0, min(100, int(self._gauge.cell_percent + 0.5)))
+            pct = clamp(int(self._gauge.cell_percent + 0.5), 0, 100)
         except OSError:
             # Transient bus contention/error: skip this frame, retry next read.
-            return BatteryReading(False, 0.0, 0, False, 0.0, 0)
-        raw = self._gauge.vcell_raw
+            return BatteryReading(False, 0.0, 0, False, 0.0)
         charging = supervisor.runtime.usb_connected
         # watts: rough discharge-rate estimate from the (now accurate) % trend.
         if self._last_t is None or self._last_pct is None:
@@ -69,4 +67,4 @@ class Battery:
                     self._watts += (watts - self._watts) * 0.3
                 self._last_t = now
                 self._last_pct = pct
-        return BatteryReading(True, volts, pct, charging, self._watts, raw)
+        return BatteryReading(True, volts, pct, charging, self._watts)

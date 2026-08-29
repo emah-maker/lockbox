@@ -23,7 +23,7 @@
 # one worth losing least. See LOG_MAX_PENDING in lock_config.py.
 import microcontroller
 
-from lock_config import LOG_MAX_PENDING, NVM_LOG_BASE
+from lock_config import LOG_MAX_PENDING, NVM_LOG_BASE, clamp
 
 _MAGIC = 0x81        # bump if this NVM layout changes (forces an empty queue
                       # once, same convention as lock_settings.py's _MAGIC)
@@ -40,7 +40,7 @@ _EPOCH_NONE = 0xFFFFFFFF  # NVM sentinel for "never time-synced" (epoch=-1 in
 
 
 def _write16(nvm, off, v):
-    v = max(0, min(0xFFFF, int(v)))
+    v = clamp(int(v), 0, 0xFFFF)
     nvm[off] = (v >> 8) & 0xFF
     nvm[off + 1] = v & 0xFF
 
@@ -50,7 +50,7 @@ def _read16(nvm, off):
 
 
 def _write32(nvm, off, v):
-    v = max(0, min(0xFFFFFFFF, int(v)))
+    v = clamp(int(v), 0, 0xFFFFFFFF)
     nvm[off] = (v >> 24) & 0xFF
     nvm[off + 1] = (v >> 16) & 0xFF
     nvm[off + 2] = (v >> 8) & 0xFF
@@ -206,7 +206,7 @@ class SessionLog:
             if nvm is None or nvm[_BASE] != _MAGIC:
                 return
             count = nvm[_BASE + 1]
-            count = max(0, min(LOG_MAX_PENDING, count))
+            count = clamp(count, 0, LOG_MAX_PENDING)
             entries = []
             for i in range(count):
                 off = _BASE + 2 + i * _ENTRY_SIZE

@@ -131,6 +131,15 @@ RADIUS_BTN_SM = 10    # small square controls (settings detail [-]/[+])
 RADIUS_BTN_LG = 12    # primary LOCK/OPEN button (larger element)
 
 
+def clamp(value, lo, hi):
+    """Clamp value into [lo, hi]. Works for int or float alike; cast first
+    (e.g. int(x)) if the call site needs a specific type -- this only orders
+    the comparisons. Not for per-frame/hot-path call sites (see lock_ui.py's
+    _set_gauge/update_override_timeout/step_tag_picker_* and
+    LockController.update, which inline this instead)."""
+    return max(lo, min(hi, value))
+
+
 def fmt_hms(secs):
     secs = max(0, int(secs))
     return "{:d}:{:02d}:{:02d}".format(secs // 3600, (secs % 3600) // 60, secs % 60)

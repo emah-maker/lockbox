@@ -10,6 +10,7 @@ from lock_config import (
     BRIGHT_OPTIONS, DEFAULT_MODE_IDX, DEFAULT_ACCENT_IDX, ACCENT_COLORS,
     SCREEN_FLIPPED_DEFAULT, SERVO_LOCK_ANGLE, SERVO_UNLOCK_ANGLE,
     SERVO_ANGLE_MIN, SERVO_ANGLE_MAX, NVM_SETTINGS_BASE, NVM_SETTINGS_LEN,
+    clamp,
 )
 
 _MAGIC = 0x63        # bump when the NVM layout changes (forces defaults once);
@@ -43,12 +44,12 @@ def _step_in(options, value, direction):
         i = options.index(value)
     except ValueError:
         i = 0
-    i = max(0, min(len(options) - 1, i + (1 if direction > 0 else -1)))
+    i = clamp(i + (1 if direction > 0 else -1), 0, len(options) - 1)
     return options[i]
 
 
 def _step_clamped(value, direction, step, lo, hi):
-    return max(lo, min(hi, value + (step if direction > 0 else -step)))
+    return clamp(value + (step if direction > 0 else -step), lo, hi)
 
 
 class Settings:
@@ -121,19 +122,19 @@ class Settings:
             # (_BASE+1) so this stays a value-format-only change, not a
             # layout shift of every other field; high byte appended at a
             # new offset (_BASE+9) rather than reordering the existing ones.
-            ovr = max(OVR_MIN, min(OVR_MAX, int(self.override_presses)))
+            ovr = clamp(int(self.override_presses), OVR_MIN, OVR_MAX)
             nvm[_BASE + 1] = ovr & 0xFF
             nvm[_BASE + 9] = (ovr >> 8) & 0xFF
             nvm[_BASE + 2] = 1 if self.auto_open else 0
-            nvm[_BASE + 3] = max(0, min(255, int(self.sleep_s)))
-            nvm[_BASE + 4] = max(0, min(100, int(self.bright_pct)))
+            nvm[_BASE + 3] = clamp(int(self.sleep_s), 0, 255)
+            nvm[_BASE + 4] = clamp(int(self.bright_pct), 0, 100)
             nvm[_BASE + 5] = 1 if self.allow_remote_unlock else 0
             nvm[_BASE + 6] = 1 if self.unlock_on_call else 0
-            nvm[_BASE + 7] = max(0, min(1, int(self.theme_mode)))
-            nvm[_BASE + 8] = max(0, min(len(ACCENT_COLORS) - 1, int(self.accent_idx)))
+            nvm[_BASE + 7] = clamp(int(self.theme_mode), 0, 1)
+            nvm[_BASE + 8] = clamp(int(self.accent_idx), 0, len(ACCENT_COLORS) - 1)
             nvm[_BASE + 10] = 1 if self.screen_flipped else 0
-            lock_angle = max(SERVO_ANGLE_MIN, min(SERVO_ANGLE_MAX, int(self.lock_angle)))
-            unlock_angle = max(SERVO_ANGLE_MIN, min(SERVO_ANGLE_MAX, int(self.unlock_angle)))
+            lock_angle = clamp(int(self.lock_angle), SERVO_ANGLE_MIN, SERVO_ANGLE_MAX)
+            unlock_angle = clamp(int(self.unlock_angle), SERVO_ANGLE_MIN, SERVO_ANGLE_MAX)
             nvm[_BASE + 11] = lock_angle + _ANGLE_BYTE_OFFSET
             nvm[_BASE + 12] = unlock_angle + _ANGLE_BYTE_OFFSET
         except Exception:

@@ -9,7 +9,7 @@
 from lock_config import (
     MIN_SECONDS, MAX_SECONDS, OVR_MIN, OVR_MAX, SLEEP_OPTIONS, BRIGHT_OPTIONS,
     snap_to_option, SERVO_ANGLE_MIN, SERVO_ANGLE_MAX, ACCENT_COLORS, C_GREY,
-    fix, BLE_LABEL_MAX_COUNT, BLE_LABEL_NAME_MAX_LEN, BUILTIN_TOPICS,
+    fix, BLE_LABEL_MAX_COUNT, BLE_LABEL_NAME_MAX_LEN, BUILTIN_TOPICS, clamp,
 )
 
 # Reserved ids a synced custom label must not be allowed to reuse -- see
@@ -78,7 +78,7 @@ def decode_command(cmd):
             secs = int(op[1])
         except ValueError:
             return None
-        return Command("start", seconds=max(MIN_SECONDS, min(MAX_SECONDS, secs)))
+        return Command("start", seconds=clamp(secs, MIN_SECONDS, MAX_SECONDS))
     if name == "dur":
         if len(op) != 2:
             return None
@@ -86,7 +86,7 @@ def decode_command(cmd):
             secs = int(op[1])
         except ValueError:
             return None
-        return Command("dur", seconds=max(MIN_SECONDS, min(MAX_SECONDS, secs)))
+        return Command("dur", seconds=clamp(secs, MIN_SECONDS, MAX_SECONDS))
     if name == "lock":
         return Command("lock")
     if name == "unlock":
@@ -124,7 +124,7 @@ def decode_settings(text):
         # standing between a malformed/out-of-range payload and a stored
         # value the box's single NVM byte can't actually hold.
         try:
-            updates["ovr"] = max(OVR_MIN, min(OVR_MAX, int(d["ovr"])))
+            updates["ovr"] = clamp(int(d["ovr"]), OVR_MIN, OVR_MAX)
         except (ValueError, TypeError):
             pass
     if "auto" in d:
@@ -152,7 +152,7 @@ def decode_settings(text):
         updates["ucal"] = bool(d["ucal"])
     if "thm" in d:
         try:
-            updates["thm"] = max(0, min(1, int(d["thm"])))
+            updates["thm"] = clamp(int(d["thm"]), 0, 1)
         except (ValueError, TypeError):
             pass
     if "acc" in d:
@@ -160,7 +160,7 @@ def decode_settings(text):
         # actually is instead of a second number that has to be remembered
         # and kept in sync.
         try:
-            updates["acc"] = max(0, min(len(ACCENT_COLORS) - 1, int(d["acc"])))
+            updates["acc"] = clamp(int(d["acc"]), 0, len(ACCENT_COLORS) - 1)
         except (ValueError, TypeError):
             pass
     if "flip" in d:
@@ -171,12 +171,12 @@ def decode_settings(text):
         # this keeps the persisted/reported value honest rather than
         # relying on that as the only backstop).
         try:
-            updates["langle"] = max(SERVO_ANGLE_MIN, min(SERVO_ANGLE_MAX, int(d["langle"])))
+            updates["langle"] = clamp(int(d["langle"]), SERVO_ANGLE_MIN, SERVO_ANGLE_MAX)
         except (ValueError, TypeError):
             pass
     if "uangle" in d:
         try:
-            updates["uangle"] = max(SERVO_ANGLE_MIN, min(SERVO_ANGLE_MAX, int(d["uangle"])))
+            updates["uangle"] = clamp(int(d["uangle"]), SERVO_ANGLE_MIN, SERVO_ANGLE_MAX)
         except (ValueError, TypeError):
             pass
     return updates

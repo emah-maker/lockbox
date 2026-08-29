@@ -4,7 +4,7 @@ from lock_config import (
     MAX_SECONDS, MAX_HOURS, MIN_SECONDS, SWIPE_MIN_PX, DEFAULT_SECONDS,
     SWAP_XY, INVERT_X, INVERT_Y, CLOCK_FPS, SERVO_HOLD_S,
     OVERRIDE_TIMEOUT, DONE_ANIM_S, MIN_STEP, RELEASE_FRAMES,
-    fmt_hm,
+    fmt_hm, clamp,
     BLE_CALL_ALERT_S, CALL_ALERT_BLINK_HZ,
     HOLD_REPEAT_DELAY, HOLD_REPEAT_START, HOLD_REPEAT_MIN, HOLD_REPEAT_RAMP,
     STATUS_TAP_COOLDOWN_S, BUILTIN_TOPICS,
@@ -381,14 +381,14 @@ class LockController:
             h += direction
         else:
             m += direction * MIN_STEP
-        h = max(0, min(MAX_HOURS, h))
-        m = max(0, min(59, m))
+        h = clamp(h, 0, MAX_HOURS)
+        m = clamp(m, 0, 59)
         if h == 0 and m == 0:
             # Decrementing to 0h00m would arm an unusable timer -- land on
             # the smallest real step instead (MIN_SECONDS floor, see
             # lock_config.py).
             m = MIN_STEP
-        self.set_seconds = max(MIN_SECONDS, min(MAX_SECONDS, h * 3600 + m * 60 + s))
+        self.set_seconds = clamp(h * 3600 + m * 60 + s, MIN_SECONDS, MAX_SECONDS)
         self.ui.set_clock(self.set_seconds)
 
     # ----- per-frame updates; returns True if it just finished -----
