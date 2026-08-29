@@ -316,6 +316,27 @@
       submitBtn.textContent = isPending ? "Joining…" : submitLabel;
     }
 
+    // Firestore's SDK can retry a stuck connection (offline, an ad-blocker
+    // or corporate proxy filtering firestore.googleapis.com) silently
+    // instead of rejecting -- confirmed live: with the write request
+    // blocked, the SDK just keeps retrying its channel forever and the
+    // setDoc promise never settles, leaving the button on "Joining…"
+    // permanently with no way for the visitor to retry. dashboard.js's
+    // loadDashboard hit the exact same failure mode first (see its
+    // LOAD_TIMEOUT_MS/withTimeout); this mirrors that fix so a stall here
+    // surfaces the same actionable error instead of hanging indefinitely.
+    var SUBMIT_TIMEOUT_MS = 15000;
+    function withTimeout(promise, ms) {
+      return Promise.race([
+        promise,
+        new Promise(function (_, reject) {
+          window.setTimeout(function () {
+            reject(Object.assign(new Error("Waitlist signup timed out"), { code: "timeout" }));
+          }, ms);
+        }),
+      ]);
+    }
+
     form.addEventListener("submit", function (e) {
       e.preventDefault();
       var input = document.getElementById("email");
@@ -339,7 +360,7 @@
         msg.className = "form-msg";
       }
 
-      getWaitlistDb().then(function (ctx) {
+      withTimeout(getWaitlistDb().then(function (ctx) {
         var payload = {
           email: value,
           createdAt: ctx.fs.serverTimestamp(),
@@ -356,7 +377,7 @@
         return waitlistDocId(value).then(function (id) {
           return ctx.fs.setDoc(ctx.fs.doc(ctx.db, "waitlist", id), payload);
         });
-      }).then(function () {
+      }), SUBMIT_TIMEOUT_MS).then(function () {
         // Leave the button disabled -- the form is about to be hidden
         // entirely by the cross-fade into the thank-you state.
         showThanksState();
