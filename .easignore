@@ -1,0 +1,55 @@
+# .easignore -- what EAS Build uploads to its workers.
+#
+# This MUST live at the git repository root, not next to eas.json. eas-cli
+# resolves it as path.join(getRootPathAsync(), '.easignore') -- the *git*
+# root (see vcs/clients/git.ts). An .easignore inside app/ is read by nothing,
+# which is exactly how app/.env ended up never reaching the builder: with no
+# root .easignore, EAS falls back to .gitignore, .gitignore excludes .env, and
+# every EAS build shipped the REPLACE_ME_* fallbacks from firebaseConfig.ts.
+# The app then reported "Sign-in isn't configured on this build", correctly.
+#
+# IMPORTANT: when this file exists it REPLACES .gitignore for deciding what is
+# uploaded. Anything not excluded here is sent to EAS even when git ignores it.
+# That is the whole point (app/.env has to get through) and also the hazard --
+# hence the allowlist below rather than a blocklist, so a new secret dropped
+# anywhere outside app/ cannot silently start riding along.
+
+# Ignore everything at the repository root...
+/*
+
+# ...except the Expo project, which is all a build actually needs. Everything
+# else here -- website/, tests/, docs/, Box-code/, the CAD and video files --
+# is not part of the app build.
+!/app/
+
+# Inside app/, re-apply the exclusions app/.gitignore was providing, since
+# this file has now taken over from it.
+/app/node_modules/
+/app/.expo/
+/app/dist/
+/app/web-build/
+/app/ios/
+/app/android/
+/app/coverage/
+
+# Agent tooling -- what the old app/.easignore was trying to exclude.
+/app/.agents/
+/app/.claude/
+
+# Signing keys. Never upload these -- they are git-ignored, which no longer
+# protects them here.
+/app/.secrets/
+*.p8
+*.p12
+*.jks
+*.keystore
+*.mobileprovision
+
+# Logs and scratch
+*.log
+/app/.firebase/
+
+# NOT ignored, deliberately: app/.env. The EXPO_PUBLIC_FIREBASE_* values are
+# inlined at transform time, so they must exist on the builder or the app
+# ships with placeholders. They are public identifiers (they end up in the
+# shipped bundle either way); real secrets stay in /app/.secrets/ above.
