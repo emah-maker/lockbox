@@ -388,5 +388,60 @@ check("settings.save() writes nothing past _MAX_FIELD_OFF (the constant is hones
 check("settings.save() therefore never reaches the queue's region",
       bool(_touched) and max(_touched) < NVM_LOG_BASE)
 
+
+# ===================================================================
+# clamp() hot-path exclusions. lock_config.clamp replaced this idiom
+# at 21 sites, but six per-frame ones keep it inline on purpose: on
+# CircuitPython a call is not free, and these run in the main loop,
+# the 25fps countdown gauge, the ~50Hz override bar, and the three
+# touch-hold steppers. The docstring says so, but a docstring does
+# not fail a build, and "finish the migration" is an easy, plausible
+# future tidy-up. This makes it fail here instead.
+#
+# Reads the source text rather than the imported objects because the
+# thing being asserted IS the source form -- a converted call behaves
+# identically, which is exactly why nothing else would catch it.
+# ===================================================================
+import re
+
+
+def _body_of(path, name):
+    """Source of one def, from its line to the next def at the same indent."""
+    with open(path, encoding="utf-8") as fh:
+        src = fh.read()
+    m = re.search("^([ \t]*)def %s\(" % re.escape(name), src, re.M)
+    assert m, "no def %s in %s" % (name, path)
+    indent = m.group(1)
+    rest = src[m.end():]
+    nxt = re.search(r"^%sdef " % re.escape(indent), rest, re.M)
+    return rest[: nxt.start()] if nxt else rest
+
+
+_UI = os.path.join(os.path.dirname(__file__), "..", "Box-code", "lib", "lock_ui.py")
+_CTRL = os.path.join(os.path.dirname(__file__), "..", "Box-code", "lib", "lock_controller.py")
+
+for _path, _fn in (
+    (_CTRL, "update"),                     # main run loop
+    (_UI, "_set_gauge"),                   # countdown gauge, CLOCK_FPS=25
+    (_UI, "update_override_timeout"),      # ~50Hz, "called every frame"
+    (_UI, "step_tag_picker_hold"),         # per-frame while a touch is held
+    (_UI, "step_tag_picker_skip_hold"),
+    (_UI, "step_tag_picker_swipe_progress"),
+):
+    check("%s stays clamp()-free (per-frame hot path)" % _fn,
+          "clamp(" not in _body_of(_path, _fn))
+
+# The flip side: the helper must actually be in use, or the six above are
+# "exclusions" from nothing and this whole block is asserting a vacuum.
+_converted = 0
+for _name in ("lock_battery", "lock_controller", "lock_log", "lock_protocol",
+              "lock_settings", "lock_ui"):
+    with open(os.path.join(os.path.dirname(__file__), "..", "Box-code",
+                           "lib", _name + ".py"), encoding="utf-8") as _fh:
+        _src = _fh.read()
+    _converted += _src.count("clamp(")
+check("the shared clamp() is genuinely adopted elsewhere (>=15 call sites)",
+      _converted >= 15)
+
 print("\n{} passed, {} failed".format(_passed, _failed))
 sys.exit(1 if _failed else 0)
