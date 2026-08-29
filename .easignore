@@ -36,6 +36,11 @@
 /app/.agents/
 /app/.claude/
 
+# Firestore rules tests. They only run against the local emulator, and they
+# carry their own tsconfig.json -- neither belongs on an EAS worker, which
+# just needs what the app itself builds from.
+/app/tests/
+
 # Signing keys. Never upload these -- they are git-ignored, which no longer
 # protects them here.
 /app/.secrets/

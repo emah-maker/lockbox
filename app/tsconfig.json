@@ -8,5 +8,11 @@
     "types": ["jest"]
   },
   "include": ["**/*.ts", "**/*.tsx"],
-  "exclude": ["node_modules", "ios", "android"]
+  // tests/ is excluded here and typechecked by its own tsconfig instead: the
+  // Firestore rules suite runs under plain Node (fs/path/__dirname to load
+  // firestore.rules), which needs @types/node. Adding "node" to the `types`
+  // above would hand Node globals to React Native app code as well, where
+  // they don't exist at runtime -- tsc would then happily accept a
+  // process.cwd() or Buffer in a screen that crashes on device.
+  "exclude": ["node_modules", "ios", "android", "tests"]
 }

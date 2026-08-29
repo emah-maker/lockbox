@@ -1,0 +1,11 @@
+{
+  // Separate from app/tsconfig.json (which excludes this directory) so the
+  // Node globals these tests need stay out of the React Native app's type
+  // environment -- see that file's comment on the exclude for why.
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "types": ["jest", "node"]
+  },
+  "include": ["**/*.ts"],
+  "exclude": []
+}
