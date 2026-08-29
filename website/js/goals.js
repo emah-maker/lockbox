@@ -472,6 +472,16 @@ export function mergedGoalsDocUpdatedAt(merged, localDocUpdatedAt, remoteDocUpda
 
 // ---------- Progress ----------
 
+// This section (goalWindow, isGoalDueOn, computeGoalProgress below) is the
+// plain-JS port of app/src/goals/goalProgress.ts's window/progress math.
+// The two are checked against each other by a shared golden fixture,
+// tests/fixtures/goalProgress.golden.json, asserted from both sides (this
+// file's own tests/website/goalProgress.golden.test.js twin and the app's
+// goalProgress.golden.test.ts). Changing ANY of the math here means
+// regenerating that fixture (see its own header for the recipe) and
+// checking app/src/goals/goalProgress.ts still agrees -- the fixture is the
+// one place drift between the two would actually get caught.
+
 /** First-day-of-week finding: focusStats.js's buildMonthGrid pads its grid
  * with `firstWeekday = monthStart.getDay()` leading `null` cells and its
  * sibling WEEKDAY_INITIALS array starts at 'S' for Sunday (Date#getDay()'s

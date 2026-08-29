@@ -11,6 +11,17 @@
 // same convention as stats/trend.ts's lastNDays/lastNDaysHeatmap and
 // sessionHistory.ts's applyTopicUpdate, so a test can pin "now" to an exact
 // instant and assert an exact window boundary instead of racing the clock.
+//
+// This module's window/progress math (dailyWindow/weeklyWindow/
+// monthlyWindow, isGoalDueOn, computeGoalProgress) is hand-ported to
+// website/js/goals.js (~line 496 on, starting at that file's own
+// goalWindow) -- the two are checked against each other by a shared golden
+// fixture, tests/fixtures/goalProgress.golden.json, asserted from both
+// sides (this file's own goalProgress.golden.test.ts and the website
+// twin's tests/website/goalProgress.golden.test.js). Changing ANY of the
+// math here means regenerating that fixture (see its own header for the
+// recipe) and checking website/js/goals.js still agrees -- the fixture is
+// the one place drift between the two would actually get caught.
 import type { Goal, GoalPeriod } from './goals';
 import type { LoggedSession } from '../stats/sessionHistory';
 

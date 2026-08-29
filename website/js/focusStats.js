@@ -279,7 +279,14 @@ export function dominantTopicWithCustom(sessions, customLabels, mode = 'dark') {
 
 // Deliberately round, easy-to-defend reference durations. Ordered
 // shortest -> longest with distinct unitS values so topComparisons never
-// ties. Mirrors app/src/stats/comparisons.ts's REAL_WORLD_REFS exactly.
+// ties. Mirrors app/src/stats/comparisons.ts's REAL_WORLD_REFS exactly --
+// the two lists must stay in sync (same 11 entries, same order, same
+// key/label/unitS), which nothing in either runtime enforces on its own.
+// Checked against tests/fixtures/realWorldRefs.golden.json by this file's
+// own twin's "REAL_WORLD_REFS parity" test (comparisons.test.ts) and by
+// focusStats.test.js's copy of the same check -- adding a 12th reference
+// here without also updating app/src/stats/comparisons.ts AND that fixture
+// will fail both.
 export const REAL_WORLD_REFS = [
   { key: 'coffee', label: 'brewing a pot of coffee', unitS: 10 * 60 },
   { key: 'tv-episode', label: 'watching a sitcom episode', unitS: 22 * 60 },

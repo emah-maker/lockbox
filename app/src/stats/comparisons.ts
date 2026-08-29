@@ -15,6 +15,15 @@ export interface RealWorldRef {
 // rather than a fun fact. Picked for a wide, evenly-spread range (10 min to
 // half a day) so short sessions and marathon ones each surface something
 // that actually feels dramatic instead of always landing on the same 1-2 refs.
+//
+// Hand-ported, byte-for-byte, to website/js/focusStats.js's own
+// REAL_WORLD_REFS (~line 283) -- the two lists must stay in sync (same 11
+// entries, same order, same key/label/unitS), which nothing in either
+// runtime enforces on its own. Checked against tests/fixtures/
+// realWorldRefs.golden.json by this file's own "REAL_WORLD_REFS parity"
+// test in comparisons.test.ts and by focusStats.test.js's twin -- adding a
+// 12th reference here without also updating website/js/focusStats.js AND
+// that fixture will fail both.
 export const REAL_WORLD_REFS: RealWorldRef[] = [
   { key: 'coffee', label: 'brewing a pot of coffee', unitS: 10 * 60 },
   { key: 'tv-episode', label: 'watching a sitcom episode', unitS: 22 * 60 },

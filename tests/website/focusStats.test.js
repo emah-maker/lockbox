@@ -3,6 +3,9 @@
 // ported from app/src/stats/stats.test.ts (and this file's own comments)
 // since this module exists specifically to keep the two surfaces from
 // drifting. Run with `npm test` from the repo root (node --test).
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
@@ -16,6 +19,7 @@ import {
   lastNDays,
   topicBreakdownWithCustom,
   dominantTopicWithCustom,
+  REAL_WORLD_REFS,
   topComparisons,
   formatComparison,
   startOfMonth,
@@ -33,6 +37,11 @@ import {
   MAX_LABEL_NAME_LENGTH,
   TOPIC_KEYS,
 } from '../../website/js/focusStats.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const realWorldRefsGolden = JSON.parse(
+  readFileSync(path.join(__dirname, '..', 'fixtures', 'realWorldRefs.golden.json'), 'utf8'),
+);
 
 describe('aggregate', () => {
   const recs = [
@@ -221,6 +230,20 @@ describe('topComparisons / formatComparison', () => {
   it('formats with one decimal below 10x, whole numbers at/above 10x', () => {
     assert.equal(formatComparison({ count: 3.24, ref: { label: 'reading a novel' } }), "That's like 3.2x reading a novel.");
     assert.equal(formatComparison({ count: 12.6, ref: { label: 'a full weekend' } }), "That's like 13x a full weekend.");
+  });
+});
+
+// Drift guard: REAL_WORLD_REFS is hand-ported from app/src/stats/
+// comparisons.ts (comment above this file's own copy explains why), and
+// nothing in either runtime enforces the two staying in sync -- a 12th
+// entry added to only one side is an easy, silent mistake. Both sides are
+// asserted here against the SAME third source
+// (tests/fixtures/realWorldRefs.golden.json) rather than against each other
+// directly, since this suite can't import a TypeScript module -- see
+// comparisons.test.ts's identical check on the app side.
+describe('REAL_WORLD_REFS parity with app/src/stats/comparisons.ts', () => {
+  it('matches the golden fixture exactly -- same count, same order, same key/label/unitS', () => {
+    assert.deepEqual(REAL_WORLD_REFS, realWorldRefsGolden.refs);
   });
 });
 

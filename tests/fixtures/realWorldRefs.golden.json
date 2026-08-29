@@ -1,0 +1,27 @@
+{
+  "_comment": [
+    "Canonical, ordered REAL_WORLD_REFS list -- the single source of truth both",
+    "app/src/stats/comparisons.ts and website/js/focusStats.js (~line 283) must",
+    "match exactly (same 11 entries, same order, same key/label/unitS). Values",
+    "copied from the two files while they agreed (confirmed by diffing them",
+    "byte-for-byte before this fixture was written) -- if a future edit adds,",
+    "removes, reorders, or renames a reference on ONE side only, this fixture",
+    "is the thing that catches it (see comparisons.test.ts's and",
+    "focusStats.test.js's own 'REAL_WORLD_REFS parity' tests). Adding a 12th",
+    "reference deliberately, on purpose, requires updating THIS file too, on",
+    "the same change, not just one implementation."
+  ],
+  "refs": [
+    { "key": "coffee", "label": "brewing a pot of coffee", "unitS": 600 },
+    { "key": "tv-episode", "label": "watching a sitcom episode", "unitS": 1320 },
+    { "key": "workout", "label": "a gym workout", "unitS": 3600 },
+    { "key": "movie", "label": "watching a movie", "unitS": 7200 },
+    { "key": "baseball-game", "label": "a baseball game", "unitS": 10800 },
+    { "key": "marathon", "label": "running a marathon", "unitS": 16200 },
+    { "key": "novel", "label": "reading a novel", "unitS": 21600 },
+    { "key": "flight-transatlantic", "label": "a transatlantic flight", "unitS": 25200 },
+    { "key": "sleep", "label": "a full night of sleep", "unitS": 28800 },
+    { "key": "lotr-trilogy", "label": "bingeing the Lord of the Rings trilogy (extended cuts)", "unitS": 41040 },
+    { "key": "weekend", "label": "a full weekend", "unitS": 172800 }
+  ]
+}
