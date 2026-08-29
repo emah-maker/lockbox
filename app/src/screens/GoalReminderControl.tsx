@@ -172,7 +172,17 @@ export function GoalReminderControl({
     <View style={styles.block}>
       <View style={styles.toggleRowLabel}>
         <Text style={[styles.formLabel, { color: color.textDim }]}>Remind me</Text>
-        <Switch value={notify} onValueChange={setToggle} accessibilityLabel="Remind me about this goal" />
+        {/* accessibilityRole/State -- same reasoning as GoalFormExtras.tsx's
+            SessionTargetControl switch: gives VoiceOver/TalkBack an actual
+            switch role + checked state instead of a labelled-but-stateless
+            element. Colours stay on the OS default, as everywhere else. */}
+        <Switch
+          value={notify}
+          onValueChange={setToggle}
+          accessibilityRole="switch"
+          accessibilityLabel="Remind me about this goal"
+          accessibilityState={{ checked: notify }}
+        />
       </View>
 
       {notify ? (
@@ -237,7 +247,14 @@ export function GoalReminderControl({
                     use: onTouchStart claims the gesture early, onTouchEnd/
                     -Cancel release it for a tap that never became a drag,
                     and onDragEnd is the guaranteed release once a wheel
-                    actually captures the drag. */}
+                    actually captures the drag. Also same fix as GoalForm's
+                    wheelRow (see that file's own comment): styles.wheelRow
+                    below sets alignSelf: 'center' so this touch-capturing
+                    View shrinks to the two wheels' own footprint instead of
+                    stretching to styles.picker's full column width -- a
+                    touch in what would otherwise be dead margin now falls
+                    through to the Sheet's outer scroll instead of silently
+                    disabling it for a drag no wheel ever captures. */}
                 <WheelPicker
                   labels={CLOCK_HOUR_LABELS}
                   selectedIndex={hour}
@@ -281,7 +298,9 @@ export function GoalReminderControl({
             <Switch
               value={onlyIfBehind}
               onValueChange={onOnlyIfBehindChange}
+              accessibilityRole="switch"
               accessibilityLabel="Only remind me when I'm behind on this goal"
+              accessibilityState={{ checked: onlyIfBehind }}
             />
           </View>
           <Text style={[styles.hint, { color: color.textDim }]}>
@@ -299,7 +318,9 @@ export function GoalReminderControl({
               // reading that looks like "every day", not like nothing has
               // been chosen yet.
               onValueChange={(on) => onDaysChange(on ? [0, 1, 2, 3, 4, 5, 6] : undefined)}
+              accessibilityRole="switch"
               accessibilityLabel="Remind me only on specific days"
+              accessibilityState={{ checked: days !== undefined }}
             />
           </View>
           {days !== undefined ? (
@@ -336,7 +357,9 @@ const styles = StyleSheet.create({
   removeGlyph: { fontSize: 16, lineHeight: 20, fontWeight: '700' },
   addChip: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 16, borderWidth: 1.5, borderStyle: 'dashed' },
   picker: { gap: spacing.sm },
-  wheelRow: { flexDirection: 'row', justifyContent: 'center', gap: 8 },
+  // alignSelf: 'center' is the fix (see the wheelRow View's own comment
+  // above); justifyContent is kept only as a no-op once alignSelf is set.
+  wheelRow: { flexDirection: 'row', justifyContent: 'center', alignSelf: 'center', gap: 8 },
   pickerActions: { flexDirection: 'row', gap: 8, justifyContent: 'center' },
   pickerBtn: { paddingVertical: 8, paddingHorizontal: 16, borderRadius: 12, borderWidth: 1.5 },
   pickerBtnText: { ...typeScale.label, fontWeight: '600' },

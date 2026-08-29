@@ -109,6 +109,17 @@ export default function StatsScreen() {
   // ui/Sheet.tsx -- Modal's own `visible` only hides it) would otherwise
   // see as "already true" and ignore.
   const [manageSheetAutoCreate, setManageSheetAutoCreate] = useState(false);
+  // True from openManageToCreate's tap until the outer "Manage goals" Sheet
+  // below actually finishes presenting -- see manageSheetAutoCreate's own
+  // comment for what this flag ultimately triggers, and Sheet.tsx's
+  // `onOpened` doc comment for why that trigger can't fire on the same tick
+  // as `setManageSheetOpen(true)`: doing so used to start the inner form
+  // Sheet's own slide-up/backdrop-fade at the exact same moment as this
+  // outer one's, so for the length of both springs the empty state, this
+  // sheet's own body, and the form sheet were all visibly mid-transition on
+  // top of each other. A ref, not state, since setting it never needs to
+  // trigger a render on its own -- only manageSheetAutoCreate flipping does.
+  const pendingAutoCreateRef = useRef(false);
   const [highlightGoalId, setHighlightGoalId] = useState<string | null>(null);
   // Guards the mount load below against overwriting a selection the user
   // (or an incoming deep link) already made while the AsyncStorage read was
@@ -236,12 +247,22 @@ export default function StatsScreen() {
   // button does, but flagged to land straight on GoalForm instead of on
   // GoalsSection's own empty state.
   const openManageToCreate = () => {
-    setManageSheetAutoCreate(true);
+    // Doesn't flip manageSheetAutoCreate itself -- that only happens once
+    // the Sheet below reports (via onOpened) that it's actually done
+    // presenting, via handleManageSheetOpened. See pendingAutoCreateRef's
+    // own comment for why.
+    pendingAutoCreateRef.current = true;
     setManageSheetOpen(true);
+  };
+  const handleManageSheetOpened = () => {
+    if (!pendingAutoCreateRef.current) return;
+    pendingAutoCreateRef.current = false;
+    setManageSheetAutoCreate(true);
   };
   const closeManageSheet = () => {
     setManageSheetOpen(false);
     setManageSheetAutoCreate(false);
+    pendingAutoCreateRef.current = false;
   };
 
   return (
@@ -376,6 +397,7 @@ export default function StatsScreen() {
       <Sheet
         visible={manageSheetOpen}
         onClose={closeManageSheet}
+        onOpened={handleManageSheetOpened}
         title="Manage goals"
         size="large"
         scrollEnabled={!wheelActive}

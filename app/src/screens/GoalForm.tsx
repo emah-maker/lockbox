@@ -367,7 +367,23 @@ function GoalForm({
             the gesture early, onTouchEnd/-Cancel release it for a tap that
             never became a drag, and onDragEnd is the guaranteed release once
             a wheel actually captures the drag (at which point this wrapping
-            View stops receiving touch events at all). */}
+            View stops receiving touch events at all).
+            wheelRow's own `alignSelf: 'center'` (below) is load-bearing here,
+            not decoration: without it this View -- a direct child of
+            styles.form's column flex -- stretches to the form's FULL width
+            per Yoga's default cross-axis stretch, even though its wheel
+            children are only ~2*wheelWidth wide and merely centered inside
+            that stretched box via justifyContent. A touch landing in the
+            resulting dead margin still lands ON this View (it's still the
+            hit target there), so onTouchStart still fired and disabled the
+            Sheet's outer scroll -- but no wheel ever captured the gesture
+            (the touch wasn't on one), so onDragStart/onDragEnd never fired
+            either, leaving the drag doing nothing until release re-enabled
+            scroll. That read as "hard to scroll on the sides of the target
+            wheels". alignSelf: 'center' shrinks this View to its own content
+            width instead of the form's, so the dead margin is now genuinely
+            outside it -- a touch there falls through to the Sheet's own
+            ScrollView same as it would anywhere else in the form. */}
         {showDaysWheel ? (
           <WheelPicker
             labels={dayLabels}
@@ -444,5 +460,9 @@ const styles = StyleSheet.create({
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   periodChip: { paddingVertical: 8, paddingHorizontal: 20, borderRadius: 12, borderWidth: 1.5 },
   periodChipText: { ...typeScale.label, fontWeight: '600' },
-  wheelRow: { flexDirection: 'row', justifyContent: 'center', gap: 8 },
+  // alignSelf: 'center' is the fix, not justifyContent (kept only because
+  // it's now a no-op, not because it does anything) -- see the wheelRow
+  // View's own comment above for why a merely-centered-inside-a-stretched-
+  // box row leaves a touch-capturing dead margin a plain center can't close.
+  wheelRow: { flexDirection: 'row', justifyContent: 'center', alignSelf: 'center', gap: 8 },
 });

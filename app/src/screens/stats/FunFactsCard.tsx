@@ -66,8 +66,8 @@ export function FunFactsCard({
       {/* opacity:0 (see header) hides these from eyes but NOT from
           VoiceOver/TalkBack, which read both branches regardless -- so a
           period with no focus time announced the placeholder AND a best-day
-          sentence built from `bestOrPlaceholder`, i.e. "Your best day was
-          Thu, Jan 1 -- 0m focused." accessibilityElementsHidden (iOS) +
+          sentence built from `bestOrPlaceholder`, i.e. "Best day: Thu, Jan 1
+          -- 0m." accessibilityElementsHidden (iOS) +
           importantForAccessibility (Android) mute whichever branch is
           currently invisible, without touching the layout-reserving trick
           this card depends on. */}
@@ -87,10 +87,19 @@ export function FunFactsCard({
       >
         <View style={[styles.bestDay, { backgroundColor: withAlpha(c.accent, 0.12) }]}>
           <Feather name="award" size={16} color={c.accent} />
+          {/* "Best day:" rather than "Your best day was ... focused." -- the
+              longer phrasing routinely pushed the actual date/duration (the
+              one part of this sentence that's the whole point of it) past
+              the numberOfLines={1} cutoff, so the value itself got
+              truncated ("...7h 15...") instead of anything droppable. This
+              card's height has to stay fixed (see header comment on why 2
+              lines here isn't an option), so the fix is a shorter fixed
+              prefix rather than a taller box. */}
           <Text numberOfLines={1} style={[styles.fact, styles.bestDayText, { color: c.text }]}>
-            Your best day was{' '}
-            {new Date(bestOrPlaceholder.dateMs).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}{' '}
-            -- {formatDuration(bestOrPlaceholder.focusS)} focused.
+            Best day:{' '}
+            {new Date(bestOrPlaceholder.dateMs).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
+            {' -- '}
+            {formatDuration(bestOrPlaceholder.focusS)}
           </Text>
         </View>
         {inline.map((cmp) => (

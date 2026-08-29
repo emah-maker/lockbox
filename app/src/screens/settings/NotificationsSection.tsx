@@ -79,6 +79,15 @@ function TimeWheels({
       <Text style={[styles.label, { color: color.textDim }]}>
         {label}: {display(value)}
       </Text>
+      {/* wheelRow's alignSelf: 'center' (below) is load-bearing -- same fix
+          as GoalForm.tsx's own Target wheelRow (see that file's comment for
+          the full mechanism): without it this touch-capturing View
+          stretches to styles.wheelBlock's full column width, leaving a dead
+          margin either side of the two centered wheels that still claims
+          (and, on release, releases) the enclosing Sheet's scroll lock
+          without any wheel ever capturing the drag -- read as "hard to
+          scroll on the sides of the quiet-hours wheels", the same report as
+          the goal form's Target wheels. */}
       <View
         style={styles.wheelRow}
         onTouchStart={() => onWheelActiveChange(true)}
@@ -234,5 +243,7 @@ const styles = StyleSheet.create({
   label: rowLabelStyle,
   caption: captionStyle,
   wheelBlock: { gap: spacing.xs, marginTop: spacing.xs },
-  wheelRow: { flexDirection: 'row', justifyContent: 'center', gap: 8 },
+  // alignSelf: 'center' is the fix (see the wheelRow View's own comment
+  // above); justifyContent is kept only as a no-op once alignSelf is set.
+  wheelRow: { flexDirection: 'row', justifyContent: 'center', alignSelf: 'center', gap: 8 },
 });

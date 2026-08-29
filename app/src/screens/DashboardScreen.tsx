@@ -21,16 +21,23 @@
 //     is the compact "at a glance" replacement (today's focus time + the
 //     single most-relevant goal), and it links out to Stats (already
 //     scoped to the right period via useNav's intent) for the rest.
-// What's left fits in a fixed-height layout with no ScrollView: the
+// What's left fits, on a typical device, in a single fixed-height screen: the
 // home/FocusHero.tsx anchor, the Close/Open remote-control row, and
 // TodaySummary -- plus, since then, home/TopicBreakdownStrip.tsx (manager
 // brief: "find something more to put on the home screen to fill the
 // space"), a compact today's-topic-split block between the control row and
-// TodaySummary. It's deliberately just one more fixed block in this same
-// space-between column, not a new ScrollView -- the empty space it fills was
-// this layout's own slack, not a sign the layout needed to change shape.
+// TodaySummary. Every block above is a fixed size (none grows to soak up
+// slack), so the column's total height is only ever as tall as its content
+// actually needs -- but "typical" isn't "every": a long goal/topic name
+// (TodaySummary's own highlight column) or a larger system text size can
+// push that total past a shorter device's available height. The outer
+// ScrollView below is this layout's safety net for exactly that case, not a
+// design change -- its contentContainerStyle keeps the same flexGrow+
+// space-between shape, so on any screen where the content already fits
+// nothing looks different; it only starts scrolling instead of letting
+// TodaySummary's last line get clipped against the tab bar underneath.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, View, Text, StyleSheet } from 'react-native';
+import { Animated, View, Text, ScrollView, StyleSheet } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { useStore } from '../store/useStore';
 import { useSettingsStore } from '../store/useSettingsStore';
@@ -287,7 +294,8 @@ export default function DashboardScreen() {
   };
 
   return (
-    <View style={s.container}>
+    <View style={s.screen}>
+      <ScrollView contentContainerStyle={s.container} showsVerticalScrollIndicator={false}>
       {/* Minimal connect action -- the connection dot/label/battery display
           itself lives once, globally, in foundation's StatusStrip (App.tsx)
           now, so this is only the one action StatusStrip doesn't own.
@@ -390,6 +398,7 @@ export default function DashboardScreen() {
         onPress={() => navigate('stats', { statsPeriod: goalHighlight ? 'goals' : 'day' })}
       />
 
+      </ScrollView>
       <DurationSheet
         visible={durationSheetOpen}
         onClose={() => setDurationSheetOpen(false)}
@@ -418,9 +427,16 @@ export default function DashboardScreen() {
 
 const styles = (t: ReturnType<typeof useTheme>) =>
   StyleSheet.create({
+    // The ScrollView itself owns flex:1 (fills the space between the top/
+    // bottom SafeAreaViews in App.tsx); this is its contentContainerStyle,
+    // so flexGrow:1 (not flex:1) is what makes it fill that same space and
+    // still let justifyContent:'space-between' read as one fixed screen
+    // when everything fits -- flex:1 has no effect on a ScrollView's own
+    // content container, which sizes to its content by default regardless.
     // paddingTop matches the paddingTop:50 convention the other three
     // screens use for top clearance under the tab bar/notch.
-    container: { flex: 1, padding: 20, paddingTop: 50, paddingBottom: 24, backgroundColor: t.bg, justifyContent: 'space-between' },
+    screen: { flex: 1, backgroundColor: t.bg },
+    container: { flexGrow: 1, padding: 20, paddingTop: 50, paddingBottom: 24, justifyContent: 'space-between' },
     topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 32 },
     connectBtn: { paddingVertical: 6, paddingHorizontal: 14, borderRadius: 10, backgroundColor: t.surface },
     connectBtnText: { color: t.text, ...typeScale.label },

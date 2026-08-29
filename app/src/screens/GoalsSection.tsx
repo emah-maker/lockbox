@@ -94,6 +94,12 @@ export function GoalsSection({
   // which goal (if any) it's editing.
   const [formOpen, setFormOpen] = React.useState(false);
   const [editingId, setEditingId] = React.useState<string | null>(null);
+  // Bumped on every openForm() call, and folded into GoalForm's `key` below.
+  // The goal id alone can't distinguish two consecutive NEW-goal opens (both
+  // key to 'new'), so a second "New goal" would reuse the first one's still-
+  // mounted instance and show its leftover values -- the same staleness the
+  // key exists to prevent for edits. See that key's own comment.
+  const [formSeq, setFormSeq] = React.useState(0);
   const [error, setError] = React.useState<string | null>(null);
   // Gates the nested form Sheet's own `scrollEnabled` -- same
   // "wheel drag suspends the Sheet's own scroll" wiring
@@ -132,6 +138,7 @@ export function GoalsSection({
     configureLayoutAnimation(reducedMotion);
     setError(null);
     setEditingId(id);
+    setFormSeq((n) => n + 1);
     setFormOpen(true);
   };
   const closeForm = () => {
@@ -277,7 +284,34 @@ export function GoalsSection({
         size="large"
         scrollEnabled={!formWheelActive}
       >
+        {/* key IS the fix here, not decoration: Sheet passes `children` to
+            its own <Modal> unconditionally (see this file's own comment on
+            `autoOpenCreate` above), so GoalForm's component instance -- and
+            every bit of useState it seeds from `initial` on mount (topic,
+            period, days/hours/minutes, weekday chips, reminder times/days,
+            "only if behind") -- normally survives across DIFFERENT
+            `openForm` calls with no reset in between, since GoalForm has no
+            effect that re-derives its state when `initial` changes on an
+            already-mounted instance. Without this key, editing goal A, then
+            (with or without cancelling first) editing goal B shows B's
+            title/submit-label but A's leftover field values -- including A's
+            target/reminder wheel positions -- until every field happens to
+            be re-touched by hand; saving that unexamined would silently
+            overwrite B with A's numbers. Keying on the goal id (not the
+            `editingGoal` object itself, which useMemo/filter above can hand
+            back as a new reference on unrelated store churn) forces exactly
+            the remount needed on a REAL identity change.
+
+            `formSeq` covers what the id alone can't: two consecutive NEW
+            goals both key to 'new', so creating one, reopening, and creating
+            another would reuse the first's instance and its leftover wheel
+            positions. Bumping the sequence on every openForm() makes a fresh
+            form the guarantee on every open, rather than something that only
+            holds when Sheet's exit animation happened to run to completion
+            (Sheet only unmounts on a `finished` spring -- close and reopen
+            quickly and the instance never went away at all). */}
         <GoalForm
+          key={`${editingGoal?.id ?? 'new'}-${formSeq}`}
           initial={editingGoal ?? undefined}
           customLabels={customLabels}
           themeMode={themeMode}

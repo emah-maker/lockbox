@@ -43,6 +43,7 @@ const WINDOW_HEIGHT = Dimensions.get('window').height;
 export function Sheet({
   visible,
   onClose,
+  onOpened,
   title,
   size = 'auto',
   scrollEnabled = true,
@@ -50,6 +51,18 @@ export function Sheet({
 }: {
   visible: boolean;
   onClose: () => void;
+  /** Fires once this sheet's own entrance transition actually finishes (or
+   * immediately, for a reduced-motion open) -- NOT the same moment `visible`
+   * flips true, which is only when the transition *starts*. Exists so a
+   * caller that wants to present a SECOND, nested Sheet as a direct
+   * consequence of this one opening (GoalsSection's own form Sheet, auto-
+   * opened by StatsScreen's "Start adding goals" empty-state CTA) can wait
+   * for this one to actually settle first, instead of both sheets' own
+   * slide-up + backdrop-fade springs starting on the very same tick -- see
+   * StatsScreen's openManageToCreate for the bug that caused (the inner
+   * form's chips/wheels/buttons visibly overlapping the still-mid-transition
+   * outer sheet, and the empty state behind both of them). */
+  onOpened?: () => void;
   title?: string;
   /** 'auto' (default) hugs its content, capped so it can never exceed the
    * screen; 'large' takes a fixed ~85% of screen height. Either way the
@@ -97,12 +110,15 @@ export function Sheet({
       if (reducedMotion) {
         backdropOpacity.setValue(BACKDROP_OPACITY);
         sheetY.setValue(0);
+        onOpened?.();
         return;
       }
       Animated.parallel([
         Animated.spring(backdropOpacity, { toValue: BACKDROP_OPACITY, ...SHEET_SPRING }),
         Animated.spring(sheetY, { toValue: 0, ...SHEET_SPRING }),
-      ]).start();
+      ]).start(({ finished }) => {
+        if (finished) onOpened?.();
+      });
       return;
     }
     if (reducedMotion) {

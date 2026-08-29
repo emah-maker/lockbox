@@ -111,7 +111,18 @@ export function SessionTargetControl({
     <View style={styles.toggleRow}>
       <View style={styles.toggleRowLabel}>
         <Text style={[styles.formLabel, { color: color.textDim }]}>Also track session count</Text>
-        <Switch value={enabled} onValueChange={setEnabled} accessibilityLabel="Also track session count" />
+        {/* accessibilityRole/State are what let VoiceOver/TalkBack announce
+            this as a switch with a real on/off value -- accessibilityLabel
+            alone left it announced as a bare, stateless element. Colours are
+            deliberately left on the OS default, matching every other Switch
+            in the app (settings/, account/). */}
+        <Switch
+          value={enabled}
+          onValueChange={setEnabled}
+          accessibilityRole="switch"
+          accessibilityLabel="Also track session count"
+          accessibilityState={{ checked: enabled }}
+        />
       </View>
       {enabled ? (
         <View style={styles.stepper}>
