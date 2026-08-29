@@ -9,6 +9,10 @@
 // bars, the 7-day trend, and the Calendar's per-day dominant-topic dot.
 import type { LoggedSession } from './sessionHistory';
 import type { ThemeMode } from '../theme/theme';
+import { bestTextOn } from '../theme/color';
+
+/** The app's near-black, the dark half of every filled-chip ink decision. */
+const TOPIC_INK = '#0b0b0b';
 
 export type TopicKey = 'work' | 'study' | 'reading' | 'creative' | 'exercise' | 'other';
 
@@ -44,39 +48,21 @@ export function topicTextColor(key: TopicKey, mode: ThemeMode): string {
   return readableTextColor(TOPIC_HEX[key][mode]);
 }
 
-/** WCAG relative luminance (sRGB, gamma-corrected) -- what the 4.5:1
- * contrast-ratio formula is actually defined against, unlike a perceptual
- * luma weighting. */
-function relativeLuminance(hex: string): number {
-  const chan = (c: number) => {
-    const v = c / 255;
-    return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
-  };
-  const r = chan(parseInt(hex.slice(1, 3), 16));
-  const g = chan(parseInt(hex.slice(3, 5), 16));
-  const b = chan(parseInt(hex.slice(5, 7), 16));
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-}
-
-function contrastRatio(l1: number, l2: number): number {
-  const hi = Math.max(l1, l2);
-  const lo = Math.min(l1, l2);
-  return (hi + 0.05) / (lo + 0.05);
-}
-
-/** Picks whichever of black/white clears WCAG AA (4.5:1) against `hex`, or
- * the higher-contrast of the two if neither does -- shared with
+/** Ink for text placed *inside* a filled chip/segment of `hex`: whichever of
+ * white or the app's near-black reads better on it. Shared with
  * stats/customLabels.ts so a user-picked custom label color gets the same
- * readable-text treatment as a built-in topic's. Previously used a
- * perceptual-luma threshold that picked white text for work/study/reading/
- * creative/exercise even though it measures 3.1-4.0:1 against those fills,
- * below the 4.5:1 floor -- same fix applied to the website's port of this
- * function (website/js/focusStats.js). */
+ * treatment as a built-in topic's.
+ *
+ * `bestTextOn` measures the ink this actually returns. The hand-rolled
+ * version this replaces carried its own copy of the luminance and
+ * contrast-ratio math (a second one, with `contrastRatio` taking a luminance
+ * pair rather than a hex pair like theme/color.ts's) and compared against
+ * PURE black's luminance while returning `#0b0b0b` -- so on a narrow band
+ * near the crossover it chose the lower-contrast option. Every color this is
+ * called with today (TOPIC_HEX, LABEL_SWATCHES, the one-time-tag gray) picks
+ * the same ink either way. */
 export function readableTextColor(hex: string): string {
-  const luminance = relativeLuminance(hex);
-  const whiteContrast = contrastRatio(1, luminance);
-  const blackContrast = contrastRatio(luminance, 0);
-  return whiteContrast >= blackContrast ? '#ffffff' : '#0b0b0b';
+  return bestTextOn(hex, '#ffffff', TOPIC_INK);
 }
 
 export interface TopicStat {

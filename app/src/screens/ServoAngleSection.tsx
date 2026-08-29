@@ -14,6 +14,7 @@ import { useTheme } from '../theme/useTheme';
 import { Button, rowLabelStyle, captionStyle } from './SettingsPrimitives';
 import { AnimatedPressable } from '../ui/AnimatedPressable';
 import { clampServoAngle } from './servoAngle';
+import { hitSlop } from '../theme/tokens';
 
 export function AngleCustomEntry({
   label,
@@ -46,7 +47,7 @@ export function AngleCustomEntry({
           // reader this angle readout is the control that changes it.
           accessibilityRole="button"
           accessibilityLabel={`${label}, ${value} degrees. Tap to change.`}
-          hitSlop={{ top: 12, bottom: 12, left: 8, right: 8 }}
+          hitSlop={hitSlop.text}
         >
           <Text style={[styles.customLink, { color: color.accent }]}>{value}° -- tap to change</Text>
         </AnimatedPressable>
@@ -91,7 +92,7 @@ export function AngleCustomEntry({
           onPress={() => setOpen(false)}
           accessibilityRole="button"
           accessibilityLabel={`Cancel ${label} entry`}
-          hitSlop={{ top: 12, bottom: 12, left: 8, right: 8 }}
+          hitSlop={hitSlop.text}
         >
           <Text style={{ color: color.textDim }}>Cancel</Text>
         </AnimatedPressable>

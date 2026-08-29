@@ -12,7 +12,7 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { useTheme } from '../../theme/useTheme';
-import { withAlpha } from '../../theme/theme';
+import { withAlpha } from '../../theme/color';
 import { typeScale, elevation } from '../../theme/tokens';
 import { AnimatedPressable } from '../../ui/AnimatedPressable';
 import { formatDuration } from '../../stats/stats';

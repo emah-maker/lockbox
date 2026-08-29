@@ -10,7 +10,7 @@ import { useTheme } from '../theme/useTheme';
 import { Button, rowLabelStyle, captionStyle } from './SettingsPrimitives';
 import { AnimatedPressable } from '../ui/AnimatedPressable';
 import { WheelPicker } from '../ui/WheelPicker';
-import { typeScale } from '../theme/tokens';
+import { hitSlop, typeScale } from '../theme/tokens';
 import { OVR_LABELS, overridePressIndex, overridePressValue } from './overridePresses';
 
 // Horizontal Apple Clock-style wheel for Override presses (WheelPicker.tsx,
@@ -98,7 +98,7 @@ export function OverrideCustomEntry({
         // 13-15px text runs well under the ~44pt minimum tap target.
         accessibilityRole="button"
         accessibilityLabel="Enter a custom number of override presses"
-        hitSlop={{ top: 12, bottom: 12, left: 8, right: 8 }}
+        hitSlop={hitSlop.text}
       >
         <Text style={[styles.customLink, { color: color.accent }]}>Enter a custom number...</Text>
       </AnimatedPressable>
@@ -130,7 +130,7 @@ export function OverrideCustomEntry({
           onPress={() => setOpen(false)}
           accessibilityRole="button"
           accessibilityLabel="Cancel custom number entry"
-          hitSlop={{ top: 12, bottom: 12, left: 8, right: 8 }}
+          hitSlop={hitSlop.text}
         >
           <Text style={{ color: color.textDim }}>Cancel</Text>
         </AnimatedPressable>

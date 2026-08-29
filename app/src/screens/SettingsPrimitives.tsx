@@ -15,7 +15,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../theme/useTheme';
-import { withAlpha } from '../theme/theme';
+import { withAlpha } from '../theme/color';
 import { AnimatedPressable } from '../ui/AnimatedPressable';
 import { useReducedMotion } from '../ui/useReducedMotion';
 import { typeScale, elevation, springs, opacity } from '../theme/tokens';

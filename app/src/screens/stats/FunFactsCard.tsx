@@ -26,12 +26,13 @@ import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useTheme } from '../../theme/useTheme';
-import { withAlpha } from '../../theme/theme';
+import { withAlpha } from '../../theme/color';
 import { formatDuration } from '../../stats/stats';
 import { BestDay } from '../../stats/trend';
 import { Comparison, formatComparison } from '../../stats/comparisons';
 import { AnimatedPressable } from '../../ui/AnimatedPressable';
-import { typeScale, elevation } from '../../theme/tokens';
+import { elevation, hitSlop, typeScale } from '../../theme/tokens';
+import { a11yHidden } from '../../ui/a11y';
 
 const INLINE_COUNT = 1;
 
@@ -67,23 +68,20 @@ export function FunFactsCard({
           VoiceOver/TalkBack, which read both branches regardless -- so a
           period with no focus time announced the placeholder AND a best-day
           sentence built from `bestOrPlaceholder`, i.e. "Best day: Thu, Jan 1
-          -- 0m." accessibilityElementsHidden (iOS) +
-          importantForAccessibility (Android) mute whichever branch is
+          -- 0m." a11yHidden mutes whichever branch is
           currently invisible, without touching the layout-reserving trick
           this card depends on. */}
       <Text
         numberOfLines={1}
         style={[styles.sub, { color: c.textDim }, hasFocus && styles.hidden]}
-        accessibilityElementsHidden={hasFocus}
-        importantForAccessibility={hasFocus ? 'no-hide-descendants' : 'auto'}
+        {...a11yHidden(hasFocus)}
       >
         Start a focus session to see how it stacks up.
       </Text>
       <View
         style={!hasFocus && styles.hidden}
         pointerEvents={hasFocus ? 'auto' : 'none'}
-        accessibilityElementsHidden={!hasFocus}
-        importantForAccessibility={hasFocus ? 'auto' : 'no-hide-descendants'}
+        {...a11yHidden(!hasFocus)}
       >
         <View style={[styles.bestDay, { backgroundColor: withAlpha(c.accent, 0.12) }]}>
           <Feather name="award" size={16} color={c.accent} />
@@ -113,7 +111,7 @@ export function FunFactsCard({
             onPress={onSeeMore}
             accessibilityRole="button"
             accessibilityLabel={`See ${more} more fun facts`}
-            hitSlop={{ top: 12, bottom: 12, left: 8, right: 8 }}
+            hitSlop={hitSlop.text}
           >
             <Text style={[styles.more, { color: c.accent }]}>See {more} more</Text>
           </AnimatedPressable>

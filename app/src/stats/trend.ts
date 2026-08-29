@@ -1,6 +1,7 @@
 // trend.ts -- last-N-days focus totals for the Stats screen's trend bar
 // chart. Pure/no deps, unit-testable like stats.ts and comparisons.ts.
 import { dayKey, filterByWindow, groupByDay, LoggedSession, TimeWindow } from './sessionHistory';
+import type { HeatLevel } from '../theme/dayHeat';
 
 export interface DayTotal {
   key: string; // Y-M-D
@@ -65,7 +66,7 @@ export interface HeatmapDay {
   key: string; // Y-M-D
   dateMs: number;
   focusS: number;
-  level: 0 | 1 | 2 | 3 | 4; // intensity relative to the busiest day in the window, 0 = no focus
+  level: HeatLevel; // intensity relative to the busiest day in the window, 0 = no focus
 }
 
 const HEATMAP_DAYS = 35; // 5 full weeks, GitHub-contributions-style grid
@@ -77,7 +78,7 @@ const HEATMAP_DAYS = 35; // 5 full weeks, GitHub-contributions-style grid
  * an all-time global max, which a heat legend can't describe (a legend needs
  * discrete, nameable steps). screens/calendar/monthGrid.ts's monthHeatLevels
  * now routes the calendar through here too. */
-export function heatmapLevel(focusS: number, max: number): 0 | 1 | 2 | 3 | 4 {
+export function heatmapLevel(focusS: number, max: number): HeatLevel {
   if (focusS <= 0) return 0;
   const ratio = focusS / max;
   if (ratio > 0.75) return 4;

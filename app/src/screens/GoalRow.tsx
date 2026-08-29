@@ -16,7 +16,7 @@ import React from 'react';
 import { Animated, View, Text, StyleSheet } from 'react-native';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useTheme } from '../theme/useTheme';
-import { withAlpha } from '../theme/theme';
+import { withAlpha } from '../theme/color';
 import { formatDuration } from '../stats/stats';
 import { resolveTopic } from '../stats/customLabels';
 import { Goal, GoalPeriod } from '../goals/goals';
@@ -25,15 +25,11 @@ import { goalNotifyTimes } from '../goals/goalReminders';
 import { AnimatedPressable } from '../ui/AnimatedPressable';
 import { AnimatedFill } from '../ui/AnimatedFill';
 import { useReducedMotion } from '../ui/useReducedMotion';
-import { typeScale } from '../theme/tokens';
+import { hitSlop, typeScale } from '../theme/tokens';
 import { PeriodIcon, useMetCelebration } from './stats/goalVisuals';
 
 const PERIOD_LABEL: Record<GoalPeriod, string> = { daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly' };
 const WEEKDAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-// Lifts a 12px caption-sized text action up to a comfortable tap target
-// without changing the row's visual layout.
-const ROW_ACTION_HIT_SLOP = { top: 12, bottom: 12, left: 8, right: 8 };
-
 
 /** Compact "Mon, Wed, Fri" summary for a day-restricted daily goal's
  * daysOfWeek -- `null` when there's nothing to show (unset, empty, or the
@@ -92,7 +88,6 @@ function barGeometry(ratio: number): { fillPct: number; targetPct: number | null
   };
 }
 
-
 /** Display name for a goal's stored topic string. `null` is the "all focus
  * time" goal; anything else goes through resolveTopic so a built-in key, a
  * live custom label, and a one-time free-text tag all render the same way
@@ -118,7 +113,6 @@ function topicSwatchColor(
   if (topic === null) return color.accent;
   return resolveTopic(topic, customLabels, themeMode)?.color ?? color.textDim;
 }
-
 
 export function GoalRow({
   goal,
@@ -189,7 +183,7 @@ export function GoalRow({
           edit or delete a goal. This wrapper repeats `gap` so the visual
           layout is byte-identical to the flat version. */}
       <View
-        style={styles.goalSummary}
+        style={styles.goalRow}
         accessible
         accessibilityLabel={`${name}, ${goal.period} goal, ${formatDuration(focusS)} of ${formatDuration(goal.targetS)}, ${percent} percent`}
       >
@@ -271,7 +265,7 @@ export function GoalRow({
           onPress={onEdit}
           accessibilityRole="button"
           accessibilityLabel={`Edit ${name} goal`}
-          hitSlop={ROW_ACTION_HIT_SLOP}
+          hitSlop={hitSlop.text}
         >
           <Text style={[styles.rowAction, { color: color.accent }]}>Edit</Text>
         </AnimatedPressable>
@@ -280,7 +274,7 @@ export function GoalRow({
           accessibilityRole="button"
           accessibilityLabel={`Delete ${name} goal`}
           accessibilityHint="Asks for confirmation before deleting"
-          hitSlop={ROW_ACTION_HIT_SLOP}
+          hitSlop={hitSlop.text}
         >
           <Text style={[styles.rowAction, { color: color.danger }]}>Delete</Text>
         </AnimatedPressable>
@@ -292,8 +286,6 @@ const styles = StyleSheet.create({
   caption: { fontSize: 12, letterSpacing: typeScale.caption.letterSpacing, lineHeight: typeScale.caption.lineHeight },
   rowAction: { letterSpacing: typeScale.body.letterSpacing, lineHeight: typeScale.body.lineHeight },
   goalRow: { gap: 6 },
-  // Same gap as goalRow itself -- see the a11y wrapper's comment above.
-  goalSummary: { gap: 6 },
   goalHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   goalName: { fontSize: 15, fontWeight: '600', flex: 1, letterSpacing: typeScale.sectionTitle.letterSpacing, lineHeight: 20 },
   swatch: { width: 10, height: 10, borderRadius: 5 },

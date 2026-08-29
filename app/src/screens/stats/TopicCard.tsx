@@ -25,7 +25,7 @@ import { useTheme } from '../../theme/useTheme';
 import { formatDuration } from '../../stats/stats';
 import { LabelStat } from '../../stats/customLabels';
 import { AnimatedPressable } from '../../ui/AnimatedPressable';
-import { typeScale, elevation } from '../../theme/tokens';
+import { elevation, hitSlop, typeScale } from '../../theme/tokens';
 import { InteractiveTopicDonut } from './InteractiveTopicDonut';
 
 // Inline row cap -- past this many topics, the remainder are a tap away in
@@ -107,7 +107,7 @@ export function TopicCard({
             onPress={() => onSelectTopic(null)}
             accessibilityRole="button"
             accessibilityLabel="Clear topic filter"
-            hitSlop={{ top: 12, bottom: 12, left: 8, right: 8 }}
+            hitSlop={hitSlop.text}
           >
             <Text style={[styles.clear, { color: c.accent }]}>Clear filter</Text>
           </AnimatedPressable>
@@ -138,7 +138,7 @@ export function TopicCard({
                 }}
                 accessibilityRole="button"
                 accessibilityLabel={`See all ${topics.length} topics`}
-                hitSlop={{ top: 12, bottom: 12, left: 8, right: 8 }}
+                hitSlop={hitSlop.text}
               >
                 <Text style={[styles.seeAll, { color: c.accent }]}>See all {topics.length} topics ›</Text>
               </AnimatedPressable>

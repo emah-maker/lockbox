@@ -38,7 +38,7 @@ import { AlertsSection, alertsSummary } from './settings/AlertsSection';
 import { NotificationsSection, notificationsSummary } from './settings/NotificationsSection';
 import { RingBaselineSection, ringBaselineSummary } from './settings/RingBaselineSection';
 import { typeScale, elevation, radius } from '../theme/tokens';
-import { withAlpha } from '../theme/theme';
+import { withAlpha } from '../theme/color';
 
 type SheetKey = 'account' | 'goals' | 'labels' | 'box' | 'appearance' | 'alerts' | 'notifications' | 'ringBaseline';
 

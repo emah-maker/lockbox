@@ -1,17 +1,11 @@
-// Unit tests for theme.ts's pure color math -- in particular the contrast
-// helpers behind ui/calendar/DayCell.tsx's heat-tinted day number, which is
-// the one place in this app where text lands on a TRANSLUCENT accent fill
-// and so cannot just use `accentText`. Run with `npm test`.
-import {
-  ACCENT_KEYS,
-  bestTextOn,
-  blendOver,
-  contrastRatio,
-  resolveTheme,
-  THEME_MODES,
-  withAlpha,
-} from './theme';
-import { ALPHA_FOR_LEVEL, dayNumColor } from '../ui/calendar/DayCell';
+// Unit tests for the theme layer's pure color math -- color.ts's contrast
+// helpers, dayHeat.ts's heat-tinted day number (the one place in this app
+// where text lands on a TRANSLUCENT accent fill and so cannot just use
+// `accentText`), and the fixed status colors in theme.ts's palette.
+// Everything here is pure hex math, so nothing renders. Run with `npm test`.
+import { ACCENT_KEYS, resolveTheme, THEME_MODES } from './theme';
+import { bestTextOn, blendOver, contrastRatio, withAlpha } from './color';
+import { ALPHA_FOR_LEVEL, dayNumColor } from './dayHeat';
 
 // WCAG AA for normal-sized text. The day number is a 13px label, so it is
 // "normal" text by that standard, not "large".

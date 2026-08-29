@@ -14,7 +14,7 @@
 import React from 'react';
 import { View, StyleSheet } from 'react-native';
 import { useTheme } from '../../theme/useTheme';
-import { withAlpha } from '../../theme/theme';
+import { withAlpha } from '../../theme/color';
 import { formatDuration } from '../../stats/stats';
 import { HeatmapDay } from '../../stats/trend';
 import { AnimatedPressable } from '../../ui/AnimatedPressable';

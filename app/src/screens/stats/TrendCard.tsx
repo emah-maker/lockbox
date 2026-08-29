@@ -26,12 +26,12 @@ import { View, Text, StyleSheet, StyleProp, ViewStyle } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useTheme } from '../../theme/useTheme';
-import { withAlpha } from '../../theme/theme';
+import { withAlpha } from '../../theme/color';
 import { formatDuration } from '../../stats/stats';
 import { DayTotal } from '../../stats/trend';
 import { AnimatedFill } from '../../ui/AnimatedFill';
 import { AnimatedPressable } from '../../ui/AnimatedPressable';
-import { typeScale, elevation } from '../../theme/tokens';
+import { elevation, hitSlop, typeScale } from '../../theme/tokens';
 
 // Shrunk from 80 -- this card now shares a flex:1 budget with TopicCard
 // instead of sizing itself to its own content (see header comment), so its
@@ -71,7 +71,7 @@ export function TrendCard({
           }}
           accessibilityRole="button"
           accessibilityLabel="View last 5 weeks heatmap"
-          hitSlop={8}
+          hitSlop={hitSlop.glyph}
         >
           <Feather name="grid" size={18} color={c.textDim} />
         </AnimatedPressable>

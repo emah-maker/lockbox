@@ -20,7 +20,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, Switch } from 'react-native';
 import { useTheme } from '../theme/useTheme';
-import { withAlpha } from '../theme/theme';
+import { withAlpha } from '../theme/color';
 import { AnimatedPressable } from '../ui/AnimatedPressable';
 import { typeScale, spacing } from '../theme/tokens';
 

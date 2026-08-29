@@ -27,7 +27,7 @@ import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useTheme } from '../theme/useTheme';
-import { withAlpha } from '../theme/theme';
+import { withAlpha } from '../theme/color';
 import { allLabelChoices, resolveTopic } from '../stats/customLabels';
 import { Goal, GoalPeriod, MAX_TARGET_SESSIONS } from '../goals/goals';
 import {

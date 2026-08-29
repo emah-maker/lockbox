@@ -24,14 +24,14 @@
 import React from 'react';
 import { View, Text, StyleSheet, Switch } from 'react-native';
 import { useTheme } from '../theme/useTheme';
-import { withAlpha } from '../theme/theme';
+import { withAlpha } from '../theme/color';
 import { AnimatedPressable } from '../ui/AnimatedPressable';
 import { WheelPicker } from '../ui/WheelPicker';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { MAX_NOTIFY_TIMES } from '../goals/goalReminders';
 import { isInQuietHours } from '../goals/goalNotificationPlan';
 import { WeekdayChips } from './GoalFormExtras';
-import { typeScale, spacing } from '../theme/tokens';
+import { hitSlop, spacing, typeScale } from '../theme/tokens';
 
 // 24h clock wheels for the reminder time -- distinct from GoalForm.tsx's own
 // PERIOD_MAX_HOURS-derived hour wheel, which counts a DURATION, not a
@@ -201,7 +201,7 @@ export function GoalReminderControl({
                   onPress={() => removeAt(i)}
                   accessibilityRole="button"
                   accessibilityLabel={`Remove the ${displayTime(time)} reminder`}
-                  hitSlop={8}
+                  hitSlop={hitSlop.glyph}
                 >
                   <Text style={[styles.removeGlyph, { color: color.textDim }]}>×</Text>
                 </AnimatedPressable>

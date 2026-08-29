@@ -8,6 +8,7 @@ import { dayKey, LoggedSession } from '../../stats/sessionHistory';
 import { computeGoalProgress, GoalProgressResult, isGoalDueOn } from '../../goals/goalProgress';
 import type { Goal } from '../../goals/goals';
 import { heatmapLevel } from '../../stats/trend';
+import type { HeatLevel } from '../../theme/dayHeat';
 
 export function startOfMonth(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), 1);
@@ -141,7 +142,7 @@ export function goalsMetOnDay(goals: Goal[], sessions: LoggedSession[], date: Da
 export function monthHeatLevels(
   grid: (Date | null)[],
   byDay: Map<string, LoggedSession[]>,
-): Map<string, 0 | 1 | 2 | 3 | 4> {
+): Map<string, HeatLevel> {
   const focusByKey = new Map<string, number>();
   let max = 0;
   for (const date of grid) {
@@ -152,7 +153,7 @@ export function monthHeatLevels(
     focusByKey.set(key, focusS);
     if (focusS > max) max = focusS;
   }
-  const levels = new Map<string, 0 | 1 | 2 | 3 | 4>();
+  const levels = new Map<string, HeatLevel>();
   // Guard an empty/all-zero month: heatmapLevel divides by `max`, so feed it
   // 1 instead of 0 (matches trend.ts's lastNDaysHeatmap's own Math.max(1, ...)
   // guard) -- every day is focusS <= 0 in that case anyway, so heatmapLevel

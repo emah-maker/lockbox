@@ -23,7 +23,7 @@ import { useStore } from '../../store/useStore';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import { useGoalsStore } from '../../store/useGoalsStore';
 import { useTheme } from '../../theme/useTheme';
-import { withAlpha } from '../../theme/theme';
+import { withAlpha } from '../../theme/color';
 import { formatDuration } from '../../stats/stats';
 import { resolveTopic } from '../../stats/customLabels';
 import { Goal } from '../../goals/goals';

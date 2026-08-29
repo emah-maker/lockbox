@@ -24,7 +24,7 @@ import React, { useEffect, useRef } from 'react';
 import { Animated, Text, View, StyleSheet } from 'react-native';
 import type { Status } from '../../ble/protocol';
 import { useTheme } from '../../theme/useTheme';
-import { withAlpha } from '../../theme/theme';
+import { withAlpha } from '../../theme/color';
 import { typeScale } from '../../theme/tokens';
 import { useReducedMotion } from '../../ui/useReducedMotion';
 import { AnimatedPressable } from '../../ui/AnimatedPressable';

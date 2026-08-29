@@ -15,8 +15,9 @@ import { Feather } from '@expo/vector-icons';
 import { Sheet } from '../../ui/Sheet';
 import { AnimatedPressable } from '../../ui/AnimatedPressable';
 import { LabelPickerSheet } from '../../ui/calendar/LabelPickerSheet';
-import { ThemeColors, withAlpha } from '../../theme/theme';
-import { typeScale } from '../../theme/tokens';
+import { ThemeColors } from '../../theme/theme';
+import { withAlpha } from '../../theme/color';
+import { hitSlop, typeScale } from '../../theme/tokens';
 import { formatDuration } from '../../stats/stats';
 import { dayKeyToDate, LoggedSession } from '../../stats/sessionHistory';
 import { allLabelChoices, resolveTopic, topicBreakdownWithCustom, CustomLabel } from '../../stats/customLabels';
@@ -76,7 +77,7 @@ export function DaySheet({
             style={styles.trendsLink}
             accessibilityRole="button"
             accessibilityLabel="See trends for this month"
-            hitSlop={{ top: 12, bottom: 12, left: 8, right: 8 }}
+            hitSlop={hitSlop.text}
             onPress={() => navigate('stats', { statsPeriod: 'month' })}
           >
             <Text style={[styles.trendsLinkText, { color: theme.accent }]}>See trends</Text>

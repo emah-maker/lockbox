@@ -88,3 +88,27 @@ export const elevation = {
 export const springs = {
   default: { stiffness: 300, damping: 30, mass: 1 } as const,
 } as const;
+
+
+// hitSlop -- the two touch-target extensions that were genuinely repeated,
+// so they stop being re-typed (or re-declared) per file. Before this token
+// `{ top: 12, bottom: 12, left: 8, right: 8 }` appeared at eight call sites,
+// two of which had independently declared their own module-private
+// `ROW_ACTION_HIT_SLOP` holding exactly that object.
+//
+// Deliberately NOT a token per control. The other hitSlops in the tree
+// ({4,4,4,4} on ServoAngleSection's 36px sign button, {8,8,0,0} on
+// SliderRow's 28px track, {6,6,0,0} on PeriodSelector's 33px chip, ...) are
+// each derived from that one control's own measured height to reach the
+// ~44pt minimum, and folding them into a shared "chip"/"glyph" bucket would
+// silently shrink some of those targets. They stay inline, next to the
+// comment that derives them.
+export const hitSlop = {
+  /** A bare text action -- Edit / Delete / Rename / Cancel / See more -- at
+   * caption or label size, i.e. a ~15-20px line box with no padding of its
+   * own. The default for "this is a Text inside a Pressable". */
+  text: { top: 12, bottom: 12, left: 8, right: 8 } as const,
+  /** A small square glyph button that is already close to the minimum, so it
+   * only needs a uniform ring rather than a directional extension. */
+  glyph: 8,
+} as const;

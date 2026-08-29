@@ -17,7 +17,7 @@ import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useTheme } from '../../theme/useTheme';
-import { withAlpha } from '../../theme/theme';
+import { withAlpha } from '../../theme/color';
 import { AnimatedPressable } from '../../ui/AnimatedPressable';
 import { typeScale } from '../../theme/tokens';
 import { GoalRing } from './GoalRing';

@@ -14,11 +14,7 @@ import { LABEL_SWATCHES, MAX_LABEL_NAME_LENGTH } from '../stats/customLabels';
 import { Section, Button } from './SettingsPrimitives';
 import { AnimatedPressable } from '../ui/AnimatedPressable';
 import { useReducedMotion, configureLayoutAnimation } from '../ui/useReducedMotion';
-import { typeScale } from '../theme/tokens';
-
-// Lifts this file's 15px text actions to a comfortable tap target without
-// changing the rows' visual layout -- same treatment as GoalRow's own.
-const ROW_ACTION_HIT_SLOP = { top: 12, bottom: 12, left: 8, right: 8 };
+import { hitSlop, typeScale } from '../theme/tokens';
 
 export function CustomLabelsSection({ color }: { color: ReturnType<typeof useTheme> }) {
   const customLabels = useSettingsStore((s) => s.customLabels);
@@ -150,7 +146,7 @@ function CustomLabelRow({
             onPress={handleSave}
             accessibilityRole="button"
             accessibilityLabel={`Save name for ${label.name}`}
-            hitSlop={ROW_ACTION_HIT_SLOP}
+            hitSlop={hitSlop.text}
           >
             <Text style={[styles.rowAction, { color: color.accent, fontWeight: '600' }]}>Save</Text>
           </AnimatedPressable>
@@ -161,7 +157,7 @@ function CustomLabelRow({
             }}
             accessibilityRole="button"
             accessibilityLabel="Cancel rename"
-            hitSlop={ROW_ACTION_HIT_SLOP}
+            hitSlop={hitSlop.text}
           >
             <Text style={[styles.rowAction, { color: color.textDim }]}>Cancel</Text>
           </AnimatedPressable>
@@ -179,7 +175,7 @@ function CustomLabelRow({
         onPress={() => toggleEditing(true)}
         accessibilityRole="button"
         accessibilityLabel={`Rename ${label.name}`}
-        hitSlop={ROW_ACTION_HIT_SLOP}
+        hitSlop={hitSlop.text}
       >
         <Text style={[styles.rowAction, { color: color.accent }]}>Rename</Text>
       </AnimatedPressable>
@@ -188,7 +184,7 @@ function CustomLabelRow({
         accessibilityRole="button"
         accessibilityLabel={`Delete ${label.name}`}
         accessibilityHint="Asks for confirmation before deleting this label"
-        hitSlop={ROW_ACTION_HIT_SLOP}
+        hitSlop={hitSlop.text}
       >
         <Text style={[styles.rowAction, { color: color.danger }]}>Delete</Text>
       </AnimatedPressable>

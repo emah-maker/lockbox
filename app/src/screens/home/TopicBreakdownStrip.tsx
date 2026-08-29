@@ -21,7 +21,7 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { useTheme } from '../../theme/useTheme';
-import { withAlpha } from '../../theme/theme';
+import { withAlpha } from '../../theme/color';
 import { typeScale, elevation, radius } from '../../theme/tokens';
 import { formatDuration } from '../../stats/stats';
 import { topicBreakdownWithCustom, type LabelStat } from '../../stats/customLabels';

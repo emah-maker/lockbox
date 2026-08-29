@@ -19,7 +19,7 @@ import { Animated, Easing } from 'react-native';
 import Svg, { Circle, G } from 'react-native-svg';
 import * as Haptics from 'expo-haptics';
 import { useReducedMotion } from '../../ui/useReducedMotion';
-import { withAlpha } from '../../theme/theme';
+import { withAlpha } from '../../theme/color';
 
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
