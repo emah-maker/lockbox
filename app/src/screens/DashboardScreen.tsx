@@ -325,7 +325,6 @@ export default function DashboardScreen() {
       <FocusHero
         status={status}
         connected={connected}
-        pickSeconds={pickSeconds}
         currentTopic={currentTopic}
         customLabels={customLabels}
         themeMode={themeMode}

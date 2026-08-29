@@ -53,7 +53,6 @@ function elapsedFraction(status: Status): number {
 export function FocusHero({
   status,
   connected,
-  pickSeconds,
   currentTopic,
   customLabels,
   themeMode,
@@ -67,12 +66,6 @@ export function FocusHero({
 }: {
   status: Status | null;
   connected: boolean;
-  /** The wheel-picker's currently previewed duration, in seconds -- no longer
-   * shown as the hero's headline (that's now today's focus time or a
-   * connection/box-state prompt, see the branching below), but still
-   * threaded through as a prop since DashboardScreen's DurationSheet/tag
-   * flow is unchanged and some future idle-state copy may want it again. */
-  pickSeconds: number;
   currentTopic: string | null;
   customLabels: ReturnType<typeof useSettingsStore.getState>['customLabels'];
   themeMode: ReturnType<typeof useSettingsStore.getState>['themeMode'];

@@ -30,6 +30,7 @@ import { WheelPicker } from '../ui/WheelPicker';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { MAX_NOTIFY_TIMES } from '../goals/goalReminders';
 import { isInQuietHours } from '../goals/goalNotificationPlan';
+import { formatClockTime } from '../ui/time';
 import { WeekdayChips } from './GoalFormExtras';
 import { hitSlop, spacing, typeScale } from '../theme/tokens';
 
@@ -63,16 +64,6 @@ function parseTime(value: string | undefined): { hour: number; minuteIndex: numb
 
 function formatTime(hour: number, minute: number): string {
   return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
-}
-
-/** 'HH:MM' -> the device's own 12h/24h rendering ("9:00 AM"), via a real
- * Date rather than hand-formatted AM/PM -- same helper shape (and same
- * reason) as GoalsSection.tsx's own row caption formatter. */
-function displayTime(value: string): string {
-  const [h, m] = value.split(':').map(Number);
-  const d = new Date();
-  d.setHours(h, m, 0, 0);
-  return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
 }
 
 /**
@@ -193,14 +184,14 @@ export function GoalReminderControl({
                 <AnimatedPressable
                   onPress={() => openPicker(i)}
                   accessibilityRole="button"
-                  accessibilityLabel={`Reminder at ${displayTime(time)}, edit`}
+                  accessibilityLabel={`Reminder at ${formatClockTime(time)}, edit`}
                 >
-                  <Text style={[styles.timeChipText, { color: color.text }]}>{displayTime(time)}</Text>
+                  <Text style={[styles.timeChipText, { color: color.text }]}>{formatClockTime(time)}</Text>
                 </AnimatedPressable>
                 <AnimatedPressable
                   onPress={() => removeAt(i)}
                   accessibilityRole="button"
-                  accessibilityLabel={`Remove the ${displayTime(time)} reminder`}
+                  accessibilityLabel={`Remove the ${formatClockTime(time)} reminder`}
                   hitSlop={hitSlop.glyph}
                 >
                   <Text style={[styles.removeGlyph, { color: color.textDim }]}>×</Text>
@@ -230,7 +221,7 @@ export function GoalReminderControl({
             // muted": the whole failure this warns about is a reminder that
             // silently never arrives, so it has to say WHICH one.
             <Text style={[styles.hint, { color: color.danger }]}>
-              {suppressed.map(displayTime).join(', ')} {suppressed.length === 1 ? 'falls' : 'fall'} inside your quiet
+              {suppressed.map(formatClockTime).join(', ')} {suppressed.length === 1 ? 'falls' : 'fall'} inside your quiet
               hours and won't be sent. Change quiet hours in Settings &gt; Notifications.
             </Text>
           ) : null}
@@ -279,7 +270,7 @@ export function GoalReminderControl({
                   style={[styles.pickerBtn, { backgroundColor: color.accent, borderColor: color.accent }]}
                 >
                   <Text style={[styles.pickerBtnText, { color: color.accentText }]}>
-                    {editingIndex >= 0 ? 'Update' : 'Add'} {displayTime(draft)}
+                    {editingIndex >= 0 ? 'Update' : 'Add'} {formatClockTime(draft)}
                   </Text>
                 </AnimatedPressable>
                 <AnimatedPressable

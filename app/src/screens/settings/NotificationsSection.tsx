@@ -23,6 +23,7 @@ import { useSettingsStore } from '../../store/useSettingsStore';
 import { getGoalNotificationPermission, requestGoalNotificationPermission } from '../../goals/goalNotifications';
 import { Section, Row, rowLabelStyle, captionStyle, Button } from '../SettingsPrimitives';
 import { WheelPicker } from '../../ui/WheelPicker';
+import { formatClockTime } from '../../ui/time';
 import { spacing } from '../../theme/tokens';
 
 const HOUR_LABELS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'));
@@ -49,15 +50,6 @@ function format(hour: number, minute: number): string {
   return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
 }
 
-/** 'HH:MM' rendered in the device's own 12h/24h preference -- same helper
- * shape (and reason) as GoalRow.tsx's and GoalReminderControl.tsx's. */
-function display(value: string): string {
-  const [h, m] = value.split(':').map(Number);
-  const d = new Date();
-  d.setHours(h, m, 0, 0);
-  return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
-}
-
 /** One labelled hour+minute wheel pair. Both quiet-hours boundaries need
  * exactly this, so it's a local component rather than the same JSX twice. */
 function TimeWheels({
@@ -77,7 +69,7 @@ function TimeWheels({
   return (
     <View style={styles.wheelBlock}>
       <Text style={[styles.label, { color: color.textDim }]}>
-        {label}: {display(value)}
+        {label}: {formatClockTime(value)}
       </Text>
       {/* wheelRow's alignSelf: 'center' (below) is load-bearing -- same fix
           as GoalForm.tsx's own Target wheelRow (see that file's comment for
@@ -204,7 +196,7 @@ export function NotificationsSection({
       {enabled && quietOn ? (
         <>
           <Text style={[styles.caption, { color: color.textDim }]}>
-            No reminder is sent between {display(quietStart)} and {display(quietEnd)}. A reminder that falls inside
+            No reminder is sent between {formatClockTime(quietStart)} and {formatClockTime(quietEnd)}. A reminder that falls inside
             this window is skipped, not moved -- the goal form flags any of its times that this affects.
           </Text>
           <TimeWheels

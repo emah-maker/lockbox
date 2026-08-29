@@ -25,6 +25,7 @@ import { goalNotifyTimes } from '../goals/goalReminders';
 import { AnimatedPressable } from '../ui/AnimatedPressable';
 import { AnimatedFill } from '../ui/AnimatedFill';
 import { useReducedMotion } from '../ui/useReducedMotion';
+import { formatClockTime } from '../ui/time';
 import { hitSlop, typeScale } from '../theme/tokens';
 import { PeriodIcon, useMetCelebration } from './stats/goalVisuals';
 
@@ -43,17 +44,6 @@ function weekdayRestrictionLabel(goal: Goal): string | null {
   return days.map((d) => WEEKDAY_SHORT[d] ?? '?').join(', ');
 }
 
-/** 'HH:MM' -> a locale-formatted time string ("9:00 AM") for the row's own
- * reminder caption -- goes through a real `Date` (today's date, irrelevant
- * here) rather than hand-formatting AM/PM so this follows the device's own
- * 12h/24h preference the same way any other displayed time in the OS does. */
-function formatNotifyAt(notifyAt: string): string {
-  const [h, m] = notifyAt.split(':').map(Number);
-  const d = new Date();
-  d.setHours(h, m, 0, 0);
-  return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
-}
-
 /** The row's reminder caption -- "Reminder 9:00 AM" or "Reminders 9:00 AM,
  * 5:30 PM" -- or null when this goal has none to show (reminders off, or no
  * usable time configured). */
@@ -61,7 +51,7 @@ function reminderLabel(goal: Goal): string | null {
   if (!goal.notify) return null;
   const times = goalNotifyTimes(goal);
   if (times.length === 0) return null;
-  return `${times.length === 1 ? 'Reminder' : 'Reminders'} ${times.map(formatNotifyAt).join(', ')}`;
+  return `${times.length === 1 ? 'Reminder' : 'Reminders'} ${times.map(formatClockTime).join(', ')}`;
 }
 
 /** Progress bar geometry for one goal, handling the over-target case
