@@ -24,6 +24,7 @@
   --bg-2: #0b0b0c;
   --card: #17181b;
   --card-2: #17181b;
+  --border: rgba(255, 255, 255, 0.16);
   --border-soft: rgba(255, 255, 255, 0.07);
   --text: #ffffff;
   --text-2: #9aa0a6;
@@ -33,6 +34,12 @@
   --locked: #ef4444;
   --locked-2: #ef4444;
   --closed: #f2b84b;
+  /* Matches readableTextColor('#ef4444') (dashboard.js's applyTheme sets the
+     real per-mode value once JS runs) -- #fff fails AA against this exact
+     red (3.76:1), #0b0b0b clears it (5.23:1). See .dash__labels-confirm-delete
+     below, the one place this gets painted as text. */
+  --locked-text: #0b0b0b;
+  --accent: #22c55e;
   --accent-text: #04210f;
   --accent-soft: #1d2a20;
   --font-display: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -40,14 +47,28 @@
   --radius: 14px;
   --radius-sm: 12px;
 }
-/* --steel (styles.css's global :focus-visible color) resolves fine on this
-   page too -- it's set unconditionally in styles.css's :root, which
-   dashboard.html loads before this file -- so this is not a fix for a
-   broken or undefined token. It's a deliberate palette choice: scope this
-   surface's focus color to its own app-native palette instead of the
-   inherited marketing-chrome tone, so it stays visually distinct from
-   --locked, which the new save/error flashes below also use. */
-.dash :focus-visible { outline-color: var(--unlocked); }
+/* Deliberately page-wide, NOT `.dash`-scoped. Two reasons, one of them a
+   real accessibility bug rather than a palette preference:
+
+   1. styles.css's global `:focus-visible { outline: 2px solid var(--steel) }`
+      uses --steel (#c9cbce), which is a dark-mode-only assumption. Measured
+      against the light theme's surfaces it is 1.50:1 on --bg (#f5f6f8) and
+      1.63:1 on --card (#ffffff) -- well under WCAG 2.2 SC 1.4.11's 3:1
+      floor for focus indicators. (It's 12.1:1 on the dark --bg, which is
+      why this went unnoticed.) A `.dash`-scoped fix would not reach it: the
+      nav lives in <header class="nav">, OUTSIDE .dash, so in light mode the
+      page's primary navigation had no usable focus ring at all.
+   2. The palette reason that was already here: scope this surface's focus
+      color to its own app-native palette instead of the inherited
+      marketing-chrome tone, so it stays visually distinct from --locked,
+      which the save/error flashes below also use.
+
+   --unlocked is the resolved accent (applyTheme repoints it per theme), and
+   theme.js's ACCENTS table authors a darker variant for light mode
+   precisely so accents stay contrasty against a light ground. Only
+   dashboard.html and login.html load this file, so "page-wide" here means
+   those two pages -- index.html keeps the steel ring on its dark ground. */
+:focus-visible { outline-color: var(--unlocked); }
 
 /* Only .dash .btn had no disabled treatment before this pass -- the add-label
    submit button below now starts disabled by default (no color picked yet),
@@ -56,12 +77,31 @@
 
 /* De-stencils styles.css's global uppercase/display h1-h3 rule for this
    surface only -- app headings are normal-case system-bold, not a marquee
-   stencil face. */
+   stencil face.
+
+   The de-stencil has to restore leading and tracking too, not just case and
+   weight. styles.css sets `line-height: 1; letter-spacing: 0.01em` on
+   h1-h3, which is right for what it targets: Bebas Neue, all-caps, and
+   capitals have no descenders, so lh:1 is a deliberate marquee treatment.
+   Switching to a mixed-case system face here reintroduces descenders (g, y,
+   p, j, q), and the inherited lh:1 was crowding them -- measured 28px/lh1.0
+   on h1 and 17.6px/lh1.0 on h2.
+
+   The old flat `-0.3px` had the same shape of problem: a fixed px tracking
+   gets proportionally TIGHTER as text gets smaller (-0.011em at 28px, but
+   -0.017em at 17.6px and -0.021em at 14px) -- backwards from how optical
+   tracking works. Both values below are em-based and size-specific, and
+   they mirror app/src/theme/tokens.ts's `typeScale`, which this surface
+   already declares itself a mirror of: title 28/32 ls-0.3 (= lh 1.14,
+   -0.011em) and sectionTitle 16/20 ls-0.1 (= lh 1.25, -0.006em). That curve
+   -- leading loosening as size drops, negative tracking only at display
+   sizes -- is the same one Linear and Stripe measure out to. */
 .dash h1, .dash h2, .dash h3 {
   text-transform: none;
   font-weight: 700;
-  letter-spacing: -0.3px;
 }
+.dash h1 { line-height: 1.14; letter-spacing: -0.011em; }
+.dash h2, .dash h3 { line-height: 1.25; letter-spacing: -0.006em; }
 /* Flat fill + soft shadow instead of styles.css's gradient+border card --
    matches tokens.ts's `elevation.card` (shadowOpacity .18, shadowRadius 6,
    offset 0/2) rather than a bordered gradient panel. */
@@ -80,6 +120,12 @@
   letter-spacing: 0;
   border-radius: 12px;
 }
+/* The border:none/box-shadow:none below are load-bearing, not cosmetic:
+   styles.css's .btn--primary hardcodes a mint-700 (#15803d) ring and a mint
+   glow outside any variable, so without these two lines a violet/amber
+   accent would sit inside a fixed green ring. This override predates the
+   light-mode pass -- noted here because it is the reason that bug was never
+   actually reachable on the dashboard, only on index.html/login.html. */
 .dash .btn--primary {
   background: var(--unlocked);
   color: var(--accent-text);
@@ -88,7 +134,15 @@
 }
 .dash .btn--primary:hover { box-shadow: 0 8px 20px -8px var(--unlocked); }
 .dash .btn--primary:active { transform: scale(0.97); box-shadow: none; }
-.dash .btn--ghost { border-radius: 12px; }
+/* styles.css's .btn--ghost fill/outline are a fixed near-white wash --
+   readable on dark, a smear on light. --border-soft/--border (theme-derived,
+   see applyTheme) flip the wash for free. */
+.dash .btn--ghost {
+  border-radius: 12px;
+  background: var(--border-soft);
+  border-color: var(--border);
+}
+.dash .btn--ghost:hover { background: var(--border); }
 
 .dash { padding-top: clamp(40px, 6vw, 72px); }
 .dash__head { max-width: 640px; margin-bottom: clamp(28px, 4vw, 44px); }
@@ -100,7 +154,8 @@
 .dash__state p { color: var(--text-2); font-size: var(--fs-base); max-width: 60ch; }
 .dash__state code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  background: rgba(255, 255, 255, 0.08); padding: var(--space-0-5) var(--space-1-5); border-radius: 6px; font-size: 0.92em;
+  background: var(--border-soft); /* was a fixed white-8% wash, invisible on a light card */
+  padding: var(--space-0-5) var(--space-1-5); border-radius: 6px; font-size: 0.92em;
 }
 /* A left accent bar reads as "this card is an alert" without needing the
    all-around border the flat/shadow card system above just removed. */
@@ -188,8 +243,9 @@
 .dash__breakdown-name { color: var(--text); font-weight: 600; }
 .dash__breakdown-value { color: var(--text-2); white-space: nowrap; }
 /* background is set per-row inline by dashboard.js, tinted with that row's
-   own topic color -- this is a pre-JS fallback only. */
-.dash__breakdown-track { grid-column: 1 / -1; height: 6px; border-radius: 3px; background: rgba(255, 255, 255, 0.06); overflow: hidden; }
+   own topic color -- var(--border-soft) below is the pre-JS fallback only
+   (was a fixed white-6% wash, invisible on a light card). */
+.dash__breakdown-track { grid-column: 1 / -1; height: 6px; border-radius: 3px; background: var(--border-soft); overflow: hidden; }
 .dash__breakdown-fill {
   height: 100%; width: 100%; border-radius: 3px;
   transform-origin: left; transform: scaleX(var(--w, 0));
@@ -232,7 +288,7 @@
   width: 44px; height: 44px; border-radius: 50%; cursor: pointer;
   transition: background var(--dur-base) var(--ease-snap), transform var(--dur-fast) var(--ease-snap);
 }
-.dash__cal-navbtn:hover { background: rgba(255, 255, 255, 0.06); }
+.dash__cal-navbtn:hover { background: var(--border-soft); } /* was a fixed white-6% wash */
 .dash__cal-navbtn:active { transform: scale(0.9); }
 .dash__cal-month { font-size: var(--fs-lg); font-weight: 600; color: var(--text); min-width: 140px; text-align: center; }
 .dash__cal-weekdays, .dash__cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); }
@@ -243,7 +299,7 @@
   font-size: var(--fs-xs); color: var(--text-2); background: transparent; border: none; cursor: pointer; font-family: inherit;
   transition: background var(--dur-base) var(--ease-snap), transform var(--dur-fast) var(--ease-snap);
 }
-.dash__cal-daynum:hover { background: rgba(255, 255, 255, 0.06); }
+.dash__cal-daynum:hover { background: var(--border-soft); } /* was a fixed white-6% wash */
 .dash__cal-daynum:active { transform: scale(0.96); }
 .dash__cal-cell--selected .dash__cal-daynum { border: 2px solid var(--unlocked-2); color: var(--text); }
 .dash__cal-cell--today:not(.dash__cal-cell--selected) .dash__cal-daynum { border: 1px solid var(--text-3); }
@@ -336,8 +392,13 @@
 /* ---------- Inline delete confirmation (replaces window.confirm) ---------- */
 .dash__labels-confirm { display: flex; align-items: center; gap: var(--space-2-5); flex-wrap: wrap; }
 .dash__labels-confirm-text { color: var(--text-2); font-size: var(--fs-xs); flex: 1 1 220px; }
+/* color was a hardcoded #fff -- passes AA against the light-mode danger red
+   (4.83:1) but fails it against the dark-mode one (3.76:1, see
+   --locked-text's own comment above). var(--locked-text) is computed per-mode
+   by dashboard.js's applyTheme via readableTextColor, the same helper the
+   calendar heatmap cells use for the same reason. */
 .dash__labels-confirm-delete {
-  background: var(--locked); color: #fff; border: none; border-radius: 12px;
+  background: var(--locked); color: var(--locked-text); border: none; border-radius: 12px;
   font-family: var(--font-body); font-weight: 600; padding: var(--space-2) var(--space-4-5); font-size: var(--fs-sm);
   cursor: pointer; transition: transform var(--dur-fast) var(--ease-snap), box-shadow var(--dur-base);
 }
@@ -422,7 +483,8 @@
 }
 .dash__goals-period {
   flex: none; font-size: var(--fs-3xs); font-weight: 600; color: var(--text-2);
-  background: rgba(255, 255, 255, 0.07); border-radius: 8px; padding: var(--space-0-5) var(--space-2);
+  background: var(--border-soft); /* matches the old fixed white-7% fill's alpha exactly */
+  border-radius: 8px; padding: var(--space-0-5) var(--space-2);
 }
 /* position: relative anchors .dash__goals-notch, which is the one thing this
    track has that .dash__breakdown-track doesn't. overflow: hidden still
@@ -431,7 +493,7 @@
    goalsPanel.js's barGeometry), so nothing legitimate gets clipped by it. */
 .dash__goals-track {
   position: relative; height: 8px; border-radius: 4px; overflow: hidden;
-  background: rgba(255, 255, 255, 0.09);
+  background: var(--border-soft); /* was a fixed white-9% wash (pre-JS fallback only, see below) */
 }
 /* background is set per-row inline by goalsPanel.js (the goal's own topic
    color) except when the goal is met, where --unlocked below takes over --

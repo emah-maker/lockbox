@@ -13,7 +13,7 @@ import {
   signInWithPopup,
   onAuthStateChanged,
 } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js';
-import { firebaseConfig, isFirebaseConfigured } from './firebaseConfig.js';
+import { loadFirebaseConfigOrNull } from './firebaseConfig.js';
 import { friendlyErrorMessage, isIgnorableAuthError, logAuthError } from './authErrors.js';
 
 const els = {
@@ -52,8 +52,12 @@ function showError(err) {
   showState('error');
 }
 
-function init() {
-  if (!isFirebaseConfigured()) {
+async function init() {
+  // Fetched from Firebase Hosting rather than bundled -- see firebaseConfig.js.
+  // Null means this page isn't being served by Hosting, which is the same
+  // user-visible outcome as an unconfigured project: nothing to sign in to.
+  const firebaseConfig = await loadFirebaseConfigOrNull();
+  if (!firebaseConfig) {
     showState('notConfigured');
     return;
   }
@@ -81,4 +85,6 @@ function init() {
   });
 }
 
-init();
+// init() is async now (it fetches the config); without this a throw inside
+// it would surface only as an unhandled rejection.
+init().catch((err) => showError(err));

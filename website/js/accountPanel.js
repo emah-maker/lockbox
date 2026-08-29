@@ -130,7 +130,13 @@ function buildSignInSection(user, els, ctx) {
     group.className = 'acct__chip-group';
     const chip = document.createElement('span');
     chip.className = 'dash__chip';
-    chip.style.background = 'rgba(255, 255, 255, 0.08)';
+    // Was a fixed white-8% wash -- invisible on a light card, same theme-leak
+    // class as dashboard.css's old .dash__breakdown-track/.dash__cal-navbtn
+    // literals. var(--border-soft) is derived from t.text (dashboard.js's
+    // applyTheme), so it flips with the mode for free; var(--text) already
+    // reads fine against it either way, the same as every other border-soft
+    // surface on this page (e.g. .dash__labels-name's input background).
+    chip.style.background = 'var(--border-soft)';
     chip.style.color = 'var(--text)';
     chip.textContent = providerLabel(id);
     group.appendChild(chip);

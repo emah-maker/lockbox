@@ -2,8 +2,9 @@
    Phone Box marketing site — vanilla JS, file:// friendly, no bundler.
    Handles: reveal-on-scroll, the FAQ accordion, a live countdown on the
    device mockup, the hero device's boot-in timeline, the override-demo
-   tick feedback, and the waitlist form (client-side only — this is a draft
-   with no backend). GSAP (CDN <script> tag, see index.html) is an optional
+   tick feedback, and the waitlist form (persists to Firestore via a
+   dynamic import() of the Firebase SDK, on submit only -- see the form's
+   own comment block below). GSAP (CDN <script> tag, see index.html) is an optional
    progressive-enhancement layer for the two timeline/stagger moments below
    (hero boot, override ticks) -- every `window.gsap` check has a plain-CSS
    fallback already in place if the CDN script fails to load. All features
@@ -203,25 +204,52 @@
     });
   }
 
-  /* ---------- Waitlist form (client-side only, no backend) ---------- */
+  /* ---------- Waitlist form ----------
+     Writes each signup to Firestore's top-level `waitlist` collection (see
+     app/firestore.rules' `match /waitlist/{docId}` block for the write
+     contract this must satisfy -- create-only, exact field allow-list,
+     server-pinned createdAt, no reads at all). The Firebase SDK is fetched
+     with a dynamic import() from inside the submit handler, not a top-level
+     <script type="module">, so this marketing page never pays for Firebase
+     on first load just because the form exists below the fold -- the
+     network request only fires once a visitor actually submits.
+     Firebase-init/import work is cached after the first attempt so a retry
+     following a failed write doesn't re-fetch/re-init the SDK. */
   var form = document.getElementById("waitlistForm");
   var msg = document.getElementById("formMsg");
   var thanks = document.getElementById("waitlistThanks");
+  var submitBtn = form && form.querySelector('button[type="submit"]');
   if (form) {
-    form.addEventListener("submit", function (e) {
-      e.preventDefault();
-      var input = document.getElementById("email");
-      var value = (input && input.value ? input.value : "").trim();
-      var valid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
-      if (!valid) {
-        if (msg) {
-          msg.textContent = "Please enter a valid email address.";
-          msg.className = "form-msg is-err";
-        }
-        if (input) { input.focus(); }
-        return;
+    var submitLabel = submitBtn ? submitBtn.textContent : "";
+    var waitlistDbPromise = null;
+    function getWaitlistDb() {
+      if (!waitlistDbPromise) {
+        waitlistDbPromise = Promise.all([
+          import("https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js"),
+          import("https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js"),
+          import("./firebaseConfig.js"),
+        ]).then(function (mods) {
+          var appMod = mods[0];
+          var fsMod = mods[1];
+          var cfgMod = mods[2];
+          // Config comes from Firebase Hosting now (see firebaseConfig.js), so
+          // this step is a fetch rather than a synchronous check.
+          return cfgMod.loadFirebaseConfig().then(function (firebaseConfig) {
+            var app = appMod.initializeApp(firebaseConfig);
+            return { fs: fsMod, db: fsMod.getFirestore(app) };
+          });
+        }).catch(function (err) {
+          // Don't leave a rejected promise cached -- a transient failure
+          // here (offline on first submit, CDN hiccup) shouldn't permanently
+          // block every later retry this page session.
+          waitlistDbPromise = null;
+          throw err;
+        });
       }
-      // Success — cross-fade the form out and the thank-you state in.
+      return waitlistDbPromise;
+    }
+
+    function showThanksState() {
       if (thanks) {
         var showThanks = function () {
           form.setAttribute("hidden", "");
@@ -242,6 +270,55 @@
         msg.className = "form-msg is-ok";
         form.reset();
       }
+    }
+
+    function setPending(isPending) {
+      if (!submitBtn) { return; }
+      submitBtn.disabled = isPending;
+      submitBtn.textContent = isPending ? "Joining…" : submitLabel;
+    }
+
+    form.addEventListener("submit", function (e) {
+      e.preventDefault();
+      var input = document.getElementById("email");
+      var value = (input && input.value ? input.value : "").trim().toLowerCase();
+      var valid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value) && value.length <= 254;
+      if (!valid) {
+        if (msg) {
+          msg.textContent = "Please enter a valid email address.";
+          msg.className = "form-msg is-err";
+        }
+        if (input) { input.focus(); }
+        return;
+      }
+
+      // Guard against a double-tap firing two writes while the first is
+      // still in flight.
+      if (submitBtn && submitBtn.disabled) { return; }
+      setPending(true);
+      if (msg) {
+        msg.textContent = "";
+        msg.className = "form-msg";
+      }
+
+      getWaitlistDb().then(function (ctx) {
+        return ctx.fs.addDoc(ctx.fs.collection(ctx.db, "waitlist"), {
+          email: value,
+          createdAt: ctx.fs.serverTimestamp(),
+          source: "website",
+        });
+      }).then(function () {
+        // Leave the button disabled -- the form is about to be hidden
+        // entirely by the cross-fade into the thank-you state.
+        showThanksState();
+      }).catch(function (err) {
+        if (window.console && console.error) { console.error("Waitlist signup failed:", err); }
+        setPending(false);
+        if (msg) {
+          msg.textContent = "Something went wrong — please try again in a moment.";
+          msg.className = "form-msg is-err";
+        }
+      });
     });
   }
 })();

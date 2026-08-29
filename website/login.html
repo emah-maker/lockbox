@@ -59,10 +59,10 @@
         <div id="loginNotConfigured" class="card dash__state dash__fade" hidden>
           <h2>Dashboard isn't connected yet</h2>
           <p>
-            This page needs a Firebase project configured in
-            <code>website/js/firebaseConfig.js</code> before sign-in will work. Fill in the
-            same project's web config the app uses (Firebase console → Project settings →
-            Your apps → Web app), then reload.
+            This page reads its Firebase config from Firebase Hosting, so it only
+            works when served by Hosting — the deployed site, a preview channel, or
+            <code>firebase serve</code> locally. Opened straight from a file or another
+            static server, there's no project for it to sign in to.
           </p>
         </div>
 
@@ -88,7 +88,7 @@
 
         <div id="loginError" class="card dash__state dash__state--error dash__fade" hidden>
           <h2>Couldn't sign you in</h2>
-          <p id="loginErrorMsg"></p>
+          <p id="loginErrorMsg" role="alert"></p>
           <button id="loginRetryBtn" class="btn btn--ghost btn--sm" type="button">Try again</button>
         </div>
       </div>

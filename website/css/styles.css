@@ -55,6 +55,20 @@
   --border-soft: rgba(255, 255, 255, 0.07);
   --border:      rgba(255, 255, 255, 0.16);
 
+  /* Nav chrome + neutral washes. The sticky nav and the mobile drawer sit
+     OUTSIDE `.dash`, so dashboard.css's light-mode overrides never reached
+     them: on login.html/dashboard.html in light mode the nav stayed
+     near-black while .brand's `color: var(--text)` went near-black too,
+     leaving the wordmark at ~1:1 contrast (invisible). These carry today's
+     dark literals verbatim as their defaults, so index.html -- which never
+     runs applyTheme -- renders byte-identically; dashboard.js's applyTheme
+     repoints them from the resolved themeMode so the nav follows the user's
+     light/dark choice on the two themed pages. */
+  --nav-bg:          rgba(19, 19, 20, 0.86);
+  --nav-bg-scrolled: rgba(19, 19, 20, 0.96);
+  --nav-mark:        #c9cbce;   /* = --steel; repointed to textDim on themed pages */
+  --wash:            rgba(242, 241, 236, 0.05);
+
   /* Steel — structural chrome. Achromatic on purpose so it never reads as a
      status color next to red/amber/green; not an app theme role, so it's
      unaffected by the palette unification above. */
@@ -64,10 +78,20 @@
 
   /* Thermal ticket paper — used only on stub/ticket components, never the
      page ground. A material color, not an app theme role, so it's likewise
-     unaffected by the palette unification above. */
-  --paper:      #ece6d6;
-  --paper-dim:  #c8c1a8;
-  --paper-ink:  #201e18;
+     unaffected by the palette unification above.
+
+     IMPORTANT, --paper-dim is a DECORATION color, not a text color. It is a
+     light tan that reads well as a dashed rule or edge ON the paper, and as
+     text only when the paper-toned element sits on the DARK page ground.
+     Painted as text ON --paper it measures 1.45:1 -- far under WCAG AA's
+     4.5:1 -- which is exactly what had happened to .claim-tag__head, and
+     then got copied into the spec sheet's labels. Use --paper-ink-dim for
+     any muted TEXT on paper: it keeps the same "secondary label" hierarchy
+     against --paper-ink (13.37:1) while measuring 5.9:1, comfortably AA. */
+  --paper:         #ece6d6;
+  --paper-dim:     #c8c1a8;   /* rules/edges on paper, or text on the dark ground */
+  --paper-ink-dim: #5c5647;   /* muted text ON paper — 5.9:1, passes AA */
+  --paper-ink:     #201e18;
 
   /* Text — app/src/theme/theme.ts's MODES.dark.text/textDim, ported
      verbatim. The app has no third text tier; --text-3 (this site's own
@@ -327,18 +351,18 @@ html { scrollbar-color: var(--steel-dim) var(--bg-2); scrollbar-width: thin; }
 .nav {
   position: sticky; top: 0; z-index: 60;
   backdrop-filter: blur(14px);
-  background: rgba(19, 19, 20, 0.86);
+  background: var(--nav-bg);
   border-bottom: 1px solid var(--border-soft);
   transition: background-color var(--dur-slow) var(--ease), box-shadow var(--dur-slow) var(--ease);
 }
-.nav--scrolled { background: rgba(19, 19, 20, 0.96); box-shadow: 0 1px 0 var(--border-soft), 0 16px 32px -24px rgba(0, 0, 0, 0.65); }
+.nav--scrolled { background: var(--nav-bg-scrolled); box-shadow: 0 1px 0 var(--border-soft), 0 16px 32px -24px rgba(0, 0, 0, 0.65); }
 .nav__inner { position: relative; display: flex; align-items: center; gap: var(--space-4-5); height: 66px; }
 .brand {
   display: inline-flex; align-items: center; gap: var(--space-2-5);
   font-family: var(--font-display); font-weight: 400; font-size: var(--fs-2xl); letter-spacing: 0.02em;
   text-transform: uppercase; color: var(--text);
 }
-.brand__mark { display: inline-flex; width: 26px; height: 26px; color: var(--steel); }
+.brand__mark { display: inline-flex; width: 26px; height: 26px; color: var(--nav-mark); }
 
 .nav__menu { display: flex; align-items: center; gap: var(--space-6-5); margin-left: auto; }
 .nav__menu-inner { display: contents; }
@@ -349,11 +373,11 @@ html { scrollbar-color: var(--steel-dim) var(--bg-2); scrollbar-width: thin; }
 
 .nav__toggle {
   display: none; width: 38px; height: 38px; align-items: center; justify-content: center;
-  background: rgba(242, 241, 236, 0.05); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--wash); border: 1px solid var(--border); border-radius: var(--radius-sm);
   color: var(--text); cursor: pointer; padding: 0;
   transition: background var(--dur-base) var(--ease-snap), border-color var(--dur-base) var(--ease-snap);
 }
-.nav__toggle:hover { border-color: var(--steel); }
+.nav__toggle:hover { border-color: var(--nav-mark); }
 .nav__toggle-bars, .nav__toggle-bars::before, .nav__toggle-bars::after {
   display: block; width: 18px; height: 2px; border-radius: 1px; background: currentColor;
   transition: transform var(--dur-slow) var(--ease), background var(--dur-slow) var(--ease);
@@ -448,7 +472,7 @@ section { padding: clamp(56px, 9vw, 96px) 0; }
   font-family: var(--font-mono);
 }
 .claim-tag__hole { position: absolute; top: 10px; left: 10px; width: 8px; height: 8px; border-radius: 50%; background: var(--bg); box-shadow: inset 0 1px 2px rgba(0,0,0,0.4); }
-.claim-tag__head { padding: var(--space-2) var(--space-3) var(--space-2) var(--space-6-5); font-size: var(--fs-3xs); letter-spacing: 0.16em; text-transform: uppercase; color: var(--paper-dim); border-bottom: 1px dashed var(--paper-dim); }
+.claim-tag__head { padding: var(--space-2) var(--space-3) var(--space-2) var(--space-6-5); font-size: var(--fs-3xs); letter-spacing: 0.16em; text-transform: uppercase; color: var(--paper-ink-dim); border-bottom: 1px dashed var(--paper-dim); }
 .claim-tag__num { padding: var(--space-2) var(--space-3) var(--space-0-5) var(--space-6-5); font-family: var(--font-ticket); font-size: var(--fs-xl); line-height: 1; }
 .claim-tag .barcode { margin: var(--space-1-5) var(--space-3) var(--space-2-5) var(--space-6-5); height: 16px; color: var(--paper-ink); }
 .claim-tag__stamp { position: absolute; top: 30%; right: 8px; }
@@ -568,6 +592,53 @@ section { padding: clamp(56px, 9vw, 96px) 0; }
 .override-demo__tick.is-hit { background: var(--locked); }
 .override-demo__status { font-family: var(--font-mono); font-size: var(--fs-2xs); color: var(--text-3); min-width: 90px; text-align: right; }
 .override-demo__status.is-released { color: var(--unlocked); }
+
+/* ---------- Spec sheet: the manifest scaled up from the hero's claim-tag
+   into a full property record -- same thermal-paper material, same
+   dashed-perforation dividers, now carrying the box's real spec list
+   instead of one live countdown. Sits on --paper (not --card) deliberately:
+   it's the one section meant to read as a physical printed document sitting
+   on the dark page, not another UI card. ---------- */
+.spec-sheet {
+  background: var(--paper); color: var(--paper-ink);
+  border-radius: var(--radius);
+  padding: var(--space-6) var(--space-6) var(--space-5-5);
+  box-shadow: 0 24px 50px -28px rgba(0, 0, 0, 0.7);
+}
+.spec-sheet__head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3); }
+.spec-sheet__title { font-family: var(--font-mono); font-size: var(--fs-2xs); letter-spacing: 0.16em; text-transform: uppercase; color: var(--paper-ink-dim); }
+.spec-sheet__num { font-family: var(--font-ticket); font-size: var(--fs-lg); }
+.spec-sheet .barcode { color: var(--paper-ink); margin: var(--space-3-5) 0 var(--space-4-5); height: 20px; opacity: 0.7; }
+/* `.spec-sheet__list` is the <dl>; each `.spec-sheet__row` (a wrapping <div>
+   around one dt/dd pair) becomes an implicit grid item, so the 9 terms fall
+   into 2 columns without any extra markup. */
+.spec-sheet__list { display: grid; grid-template-columns: repeat(2, 1fr); column-gap: var(--space-8); }
+.spec-sheet__row { display: flex; justify-content: space-between; gap: var(--space-4); padding: var(--space-3) 0; border-bottom: 1px dashed var(--paper-dim); }
+.spec-sheet__row dt { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: 0.04em; color: var(--paper-ink-dim); }
+.spec-sheet__row dd { margin: 0; font-family: var(--font-mono); font-weight: 700; font-size: var(--fs-sm); text-align: right; }
+
+/* ---------- Assurance strip: risk-reversal facts stated in ticket-badge's
+   own marketing vocabulary, not .stamp's -- a lock-state stamp is reserved
+   for the firmware's real SEIZED/HOLDING/CLEARED states (see that block's
+   header comment) and would misuse that language for claims that are true
+   of the pre-order, not the device. Placed directly above the CTA it
+   de-risks. Every line here must stay true for a product with no shipped
+   units yet -- no guarantee, no review count, no press logo. ---------- */
+.assurance__list {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--space-5) var(--space-6);
+}
+.assurance__item { display: flex; align-items: flex-start; gap: var(--space-3); text-align: left; }
+.assurance__item::before {
+  content: ""; flex: none; width: 18px; height: 18px; margin-top: 2px;
+  color: var(--accent);
+  background-color: var(--accent-soft);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5' stroke='currentColor' stroke-width='2.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: center; background-size: 11px;
+  border: 1px solid var(--accent); border-radius: 3px;
+}
+.assurance__item p { color: var(--text-2); font-size: var(--fs-sm); }
+.assurance__item strong { color: var(--unlocked); }
 
 /* ---------- Comparison table: the manifest / claim-check register ---------- */
 .table-scroll { overflow-x: auto; border: 1px solid var(--border-soft); border-radius: var(--radius); }
@@ -723,7 +794,17 @@ section { padding: clamp(56px, 9vw, 96px) 0; }
 /* ---------- Responsive ---------- */
 @media (max-width: 980px) {
   .hero__grid { grid-template-columns: 1fr; }
-  .hero__device { order: -1; }
+  /* Grid's implicit column min is `auto`, which floors at the tallest child's
+     min-content width -- the tray's min-content (driven by the device art)
+     was wider than the viewport, so .hero__copy inherited that floor and got
+     clipped by .hero's overflow:hidden. min-width: 0 lets the column shrink. */
+  .hero__grid > * { min-width: 0; }
+  .checkpoint, .checkpoint__tray { max-width: 100%; }
+  /* Scale with the tray's shrunk content box instead of a fixed vw floor. */
+  .device { width: min(272px, 100%); }
+  /* order: -1 removed: the first-viewport contract (see index.html header
+     comment) puts headline + lead + CTA before the device art on every
+     breakpoint; DOM order already has copy first, so no reorder is needed. */
   .lead { max-width: none; }
   .steps { grid-template-columns: repeat(2, 1fr); }
   .adjust__grid { grid-template-columns: repeat(2, 1fr); }
@@ -745,7 +826,7 @@ section { padding: clamp(56px, 9vw, 96px) 0; }
   }
   .nav__links { flex-direction: column; align-items: stretch; gap: var(--space-0-5); }
   .nav__links a { padding: var(--space-3) var(--space-1-5); border-radius: 6px; }
-  .nav__links a:hover { background: rgba(242, 241, 236, 0.05); }
+  .nav__links a:hover { background: var(--wash); }
   .nav__cta { margin-top: var(--space-2); }
 }
 @media (max-width: 560px) {
@@ -754,6 +835,12 @@ section { padding: clamp(56px, 9vw, 96px) 0; }
   .manifest__row { grid-template-columns: 44px 1fr; gap: var(--space-3-5); }
   .ledger-strip__row { flex-direction: column; }
   .ledger-strip__item { border-left: 0; padding-left: 0; }
+  /* One column each: at this width two columns leave too little room for
+     the longer terms/values ("Emergency override" / "5–500 presses,
+     tunable (default 25)") to sit side by side without cramping. */
+  .spec-sheet__list { grid-template-columns: 1fr; }
+  .spec-sheet__row { flex-direction: column; align-items: flex-start; gap: var(--space-1); }
+  .spec-sheet__row dd { text-align: left; }
   .field { grid-template-columns: 1fr; }
   .footer__inner { flex-direction: column; align-items: flex-start; }
   .claim-tag { position: static; margin: var(--space-4-5) auto 0; transform: rotate(-1.4deg); }

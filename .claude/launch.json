@@ -2,15 +2,44 @@
   "version": "0.0.1",
   "configurations": [
     {
+      "name": "website-hosting",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "--yes",
+        "firebase-tools",
+        "serve",
+        "--only",
+        "hosting",
+        "--project",
+        "phonebox-d14b7",
+        "--port",
+        "5177"
+      ],
+      "port": 5177
+    },
+    {
       "name": "website",
       "runtimeExecutable": "npx",
-      "runtimeArgs": ["--yes", "serve", "website", "-l", "4173"],
+      "runtimeArgs": [
+        "--yes",
+        "serve",
+        "website",
+        "-l",
+        "4173"
+      ],
       "port": 4173
     },
     {
       "name": "website-static",
       "runtimeExecutable": "npx",
-      "runtimeArgs": ["-y", "http-server", "website", "-p", "5599", "-c-1"],
+      "runtimeArgs": [
+        "-y",
+        "http-server",
+        "website",
+        "-p",
+        "5599",
+        "-c-1"
+      ],
       "port": 5599
     }
   ]

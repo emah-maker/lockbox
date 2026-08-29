@@ -5,6 +5,59 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Phone Box — The Smart Focus Lockbox</title>
   <meta name="description" content="Phone Box is the smart focus lockbox: true physical lockaway, a touchscreen countdown, a tunable emergency override, and no subscription — ever. One-time $99." />
+
+  <!-- PLACEHOLDER DOMAIN: every absolute URL below (og:url, og:image, twitter:image,
+       canonical, JSON-LD offers.url) uses https://phonebox.example.com as a stand-in.
+       `example.com` is the IANA-reserved documentation domain (RFC 2606), chosen
+       specifically so it can't collide with anyone's real site. Swap every occurrence
+       for the real production domain before this page goes live, or link previews
+       (Slack/iMessage/Twitter/Facebook) will point at a non-existent host. -->
+
+  <!-- Open Graph: without these, sharing this URL anywhere renders a blank card. -->
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Phone Box" />
+  <meta property="og:title" content="Phone Box — The Smart Focus Lockbox" />
+  <meta property="og:description" content="Set a timer, drop your phone in, and it stays physically locked away until you're done. Touchscreen countdown, tunable emergency override, no subscription — ever. Reserve the founding price of $79." />
+  <meta property="og:url" content="https://phonebox.example.com/" />
+  <meta property="og:image" content="https://phonebox.example.com/assets/og-image.png" />
+  <meta property="og:image:width" content="1280" />
+  <meta property="og:image:height" content="860" />
+  <meta property="og:image:alt" content="Phone Box, an opaque 3D-printed lockbox with a touchscreen countdown, resting in a stainless checkpoint tray with its claim ticket attached." />
+
+  <!-- Twitter Card: mirrors the Open Graph tags above so X/Twitter previews match. -->
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Phone Box — The Smart Focus Lockbox" />
+  <meta name="twitter:description" content="Set a timer, drop your phone in, and it stays physically locked away until you're done. Touchscreen countdown, tunable emergency override, no subscription — ever." />
+  <meta name="twitter:image" content="https://phonebox.example.com/assets/og-image.png" />
+
+  <link rel="canonical" href="https://phonebox.example.com/" />
+  <meta name="theme-color" content="#0b0b0c" />
+
+  <!-- JSON-LD Product schema: numbers here (price, currency, availability) must
+       stay byte-identical to what the pricing section actually says -- no
+       invented ratings, review counts, or press mentions; this product has no
+       customers yet. -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "Product",
+    "name": "Phone Box",
+    "description": "The smart focus lockbox: true physical lockaway, a 1.47\" touchscreen countdown, a tunable 5–500 press emergency override, and no subscription, ever.",
+    "brand": {
+      "@type": "Brand",
+      "name": "Phone Box"
+    },
+    "image": "https://phonebox.example.com/assets/og-image.png",
+    "offers": {
+      "@type": "Offer",
+      "url": "https://phonebox.example.com/",
+      "priceCurrency": "USD",
+      "price": "79",
+      "availability": "https://schema.org/PreOrder"
+    }
+  }
+  </script>
+
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect x='4' y='2.5' width='16' height='19' rx='3' fill='%231a1a1c' stroke='%23c9cbce' stroke-width='1.8'/%3E%3Crect x='7.5' y='6' width='9' height='9' rx='1.4' fill='%23ef5350'/%3E%3C/svg%3E" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -333,6 +386,34 @@
       </div>
     </section>
 
+    <!-- ===== SPEC SHEET ===== -->
+    <section class="spec" id="spec" aria-labelledby="spec-title">
+      <div class="wrap">
+        <div class="section-head reveal">
+          <h2 id="spec-title">The manifest, plainly stated.</h2>
+          <p class="section-sub">No vague &ldquo;smart&rdquo; marketing &mdash; this is the actual hardware inside the box.</p>
+        </div>
+        <div class="spec-sheet reveal">
+          <div class="spec-sheet__head">
+            <span class="spec-sheet__title">Property manifest</span>
+            <span class="spec-sheet__num">No. 0417</span>
+          </div>
+          <div class="barcode" aria-hidden="true"></div>
+          <dl class="spec-sheet__list">
+            <div class="spec-sheet__row"><dt>Display</dt><dd>1.47&Prime; touchscreen</dd></div>
+            <div class="spec-sheet__row"><dt>Latch mechanism</dt><dd>Servo-driven, physically locked</dd></div>
+            <div class="spec-sheet__row"><dt>Charging</dt><dd>USB-C</dd></div>
+            <div class="spec-sheet__row"><dt>Power</dt><dd>Rechargeable LiPo battery</dd></div>
+            <div class="spec-sheet__row"><dt>Enclosure</dt><dd>Opaque, 3D-printed</dd></div>
+            <div class="spec-sheet__row"><dt>Emergency override</dt><dd>5&ndash;500 presses, tunable (default 25)</dd></div>
+            <div class="spec-sheet__row"><dt>Focus session length</dt><dd>Up to 9 hours</dd></div>
+            <div class="spec-sheet__row"><dt>Settings storage</dt><dd>On-device, survives power-off</dd></div>
+            <div class="spec-sheet__row"><dt>Connectivity required</dt><dd>None &mdash; no account, fully offline</dd></div>
+          </dl>
+        </div>
+      </div>
+    </section>
+
     <!-- ===== COMPARISON ===== -->
     <section class="compare" id="compare" aria-labelledby="compare-title">
       <div class="wrap">
@@ -543,6 +624,32 @@
             </div>
           </div>
         </div>
+      </div>
+    </section>
+
+    <!-- ===== TRUST / RISK REVERSAL ===== -->
+    <section class="assurance" id="assurance" aria-labelledby="assurance-title">
+      <div class="wrap">
+        <div class="section-head reveal">
+          <h2 id="assurance-title">Reserve with nothing to lose.</h2>
+        </div>
+        <ul class="assurance__list">
+          <li class="assurance__item reveal">
+            <p>No charge today &mdash; reserving your spot doesn&rsquo;t bill your card.</p>
+          </li>
+          <li class="assurance__item reveal">
+            <p>Founding price of <strong>$79</strong> locked in, even after the batch ships and the price goes to $99.</p>
+          </li>
+          <li class="assurance__item reveal">
+            <p>No subscription, ever &mdash; one payment, no recurring fees.</p>
+          </li>
+          <li class="assurance__item reveal">
+            <p>Free firmware updates for the life of the device.</p>
+          </li>
+          <li class="assurance__item reveal">
+            <p>Cancel anytime before the batch ships &mdash; no questions asked.</p>
+          </li>
+        </ul>
       </div>
     </section>
 

@@ -308,6 +308,17 @@ function renderCapState(els, atCap) {
  * dashboard.js's renderDataViews exactly where it used to call the local
  * renderLabelsList(customLabels). */
 export function renderLabelsList(customLabels, els, ctx) {
+  // clear() below tears down every row, including whichever one owns the
+  // currently-open recolor popover (if any) -- renderDataViews calls this on
+  // every write across the whole page (a session relabel, a goal edit, an
+  // appearance change), not only on a labels-catalog write, so a popover can
+  // easily still be "open" in this module's own bookkeeping at the moment an
+  // unrelated re-render blows its DOM away. Left uncleared, openPopover would
+  // keep pointing at detached nodes: the outside-click listener would still
+  // "close" them (harmlessly, since they're gone), but any actual popover
+  // opened next would only self-heal on its own click handler's mismatch
+  // check rather than starting from a known-clean slate.
+  openPopover = null;
   clear(els.labelsList);
   renderCapState(els, customLabels.length >= MAX_CUSTOM_LABELS);
 

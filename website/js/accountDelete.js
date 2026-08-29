@@ -161,5 +161,15 @@ export function buildDeleteConfirm(user, els, ctx, onCancel) {
   });
   confirmBtn.addEventListener('click', () => runDeleteAccount(user, els, ctx, { input, cancel, confirmBtn }));
 
+  // Same Escape-to-close convention as labelsPanel.js's/goalsPanel.js's own
+  // inline confirms -- this box was missing it, the one destructive confirm
+  // on the page a keyboard user couldn't dismiss without tabbing to Cancel.
+  box.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      e.stopPropagation();
+      onCancel();
+    }
+  });
+
   return box;
 }

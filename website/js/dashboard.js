@@ -47,7 +47,7 @@ import {
   orderBy,
   limit,
 } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
-import { firebaseConfig, isFirebaseConfigured } from './firebaseConfig.js';
+import { loadFirebaseConfigOrNull } from './firebaseConfig.js';
 import { friendlyErrorMessage, isIgnorableAuthError, logAuthError } from './authErrors.js';
 import { resolveTheme, compositeHex, DEFAULT_THEME_MODE, DEFAULT_ACCENT } from './theme.js';
 import {
@@ -256,10 +256,30 @@ function clear(el) {
 let theme = resolveTheme(DEFAULT_THEME_MODE, DEFAULT_ACCENT);
 let themeMode = DEFAULT_THEME_MODE;
 
+// Alpha-composites are the right tool for --accent-soft above (it always
+// paints over one known surface, the card), but a hairline border is drawn
+// against several different surfaces on this page (--card, --bg, --card-2 --
+// see dashboard.css's table rules, input outlines, and popover borders) and
+// pasting one opaque baked-in shade would go wrong wherever the actual
+// surface differs from the base color picked at the time. A real
+// translucent color sidesteps that: it stays correct against *any* surface
+// underneath it, the way CSS alpha compositing already works for free.
+function hexToRgba(hex, alpha) {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
+}
+
 // Paints the resolved theme onto CSS custom properties (dashboard.css reads
 // these) rather than keeping color logic duplicated in both CSS and JS --
 // the calendar heatmap below is the one place that also needs the raw hex
 // values in JS (to alpha-composite per-cell).
+//
+// --border/--border-soft used to be left at styles.css's dark-only literals
+// (white at 16%/7%), which is invisible once the page goes light. They're
+// derived from t.text instead of a second pair of literals so they flip
+// automatically with the mode: t.text is white in dark mode (reproducing
+// the old literals exactly) and near-black in light mode, giving a dark
+// hairline on a light surface instead of a white one nobody can see.
 function applyTheme(t) {
   const root = document.documentElement.style;
   root.setProperty('--bg', t.bg);
@@ -274,8 +294,31 @@ function applyTheme(t) {
   root.setProperty('--locked', t.danger);
   root.setProperty('--locked-2', t.danger);
   root.setProperty('--closed', t.warn);
+  // Unlike --accent-text (an authored per-accent pairing, see theme.js's
+  // ACCENTS table), --locked has no such hand-picked partner -- dashboard.css
+  // used to just hardcode `color: #fff` on top of it. That happens to clear
+  // WCAG AA against the light-mode danger red (#dc2626, 4.83:1) but fails it
+  // against the dark-mode one (#ef4444, 3.76:1) -- measured via
+  // focusStats.js's own contrast math. readableTextColor picks the higher-
+  // contrast of black/white for whichever danger red the resolved theme
+  // actually has, the same way it already does for the calendar heatmap.
+  root.setProperty('--locked-text', readableTextColor(t.danger));
+  root.setProperty('--accent', t.accent);
   root.setProperty('--accent-text', t.accentText);
   root.setProperty('--accent-soft', compositeHex(t.accent, t.surface, 0.12));
+  root.setProperty('--border', hexToRgba(t.text, 0.16));
+  root.setProperty('--border-soft', hexToRgba(t.text, 0.07));
+  // The nav and the mobile drawer live outside `.dash`, so dashboard.css's
+  // scoped light-mode overrides never applied to them and they kept
+  // styles.css's dark literals -- in light mode that left the wordmark
+  // (color: var(--text), now near-black) sitting on a near-black bar. These
+  // five repoint that chrome onto the resolved theme; styles.css still
+  // carries the old literals as the defaults, so index.html is unaffected.
+  root.setProperty('--surface', t.surface);          // mobile drawer fill
+  root.setProperty('--nav-bg', hexToRgba(t.bg, 0.86));
+  root.setProperty('--nav-bg-scrolled', hexToRgba(t.bg, 0.96));
+  root.setProperty('--nav-mark', t.textDim);         // brand glyph + toggle hover ring
+  root.setProperty('--wash', hexToRgba(t.text, 0.05));
 }
 applyTheme(theme);
 
@@ -535,6 +578,23 @@ const RECENT_LIMIT = 25;
 function renderSessionsTable(sessions) {
   clear(els.sessionsBody);
   const recent = sessions.slice().sort((a, b) => b.startedAt - a.startedAt).slice(0, RECENT_LIMIT);
+  // Every other data panel (breakdown, facts, labels list, goals list, the
+  // calendar's day list) has its own "nothing here yet" message -- this table
+  // didn't, so a brand-new account saw a header row sitting over a blank
+  // body with no explanation, indistinguishable from a render that silently
+  // failed. dashEmptyHint (rendered above the fold) already covers the
+  // account-wide empty state, but this card is far enough down the page that
+  // its own empty row still matters.
+  if (recent.length === 0) {
+    const tr = document.createElement('tr');
+    const td = document.createElement('td');
+    td.colSpan = 5;
+    td.className = 'dash__cal-empty';
+    td.textContent = 'No sessions yet.';
+    tr.appendChild(td);
+    els.sessionsBody.appendChild(tr);
+    return;
+  }
   for (const s of recent) {
     const tr = document.createElement('tr');
     tr.dataset.sessionId = s.id;
@@ -577,6 +637,22 @@ function renderDataViews(sessions, customLabels, goals = calGoals) {
   const trend = lastNDays(sessions);
   const topics = topicBreakdownWithCustom(sessions, customLabels, themeMode);
 
+  // These three must be assigned BEFORE any render below, not after. They are
+  // not just a cache for renderCalendar: renderSessionsTable ->
+  // createLabelPicker(s, labelPickerCtx()) reads `calCustomLabels` through
+  // labelPickerCtx(), which closes over this module-level binding rather than
+  // taking the `customLabels` argument. When these sat after the render calls,
+  // the FIRST load rendered the sessions table while calCustomLabels was still
+  // its initial [], so resolveTopic() missed every `custom:`-prefixed id and
+  // each custom-labelled row fell through to "Untagged". It self-healed on any
+  // later renderDataViews (a relabel, a labels-panel write), which is why it
+  // read as cosmetic rather than a bug. The calendar's own day list uses the
+  // same ctx but renders after renderCalendar() below, so on one load the same
+  // session showed "Admin" in the day list and "Untagged" in the table.
+  calSessions = sessions;
+  calCustomLabels = customLabels;
+  calGoals = goals;
+
   renderSummary(stats);
   els.miniRow.hidden = stats.n === 0;
   els.emptyHint.hidden = stats.n > 0;
@@ -586,10 +662,6 @@ function renderDataViews(sessions, customLabels, goals = calGoals) {
   renderBreakdown(topics);
   renderSessionsTable(sessions);
   renderLabelsList(customLabels, els, labelsCtx);
-
-  calSessions = sessions;
-  calCustomLabels = customLabels;
-  calGoals = goals;
   // Computed once here and passed into the panel, rather than letting
   // goalsPanel.js call computeGoalProgress itself -- both would read their
   // own Date.now(), so a render straddling a local-midnight (or Sunday-
@@ -675,7 +747,20 @@ function withTimeout(promise, ms) {
   ]);
 }
 
+// Bumped at the start of every loadDashboard call, captured as `seq` in each
+// call's own closure -- guards against two overlapping loads (a manual
+// "Refresh" clicked while the initial load is still in flight, or
+// onAuthStateChanged firing again before the first load settles) racing each
+// other. Without this, whichever call's Firestore round-trip happened to
+// resolve LAST would win and overwrite the screen, even if it was the OLDER
+// (now-stale) call -- a double-click on Refresh could leave the page showing
+// data from a moment before the click. Comparing against the module-level
+// counter after the await is what lets a stale call's result be silently
+// dropped instead of rendered.
+let loadSeq = 0;
+
 async function loadDashboard(db, uid) {
+  const seq = ++loadSeq;
   showState('loading');
   dashDb = db;
   dashUid = uid;
@@ -707,6 +792,11 @@ async function loadDashboard(db, uid) {
     // as customLabels above being trusted only because settings/app's own
     // write rule already bounds its shape.
     const goals = sanitizeRemoteGoals(goalsSnap.exists() ? goalsSnap.data().goals : []);
+    // A newer loadDashboard call already started (and may have already
+    // rendered) while this one's Firestore round-trip was in flight -- drop
+    // this stale result rather than let it stomp the newer one. See loadSeq's
+    // own comment above.
+    if (seq !== loadSeq) return;
     // Same themeMode/accent fields useSettingsStore.ts syncs from the app
     // (SyncableSettings) -- resolving them here is what makes this page look
     // like *this user's* app, not just a fixed website palette. Also kept
@@ -730,6 +820,10 @@ async function loadDashboard(db, uid) {
     renderAccount();
     showState('content');
   } catch (err) {
+    // Same staleness guard as the success path above -- an older call's
+    // timeout/rejection landing after a newer call already resolved (or is
+    // still loading) must not clobber the screen with a stale error.
+    if (seq !== loadSeq) return;
     showError(err);
   }
 }
@@ -738,12 +832,14 @@ function renderAccount() {
   if (dashUser) renderAccountPanel(dashUser, els, accountCtx);
 }
 
-function init() {
+async function init() {
   mountLabelsPanel(els, labelsCtx);
   mountGoalsPanel();
   mountAccountPanel();
 
-  if (!isFirebaseConfigured()) {
+  // Fetched from Firebase Hosting rather than bundled -- see firebaseConfig.js.
+  const firebaseConfig = await loadFirebaseConfigOrNull();
+  if (!firebaseConfig) {
     showState('notConfigured');
     return;
   }
@@ -776,4 +872,6 @@ function init() {
   });
 }
 
-init();
+// init() is async now (it fetches the config); without this a throw inside
+// it would surface only as an unhandled rejection.
+init().catch((err) => showError(err));

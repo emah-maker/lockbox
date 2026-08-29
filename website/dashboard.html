@@ -62,10 +62,10 @@
         <div id="dashNotConfigured" class="card dash__state dash__fade" hidden>
           <h2>Dashboard isn't connected yet</h2>
           <p>
-            This page needs a Firebase project configured in
-            <code>website/js/firebaseConfig.js</code> before sign-in will work. Fill in the
-            same project's web config the app uses (Firebase console → Project settings →
-            Your apps → Web app), then reload.
+            This page reads its Firebase config from Firebase Hosting, so it only
+            works when served by Hosting — the deployed site, a preview channel, or
+            <code>firebase serve</code> locally. Opened straight from a file or another
+            static server, there's no project for it to sign in to.
           </p>
         </div>
 
@@ -76,7 +76,7 @@
 
         <div id="dashError" class="card dash__state dash__state--error dash__fade" hidden>
           <h2>Couldn't load your data</h2>
-          <p id="dashErrorMsg"></p>
+          <p id="dashErrorMsg" role="alert"></p>
         </div>
 
         <div id="dashContent" class="dash__fade" hidden>
@@ -124,7 +124,7 @@
             <p id="dashGoalsMsg" class="form-msg dash__msg" role="status"></p>
             <ul class="dash__goals-list" id="dashGoalsList"></ul>
             <div class="dash__goal-form-slot" id="dashGoalFormSlot"></div>
-            <p class="dash__labels-cap-msg form-msg dash__pick-fade" id="dashGoalsCapMsg" hidden>
+            <p class="dash__labels-cap-msg form-msg dash__pick-fade" id="dashGoalsCapMsg" role="status" hidden>
               You've reached the 20-goal limit. Delete one to add another.
             </p>
           </div>
@@ -161,7 +161,7 @@
               <input type="text" id="dashLabelAddName" placeholder="New label name" maxlength="40" aria-label="New label name" />
               <button type="submit" class="btn btn--sm btn--primary" id="dashLabelAddSubmit" disabled>Add label</button>
             </form>
-            <p class="dash__labels-cap-msg form-msg dash__pick-fade" id="dashLabelsCapMsg" hidden>
+            <p class="dash__labels-cap-msg form-msg dash__pick-fade" id="dashLabelsCapMsg" role="status" hidden>
               You've reached the 40-label limit. Delete one to add another.
             </p>
           </div>
