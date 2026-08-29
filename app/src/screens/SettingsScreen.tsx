@@ -87,6 +87,15 @@ export default function SettingsScreen() {
       wheelSafetyTimer.current = setTimeout(() => setWheelActive(false), 600);
     }
   };
+  // Bug fix: this timer used to outlive the screen -- switching tabs away
+  // from Settings mid-drag (GoalsSection's target wheels, NotificationsSection's
+  // quiet-hours wheels) left it armed, and it fired setWheelActive(false) on
+  // an already-unmounted SettingsScreen 600ms later. Same cleanup StatsScreen
+  // already has for its own identical wheelSafetyTimer -- this one was simply
+  // missing it.
+  React.useEffect(() => () => {
+    if (wheelSafetyTimer.current) clearTimeout(wheelSafetyTimer.current);
+  }, []);
 
   // Deep links (Stats/Calendar navigating here via useNav) land on a
   // specific sheet instead of a scroll position, since there's no longer a

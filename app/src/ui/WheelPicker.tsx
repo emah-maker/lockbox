@@ -259,6 +259,19 @@ export function WheelPicker({
     if (next === selectedIndex) return;
     cancelCorrecting(); // this explicit scroll supersedes any in-flight correction
     settledIndexRef.current = next;
+    // Marks `next` committed the same way a drag's own commit() does, before
+    // this scrollTo(next, true) is even issued: an ANIMATED scrollTo fires
+    // its own trailing onMomentumScrollEnd once it lands, which re-enters
+    // commit() with pos already parked exactly on `next`'s snap point. If a
+    // caller REJECTS this change (feeds back the same `selectedIndex` it
+    // already had, e.g. GoalForm's clamp), that trailing event is the only
+    // thing that still runs commit(), and without this it found
+    // `index !== selectedIndex` still true (the reverted prop never caught
+    // up to `next`) and fired a second, spurious onChange(next) plus a
+    // second haptic tap for one single VoiceOver increment. Pre-marking
+    // committedRef here turns that trailing call into the ordinary
+    // already-committed no-op, same as commit()'s own dedupe for a drag.
+    committedRef.current = next;
     scrollToIndex(next, true);
     Haptics.selectionAsync();
     onChange(next);

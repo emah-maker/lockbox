@@ -211,4 +211,31 @@ describe('unchanged behavior', () => {
 
     expect(onChange).not.toHaveBeenCalled();
   });
+
+  it('a rejected VoiceOver increment does not double-fire once its scroll settles', () => {
+    // renderFixed's selectedIndex never moves (the parent fully rejects
+    // every change, GoalForm-clamp-style), so the trailing
+    // onMomentumScrollEnd a real animated scrollTo(next, true) fires once it
+    // lands is the only thing left to re-enter commit() here.
+    const onChange = jest.fn();
+    let tree: TestRenderer.ReactTestRenderer;
+    act(() => {
+      tree = TestRenderer.create(
+        <WheelPicker labels={LABELS} selectedIndex={3} onChange={onChange} accessibilityLabel="w" />,
+      );
+    });
+    mounted.push(tree!);
+    const outer = tree!.root.findAll((n) => typeof n.props?.onAccessibilityAction === 'function')[0];
+    const sv = tree!.root.findAll((n) => n.props?.snapToInterval === WHEEL_ITEM_SIZE)[0];
+
+    act(() => outer.props.onAccessibilityAction({ nativeEvent: { actionName: 'increment' } }));
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalledWith(4);
+
+    // selectedIndex is still 3 (the parent ignored the change): pre-fix,
+    // commit() saw index (4) !== selectedIndex (3) and fired a second,
+    // spurious onChange(4) plus a second haptic for the one gesture.
+    act(() => sv.props.onMomentumScrollEnd(scrollEvent(4 * WHEEL_ITEM_SIZE)));
+    expect(onChange).toHaveBeenCalledTimes(1);
+  });
 });
