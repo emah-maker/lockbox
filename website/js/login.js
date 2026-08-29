@@ -14,6 +14,7 @@ import {
   onAuthStateChanged,
 } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js';
 import { loadFirebaseConfigOrNull } from './firebaseConfig.js';
+import { initAppCheck } from './appCheck.js';
 import { friendlyErrorMessage, isIgnorableAuthError, logAuthError } from './authErrors.js';
 
 const els = {
@@ -63,6 +64,9 @@ async function init() {
   }
 
   const app = initializeApp(firebaseConfig);
+  // Must run before getAuth/signInWithPopup below touch the network -- see
+  // appCheck.js's header. No-ops safely today (site key not registered yet).
+  await initAppCheck(app);
   const auth = getAuth(app);
 
   let lastProvider = () => new GoogleAuthProvider();

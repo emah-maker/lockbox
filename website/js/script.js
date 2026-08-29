@@ -230,15 +230,24 @@
           import("https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js"),
           import("https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js"),
           import("./firebaseConfig.js"),
+          import("./appCheck.js"),
         ]).then(function (mods) {
           var appMod = mods[0];
           var fsMod = mods[1];
           var cfgMod = mods[2];
+          var appCheckMod = mods[3];
           // Config comes from Firebase Hosting now (see firebaseConfig.js), so
           // this step is a fetch rather than a synchronous check.
           return cfgMod.loadFirebaseConfig().then(function (firebaseConfig) {
             var app = appMod.initializeApp(firebaseConfig);
-            return { fs: fsMod, db: fsMod.getFirestore(app) };
+            // Must run before this promise resolves to a usable db -- every
+            // caller below (the submit handler's setDoc/addDoc) awaits this
+            // whole promise first, so nothing touches Firestore before App
+            // Check has had a chance to attach. See appCheck.js's header --
+            // no-ops safely today (site key not registered yet).
+            return appCheckMod.initAppCheck(app).then(function () {
+              return { fs: fsMod, db: fsMod.getFirestore(app) };
+            });
           });
         }).catch(function (err) {
           // Don't leave a rejected promise cached -- a transient failure

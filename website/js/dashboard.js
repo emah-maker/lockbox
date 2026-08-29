@@ -46,6 +46,7 @@ import {
   limit,
 } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
 import { loadFirebaseConfigOrNull } from './firebaseConfig.js';
+import { initAppCheck } from './appCheck.js';
 import { friendlyErrorMessage, isIgnorableAuthError, logAuthError } from './authErrors.js';
 import { resolveTheme, applyTheme, DEFAULT_THEME_MODE, DEFAULT_ACCENT } from './theme.js';
 import { aggregate, lastNDays, topicBreakdownWithCustom } from './focusStats.js';
@@ -464,8 +465,8 @@ async function init() {
     showState('notConfigured');
     return;
   }
-
   const app = initializeApp(firebaseConfig);
+  await initAppCheck(app); // before getAuth/getFirestore -- see appCheck.js header
   const auth = getAuth(app);
   const db = getFirestore(app);
   dashAuth = auth;

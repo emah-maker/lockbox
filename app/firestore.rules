@@ -170,15 +170,29 @@ service cloud.firestore {
     //     doesn't; there is no legitimate reason for a client to revise or
     //     remove one afterward.
     //
-    // DO NOT relax `update` here. The website derives each doc's ID from a
-    // SHA-256 of the submitted email (script.js's waitlistDocId) rather than
-    // letting addDoc mint a random one, so a repeat signup is a write to an
-    // existing doc -- which Firestore evaluates as `update`, and this rule
-    // denies. That denial IS the rate limit on duplicate signups: it is the
-    // only thing capping how many times one address can be written, since
-    // this collection takes unauthenticated writes and there is no App Check
-    // or Cloud Function in front of it. Allowing update would silently make
-    // the waitlist floodable again with no visible failure anywhere.
+    // Defence in depth, front to back: App Check (website/js/appCheck.js,
+    // wired in on every page that calls initializeApp) is now the PRIMARY
+    // defence for this collection -- it makes Firestore reject a create
+    // whose request doesn't carry a token proving it came from this site
+    // running in a real browser, which is what stops a script hitting the
+    // Firestore REST API directly with random doc IDs and made-up emails
+    // from writing unlimited DISTINCT waitlist docs. It ships disabled by
+    // default (see appCheck.js's header for why) until the project owner
+    // registers a reCAPTCHA v3 provider in the Firebase console; nothing
+    // below changes once that happens -- App Check enforcement is a console
+    // setting and an SDK-side token, not a rules change.
+    //
+    // Behind that: DO NOT relax `update` here. The website derives each
+    // doc's ID from a SHA-256 of the submitted email (script.js's
+    // waitlistDocId) rather than letting addDoc mint a random one, so a
+    // repeat signup is a write to an existing doc -- which Firestore
+    // evaluates as `update`, and this rule denies. That denial IS the rate
+    // limit on DUPLICATE signups specifically: it is what caps how many
+    // times one already-seen address can be written, independent of
+    // whether App Check above is active yet. It does nothing for distinct
+    // addresses, which is exactly the gap App Check is there to close.
+    // Allowing update would silently make repeat signups floodable again
+    // with no visible failure anywhere, regardless of App Check's state.
     match /waitlist/{docId} {
       allow create: if request.resource.data.keys().hasOnly(['email', 'createdAt', 'source'])
                     && request.resource.data.email is string
