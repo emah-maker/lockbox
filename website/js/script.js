@@ -208,7 +208,9 @@
      Writes each signup to Firestore's top-level `waitlist` collection (see
      app/firestore.rules' `match /waitlist/{docId}` block for the write
      contract this must satisfy -- create-only, exact field allow-list,
-     server-pinned createdAt, no reads at all). The Firebase SDK is fetched
+     server-pinned createdAt, no reads at all). The doc ID is derived from
+     the email rather than random, so that create-only rule doubles as
+     server-side dedupe -- see waitlistDocId below. The Firebase SDK is fetched
      with a dynamic import() from inside the submit handler, not a top-level
      <script type="module">, so this marketing page never pays for Firebase
      on first load just because the form exists below the fold -- the
@@ -247,6 +249,33 @@
         });
       }
       return waitlistDbPromise;
+    }
+
+    /* Deterministic doc ID: SHA-256 of the normalized email, hex-encoded.
+       addDoc's random ID let the same address be submitted unlimited times --
+       every call minted a fresh doc, so the only thing between the public
+       `waitlist` create rule and unbounded duplicate writes was the
+       disabled-button guard in the submit handler, which is client-side and
+       trivially bypassed (addDoc talks straight to a public Firestore
+       endpoint). Keying the doc on the email instead makes a repeat signup a
+       write to an ALREADY-EXISTING doc, which Firestore evaluates as `update`
+       -- and app/firestore.rules denies update on this collection
+       unconditionally. So the dedupe is enforced server-side, by the rule
+       that is already there; no rules change is needed.
+       Hashed rather than using the raw address as the ID: a doc ID is not a
+       secret (it surfaces in network traces, error messages, and any future
+       admin export path), and a raw email can contain '/', which is illegal
+       in a Firestore document ID. */
+    function waitlistDocId(email) {
+      var bytes = new TextEncoder().encode(email);
+      return crypto.subtle.digest("SHA-256", bytes).then(function (buf) {
+        var out = new Uint8Array(buf);
+        var hex = "";
+        for (var i = 0; i < out.length; i++) {
+          hex += out[i].toString(16).padStart(2, "0");
+        }
+        return hex;
+      });
     }
 
     function showThanksState() {
@@ -302,16 +331,36 @@
       }
 
       getWaitlistDb().then(function (ctx) {
-        return ctx.fs.addDoc(ctx.fs.collection(ctx.db, "waitlist"), {
+        var payload = {
           email: value,
           createdAt: ctx.fs.serverTimestamp(),
           source: "website",
+        };
+        // crypto.subtle is only exposed in a secure context. Production is
+        // HTTPS (Firebase Hosting), so the deduped path is the one that
+        // actually runs; this fallback just keeps the form working if the
+        // page is ever opened over plain http, at the cost of that one
+        // session writing a random-id doc the way it always used to.
+        if (!(window.crypto && window.crypto.subtle)) {
+          return ctx.fs.addDoc(ctx.fs.collection(ctx.db, "waitlist"), payload);
+        }
+        return waitlistDocId(value).then(function (id) {
+          return ctx.fs.setDoc(ctx.fs.doc(ctx.db, "waitlist", id), payload);
         });
       }).then(function () {
         // Leave the button disabled -- the form is about to be hidden
         // entirely by the cross-fade into the thank-you state.
         showThanksState();
       }).catch(function (err) {
+        // A repeat signup lands here: the doc already exists, so the write is
+        // an `update`, which the rules deny. That is the dedupe working, not a
+        // failure -- show the same thank-you a first-time signup gets. Saying
+        // "you're already on the list" instead would turn this form into an
+        // oracle for testing whether any given address had signed up.
+        if (err && err.code === "permission-denied") {
+          showThanksState();
+          return;
+        }
         if (window.console && console.error) { console.error("Waitlist signup failed:", err); }
         setPending(false);
         if (msg) {

@@ -169,6 +169,16 @@ service cloud.firestore {
     //   - update, delete: if false -- a signup either gets created or it
     //     doesn't; there is no legitimate reason for a client to revise or
     //     remove one afterward.
+    //
+    // DO NOT relax `update` here. The website derives each doc's ID from a
+    // SHA-256 of the submitted email (script.js's waitlistDocId) rather than
+    // letting addDoc mint a random one, so a repeat signup is a write to an
+    // existing doc -- which Firestore evaluates as `update`, and this rule
+    // denies. That denial IS the rate limit on duplicate signups: it is the
+    // only thing capping how many times one address can be written, since
+    // this collection takes unauthenticated writes and there is no App Check
+    // or Cloud Function in front of it. Allowing update would silently make
+    // the waitlist floodable again with no visible failure anywhere.
     match /waitlist/{docId} {
       allow create: if request.resource.data.keys().hasOnly(['email', 'createdAt', 'source'])
                     && request.resource.data.email is string
