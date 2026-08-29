@@ -41,7 +41,17 @@ export function LabelPickerSheet({
     <Sheet visible={visible} onClose={onClose} title="Tag this session" size="large">
       <View style={styles.list}>
         {choices.map((choice) => (
-          <AnimatedPressable key={choice.id} style={styles.row} onPress={() => onPick(choice.id)}>
+          <AnimatedPressable
+            key={choice.id}
+            style={styles.row}
+            onPress={() => onPick(choice.id)}
+            accessibilityRole="button"
+            accessibilityLabel={choice.label}
+            // The current tag is marked only by a check glyph, which carries
+            // no a11y meaning of its own -- `selected` is what tells a screen
+            // reader which row is the session's current tag.
+            accessibilityState={{ selected: current === choice.id }}
+          >
             <View style={[styles.dot, { backgroundColor: choice.color }]} />
             <Text style={[styles.rowLabel, { color: theme.text }]}>{choice.label}</Text>
             {current === choice.id && <Feather name="check" size={16} color={theme.accent} />}
@@ -49,7 +59,13 @@ export function LabelPickerSheet({
         ))}
       </View>
       {onClear && (
-        <AnimatedPressable style={styles.row} onPress={onClear}>
+        <AnimatedPressable
+          style={styles.row}
+          onPress={onClear}
+          accessibilityRole="button"
+          accessibilityLabel="Clear tag"
+          accessibilityHint="Removes this session's tag"
+        >
           <Text style={[styles.rowLabel, { color: theme.danger }]}>Clear tag</Text>
         </AnimatedPressable>
       )}
@@ -59,7 +75,10 @@ export function LabelPickerSheet({
 
 const styles = StyleSheet.create({
   list: { marginBottom: 4 },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10 },
+  // paddingVertical 12 (was 10): with a 20px label line that lands the row
+  // at exactly the 44pt minimum touch target, in a list where mis-tapping
+  // retags the wrong thing.
+  row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12 },
   dot: { width: 12, height: 12, borderRadius: 6 },
   rowLabel: {
     fontSize: 15,

@@ -45,7 +45,7 @@ import { aggregate } from '../stats/stats';
 import { topComparisons } from '../stats/comparisons';
 import { topicBreakdownWithCustom } from '../stats/customLabels';
 import { lastNDays, lastNDaysHeatmap, bestDay } from '../stats/trend';
-import { filterByWindow, dayKey, TimeWindow, LoggedSession } from '../stats/sessionHistory';
+import { filterByWindow, dayKey, dayKeyToDate, TimeWindow, LoggedSession } from '../stats/sessionHistory';
 import { getJSON, setJSON } from '../storage/storage';
 import { useReducedMotion } from '../ui/useReducedMotion';
 import { Sheet } from '../ui/Sheet';
@@ -290,7 +290,7 @@ export default function StatsScreen() {
       <Sheet
         visible={daySheetKey !== null}
         onClose={() => setDaySheetKey(null)}
-        title={daySheetKey ? new Date(daySheetKey).toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' }) : undefined}
+        title={daySheetKey ? dayKeyToDate(daySheetKey).toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' }) : undefined}
       >
         <SessionListSheet
           sessions={daySheetSessions}

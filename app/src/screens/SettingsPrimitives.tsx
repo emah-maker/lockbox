@@ -53,6 +53,15 @@ export function Button({
     <AnimatedPressable
       onPress={onPress}
       disabled={disabled}
+      // `label` is passed explicitly rather than left to RN's collect-the-
+      // child-Text default: while `loading`, that Text is swapped out for an
+      // ActivityIndicator, so the button announced itself as an unnamed
+      // button at exactly the moment ("Signing in...", "Deleting...") a
+      // screen-reader user most needs to know which one it is. `busy` is
+      // what conveys the spinner itself.
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled: !!disabled, busy: !!loading }}
       style={[
         styles.button,
         filled
@@ -387,6 +396,16 @@ export function SliderRow({
     });
   }, [thumbX, trackWidth]);
 
+  // VoiceOver/TalkBack increment/decrement, the accessible equivalent of one
+  // step of drag -- same treatment (and same reasoning) as WheelPicker's own
+  // adjustable wrapper. Without this the whole control was invisible to a
+  // screen reader: a PanResponder is not an accessibility API, so there was
+  // no way to read this setting's value, let alone change it.
+  const stepBy = (delta: number) => {
+    const next = snapValue(value + delta * step);
+    if (next !== value) onChange(next);
+  };
+
   return (
     <View>
       <View style={styles.row}>
@@ -395,6 +414,15 @@ export function SliderRow({
       </View>
       <View
         style={styles.sliderTrackWrap}
+        accessible
+        accessibilityRole="adjustable"
+        accessibilityLabel={label}
+        accessibilityValue={{ min, max, now: displayValue, text: format(displayValue) }}
+        accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]}
+        onAccessibilityAction={(event) => {
+          if (event.nativeEvent.actionName === 'increment') stepBy(1);
+          else if (event.nativeEvent.actionName === 'decrement') stepBy(-1);
+        }}
         onLayout={onTrackLayout}
         // The drag surface is THUMB_SIZE (28px) tall -- under the ~44pt
         // minimum touch target (production readiness review, Low). hitSlop

@@ -9,7 +9,7 @@ import { View, Text, StyleSheet } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
 import { AnimatedPressable } from '../AnimatedPressable';
-import { ThemeColors, withAlpha } from '../../theme/theme';
+import { bestTextOn, blendOver, ThemeColors, withAlpha } from '../../theme/theme';
 import { typeScale } from '../../theme/tokens';
 import { formatDuration } from '../../stats/stats';
 import type { LabelStat } from '../../stats/customLabels';
@@ -36,6 +36,29 @@ export const ALPHA_FOR_LEVEL: Record<0 | 1 | 2 | 3 | 4, number> = {
   3: 0.75,
   4: 1,
 };
+
+/** Text color for the day number, given this cell's own heat level.
+ *
+ * Previously `focusS > 0 ? theme.accentText : theme.text`, which is wrong
+ * for every level except 4: `accentText` is contrast-tuned against the
+ * accent at FULL strength, but levels 1-3 draw the circle as a 25/50/75%
+ * accent tint over `bg`, which resolves much closer to the page background
+ * than to the accent. Measured across all 8 accents in both modes, the old
+ * rule put the day number at 1.33-1.53:1 on a level-1 cell and 2.17-3.08:1
+ * on a level-2 one -- i.e. the busiest thing the calendar is trying to say
+ * ("this day had focus time") was rendered in a color you could not read.
+ *
+ * Rather than hardcode a threshold level (the right answer flips between
+ * light and dark at level 3), this composites the actual fill and asks
+ * which of the two candidate colors wins on that pixel -- correct for every
+ * (mode, accent, level) combination by construction, including any accent
+ * added later. `accentText` is passed first so it keeps winning ties at
+ * level 4, where it is the deliberate choice. */
+export function dayNumColor(theme: ThemeColors, level: 0 | 1 | 2 | 3 | 4): string {
+  if (level === 0) return theme.text;
+  const fill = blendOver(theme.accent, theme.bg, ALPHA_FOR_LEVEL[level]);
+  return bestTextOn(fill, theme.accentText, theme.text);
+}
 
 export function DayCell({
   date,
@@ -133,9 +156,7 @@ export function DayCell({
             level > 0 && { backgroundColor: withAlpha(theme.accent, ALPHA_FOR_LEVEL[level]) },
           ]}
         >
-          <Text style={[styles.dayNum, { color: focusS > 0 ? theme.accentText : theme.text }]}>
-            {date.getDate()}
-          </Text>
+          <Text style={[styles.dayNum, { color: dayNumColor(theme, level) }]}>{date.getDate()}</Text>
         </View>
         {showFlame && (
           <View style={[styles.flameBadge, { backgroundColor: theme.surface }]}>

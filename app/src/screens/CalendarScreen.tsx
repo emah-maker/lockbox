@@ -56,7 +56,7 @@ import { useStore } from '../store/useStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useGoalsStore } from '../store/useGoalsStore';
 import { useTheme } from '../theme/useTheme';
-import { dayKey, groupByDay, LoggedSession } from '../stats/sessionHistory';
+import { dayKey, dayKeyToDate, groupByDay, LoggedSession } from '../stats/sessionHistory';
 import { topicBreakdownWithCustom } from '../stats/customLabels';
 import { AnimatedPressable } from '../ui/AnimatedPressable';
 import { DayCell } from '../ui/calendar/DayCell';
@@ -88,7 +88,7 @@ const MIN_CELL_SIZE = 52;
 // capped so a short, wide month grid on a tall/narrow phone doesn't blow up
 // into oversized cells just because the vertical budget technically allows it.
 const MAX_CELL_SIZE = 60;
-const HORIZONTAL_PADDING = 20; // this screen's own container paddingHorizontal, both sides
+const HORIZONTAL_PADDING = 20; // this screen's own container paddingHorizontal -- PER SIDE (RN semantics)
 // This screen's own root flex column `gap` (styles.container below) --
 // shared as a constant, not just duplicated into that StyleSheet entry,
 // because the cellSize math a few lines down also has to subtract it twice
@@ -239,7 +239,7 @@ export default function CalendarScreen() {
 
   const selectedSessions: LoggedSession[] = byDay.get(selectedKey) ?? [];
   const selectedGoalsMet = useMemo(
-    () => goalsMetOnDay(goals, sessions, new Date(selectedKey)),
+    () => goalsMetOnDay(goals, sessions, dayKeyToDate(selectedKey)),
     [goals, sessions, selectedKey],
   );
 
@@ -279,7 +279,11 @@ export default function CalendarScreen() {
   const [belowGridHeight, setBelowGridHeight] = useState(0);
 
   const numRows = grid.length / 7;
-  const availableWidth = windowWidth - insets.left - insets.right - HORIZONTAL_PADDING;
+  // * 2 because `paddingHorizontal` applies to BOTH sides -- this subtracted
+  // one side's worth, so cellSize came out ~2.9px too wide and the grid
+  // (width: cellSize * 7, alignSelf: 'center') overhung its own container's
+  // padding by ~10px on each side.
+  const availableWidth = windowWidth - insets.left - insets.right - HORIZONTAL_PADDING * 2;
   const availableGridHeight = Math.max(
     0,
     rootHeight - aboveGridHeight - belowGridHeight - CONTAINER_GAP * 2,

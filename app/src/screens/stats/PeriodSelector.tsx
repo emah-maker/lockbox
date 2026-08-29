@@ -38,6 +38,9 @@ export function PeriodSelector({ period, onSelect }: { period: StatsPeriod; onSe
             key={opt.key}
             accessibilityRole="button"
             accessibilityState={{ selected: active }}
+            // Chip is 8+8+17 = 33px tall; hitSlop takes the touch target to
+            // the ~44pt minimum without changing the row's visual density.
+            hitSlop={{ top: 6, bottom: 6, left: 0, right: 0 }}
             style={[
               styles.chip,
               { borderColor: withAlpha(c.accent, 0.4) },

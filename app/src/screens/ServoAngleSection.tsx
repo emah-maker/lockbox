@@ -42,6 +42,11 @@ export function AngleCustomEntry({
             setError(null);
             setOpen(true);
           }}
+          // Was announced as plain text, so there was no way to tell a screen
+          // reader this angle readout is the control that changes it.
+          accessibilityRole="button"
+          accessibilityLabel={`${label}, ${value} degrees. Tap to change.`}
+          hitSlop={{ top: 12, bottom: 12, left: 8, right: 8 }}
         >
           <Text style={[styles.customLink, { color: color.accent }]}>{value}° -- tap to change</Text>
         </AnimatedPressable>
@@ -68,6 +73,8 @@ export function AngleCustomEntry({
           style={[styles.signBtn, { borderColor: color.textDim }]}
           accessibilityRole="button"
           accessibilityLabel={negative ? 'Negative angle -- tap for positive' : 'Positive angle -- tap for negative'}
+          // 36x36 box; hitSlop takes it to the ~44pt minimum.
+          hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
         >
           <Text style={[styles.signText, { color: color.text }]}>{negative ? '−' : '+'}</Text>
         </AnimatedPressable>
@@ -80,7 +87,12 @@ export function AngleCustomEntry({
           accessibilityLabel={`${label}, degrees`}
         />
         <Button label="Set" onPress={commit} color={color} />
-        <AnimatedPressable onPress={() => setOpen(false)}>
+        <AnimatedPressable
+          onPress={() => setOpen(false)}
+          accessibilityRole="button"
+          accessibilityLabel={`Cancel ${label} entry`}
+          hitSlop={{ top: 12, bottom: 12, left: 8, right: 8 }}
+        >
           <Text style={{ color: color.textDim }}>Cancel</Text>
         </AnimatedPressable>
       </View>
@@ -92,9 +104,9 @@ export function AngleCustomEntry({
 const styles = StyleSheet.create({
   label: rowLabelStyle,
   subtitle: captionStyle,
-  customLink: { fontSize: 13, fontWeight: '600' },
+  customLink: { fontSize: 13, fontWeight: '600', lineHeight: 17 },
   customRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  customInput: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, fontSize: 15, minWidth: 60, textAlign: 'center' },
+  customInput: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15, minWidth: 60, textAlign: 'center' },
   signBtn: { width: 36, height: 36, borderRadius: 10, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  signText: { fontSize: 18, fontWeight: '700' },
+  signText: { fontSize: 18, fontWeight: '700', lineHeight: 22 },
 });

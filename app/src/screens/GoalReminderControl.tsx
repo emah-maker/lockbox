@@ -329,7 +329,11 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
   },
   timeChipText: { ...typeScale.label },
-  removeGlyph: { fontSize: 16, lineHeight: 18, fontWeight: '700' },
+  // 16/20 rather than 16/18 -- 1.12 was the only line-height ratio in the
+  // app off tokens.ts's curve (16px sits at 1.25 there, typeScale.sectionTitle),
+  // and a line box shorter than the glyph's own ascender risks clipping on
+  // Android.
+  removeGlyph: { fontSize: 16, lineHeight: 20, fontWeight: '700' },
   addChip: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 16, borderWidth: 1.5, borderStyle: 'dashed' },
   picker: { gap: spacing.sm },
   wheelRow: { flexDirection: 'row', justifyContent: 'center', gap: 8 },

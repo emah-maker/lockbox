@@ -130,10 +130,19 @@ export function FocusHero({
   // for its own fade-out, a lot of extra state for a ring this size).
   const fade = useRef(new Animated.Value(1)).current;
   useEffect(() => {
-    if (reducedMotion) return;
+    if (reducedMotion) {
+      // setValue(1), not a bare return: `reducedMotion` is in this effect's
+      // deps, so flipping the OS setting on mid-fade re-ran this and left
+      // the hero permanently parked at whatever opacity the interrupted
+      // timing had reached (as low as 0.35). Snapping to the settled value
+      // is the same "no motion, but still end up in the right state"
+      // treatment useDisabledFade and Sheet already apply.
+      fade.setValue(1);
+      return;
+    }
     fade.setValue(0.35);
     Animated.timing(fade, { toValue: 1, duration: 220, useNativeDriver: true }).start();
-  }, [status?.st, reducedMotion]);
+  }, [status?.st, reducedMotion, fade]);
 
   const ringColor = running ? theme.accent : withAlpha(theme.accent, closed ? 0.55 : 0.3);
   const trackColor = withAlpha(theme.accent, 0.14);
@@ -239,13 +248,15 @@ export function FocusHero({
     : `${headline}. ${caption}`;
 
   return (
-    <AnimatedPressable
-      style={styles.wrap}
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel={label}
-    >
-      <Animated.View style={{ opacity: fade, alignItems: 'center' }}>
+    // The press target is the RING, not the whole hero column. It used to be
+    // an AnimatedPressable wrapping everything below, which -- since RN's
+    // Pressable defaults `accessible` to true -- collapsed the entire hero
+    // into one VoiceOver element, so the ring-source cycle chip nested inside
+    // it (its own button, with its own label) could never be reached. Same
+    // column, same order, same centering; only the press-scale's extent
+    // changed, from "the whole hero" to "the ring you actually pressed".
+    <Animated.View style={[styles.wrap, { opacity: fade }]}>
+      <AnimatedPressable onPress={onPress} accessibilityRole="button" accessibilityLabel={label}>
         <ProgressRing
           progress={progress}
           color={ringColor}
@@ -280,44 +291,47 @@ export function FocusHero({
             </Text>
           ) : null}
         </ProgressRing>
+      </AnimatedPressable>
 
-        {/* Tap-to-cycle for what the ring measures. Its own target rather
-            than a gesture on the ring itself: the ring's press is already
-            the screen's primary action (open the duration sheet, or retag a
-            running session), and overloading it with a view toggle would
-            make the main action unpredictable. Hidden while a session runs
-            -- the ring is showing the live countdown then, not a source. */}
-        {!running ? (
-          <AnimatedPressable
-            onPress={onCycleRingSource}
-            accessibilityRole="button"
-            accessibilityLabel={`Ring shows ${ringSourceKindLabel(ringSourceKind)}. Tap to show something else.`}
-            style={[styles.sourceChip, { borderColor: withAlpha(theme.textDim, 0.35) }]}
-          >
-            <Text style={[styles.sourceChipText, { color: theme.textDim }]} numberOfLines={1}>
-              {ringSourceKindLabel(ringSourceKind)}
+      {/* Tap-to-cycle for what the ring measures. Its own target rather
+          than a gesture on the ring itself: the ring's press is already
+          the screen's primary action (open the duration sheet, or retag a
+          running session), and overloading it with a view toggle would
+          make the main action unpredictable. Hidden while a session runs
+          -- the ring is showing the live countdown then, not a source. */}
+      {!running ? (
+        <AnimatedPressable
+          onPress={onCycleRingSource}
+          accessibilityRole="button"
+          accessibilityLabel={`Ring shows ${ringSourceKindLabel(ringSourceKind)}. Tap to show something else.`}
+          // The pill is ~23px tall (4px padding around a 15px caption line)
+          // -- hitSlop lifts it to the ~44pt minimum without resizing it.
+          hitSlop={{ top: 11, bottom: 11, left: 8, right: 8 }}
+          style={[styles.sourceChip, { borderColor: withAlpha(theme.textDim, 0.35) }]}
+        >
+          <Text style={[styles.sourceChipText, { color: theme.textDim }]} numberOfLines={1}>
+            {ringSourceKindLabel(ringSourceKind)}
+          </Text>
+          <Text style={[styles.sourceChipGlyph, { color: theme.textDim }]}>›</Text>
+        </AnimatedPressable>
+      ) : null}
+
+      {/* Topic pill -- always reserves its row (even with empty content)
+          so the hero's overall height never changes between a tagged and
+          an untagged session, one of this screen's own "don't grow"
+          constraints applied to itself. */}
+      <View style={styles.topicRow}>
+        {resolved ? (
+          <View style={[styles.topicPill, { backgroundColor: withAlpha(resolved.color, running ? 1 : 0.85) }]}>
+            <Text style={[styles.topicPillText, { color: resolved.textColor }]} numberOfLines={1}>
+              {resolved.label}
             </Text>
-            <Text style={[styles.sourceChipGlyph, { color: theme.textDim }]}>›</Text>
-          </AnimatedPressable>
+          </View>
+        ) : running ? (
+          <Text style={[styles.topicHint, { color: theme.textDim }]}>Tap to tag this session</Text>
         ) : null}
-
-        {/* Topic pill -- always reserves its row (even with empty content)
-            so the hero's overall height never changes between a tagged and
-            an untagged session, one of this screen's own "don't grow"
-            constraints applied to itself. */}
-        <View style={styles.topicRow}>
-          {resolved ? (
-            <View style={[styles.topicPill, { backgroundColor: withAlpha(resolved.color, running ? 1 : 0.85) }]}>
-              <Text style={[styles.topicPillText, { color: resolved.textColor }]} numberOfLines={1}>
-                {resolved.label}
-              </Text>
-            </View>
-          ) : running ? (
-            <Text style={[styles.topicHint, { color: theme.textDim }]}>Tap to tag this session</Text>
-          ) : null}
-        </View>
-      </Animated.View>
-    </AnimatedPressable>
+      </View>
+    </Animated.View>
   );
 }
 

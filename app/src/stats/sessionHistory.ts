@@ -102,6 +102,22 @@ export function dayKey(epochMs: number): string {
   return `${y}-${m}-${day}`;
 }
 
+/** The inverse of `dayKey`: that key's LOCAL midnight, as a Date.
+ *
+ * Exists because `new Date('2026-08-28')` does NOT round-trip a dayKey --
+ * the ES spec parses a bare date-only string as UTC midnight, while dayKey
+ * writes the key from local Y/M/D. West of UTC the two disagree by a full
+ * day, so every caller that did `new Date(someDayKey)` was off by one:
+ * CalendarScreen's day sheet printed the day BEFORE the one you tapped, and
+ * fed goalsMetOnDay a nowMs inside the previous day's goal window (so the
+ * "goal met" chips described the wrong day). East of UTC it happened to
+ * work, which is exactly why it survived this long. Callers should use this
+ * instead of parsing the key themselves. */
+export function dayKeyToDate(key: string): Date {
+  const [y, m, d] = key.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
 /** Pure retag transform: returns `sessions` with the one entry matching
  * `target` (identified by its startedAt+plannedS+actualS triple -- the
  * finest-grained identity already implied by this file's own dedup/doc-id

@@ -72,7 +72,24 @@ export function DangerZoneSection({ color }: { color: ReturnType<typeof useTheme
         color={color}
         variant="outline"
       />
-      <AnimatedPressable onPress={handleDeleteAccount} disabled={busy} style={styles.deleteRow}>
+      {/* The single most destructive action in the app, and until now it
+          carried no accessibilityRole (so VoiceOver announced it as plain
+          text, not something you could activate), no hint that the Alert
+          below is a confirmation step rather than the deletion itself, no
+          disabled state, and a tap target the height of a 12px caption line
+          (~15px, a third of the ~44pt minimum) sitting immediately under the
+          Sign out button. hitSlop fixes the last of those without making
+          this read as a big red button, which it deliberately is not. */}
+      <AnimatedPressable
+        onPress={handleDeleteAccount}
+        disabled={busy}
+        style={styles.deleteRow}
+        accessibilityRole="button"
+        accessibilityLabel="Delete account"
+        accessibilityHint="Asks you to confirm before permanently deleting your account and cloud profile"
+        accessibilityState={{ disabled: busy }}
+        hitSlop={{ top: 14, bottom: 14, left: 8, right: 8 }}
+      >
         <Text style={[styles.subtitle, { color: color.danger }]}>Delete account</Text>
       </AnimatedPressable>
     </Section>

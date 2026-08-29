@@ -1,5 +1,5 @@
 // Unit tests for the pure stats helpers. Run with `npm test` (jest-expo).
-import { aggregate, formatDuration, completionRate, clampLockSeconds, MAX_LOCK_SECONDS, MIN_LOCK_SECONDS, SessionRecord } from './stats';
+import { aggregate, formatDuration, completionRate, clampLockSeconds, splitLockSeconds, MAX_LOCK_HOURS, MAX_LOCK_SECONDS, MIN_LOCK_SECONDS, SessionRecord } from './stats';
 import { parseStatus, parseHistoryEntries } from '../ble/protocol';
 
 describe('aggregate', () => {
@@ -69,6 +69,49 @@ describe('clampLockSeconds', () => {
 
   it('floors an explicit 0h00m selection at MIN_LOCK_SECONDS', () => {
     expect(clampLockSeconds(0, 0)).toBe(MIN_LOCK_SECONDS);
+  });
+});
+
+describe('splitLockSeconds', () => {
+  const STEP = 5; // DashboardScreen's MINUTE_STEP -- the only step in use
+
+  it('splits an exact H/M duration back into the wheel values', () => {
+    expect(splitLockSeconds(0, STEP)).toEqual({ hours: 0, minutes: 0 });
+    expect(splitLockSeconds(300, STEP)).toEqual({ hours: 0, minutes: 5 });
+    expect(splitLockSeconds(3600, STEP)).toEqual({ hours: 1, minutes: 0 });
+    expect(splitLockSeconds(5100, STEP)).toEqual({ hours: 1, minutes: 25 });
+  });
+
+  it('carries a remainder that rounds up to a full hour instead of emitting minutes: 60', () => {
+    // The bug this exists for: floor(7150/3600)=1 and round(3550/60/5)*5=60,
+    // which the minute wheel has no index for -- it fell back to 00m while
+    // clampLockSeconds(1, 60) still produced 2h.
+    expect(splitLockSeconds(7150, STEP)).toEqual({ hours: 2, minutes: 0 });
+    expect(splitLockSeconds(3599, STEP)).toEqual({ hours: 1, minutes: 0 });
+  });
+
+  it('never emits a minutes value the 5-minute wheel cannot show', () => {
+    for (let s = 0; s <= MAX_LOCK_SECONDS; s += 7) {
+      const { minutes } = splitLockSeconds(s, STEP);
+      expect(minutes % STEP).toBe(0);
+      expect(minutes).toBeLessThan(60);
+    }
+  });
+
+  it('clamps both ends rather than running off either wheel', () => {
+    expect(splitLockSeconds(-1, STEP)).toEqual({ hours: 0, minutes: 0 });
+    expect(splitLockSeconds(MAX_LOCK_SECONDS, STEP)).toEqual({ hours: MAX_LOCK_HOURS, minutes: 55 });
+    expect(splitLockSeconds(999999, STEP)).toEqual({ hours: MAX_LOCK_HOURS, minutes: 55 });
+  });
+
+  it('round-trips through clampLockSeconds for every step on the wheels', () => {
+    for (let h = 0; h <= MAX_LOCK_HOURS; h++) {
+      for (let m = 0; m < 60; m += STEP) {
+        const seconds = clampLockSeconds(h, m);
+        const split = splitLockSeconds(seconds, STEP);
+        expect(clampLockSeconds(split.hours, split.minutes)).toBe(seconds);
+      }
+    }
   });
 });
 

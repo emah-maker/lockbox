@@ -99,7 +99,11 @@ const styles = (t: ReturnType<typeof useTheme>) =>
     col: { gap: 2 },
     colRight: { alignItems: 'flex-end', maxWidth: '55%' },
     label: { color: t.textDim, ...typeScale.label },
-    value: { color: t.text, fontSize: 22, fontWeight: '700' },
+    // lineHeight pinned rather than left to the platform font's natural
+    // leading, which differs between iOS and Android and is least
+    // predictable at this size. 26 interpolates tokens.ts's own curve between
+    // sectionTitle (16/20) and title (28/32).
+    value: { color: t.text, fontSize: 22, lineHeight: 26, fontWeight: '700' },
     sub: { color: t.textDim, ...typeScale.caption },
-    chevron: { color: withAlpha(t.textDim, 0.6), fontSize: 22, marginLeft: 8, fontWeight: '600' },
+    chevron: { color: withAlpha(t.textDim, 0.6), fontSize: 22, lineHeight: 26, marginLeft: 8, fontWeight: '600' },
   });

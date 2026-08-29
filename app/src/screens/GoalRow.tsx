@@ -30,6 +30,9 @@ import { PeriodIcon, useMetCelebration } from './stats/goalVisuals';
 
 const PERIOD_LABEL: Record<GoalPeriod, string> = { daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly' };
 const WEEKDAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+// Lifts a 12px caption-sized text action up to a comfortable tap target
+// without changing the row's visual layout.
+const ROW_ACTION_HIT_SLOP = { top: 12, bottom: 12, left: 8, right: 8 };
 
 
 /** Compact "Mon, Wed, Fri" summary for a day-restricted daily goal's
@@ -173,11 +176,19 @@ export function GoalRow({
   ].filter((s): s is string => s !== null);
 
   return (
-    <View
-      style={styles.goalRow}
-      accessible
-      accessibilityLabel={`${name}, ${goal.period} goal, ${formatDuration(focusS)} of ${formatDuration(goal.targetS)}, ${percent} percent`}
-    >
+    <View style={styles.goalRow}>
+      {/* The `accessible` summary is scoped to the READ-ONLY part of the row,
+          not the whole row. It used to sit on the outer View, which on iOS
+          collapses everything under it into one a11y element -- so the
+          Edit/Delete buttons at the bottom (already labelled) could not be
+          reached by VoiceOver at all, i.e. a screen-reader user had no way to
+          edit or delete a goal. This wrapper repeats `gap` so the visual
+          layout is byte-identical to the flat version. */}
+      <View
+        style={styles.goalSummary}
+        accessible
+        accessibilityLabel={`${name}, ${goal.period} goal, ${formatDuration(focusS)} of ${formatDuration(goal.targetS)}, ${percent} percent`}
+      >
       <View style={styles.goalHead}>
         <View style={[styles.swatch, { backgroundColor: swatch }]} />
         <Text style={[styles.goalName, { color: color.text }]} numberOfLines={1}>
@@ -200,7 +211,7 @@ export function GoalRow({
         {targetPct !== null ? (
           // Over target: the bar is full, so the target line itself is what
           // carries "how far past" -- see barGeometry's comment.
-          <View style={[styles.targetMark, { left: `${targetPct}%`, backgroundColor: color.bg }]} />
+          <View style={[styles.targetMark, { left: `${targetPct}%`, backgroundColor: color.surface }]} />
         ) : null}
       </View>
 
@@ -232,6 +243,7 @@ export function GoalRow({
           {formatDuration(result?.remainingS ?? goal.targetS)} to go
         </Text>
       ) : null}
+      </View>
 
       <View style={styles.goalActions}>
         <Text style={[styles.caption, { color: color.textDim, flex: 1 }]} numberOfLines={1} ellipsizeMode="tail">
@@ -248,10 +260,24 @@ export function GoalRow({
               ? `Week of ${new Date(window.startMs).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`
               : new Date(window.startMs).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}
         </Text>
-        <AnimatedPressable onPress={onEdit} accessibilityRole="button" accessibilityLabel={`Edit ${name} goal`}>
+        {/* hitSlop on both: `rowAction` is a 12px caption line (~17px tall),
+            well under the ~44pt minimum touch target, and these sit at the
+            bottom edge of a card where a near-miss is easy. */}
+        <AnimatedPressable
+          onPress={onEdit}
+          accessibilityRole="button"
+          accessibilityLabel={`Edit ${name} goal`}
+          hitSlop={ROW_ACTION_HIT_SLOP}
+        >
           <Text style={[styles.rowAction, { color: color.accent }]}>Edit</Text>
         </AnimatedPressable>
-        <AnimatedPressable onPress={onDelete} accessibilityRole="button" accessibilityLabel={`Delete ${name} goal`}>
+        <AnimatedPressable
+          onPress={onDelete}
+          accessibilityRole="button"
+          accessibilityLabel={`Delete ${name} goal`}
+          accessibilityHint="Asks for confirmation before deleting"
+          hitSlop={ROW_ACTION_HIT_SLOP}
+        >
           <Text style={[styles.rowAction, { color: color.danger }]}>Delete</Text>
         </AnimatedPressable>
       </View>
@@ -262,6 +288,8 @@ const styles = StyleSheet.create({
   caption: { fontSize: 12, letterSpacing: typeScale.caption.letterSpacing, lineHeight: typeScale.caption.lineHeight },
   rowAction: { letterSpacing: typeScale.body.letterSpacing, lineHeight: typeScale.body.lineHeight },
   goalRow: { gap: 6 },
+  // Same gap as goalRow itself -- see the a11y wrapper's comment above.
+  goalSummary: { gap: 6 },
   goalHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   goalName: { fontSize: 15, fontWeight: '600', flex: 1, letterSpacing: typeScale.sectionTitle.letterSpacing, lineHeight: 20 },
   swatch: { width: 10, height: 10, borderRadius: 5 },
@@ -269,8 +297,11 @@ const styles = StyleSheet.create({
   periodTagText: { ...typeScale.caption },
   track: { height: 8, borderRadius: 4, overflow: 'hidden', flexDirection: 'row' },
   fill: { height: '100%', borderRadius: 4 },
-  // 2px notch punched in the theme's page background color, so it reads as a
-  // gap in the bar at the target line rather than as another colored segment.
+  // 2px notch punched in the color of the CARD this row sits on, so it reads
+  // as a gap in the bar at the target line rather than as another colored
+  // segment. Used to be `color.bg` (the page background), but every GoalRow
+  // renders inside SettingsPrimitives' `Section`, whose fill is `surface` --
+  // so the notch was a visibly grey stripe on a white card in light mode.
   targetMark: { position: 'absolute', top: 0, bottom: 0, width: 2 },
   goalMetaRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 },
   goalActions: { flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 2 },

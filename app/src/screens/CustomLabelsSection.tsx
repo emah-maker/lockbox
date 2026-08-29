@@ -16,6 +16,10 @@ import { AnimatedPressable } from '../ui/AnimatedPressable';
 import { useReducedMotion, configureLayoutAnimation } from '../ui/useReducedMotion';
 import { typeScale } from '../theme/tokens';
 
+// Lifts this file's 15px text actions to a comfortable tap target without
+// changing the rows' visual layout -- same treatment as GoalRow's own.
+const ROW_ACTION_HIT_SLOP = { top: 12, bottom: 12, left: 8, right: 8 };
+
 export function CustomLabelsSection({ color }: { color: ReturnType<typeof useTheme> }) {
   const customLabels = useSettingsStore((s) => s.customLabels);
   const addCustomLabel = useSettingsStore((s) => s.addCustomLabel);
@@ -137,7 +141,17 @@ function CustomLabelRow({
             style={[styles.textInput, { flex: 1, color: color.text, borderColor: color.textDim }]}
             autoFocus
           />
-          <AnimatedPressable onPress={handleSave}>
+          {/* Role + hitSlop on all four of this file's text actions: none
+              of them announced as a button, and each is a 20px-tall text run
+              -- under half the ~44pt minimum, in a row that also holds a
+              focused TextInput, so a near-miss dismisses the keyboard
+              instead of saving. */}
+          <AnimatedPressable
+            onPress={handleSave}
+            accessibilityRole="button"
+            accessibilityLabel={`Save name for ${label.name}`}
+            hitSlop={ROW_ACTION_HIT_SLOP}
+          >
             <Text style={[styles.rowAction, { color: color.accent, fontWeight: '600' }]}>Save</Text>
           </AnimatedPressable>
           <AnimatedPressable
@@ -145,6 +159,9 @@ function CustomLabelRow({
               setDraft(label.name);
               toggleEditing(false);
             }}
+            accessibilityRole="button"
+            accessibilityLabel="Cancel rename"
+            hitSlop={ROW_ACTION_HIT_SLOP}
           >
             <Text style={[styles.rowAction, { color: color.textDim }]}>Cancel</Text>
           </AnimatedPressable>
@@ -158,10 +175,21 @@ function CustomLabelRow({
     <View style={styles.labelRow}>
       <View style={[styles.swatch, { backgroundColor: label.color }]} />
       <Text style={[styles.label, { color: color.text, flex: 1 }]}>{label.name}</Text>
-      <AnimatedPressable onPress={() => toggleEditing(true)}>
+      <AnimatedPressable
+        onPress={() => toggleEditing(true)}
+        accessibilityRole="button"
+        accessibilityLabel={`Rename ${label.name}`}
+        hitSlop={ROW_ACTION_HIT_SLOP}
+      >
         <Text style={[styles.rowAction, { color: color.accent }]}>Rename</Text>
       </AnimatedPressable>
-      <AnimatedPressable onPress={() => onDelete(label.id, label.name)}>
+      <AnimatedPressable
+        onPress={() => onDelete(label.id, label.name)}
+        accessibilityRole="button"
+        accessibilityLabel={`Delete ${label.name}`}
+        accessibilityHint="Asks for confirmation before deleting this label"
+        hitSlop={ROW_ACTION_HIT_SLOP}
+      >
         <Text style={[styles.rowAction, { color: color.danger }]}>Delete</Text>
       </AnimatedPressable>
     </View>

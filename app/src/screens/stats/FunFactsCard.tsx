@@ -63,13 +63,28 @@ export function FunFactsCard({
       {/* Always mounted, hidden via opacity rather than swapped out, so this
           card's height doesn't depend on whether the selected period has
           real focus time -- see header comment. */}
+      {/* opacity:0 (see header) hides these from eyes but NOT from
+          VoiceOver/TalkBack, which read both branches regardless -- so a
+          period with no focus time announced the placeholder AND a best-day
+          sentence built from `bestOrPlaceholder`, i.e. "Your best day was
+          Thu, Jan 1 -- 0m focused." accessibilityElementsHidden (iOS) +
+          importantForAccessibility (Android) mute whichever branch is
+          currently invisible, without touching the layout-reserving trick
+          this card depends on. */}
       <Text
         numberOfLines={1}
         style={[styles.sub, { color: c.textDim }, hasFocus && styles.hidden]}
+        accessibilityElementsHidden={hasFocus}
+        importantForAccessibility={hasFocus ? 'no-hide-descendants' : 'auto'}
       >
         Start a focus session to see how it stacks up.
       </Text>
-      <View style={!hasFocus && styles.hidden} pointerEvents={hasFocus ? 'auto' : 'none'}>
+      <View
+        style={!hasFocus && styles.hidden}
+        pointerEvents={hasFocus ? 'auto' : 'none'}
+        accessibilityElementsHidden={!hasFocus}
+        importantForAccessibility={hasFocus ? 'auto' : 'no-hide-descendants'}
+      >
         <View style={[styles.bestDay, { backgroundColor: withAlpha(c.accent, 0.12) }]}>
           <Feather name="award" size={16} color={c.accent} />
           <Text numberOfLines={1} style={[styles.fact, styles.bestDayText, { color: c.text }]}>
@@ -85,7 +100,12 @@ export function FunFactsCard({
           </View>
         ))}
         {more > 0 ? (
-          <AnimatedPressable onPress={onSeeMore} accessibilityRole="button">
+          <AnimatedPressable
+            onPress={onSeeMore}
+            accessibilityRole="button"
+            accessibilityLabel={`See ${more} more fun facts`}
+            hitSlop={{ top: 12, bottom: 12, left: 8, right: 8 }}
+          >
             <Text style={[styles.more, { color: c.accent }]}>See {more} more</Text>
           </AnimatedPressable>
         ) : null}

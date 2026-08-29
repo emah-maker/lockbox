@@ -36,7 +36,7 @@ import { useStore } from '../store/useStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useGoalsStore } from '../store/useGoalsStore';
 import { useTheme } from '../theme/useTheme';
-import { aggregate, clampLockSeconds, MAX_LOCK_HOURS, MAX_LOCK_SECONDS } from '../stats/stats';
+import { aggregate, clampLockSeconds, MAX_LOCK_HOURS, splitLockSeconds } from '../stats/stats';
 import { filterByWindow } from '../stats/sessionHistory';
 import type { Goal } from '../goals/goals';
 import { AnimatedPressable } from '../ui/AnimatedPressable';
@@ -221,14 +221,13 @@ export default function DashboardScreen() {
   // ordinary echo of this app's own pushed value.
   useEffect(() => {
     if (!status || status.st === 'running' || status.set <= 0 || status.set === pickSeconds) return;
-    // Defensive clamp only -- the box already caps at the same MAX_LOCK_SECONDS
-    // (lock_config.py MAX_HOURS), so this is just guarding against a stale/odd
-    // value rather than a case expected to actually trigger.
-    const seconds = Math.min(MAX_LOCK_SECONDS, status.set);
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.round((seconds % 3600) / 60 / MINUTE_STEP) * MINUTE_STEP;
+    // Defensive clamp + carry handling both live in splitLockSeconds (see its
+    // own doc comment) -- the box already caps at the same MAX_LOCK_SECONDS
+    // (lock_config.py MAX_HOURS), but a remainder that rounds up to a full
+    // hour used to land on an impossible `minutes: 60` here, which the minute
+    // wheel silently rendered as 00m while pushing a whole extra hour.
     syncingFromBoxRef.current = true;
-    setPick({ hours, minutes }); // one atomic update -- see the `pick` state's own comment above
+    setPick(splitLockSeconds(status.set, MINUTE_STEP)); // one atomic update -- see the `pick` state's own comment above
   }, [status?.set, status?.st]);
 
   // Push the picked duration to the box as it changes. This is what lets the
@@ -346,6 +345,10 @@ export default function DashboardScreen() {
         >
           <Text style={s.controlBtnText}>Close</Text>
         </AnimatedPressable>
+        {/* This is the one button in the app filled with `danger` rather
+            than `accent`, so its label takes `dangerText` -- it used to take
+            `controlBtnText`'s `accentText`, which is tuned against the
+            accent, not against red (see ThemeColors.dangerText). */}
         <AnimatedPressable
           style={[s.controlBtn, { backgroundColor: theme.danger, opacity: openFade }]}
           disabled={!canOpen}
@@ -353,7 +356,7 @@ export default function DashboardScreen() {
           accessibilityRole="button"
           accessibilityLabel="Open box"
         >
-          <Text style={s.controlBtnText}>Open</Text>
+          <Text style={[s.controlBtnText, { color: theme.dangerText }]}>Open</Text>
         </AnimatedPressable>
       </View>
       {/* Always mounted (reserves 2 lines' worth of height via s.warnSub's

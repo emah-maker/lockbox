@@ -18,7 +18,7 @@ import { LabelPickerSheet } from '../../ui/calendar/LabelPickerSheet';
 import { ThemeColors, withAlpha } from '../../theme/theme';
 import { typeScale } from '../../theme/tokens';
 import { formatDuration } from '../../stats/stats';
-import { LoggedSession } from '../../stats/sessionHistory';
+import { dayKeyToDate, LoggedSession } from '../../stats/sessionHistory';
 import { allLabelChoices, resolveTopic, topicBreakdownWithCustom, CustomLabel } from '../../stats/customLabels';
 import { GoalProgressResult } from '../../goals/goalProgress';
 import type { Goal } from '../../goals/goals';
@@ -65,7 +65,7 @@ export function DaySheet({
       <Sheet
         visible={visible}
         onClose={onClose}
-        title={new Date(dateKey).toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}
+        title={dayKeyToDate(dateKey).toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}
         size="large"
       >
         <View style={styles.summaryRow}>
@@ -76,6 +76,7 @@ export function DaySheet({
             style={styles.trendsLink}
             accessibilityRole="button"
             accessibilityLabel="See trends for this month"
+            hitSlop={{ top: 12, bottom: 12, left: 8, right: 8 }}
             onPress={() => navigate('stats', { statsPeriod: 'month' })}
           >
             <Text style={[styles.trendsLinkText, { color: theme.accent }]}>See trends</Text>
@@ -119,7 +120,7 @@ export function DaySheet({
           </View>
         )}
 
-        <View style={styles.sessionSection}>
+        <View style={[styles.sessionSection, { borderTopColor: withAlpha(theme.textDim, 0.25) }]}>
           {sessions.length === 0 ? (
             <Text style={[styles.empty, { color: theme.textDim }]}>No focus sessions logged this day.</Text>
           ) : (
@@ -136,6 +137,9 @@ export function DaySheet({
                     onPress={() => setTaggingSession(s)}
                     accessibilityRole="button"
                     accessibilityLabel={resolved ? `Tagged: ${resolved.label}. Tap to change.` : 'Untagged. Tap to tag this session.'}
+                    // A 12px caption inside a 6px-padded row -- ~15px tall,
+                    // and it is the only way to retag a past session.
+                    hitSlop={{ top: 14, bottom: 14, left: 6, right: 6 }}
                   >
                     {resolved ? (
                       <>
@@ -201,7 +205,11 @@ const styles = StyleSheet.create({
   topicRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 8 },
   topicLabel: { flex: 1, ...typeScale.body },
   topicValue: { fontSize: 12, letterSpacing: typeScale.caption.letterSpacing },
-  sessionSection: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: 'rgba(127,127,127,0.25)', paddingTop: 8 },
+  // borderTopColor is supplied inline from the theme at the call site -- it
+  // was a hardcoded 'rgba(127,127,127,0.25)' picked to be tolerable in both
+  // modes, which is the one hardcoded color literal left in this app's
+  // screens/ui tree and reads as a foreign grey against either palette.
+  sessionSection: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 8 },
   empty: { ...typeScale.body },
   sessionRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 6 },
   sessionTime: {

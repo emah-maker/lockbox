@@ -94,6 +94,11 @@ export function OverrideCustomEntry({
           setOpen(true);
         }}
         style={{ marginTop: 4 }}
+        // Neither pressable in this file announced as a button, and both are
+        // 13-15px text runs well under the ~44pt minimum tap target.
+        accessibilityRole="button"
+        accessibilityLabel="Enter a custom number of override presses"
+        hitSlop={{ top: 12, bottom: 12, left: 8, right: 8 }}
       >
         <Text style={[styles.customLink, { color: color.accent }]}>Enter a custom number...</Text>
       </AnimatedPressable>
@@ -121,7 +126,12 @@ export function OverrideCustomEntry({
           style={[styles.customInput, { color: color.text, borderColor: color.textDim }]}
         />
         <Button label="Set" onPress={commit} color={color} />
-        <AnimatedPressable onPress={() => setOpen(false)}>
+        <AnimatedPressable
+          onPress={() => setOpen(false)}
+          accessibilityRole="button"
+          accessibilityLabel="Cancel custom number entry"
+          hitSlop={{ top: 12, bottom: 12, left: 8, right: 8 }}
+        >
           <Text style={{ color: color.textDim }}>Cancel</Text>
         </AnimatedPressable>
       </View>
@@ -137,7 +147,7 @@ const styles = StyleSheet.create({
   // the Dashboard's much larger duration wheels) to fit this compact
   // Settings row -- still an existing token, not a new magic size.
   overrideWheelText: { ...typeScale.sectionTitle },
-  customLink: { fontSize: 13, fontWeight: '600' },
+  customLink: { fontSize: 13, fontWeight: '600', lineHeight: 17 },
   customRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  customInput: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, fontSize: 15, minWidth: 70, textAlign: 'center' },
+  customInput: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15, minWidth: 70, textAlign: 'center' },
 });

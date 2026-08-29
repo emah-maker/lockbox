@@ -34,9 +34,22 @@ export function RecentSessionsRow({
         {sessions.map((sess) => {
           const resolved = resolveTopic(sess.topic, customLabels, themeMode);
           const active = dayKey(sess.startedAt) === selectedKey;
+          const started = new Date(sess.startedAt);
           return (
             <AnimatedPressable
               key={`${sess.startedAt}:${sess.plannedS}`}
+              accessibilityRole="button"
+              // Spelled out rather than left to RN's collect-the-child-Text
+              // default, which would read the abbreviated "Aug 3" / "45m"
+              // pair with no indication of what either number means. The
+              // active chip is marked visually by a border only, so
+              // `selected` is the sole a11y signal for it.
+              accessibilityLabel={`${started.toLocaleDateString(undefined, {
+                weekday: 'long',
+                month: 'long',
+                day: 'numeric',
+              })}, ${formatDuration(sess.actualS)} focused${resolved ? `, ${resolved.label}` : ''}`}
+              accessibilityState={{ selected: active }}
               style={[
                 styles.chip,
                 { backgroundColor: theme.surface },

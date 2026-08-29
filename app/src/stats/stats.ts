@@ -73,3 +73,35 @@ export function clampLockSeconds(hours: number, minutes: number): number {
   const total = Math.max(0, Math.floor(hours)) * 3600 + Math.max(0, Math.floor(minutes)) * 60;
   return Math.max(MIN_LOCK_SECONDS, Math.min(MAX_LOCK_SECONDS, total));
 }
+
+/** The inverse of clampLockSeconds: split a duration back into the H/M pair
+ * the picker wheels display, snapped to `minuteStep`.
+ *
+ * The naive `floor(s/3600)` + `round(s%3600/60/step)*step` this replaces
+ * (DashboardScreen's box-sync effect) has a carry bug: any remainder that
+ * rounds up to a full hour yields `minutes: 60`, which is not a value the
+ * minute wheel has (it stops at 55). The wheel's `indexOf(60)` then missed,
+ * fell back to index 0, and displayed "0h 00m" for a pick that
+ * clampLockSeconds would turn into a full extra hour -- the wheels showing
+ * one duration while a different one gets pushed to the box. 7150s (1h59m10s)
+ * is the shortest real example: it must read 2h 00m, not 1h 00m.
+ *
+ * Hours are clamped to MAX_LOCK_HOURS so the carry can't push the hour wheel
+ * past its own last index either. */
+export function splitLockSeconds(
+  seconds: number,
+  minuteStep: number,
+): { hours: number; minutes: number } {
+  const total = Math.max(0, Math.min(MAX_LOCK_SECONDS, Math.floor(seconds)));
+  let hours = Math.floor(total / 3600);
+  let minutes = Math.round((total % 3600) / 60 / minuteStep) * minuteStep;
+  if (minutes >= 60) {
+    hours += 1;
+    minutes = 0;
+  }
+  if (hours > MAX_LOCK_HOURS) {
+    hours = MAX_LOCK_HOURS;
+    minutes = Math.floor(((MAX_LOCK_SECONDS % 3600) / 60) / minuteStep) * minuteStep;
+  }
+  return { hours, minutes };
+}

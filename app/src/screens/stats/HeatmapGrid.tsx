@@ -31,11 +31,14 @@ export function HeatmapGrid({
   const c = useTheme();
 
   return (
-    <View
-      style={styles.heatmapGrid}
-      accessible
-      accessibilityLabel={`Focus activity heatmap, last 5 weeks: ${heatmap.filter((d) => d.level > 0).length} of ${heatmap.length} days with focus time`}
-    >
+    // No `accessible` on this container. It used to carry one (plus a
+    // whole-grid summary label), which on iOS collapses the subtree into a
+    // single a11y element -- so all 35 cells below, each with its own
+    // carefully-written date + duration label and its own tap target, were
+    // unreachable to VoiceOver and the summary was all you could hear. The
+    // cells ARE the content here, so they win; the Sheet hosting this grid
+    // already announces "Last 5 weeks" as its title.
+    <View style={styles.heatmapGrid}>
       {heatmap.map((d) => (
         <AnimatedPressable
           key={d.key}

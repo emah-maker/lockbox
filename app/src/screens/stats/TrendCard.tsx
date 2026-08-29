@@ -76,11 +76,13 @@ export function TrendCard({
           <Feather name="grid" size={18} color={c.textDim} />
         </AnimatedPressable>
       </View>
-      <View
-        style={styles.trendRow}
-        accessible
-        accessibilityLabel={`Last 7 days: ${trend.map((d) => `${d.label} ${formatDuration(d.focusS)}`).join(', ')}`}
-      >
+      {/* No `accessible` on this row -- it used to have one plus a summary
+          label, which collapses the subtree into a single VoiceOver element
+          and made all seven bar buttons (each already labelled with its day
+          and duration, and each a tap into that day's sessions) unreachable.
+          The card's own "Last 7 days" heading supplies the context the
+          summary was carrying. */}
+      <View style={styles.trendRow}>
         {trend.map((d) => {
           const h = Math.max(3, Math.round((d.focusS / trendMax) * TREND_BAR_MAX_H));
           return (

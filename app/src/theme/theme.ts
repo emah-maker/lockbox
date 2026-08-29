@@ -21,6 +21,16 @@ export interface ThemeColors {
   accent: string;
   accentText: string; // text/icon color placed on top of a filled `accent` surface
   danger: string;
+  /** Text/icon color placed on top of a filled `danger` surface -- the same
+   * role `accentText` plays for `accent`. DashboardScreen's Open button is
+   * the one such fill in the app; it used to borrow `accentText`, which is
+   * wrong twice over: that color is contrast-tuned against the ACCENT (dark
+   * mode's variants are per-accent near-blacks, so "Open" rendered as dark
+   * GREEN text on a red button under the mint accent), and its margin on
+   * the danger red depends on which accent happens to be selected -- teal's
+   * sat at 4.4988:1, just under the AA text minimum, purely by accident of a
+   * pairing nobody designed. */
+  dangerText: string;
   warn: string;
   // Fixed, accent-independent -- the BLE connection dot's "connected" color.
   // Same precedent as danger/warn: a status color that must read the same
@@ -88,6 +98,7 @@ const MODES: Record<ThemeMode, ModeColors> = {
     text: '#ffffff',
     textDim: '#9aa0a6',
     danger: '#ef4444',
+    dangerText: '#1a0303', // 5.27:1 on #ef4444 -- see ThemeColors.dangerText
     warn: '#f2b84b',
     success: '#22c55e',
   },
@@ -97,8 +108,22 @@ const MODES: Record<ThemeMode, ModeColors> = {
     text: '#111318',
     textDim: '#5b6167',
     danger: '#dc2626',
+    // White, not the dark mode's near-black: light mode's danger red is
+    // darker, so the polarity flips exactly the way it already does for
+    // accentText between the two modes. 4.83:1 on #dc2626 (near-black would
+    // only reach ~4.1:1 there).
+    dangerText: '#ffffff',
     warn: '#b45309',
-    success: '#16a34a',
+    // Darkened from the original #16a34a (2026-08-28 light-mode pass). The
+    // per-accent contrast audit above never covered the three fixed status
+    // colors, and `success` was the one that failed: #16a34a reads 3.3:1 on
+    // light.surface and 3.05:1 on light.bg -- fine as a dot/ring GRAPHIC,
+    // but it is also used as TEXT (DaySheet's "goal met" chips), where it
+    // was well under the 4.5:1 minimum. #0d6e31 is the same hue taken deep
+    // enough to pass everywhere it's drawn: 6.38:1 on surface, 5.9:1 on bg,
+    // and 5.09:1 even on the 15%-tinted chip fill it sits inside. Dark mode
+    // keeps #22c55e unchanged (already 7.8-8.6:1 there).
+    success: '#0d6e31',
   },
 };
 
@@ -138,4 +163,60 @@ export function withAlpha(hex: string, alpha: number): string {
     .toString(16)
     .padStart(2, '0');
   return `${hex}${a}`;
+}
+
+// --- Contrast helpers -------------------------------------------------
+// `withAlpha` above makes it easy to draw a translucent accent fill, but a
+// translucent fill breaks the one assumption `accentText` is built on: that
+// text sits on the accent at FULL strength. At 25% the fill is almost
+// entirely `bg`, so the near-black (dark mode) / white (light mode)
+// accentText lands on a near-black / near-white surface and disappears --
+// measured 1.33-1.53:1 across all 8 accents in both modes, i.e. invisible.
+// These two let a caller with a translucent fill work out what the pixel
+// actually resolves to and pick the readable text color for it, instead of
+// guessing from the un-composited accent. Used by ui/calendar/DayCell.tsx's
+// heat-tinted day number; kept here beside withAlpha since this is the same
+// problem from the other end.
+
+/** WCAG 2.x sRGB relative luminance for a 6-digit hex color. */
+function luminance(hex: string): number {
+  const h = hex.replace('#', '');
+  let sum = 0;
+  const weights = [0.2126, 0.7152, 0.0722];
+  for (let i = 0; i < 3; i++) {
+    const v = parseInt(h.substr(i * 2, 2), 16) / 255;
+    sum += weights[i] * (v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4));
+  }
+  return sum;
+}
+
+/** WCAG 2.x contrast ratio (1..21) between two opaque hex colors. */
+export function contrastRatio(a: string, b: string): number {
+  const la = luminance(a);
+  const lb = luminance(b);
+  return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+}
+
+/** Composites `hex` at `alpha` over the opaque `base`, returning the opaque
+ * hex the screen will actually show -- the inverse question to withAlpha's.
+ * `alpha` is clamped to 0..1 the same way withAlpha clamps it. */
+export function blendOver(hex: string, base: string, alpha: number): string {
+  const a = Math.max(0, Math.min(1, alpha));
+  const fg = hex.replace('#', '');
+  const bg = base.replace('#', '');
+  let out = '#';
+  for (let i = 0; i < 3; i++) {
+    const f = parseInt(fg.substr(i * 2, 2), 16);
+    const b = parseInt(bg.substr(i * 2, 2), 16);
+    out += Math.round(f * a + b * (1 - a))
+      .toString(16)
+      .padStart(2, '0');
+  }
+  return out;
+}
+
+/** Whichever of the two candidates reads better against `bg`. Ties go to
+ * the first, so a caller can pass its preferred color first. */
+export function bestTextOn(bg: string, first: string, second: string): string {
+  return contrastRatio(second, bg) > contrastRatio(first, bg) ? second : first;
 }

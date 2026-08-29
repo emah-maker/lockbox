@@ -79,5 +79,5 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginTop: 6,
   },
-  ctaText: { fontSize: 17, fontWeight: '700' },
+  ctaText: { fontSize: 17, fontWeight: '700', lineHeight: 22 },
 });

@@ -148,6 +148,8 @@ export function GoalsProgressView({
         style={[styles.manageBtn, { borderColor: withAlpha(c.textDim, 0.3) }]}
         onPress={onManage}
         accessibilityRole="button"
+        accessibilityLabel="Manage goals"
+        hitSlop={{ top: 4, bottom: 4, left: 0, right: 0 }}
       >
         <Text style={[styles.manageBtnText, { color: c.textDim }]}>Manage goals</Text>
       </AnimatedPressable>
@@ -287,7 +289,7 @@ const styles = StyleSheet.create({
   cardBody: { flex: 1, gap: 4 },
   cardHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   swatch: { width: 10, height: 10, borderRadius: 5 },
-  cardName: { fontSize: 15, fontWeight: '600', flex: 1, letterSpacing: typeScale.sectionTitle.letterSpacing },
+  cardName: { fontSize: 15, fontWeight: '600', flex: 1, letterSpacing: typeScale.sectionTitle.letterSpacing, lineHeight: 20 },
   cardSub: { ...typeScale.caption },
   badgeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 2 },
   badge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },

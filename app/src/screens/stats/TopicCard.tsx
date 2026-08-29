@@ -103,7 +103,12 @@ export function TopicCard({
       <View style={styles.headerRow}>
         <Text style={[styles.h2, { color: c.text }]}>By topic</Text>
         {selectedKey ? (
-          <AnimatedPressable onPress={() => onSelectTopic(null)} accessibilityRole="button">
+          <AnimatedPressable
+            onPress={() => onSelectTopic(null)}
+            accessibilityRole="button"
+            accessibilityLabel="Clear topic filter"
+            hitSlop={{ top: 12, bottom: 12, left: 8, right: 8 }}
+          >
             <Text style={[styles.clear, { color: c.accent }]}>Clear filter</Text>
           </AnimatedPressable>
         ) : null}
@@ -133,6 +138,7 @@ export function TopicCard({
                 }}
                 accessibilityRole="button"
                 accessibilityLabel={`See all ${topics.length} topics`}
+                hitSlop={{ top: 12, bottom: 12, left: 8, right: 8 }}
               >
                 <Text style={[styles.seeAll, { color: c.accent }]}>See all {topics.length} topics ›</Text>
               </AnimatedPressable>

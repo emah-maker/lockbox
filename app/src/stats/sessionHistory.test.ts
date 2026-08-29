@@ -1,7 +1,7 @@
 // Unit tests for sessionHistory.ts's pure retag transform. The storage-backed
 // wrappers (retagSession, appendSessions, etc.) aren't unit-tested here, same
 // as the rest of this file -- only the pure logic is. Run with `npm test`.
-import { applyTopicUpdate, buildLoggedSessions, filterByWindow, LoggedSession } from './sessionHistory';
+import { applyTopicUpdate, buildLoggedSessions, dayKey, dayKeyToDate, filterByWindow, LoggedSession } from './sessionHistory';
 import type { HistoryEntry } from '../ble/protocol';
 
 const session = (startedAt: number, plannedS: number, actualS: number, topic?: string): LoggedSession => ({
@@ -132,5 +132,40 @@ describe('filterByWindow', () => {
   it('"month" keeps the trailing 30 calendar days including today, excludes the 31st day back', () => {
     const sessions = [at(0), at(29), at(30)];
     expect(filterByWindow(sessions, 'month', now)).toEqual([sessions[0], sessions[1]]);
+  });
+});
+
+describe('dayKeyToDate', () => {
+  it('round-trips any timestamp through dayKey back to that local day', () => {
+    // Times deliberately spread across the day, including the two that a
+    // UTC-vs-local mix-up flips: just after local midnight and just before it.
+    const times = [
+      new Date(2026, 0, 1, 0, 0, 1),
+      new Date(2026, 6, 4, 12, 0, 0),
+      new Date(2026, 7, 28, 23, 59, 59),
+      new Date(2026, 11, 31, 20, 30, 0),
+    ];
+    for (const t of times) {
+      const back = dayKeyToDate(dayKey(t.getTime()));
+      expect(back.getFullYear()).toBe(t.getFullYear());
+      expect(back.getMonth()).toBe(t.getMonth());
+      expect(back.getDate()).toBe(t.getDate());
+    }
+  });
+
+  it('lands on local midnight, so it can be fed to the goal-window helpers as-is', () => {
+    const d = dayKeyToDate('2026-08-28');
+    expect(d.getHours()).toBe(0);
+    expect(d.getMinutes()).toBe(0);
+    expect(d.getSeconds()).toBe(0);
+    expect(d.getMilliseconds()).toBe(0);
+  });
+
+  it("does not repeat new Date(key)'s UTC parse, which shifts the day west of UTC", () => {
+    // `new Date('2026-08-28')` is UTC midnight; in any negative-offset zone
+    // that is the 27th locally. This must be the 28th regardless of zone.
+    expect(dayKeyToDate('2026-08-28').getDate()).toBe(28);
+    expect(dayKeyToDate('2026-01-01').getMonth()).toBe(0);
+    expect(dayKeyToDate('2026-01-01').getFullYear()).toBe(2026);
   });
 });
