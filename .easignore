@@ -13,6 +13,22 @@
 # That is the whole point (app/.env has to get through) and also the hazard --
 # hence the allowlist below rather than a blocklist, so a new secret dropped
 # anywhere outside app/ cannot silently start riding along.
+#
+# NO TRAILING SLASHES on any directory rule below. eas-cli's ignore matcher
+# does not treat `foo/` as "the directory foo" the way .gitignore does -- such
+# a rule matches nothing at all. The first version of this file wrote every
+# directory that way and both halves silently failed:
+#   - `!/app/` never re-included app, so `/*` won its match and EAS uploaded a
+#     COMPLETELY EMPTY archive. The build then died ~11s in with
+#     "Unknown error. See logs of the Build complete hook build phase" -- the
+#     phase log shows it failing at PRE_INSTALL_HOOK, before installing
+#     anything, because there was nothing there to install.
+#   - `/app/.secrets/` never excluded anything either. That half only stayed
+#     harmless because the empty archive masked it; fixing the negation alone
+#     would have started shipping the Apple .p8 signing keys to EAS.
+# Verify with `npx eas build:inspect --platform ios --stage archive --output
+# <dir>` after touching this file -- it writes the exact upload to disk, costs
+# no build minutes, and is the only way to see either failure.
 
 # Ignore everything at the repository root...
 /*
@@ -20,30 +36,32 @@
 # ...except the Expo project, which is all a build actually needs. Everything
 # else here -- website/, tests/, docs/, Box-code/, the CAD and video files --
 # is not part of the app build.
-!/app/
+!/app
 
 # Inside app/, re-apply the exclusions app/.gitignore was providing, since
-# this file has now taken over from it.
-/app/node_modules/
-/app/.expo/
-/app/dist/
-/app/web-build/
-/app/ios/
-/app/android/
-/app/coverage/
+# this file has now taken over from it. (node_modules would be dropped by EAS
+# regardless -- keeping it listed so this reads as the complete set, but don't
+# use it to sanity-check a rule change: it looks excluded either way.)
+/app/node_modules
+/app/.expo
+/app/dist
+/app/web-build
+/app/ios
+/app/android
+/app/coverage
 
 # Agent tooling -- what the old app/.easignore was trying to exclude.
-/app/.agents/
-/app/.claude/
+/app/.agents
+/app/.claude
 
 # Firestore rules tests. They only run against the local emulator, and they
 # carry their own tsconfig.json -- neither belongs on an EAS worker, which
 # just needs what the app itself builds from.
-/app/tests/
+/app/tests
 
 # Signing keys. Never upload these -- they are git-ignored, which no longer
 # protects them here.
-/app/.secrets/
+/app/.secrets
 *.p8
 *.p12
 *.jks
@@ -52,7 +70,7 @@
 
 # Logs and scratch
 *.log
-/app/.firebase/
+/app/.firebase
 
 # NOT ignored, deliberately: app/.env. The EXPO_PUBLIC_FIREBASE_* values are
 # inlined at transform time, so they must exist on the builder or the app
