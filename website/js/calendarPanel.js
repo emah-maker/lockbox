@@ -41,6 +41,8 @@ import {
   formatDuration,
   readableTextColor,
   startOfMonth,
+  heatmapLevel,
+  ALPHA_FOR_LEVEL,
 } from './focusStats.js';
 import { compositeHex } from './theme.js';
 import { createLabelPicker } from './sessionLabelPicker.js';
@@ -93,7 +95,19 @@ function draw() {
   const byDay = groupByDay(calSessions);
   const grid = buildMonthGrid(calCursor);
   const todayKey = dayKey(Date.now());
-  const maxFocus = Math.max(1, ...Array.from(byDay.values()).map((list) => list.reduce((sum, s) => sum + s.actualS, 0)));
+  // Busiest day within the on-screen month grid itself, not an all-time
+  // global max -- mirrors app/src/screens/calendar/monthGrid.ts's
+  // monthHeatLevels (see its doc comment): a legend/heatmap that reads
+  // "this is the month's busiest day" should mean the busiest day actually
+  // on screen, so paging to a quiet month doesn't leave every cell looking
+  // washed-out relative to some other month's record day the user isn't
+  // looking at right now.
+  const maxFocus = Math.max(
+    1,
+    ...grid
+      .filter(Boolean)
+      .map((date) => (byDay.get(dayKey(date.getTime())) || []).reduce((sum, s) => sum + s.actualS, 0)),
+  );
   const { theme, themeMode } = calCtx;
 
   calEls.calMonthLabel.textContent = calCursor.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
@@ -124,15 +138,23 @@ function draw() {
     const fullDate = date.toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' });
     btn.setAttribute('aria-label', focusS > 0 ? `${fullDate}, ${formatDuration(focusS)} focused` : fullDate);
     if (focusS > 0) {
-      // Mirrors the app's CalendarScreen exactly: the cell fills with the
-      // user's own accent color at an intensity scaled to that day's focus
-      // time (app: withAlpha(c.accent, intensity)). Pre-composited against
-      // the card surface (rather than a real alpha channel) so the text
-      // color below can be picked by measured contrast at this exact
-      // resulting shade, instead of assuming the app's fixed accentText
-      // clears 4.5:1 at every intensity/accent/mode combination.
-      const intensity = 0.25 + 0.75 * Math.min(1, focusS / maxFocus);
-      const fill = compositeHex(theme.accent, theme.surface, intensity);
+      // Buckets this day's focus time into one of 5 discrete intensity
+      // levels (0-4) relative to the busiest day in the on-screen month,
+      // then looks up that level's fill alpha -- mirrors
+      // app/src/screens/calendar/monthGrid.ts's monthHeatLevels, which
+      // routes through app/src/stats/trend.ts's heatmapLevel and
+      // app/src/theme/dayHeat.ts's ALPHA_FOR_LEVEL (both ported above in
+      // focusStats.js). This app abandoned the old continuous alpha scheme
+      // specifically because it can't back a heat legend (a legend needs
+      // nameable discrete steps, not an unbounded gradient); the website
+      // now uses the same discrete model. Pre-composited against the card
+      // surface (rather than a real alpha channel) so the text color below
+      // can be picked by measured contrast at this exact resulting shade,
+      // instead of assuming the app's fixed accentText clears 4.5:1 at
+      // every level/accent/mode combination -- a genuine website-side
+      // improvement over the app that this fix preserves.
+      const level = heatmapLevel(focusS, maxFocus);
+      const fill = compositeHex(theme.accent, theme.surface, ALPHA_FOR_LEVEL[level]);
       btn.style.background = fill;
       btn.style.color = readableTextColor(fill);
     }

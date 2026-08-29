@@ -104,6 +104,16 @@ remain in the four rendered views.
 
 ## Views -> firmware source
 
+> **Only the `override-*` row's assets are still in the repo.** The
+> `control-view-still.png`, `battery-view-still.png`, `battery-view-native.png`
+> and `clock-ring-loop.webm` files were built for the external product-video
+> composite, were never wired into `index.html`, and were deleted rather than
+> keep shipping them to Firebase Hosting on every deploy. The rows below are
+> kept as build provenance: they record exactly which firmware view and which
+> `lock_ui.py` code path each asset came from, which is what you would need to
+> regenerate them. Recover the originals from git history if the external video
+> work resumes.
+
 | asset | firmware view | built from |
 |---|---|---|
 | `control-view-still.png` | primary/default view, `LockUI.show_idle()` | `_build_control` (`lock_ui.py` ~L311-521), default `DEFAULT_SECONDS=300` -> "5:00", `OVERRIDE_PRESSES=25` -> "x25" hint |

@@ -325,3 +325,29 @@ export function buildMonthGrid(monthStart) {
   while (cells.length % 7 !== 0) cells.push(null);
   return cells;
 }
+
+/** Bucket a day's focus time into 5 discrete intensity levels (0-4) relative
+ * to the busiest day in whatever window the caller is drawing (0 = no focus
+ * time at all; 4 = the busiest day). Mirrors app/src/stats/trend.ts's
+ * heatmapLevel exactly -- keep the two in sync; see that function's doc
+ * comment for why the calendar heatmap needs discrete steps rather than a
+ * continuous alpha. */
+export function heatmapLevel(focusS, max) {
+  if (focusS <= 0) return 0;
+  const ratio = focusS / max;
+  if (ratio > 0.75) return 4;
+  if (ratio > 0.5) return 3;
+  if (ratio > 0.25) return 2;
+  return 1;
+}
+
+// The single source of truth mapping a heat level to a fill alpha. Mirrors
+// app/src/theme/dayHeat.ts's ALPHA_FOR_LEVEL exactly -- keep the two in
+// sync, same as heatmapLevel above.
+export const ALPHA_FOR_LEVEL = {
+  0: 0,
+  1: 0.25,
+  2: 0.5,
+  3: 0.75,
+  4: 1,
+};

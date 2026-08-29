@@ -20,6 +20,8 @@ import {
   formatComparison,
   startOfMonth,
   buildMonthGrid,
+  heatmapLevel,
+  ALPHA_FOR_LEVEL,
   readableTextColor,
   allLabelChoices,
   resolveTopic,
@@ -238,6 +240,43 @@ describe('startOfMonth / buildMonthGrid', () => {
     assert.equal(grid[3], null);
     assert.deepEqual(grid[4], new Date(2024, 1, 1));
     assert.deepEqual(grid[4 + 28], new Date(2024, 1, 29)); // leap day
+  });
+});
+
+describe('heatmapLevel / ALPHA_FOR_LEVEL', () => {
+  it('is level 0 for zero (or negative) focus time regardless of max', () => {
+    assert.equal(heatmapLevel(0, 100), 0);
+    assert.equal(heatmapLevel(-5, 100), 0);
+  });
+
+  it('is level 4 for the busiest day (ratio === 1)', () => {
+    assert.equal(heatmapLevel(100, 100), 4);
+  });
+
+  it('sits just above the 0.75 boundary at level 4, and at/just below it at level 3', () => {
+    assert.equal(heatmapLevel(75.01, 100), 4);
+    assert.equal(heatmapLevel(75, 100), 3); // exactly 0.75 does not clear ">"
+    assert.equal(heatmapLevel(74.99, 100), 3);
+  });
+
+  it('sits just above the 0.5 boundary at level 3, and at/just below it at level 2', () => {
+    assert.equal(heatmapLevel(50.01, 100), 3);
+    assert.equal(heatmapLevel(50, 100), 2); // exactly 0.5 does not clear ">"
+    assert.equal(heatmapLevel(49.99, 100), 2);
+  });
+
+  it('sits just above the 0.25 boundary at level 2, and at/just below it at level 1', () => {
+    assert.equal(heatmapLevel(25.01, 100), 2);
+    assert.equal(heatmapLevel(25, 100), 1); // exactly 0.25 does not clear ">"
+    assert.equal(heatmapLevel(24.99, 100), 1);
+  });
+
+  it('never renders any focus time as invisible level 0 -- the smallest nonzero amount is level 1', () => {
+    assert.equal(heatmapLevel(0.01, 100), 1);
+  });
+
+  it('exposes exactly the 5 fill alphas the app\'s ALPHA_FOR_LEVEL table defines, so a drift on either side breaks this test', () => {
+    assert.deepEqual(ALPHA_FOR_LEVEL, { 0: 0, 1: 0.25, 2: 0.5, 3: 0.75, 4: 1 });
   });
 });
 

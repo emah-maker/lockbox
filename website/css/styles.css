@@ -399,7 +399,6 @@ section { padding: clamp(56px, 9vw, 96px) 0; }
 /* ---------- Hero ---------- */
 .hero { position: relative; padding: clamp(44px, 7vw, 88px) 0 clamp(40px, 6vw, 72px); overflow: hidden; }
 .hero__grid { display: grid; grid-template-columns: 1.05fr 0.95fr; gap: clamp(28px, 4vw, 64px); align-items: center; }
-.hero__tag { margin-bottom: var(--space-5); }
 .hero h1 { font-size: clamp(3.1rem, 6.8vw, 5.1rem); }
 .lead { color: var(--text-2); font-size: clamp(1.06rem, 1.55vw, 1.24rem); margin-top: var(--space-5-5); max-width: 46ch; }
 .lead strong { color: var(--text); }
@@ -454,8 +453,6 @@ section { padding: clamp(56px, 9vw, 96px) 0; }
 .scr__main { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-2-5); }
 .scr__label { font-size: var(--fs-3xs); font-weight: 500; letter-spacing: 0.3em; color: var(--text-3); text-transform: uppercase; }
 .scr__time { font-family: var(--font-ticket); font-variant-numeric: tabular-nums; font-size: var(--fs-display-sm); letter-spacing: 0.02em; color: var(--locked); transition: color var(--dur-slow); }
-.scr__time.is-amber { color: var(--closed); }
-.scr__time.is-red { color: var(--locked); }
 .scr__bar { width: 82%; height: 5px; border-radius: 3px; background: var(--surface); overflow: hidden; }
 .scr__bar span { display: block; height: 100%; width: 100%; background: var(--locked); border-radius: 3px; transform-origin: left; transform: scaleX(var(--fill, 0.62)); transition: transform var(--dur-flash) linear, background var(--dur-slow); }
 .scr__foot { margin-top: auto; text-align: center; }
