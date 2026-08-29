@@ -574,7 +574,14 @@ export function computeGoalProgress(goals, sessions, nowMs = Date.now()) {
       targetS: goal.targetS,
       focusS,
       remainingS: Math.max(0, goal.targetS - focusS),
-      ratio: focusS / goal.targetS, // deliberately unclamped -- can exceed 1 (e.g. 1.8 = 180% of target)
+      // Deliberately unclamped -- can exceed 1 (e.g. 1.8 = 180% of target).
+      // Guarded against divide-by-zero to match app/src/goals/goalProgress.ts,
+      // which has carried this guard (and a test for it) all along: goals
+      // reaching this dashboard come through sanitizeRemoteGoals from whatever
+      // device wrote them, so a 0 or negative targetS is not something this
+      // side gets to assume away. Unguarded it rendered NaN or Infinity here
+      // while the app showed 0 for the same synced goal.
+      ratio: goal.targetS > 0 ? focusS / goal.targetS : 0,
       met: focusS >= goal.targetS && (sessionsMet === undefined || sessionsMet),
       sessionCount,
       ...(goal.targetSessions !== undefined ? { targetSessions: goal.targetSessions, sessionsMet } : {}),
