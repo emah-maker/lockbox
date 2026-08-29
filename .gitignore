@@ -66,3 +66,11 @@ website/assets/video/*-master.mp4
 website/assets/video/screen/*_frames/
 website/assets/video/seeds/
 /Base-marketing video.mp4
+
+# Firebase emulator debug logs, dropped in the repo root by
+# `firebase emulators:exec` -- which is now the normal way to run the
+# Firestore rules suite (app/tests/firestore-rules), so these regenerate on
+# every test run and would otherwise show up as untracked noise each time.
+firestore-debug.log
+firebase-debug.log
+ui-debug.log

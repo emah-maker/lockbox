@@ -37,6 +37,7 @@
   },
   "devDependencies": {
     "@babel/core": "^7.25.0",
+    "@firebase/rules-unit-testing": "^3.0.4",
     "@types/jest": "^30.0.0",
     "@types/react": "~18.3.12",
     "@types/react-test-renderer": "^18.3.0",
@@ -51,17 +52,54 @@
     }
   },
   "jest": {
-    "preset": "jest-expo",
-    "setupFiles": [
-      "<rootDir>/jest.setup.js"
-    ],
-    "testPathIgnorePatterns": [
-      "/node_modules/",
-      "/ios/",
-      "/android/"
-    ],
-    "transformIgnorePatterns": [
-      "node_modules/(?!((jest-)?react-native|@react-native(-community)?|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|@unimodules/.*|unimodules|sentry-expo|native-base|react-native-svg|firebase|@firebase))"
+    "projects": [
+      {
+        "displayName": "app",
+        "preset": "jest-expo",
+        "setupFiles": [
+          "<rootDir>/jest.setup.js"
+        ],
+        "testPathIgnorePatterns": [
+          "/node_modules/",
+          "/ios/",
+          "/android/",
+          "<rootDir>/tests/firestore-rules/"
+        ],
+        "transformIgnorePatterns": [
+          "node_modules/(?!((jest-)?react-native|@react-native(-community)?|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|@unimodules/.*|unimodules|sentry-expo|native-base|react-native-svg|firebase|@firebase))"
+        ]
+      },
+      {
+        "displayName": "firestore-rules",
+        "testEnvironment": "node",
+        "testMatch": [
+          "<rootDir>/tests/firestore-rules/**/*.test.ts"
+        ],
+        "transform": {
+          "^.+\\.tsx?$": [
+            "babel-jest",
+            {
+              "configFile": false,
+              "babelrc": false,
+              "presets": [
+                [
+                  "@babel/preset-env",
+                  {
+                    "targets": {
+                      "node": "current"
+                    }
+                  }
+                ],
+                "@babel/preset-typescript"
+              ]
+            }
+          ]
+        },
+        "transformIgnorePatterns": [
+          "node_modules/(?!(firebase|@firebase))"
+        ],
+        "testTimeout": 20000
+      }
     ]
   },
   "allowScripts": {

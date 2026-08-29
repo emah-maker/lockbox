@@ -26,5 +26,13 @@
     "location": "nam5",
     "rules": "app/firestore.rules",
     "indexes": "app/firestore.indexes.json"
+  },
+  "emulators": {
+    "firestore": {
+      "port": 8080
+    },
+    "ui": {
+      "enabled": false
+    }
   }
 }
