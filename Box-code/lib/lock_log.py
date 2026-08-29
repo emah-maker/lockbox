@@ -23,18 +23,16 @@
 # one worth losing least. See LOG_MAX_PENDING in lock_config.py.
 import microcontroller
 
-from lock_config import LOG_MAX_PENDING
+from lock_config import LOG_MAX_PENDING, NVM_LOG_BASE
 
 _MAGIC = 0x81        # bump if this NVM layout changes (forces an empty queue
                       # once, same convention as lock_settings.py's _MAGIC)
-_BASE = 24            # NVM offset for the persisted queue -- leaves a gap
-                      # after lock_settings.py's region (byte 0 = brownout
-                      # counter, bytes 8-20 = settings as of lock_settings.py's
-                      # current _MAGIC=0x63 layout -- re-check this range
-                      # whenever a field is added there) for that region to
-                      # grow, per the reservation convention lock_settings.py
-                      # documents for its own _BASE. Only 3 bytes (21-23) of
-                      # headroom remain before the two regions would collide.
+_BASE = NVM_LOG_BASE  # start of the persisted queue. Derived from
+                      # lock_config.py's NVM region map rather than hardcoded,
+                      # so growing lock_settings.py's reservation moves this
+                      # with it instead of the two regions silently colliding
+                      # -- see that map's comment for the byte-by-byte layout
+                      # and what to bump when the settings region grows.
 _ENTRY_SIZE = 9       # planned_s:2B + actual_s:2B + completed:1B + epoch:4B
 _EPOCH_NONE = 0xFFFFFFFF  # NVM sentinel for "never time-synced" (epoch=-1 in
                           # the in-RAM tuple) -- a real epoch won't reach this

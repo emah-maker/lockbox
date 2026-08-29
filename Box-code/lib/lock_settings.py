@@ -9,7 +9,7 @@ from lock_config import (
     BLE_UNLOCK_ON_CALL, OVR_MIN, OVR_MAX, OVR_STEP, SLEEP_OPTIONS,
     BRIGHT_OPTIONS, DEFAULT_MODE_IDX, DEFAULT_ACCENT_IDX, ACCENT_COLORS,
     SCREEN_FLIPPED_DEFAULT, SERVO_LOCK_ANGLE, SERVO_UNLOCK_ANGLE,
-    SERVO_ANGLE_MIN, SERVO_ANGLE_MAX,
+    SERVO_ANGLE_MIN, SERVO_ANGLE_MAX, NVM_SETTINGS_BASE, NVM_SETTINGS_LEN,
 )
 
 _MAGIC = 0x63        # bump when the NVM layout changes (forces defaults once);
@@ -26,7 +26,13 @@ _MAGIC = 0x63        # bump when the NVM layout changes (forces defaults once);
                      # that change doesn't read a stray erased byte as a
                      # garbage high byte and reconstruct a bogus override
                      # count
-_BASE = 8            # NVM offset for settings (byte 0 = brownout counter)
+_BASE = NVM_SETTINGS_BASE   # see lock_config.py's NVM region map
+# Highest _BASE+N this module writes, so the region map's budget can be
+# checked against what is actually used. Raise it when adding a field, and if
+# it would reach NVM_SETTINGS_LEN, raise that (and lock_log's _MAGIC) too --
+# tests/test_lock_log_queue.py fails on the host if this region grows into
+# lock_log's.
+_MAX_FIELD_OFF = 12
 # lock_angle/unlock_angle are stored as (angle + 90) so the -90..90 range
 # fits an unsigned NVM byte (0..180) without needing signed-byte handling.
 _ANGLE_BYTE_OFFSET = 90

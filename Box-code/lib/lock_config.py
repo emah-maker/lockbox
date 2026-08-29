@@ -320,10 +320,33 @@ BLE_UUID_PENDING_TOPIC = "6b9a7e00-4c2a-4f8e-9b21-9d7a5e3c0009"  # WRITE (topic 
 # NVM -- NOT YET CONFIRMED against this board's actual
 # len(microcontroller.nvm) at the CircuitPython REPL (that RFC's §7 spike
 # #3); lock_log.py's _save() degrades gracefully (persists only as many of
-# the oldest entries as actually fit) if this board's NVM region turns out
-# to be smaller than this implies, but the cap itself should be re-checked
-# on real hardware before shipping.
+# the newest entries as actually fit -- newest, matching record()'s own
+# "the oldest unsynced session is the one worth losing least" eviction) if
+# this board's NVM region turns out to be smaller than this implies, but the
+# cap itself should be re-checked on real hardware before shipping.
 LOG_MAX_PENDING = 200
+
+# ----- NVM region map -----
+# One place that says who owns which NVM byte, because nothing on the device
+# enforces it: every module just indexes microcontroller.nvm directly, so two
+# regions that overlap corrupt each other silently, with no error and no
+# obvious symptom beyond settings or queued sessions going strange.
+#
+#   byte 0        brownout retry counter (safemode.py, cleared by code.py)
+#   bytes 1-7     unused
+#   bytes 8-23    lock_settings.py: 13 bytes used, 3 reserved for growth
+#   bytes 24+     lock_log.py: the pending-session queue, grows with it
+#
+# lock_settings.py has already added a field three times (see its _MAGIC bump
+# history), so treat NVM_SETTINGS_LEN as the real budget: adding a 4th field
+# past _BASE+15 must come with raising it here, which moves the log's base
+# with it rather than quietly overwriting the queue's magic byte. Raising it
+# invalidates every stored queue on existing boxes, so bump lock_log's _MAGIC
+# in the same change. tests/test_lock_log_queue.py asserts the two regions
+# don't overlap, so getting this wrong fails on the host, not on a board.
+NVM_SETTINGS_BASE = 8
+NVM_SETTINGS_LEN = 16
+NVM_LOG_BASE = NVM_SETTINGS_BASE + NVM_SETTINGS_LEN
 
 # ----- Settings screen option ranges (values persisted in NVM) -----
 # Override presses used to be a non-uniform 5/10/25/50 staircase (small steps

@@ -24,8 +24,15 @@ _microcontroller = types.ModuleType("microcontroller")
 _microcontroller.nvm = None  # each test sets this explicitly before use
 sys.modules["microcontroller"] = _microcontroller
 
-from lock_config import LOG_MAX_PENDING
+from lock_config import (
+    LOG_MAX_PENDING, NVM_SETTINGS_BASE, NVM_SETTINGS_LEN, NVM_LOG_BASE,
+)
 from lock_log import SessionLog, _BASE, _MAGIC, _ENTRY_SIZE, _EPOCH_NONE
+
+# lock_settings.py is imported only for the NVM region check at the bottom. It
+# pulls in more of lock_config than lock_log does, but nothing
+# CircuitPython-only beyond the `microcontroller` stub already installed above.
+import lock_settings
 
 _passed = 0
 _failed = 0
@@ -329,6 +336,38 @@ _microcontroller.nvm[_BASE + 1] = 200  # lie: claim 200 records are present
 reboot5 = SessionLog()
 check("oversized stored count stops at the physical end of the buffer, no crash",
       len(entries_of(reboot5)) == 2)
+
+
+# ===================================================================
+# NVM region map: nothing on the device enforces who owns which byte,
+# so two regions that overlap corrupt each other silently. These are
+# the tripwire -- adding a settings field that grows past its
+# reservation fails here, on the host, instead of on a board.
+# ===================================================================
+check("lock_log's base is derived from the region map, not hardcoded",
+      _BASE == NVM_LOG_BASE)
+check("lock_settings' base is derived from the region map, not hardcoded",
+      lock_settings._BASE == NVM_SETTINGS_BASE)
+check("the settings region starts after the brownout counter at byte 0",
+      NVM_SETTINGS_BASE > 0)
+check("every settings field lands inside the settings region's reservation",
+      lock_settings._BASE + lock_settings._MAX_FIELD_OFF
+      < NVM_SETTINGS_BASE + NVM_SETTINGS_LEN)
+check("the settings region ends before the queue's magic byte begins",
+      NVM_SETTINGS_BASE + NVM_SETTINGS_LEN <= NVM_LOG_BASE)
+
+# _MAX_FIELD_OFF is only useful if it actually tracks the writes, so check it
+# against what save() really touches rather than trusting the constant.
+new_nvm()
+_settings = lock_settings.Settings()
+_settings.save()
+_touched = [i for i, b in enumerate(_microcontroller.nvm) if b != 0]
+check("settings.save() writes nothing below its own base",
+      bool(_touched) and min(_touched) >= lock_settings._BASE)
+check("settings.save() writes nothing past _MAX_FIELD_OFF (the constant is honest)",
+      bool(_touched) and max(_touched) <= lock_settings._BASE + lock_settings._MAX_FIELD_OFF)
+check("settings.save() therefore never reaches the queue's region",
+      bool(_touched) and max(_touched) < NVM_LOG_BASE)
 
 print("\n{} passed, {} failed".format(_passed, _failed))
 sys.exit(1 if _failed else 0)
