@@ -230,7 +230,29 @@ export function updateGoal(goals, id, patch, nowMs = Date.now()) {
   validateGoalExtras(period, rawDaysOfWeek, targetSessions, notify, notifyAt);
   const daysOfWeek = rawDaysOfWeek !== undefined ? normalizeDaysOfWeek(rawDaysOfWeek) : undefined;
   const next = goals.slice();
-  next[idx] = { ...current, topic, period, targetS, daysOfWeek, targetSessions, notify, notifyAt, updatedAt: nowMs };
+  const updated = { ...current, topic, period, targetS, daysOfWeek, targetSessions, notify, notifyAt, updatedAt: nowMs };
+
+  // Keep `notifyAt` and the phone's multi-time `notifyTimes` schedule from
+  // drifting apart. The phone treats notifyTimes as the authority and notifyAt
+  // as a derived mirror of notifyTimes[0] (goalReminders.ts's goalNotifyTimes:
+  // a non-empty list wins outright and notifyAt is ignored). This form only
+  // ever shows and edits ONE time, so without this a goal set to 09:00 + 18:00
+  // on the phone, re-timed to 14:00 here, kept firing at 09:00 and 18:00 --
+  // the edit silently did nothing.
+  //
+  // The condition is "did the time actually move", not "is notifyAt in the
+  // patch": goalsPanel.js resubmits notifyAt on EVERY save, so keying off the
+  // patch would let an unrelated edit (renaming the topic, changing the
+  // target) quietly collapse a multi-time schedule the user set on their
+  // phone. When the time really did change, the newer edit wins and the goal
+  // collapses to that single time -- deliberate, since one time is all this
+  // form can express. Multi-time schedules stay editable on the phone.
+  if (notifyAt !== current.notifyAt) {
+    if (notifyAt === undefined) delete updated.notifyTimes;
+    else updated.notifyTimes = [notifyAt];
+  }
+
+  next[idx] = updated;
   return next;
 }
 
@@ -253,7 +275,7 @@ export function archiveGoal(goals, id, nowMs = Date.now()) {
  * Firestore, not on every read, so a tombstone still gets its full
  * propagation window before it's dropped for good. */
 export function pruneArchivedGoals(goals, nowMs = Date.now()) {
-  return goals.filter((g) => !g.archived || nowMs - g.updatedAt < ARCHIVED_GOAL_PRUNE_MS);
+  return goals.filter((g) => !g.archived || nowMs - g.updatedAt <= ARCHIVED_GOAL_PRUNE_MS);
 }
 
 /** Validates+cleans an untrusted `goals` array read back from Firestore

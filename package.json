@@ -1,0 +1,9 @@
+{
+  "name": "phonebox-website-tests",
+  "private": true,
+  "type": "module",
+  "description": "Root-level test harness for website/js/ (the plain-ES-module dashboard twin of app/src/). Not a build target -- see tests/website/ for the suites and firebase.json's hosting.public: 'website' for why this can't live under website/ itself.",
+  "scripts": {
+    "test": "node --test tests/website/*.test.js"
+  }
+}

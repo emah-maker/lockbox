@@ -188,6 +188,20 @@ export function dayKey(epochMs) {
   return `${y}-${m}-${day}`;
 }
 
+/** The inverse of `dayKey`: that key's LOCAL midnight, as a Date.
+ *
+ * Exists because `new Date('2026-08-28')` does NOT round-trip a dayKey -- the
+ * ES spec parses a bare date-only string as UTC midnight, while dayKey writes
+ * the key from local Y/M/D. Anywhere west of UTC the two disagree by a full
+ * day, so `new Date(someDayKey).toLocaleDateString()` renders the day BEFORE
+ * the one the key names. Port of app/src/stats/sessionHistory.ts's helper of
+ * the same name, added there for the same bug. Callers should use this rather
+ * than parsing a key themselves. */
+export function dayKeyToDate(key) {
+  const [y, m, d] = key.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
 export function groupByDay(sessions) {
   const map = new Map();
   for (const s of sessions) {
