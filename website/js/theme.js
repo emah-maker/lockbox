@@ -7,7 +7,16 @@
    palette. Defaults (dark/mint) match that store's own
    SYNCABLE_SETTINGS_DEFAULTS, so a signed-out visitor (login.html) or a
    pre-sync moment sees exactly what a fresh app install would show.
+
+   applyTheme (below) also lives here rather than in dashboard.js: it is the
+   one place besides resolveTheme/compositeHex that turns theme data into
+   something paintable, so keeping all three together means a theme change
+   never has to touch two files. It takes only the resolved theme object,
+   not an `els` ref -- unlike the panel modules' render functions, it paints
+   document.documentElement's own custom properties, not a subtree dashboard.js
+   owns.
    ========================================================================= */
+import { readableTextColor } from './focusStats.js';
 
 const ACCENTS = {
   dark: {
@@ -62,6 +71,72 @@ export function resolveTheme(mode, accent) {
   const modeColors = MODES[mode] || MODES[DEFAULT_THEME_MODE];
   const accentColors = (ACCENTS[mode] || ACCENTS[DEFAULT_THEME_MODE])[accent] || ACCENTS[DEFAULT_THEME_MODE][DEFAULT_ACCENT];
   return { ...modeColors, ...accentColors };
+}
+
+// Alpha-composites are the right tool for --accent-soft below (it always
+// paints over one known surface, the card), but a hairline border is drawn
+// against several different surfaces on the dashboard (--card, --bg, --card-2
+// -- see dashboard.css's table rules, input outlines, and popover borders)
+// and pasting one opaque baked-in shade would go wrong wherever the actual
+// surface differs from the base color picked at the time. A real translucent
+// color sidesteps that: it stays correct against *any* surface underneath
+// it, the way CSS alpha compositing already works for free.
+function hexToRgba(hex, alpha) {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
+}
+
+/** Paints the resolved theme onto CSS custom properties (dashboard.css reads
+ * these) rather than keeping color logic duplicated in both CSS and JS --
+ * dashboard.js's calendar heatmap is the one place that also needs the raw
+ * hex values in JS (to alpha-composite per-cell), which is why it keeps its
+ * own `theme` reference around rather than reading these properties back.
+ *
+ * --border/--border-soft used to be left at styles.css's dark-only literals
+ * (white at 16%/7%), which is invisible once the page goes light. They're
+ * derived from t.text instead of a second pair of literals so they flip
+ * automatically with the mode: t.text is white in dark mode (reproducing
+ * the old literals exactly) and near-black in light mode, giving a dark
+ * hairline on a light surface instead of a white one nobody can see. */
+export function applyTheme(t) {
+  const root = document.documentElement.style;
+  root.setProperty('--bg', t.bg);
+  root.setProperty('--bg-2', t.bg);
+  root.setProperty('--card', t.surface);
+  root.setProperty('--card-2', t.surface);
+  root.setProperty('--text', t.text);
+  root.setProperty('--text-2', t.textDim);
+  root.setProperty('--text-3', t.textDim);
+  root.setProperty('--unlocked', t.accent);
+  root.setProperty('--unlocked-2', t.accent);
+  root.setProperty('--locked', t.danger);
+  root.setProperty('--locked-2', t.danger);
+  root.setProperty('--closed', t.warn);
+  // Unlike --accent-text (an authored per-accent pairing, see the ACCENTS
+  // table above), --locked has no such hand-picked partner -- dashboard.css
+  // used to just hardcode `color: #fff` on top of it. That happens to clear
+  // WCAG AA against the light-mode danger red (#dc2626, 4.83:1) but fails it
+  // against the dark-mode one (#ef4444, 3.76:1) -- measured via
+  // focusStats.js's own contrast math. readableTextColor picks the higher-
+  // contrast of black/white for whichever danger red the resolved theme
+  // actually has, the same way it already does for the calendar heatmap.
+  root.setProperty('--locked-text', readableTextColor(t.danger));
+  root.setProperty('--accent', t.accent);
+  root.setProperty('--accent-text', t.accentText);
+  root.setProperty('--accent-soft', compositeHex(t.accent, t.surface, 0.12));
+  root.setProperty('--border', hexToRgba(t.text, 0.16));
+  root.setProperty('--border-soft', hexToRgba(t.text, 0.07));
+  // The nav and the mobile drawer live outside `.dash`, so dashboard.css's
+  // scoped light-mode overrides never applied to them and they kept
+  // styles.css's dark literals -- in light mode that left the wordmark
+  // (color: var(--text), now near-black) sitting on a near-black bar. These
+  // five repoint that chrome onto the resolved theme; styles.css still
+  // carries the old literals as the defaults, so index.html is unaffected.
+  root.setProperty('--surface', t.surface);          // mobile drawer fill
+  root.setProperty('--nav-bg', hexToRgba(t.bg, 0.86));
+  root.setProperty('--nav-bg-scrolled', hexToRgba(t.bg, 0.96));
+  root.setProperty('--nav-mark', t.textDim);         // brand glyph + toggle hover ring
+  root.setProperty('--wash', hexToRgba(t.text, 0.05));
 }
 
 /** Alpha-composites `hex` over `baseHex` at `alpha` (0..1) and returns the

@@ -27,10 +27,8 @@ import {
   MAX_LABEL_NAME_LENGTH,
 } from './focusStats.js';
 import { showMessage, describeWriteError } from './dashMessage.js';
+import { clear, swap } from './dom.js';
 
-function clear(el) {
-  while (el.firstChild) el.removeChild(el.firstChild);
-}
 
 // Module-scoped: only one recolor popover can be open at a time, and only
 // one add-label swatch selection is in progress at a time -- both are
@@ -220,15 +218,6 @@ function buildLabelRow(label, customLabels, els, ctx) {
   deleteBtn.textContent = 'Delete';
 
   confirm.append(confirmText, cancelBtn, deleteBtn);
-
-  function swap(hideEl, showEl) {
-    hideEl.hidden = true;
-    hideEl.classList.remove('is-in');
-    showEl.hidden = false;
-    showEl.classList.remove('is-in');
-    void showEl.offsetHeight;
-    showEl.classList.add('is-in');
-  }
 
   del.addEventListener('click', () => {
     swap(main, confirm);

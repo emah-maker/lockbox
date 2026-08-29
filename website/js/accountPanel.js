@@ -49,10 +49,8 @@ import { resolveTheme, ACCENT_NAMES, DEFAULT_ACCENT } from './theme.js';
 import { showMessage } from './dashMessage.js';
 import { friendlyErrorMessage, isIgnorableAuthError, logAuthError } from './authErrors.js';
 import { buildDeleteConfirm } from './accountDelete.js';
+import { clear } from './dom.js';
 
-function clear(el) {
-  while (el.firstChild) el.removeChild(el.firstChild);
-}
 
 // Module-scoped: only one destructive confirm (unlink or delete) can be open
 // at a time on this panel -- same singleton reasoning as labelsPanel.js's

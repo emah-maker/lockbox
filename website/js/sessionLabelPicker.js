@@ -21,10 +21,8 @@ import {
   deleteField,
 } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
 import { resolveTopic, allLabelChoices, TOPIC_KEYS } from './focusStats.js';
+import { clear } from './dom.js';
 
-function clear(el) {
-  while (el.firstChild) el.removeChild(el.firstChild);
-}
 
 /** True when `topic` is a raw one-time free-text tag -- typed via the app's
  * TopicPicker "Type a label for this session..." field -- rather than a

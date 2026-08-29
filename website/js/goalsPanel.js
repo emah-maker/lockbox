@@ -33,10 +33,7 @@ import { createGoal, updateGoal, archiveGoal, goalWindow, isGoalDueOn, MAX_GOALS
 import { resolveTopic, formatDuration } from './focusStats.js';
 import { showMessage } from './dashMessage.js';
 import { buildGoalForm } from './goalForm.js';
-
-function clear(el) {
-  while (el.firstChild) el.removeChild(el.firstChild);
-}
+import { clear, swap } from './dom.js';
 
 
 // Module-scoped: exactly one form (add OR edit) can be open at a time for
@@ -244,15 +241,6 @@ function buildGoalRow(goal, result, els, ctx) {
   deleteBtn.className = 'dash__labels-confirm-delete';
   deleteBtn.textContent = 'Delete';
   confirm.append(confirmText, cancelBtn, deleteBtn);
-
-  function swap(hideEl, showEl) {
-    hideEl.hidden = true;
-    hideEl.classList.remove('is-in');
-    showEl.hidden = false;
-    showEl.classList.remove('is-in');
-    void showEl.offsetHeight;
-    showEl.classList.add('is-in');
-  }
 
   del.addEventListener('click', () => {
     swap(main, confirm);

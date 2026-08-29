@@ -12,12 +12,10 @@
    session field stays immutable, enforced by the rules, not just by this
    file's own restraint. app/src/sync/sessionMerge.ts's last-write-wins merge
    (keyed on topicUpdatedAt) is what stops a relabel made here from being
-   silently clobbered -- or silently clobbering an in-app retag -- on the
-   next app sync.
+   silently clobbered -- or silently clobbering an in-app retag -- on the next app sync.
 
-   Gated: this page is for signed-in users only. Sign-in itself happens on
-   login.html (login.js) -- this file only checks auth state and redirects
-   there when signed out, rather than offering its own sign-in button.
+   Gated: this page is for signed-in users only. Sign-in happens on login.html
+   (login.js) -- this file only checks auth state and redirects there when signed out.
 
    Motion decision (2026-08-17 audit): this page deliberately carries no
    GSAP, unlike script.js's hero boot-in / override-tick pops. Per the
@@ -26,9 +24,9 @@
    marketing page; this is a data/utility surface a user returns to
    repeatedly, where a repeated overshoot beat would read as noise rather
    than delight. Its state changes already animate via the flat
-   .dash__fade / --ease / --ease-snap CSS transitions used elsewhere in this
-   file (showState, renderTrend, renderBreakdown) -- restraint here is a
-   deliberate call, not a gap left by drift.
+   .dash__fade / --ease / --ease-snap CSS transitions used across this page
+   (showState here, statsCards.js's renderTrend/renderBreakdown, etc.) --
+   restraint here is a deliberate call, not a gap left by drift.
    ========================================================================= */
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js';
 import {
@@ -49,38 +47,23 @@ import {
 } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
 import { loadFirebaseConfigOrNull } from './firebaseConfig.js';
 import { friendlyErrorMessage, isIgnorableAuthError, logAuthError } from './authErrors.js';
-import { resolveTheme, compositeHex, DEFAULT_THEME_MODE, DEFAULT_ACCENT } from './theme.js';
-import {
-  aggregate,
-  formatDuration,
-  completionRate,
-  dayKey,
-  groupByDay,
-  bestDay,
-  lastNDays,
-  topicBreakdownWithCustom,
-  dominantTopicWithCustom,
-  topComparisons,
-  formatComparison,
-  startOfMonth,
-  buildMonthGrid,
-  readableTextColor,
-} from './focusStats.js';
+import { resolveTheme, applyTheme, DEFAULT_THEME_MODE, DEFAULT_ACCENT } from './theme.js';
+import { aggregate, lastNDays, topicBreakdownWithCustom } from './focusStats.js';
 import { showMessage, describeWriteError } from './dashMessage.js';
-import { createLabelPicker } from './sessionLabelPicker.js';
 import { mountLabelsPanel, renderLabelsList } from './labelsPanel.js';
 import { mountGoalsPanel, renderGoalsList } from './goalsPanel.js';
 import { sanitizeRemoteGoals, computeGoalProgress, pruneArchivedGoals } from './goals.js';
 import { mountAccountPanel, renderAccountPanel } from './accountPanel.js';
+import { mountCalendarPanel, renderCalendar, resetCalendarView } from './calendarPanel.js';
+import { renderSessionsTable } from './sessionsTable.js';
+import { renderSummary, renderFacts, renderTrend, renderBreakdown } from './statsCards.js';
 
-const TOP_FACTS = 5;
 // Defensive cap, not a product window: the summary tiles/streak/calendar all
-// want true all-time data, so this reads newest-first and reverses back to
-// the oldest-first order aggregate()/renderAll() expect, rather than
-// windowing to "recent N days" and silently changing what "Total focus
-// time"/"Streak"/"Longest" mean. At a few sessions/day this is years of
-// history before it ever truncates anything; it only exists so one account's
-// history can't grow into an unbounded per-load Firestore read.
+// want true all-time data, so this reads newest-first and reverses back to the
+// oldest-first order aggregate()/renderAll() expect, rather than windowing to
+// "recent N days" and changing what "Total focus time"/"Streak"/"Longest"
+// mean. At a few sessions/day this is years of history before it ever
+// truncates anything; it exists only to bound one account's per-load read.
 const SESSIONS_QUERY_LIMIT = 2000;
 
 const els = {
@@ -246,85 +229,17 @@ function showState(name) {
   }
 }
 
-function clear(el) {
-  while (el.firstChild) el.removeChild(el.firstChild);
-}
-
 // ---------- Theme (mirrors the signed-in user's app themeMode + accent) ----------
 // Starts as the app's own SYNCABLE_SETTINGS_DEFAULTS (dark/mint) so the page
 // never flashes an unstyled/wrong-accent state before settings load.
 let theme = resolveTheme(DEFAULT_THEME_MODE, DEFAULT_ACCENT);
 let themeMode = DEFAULT_THEME_MODE;
 
-// Alpha-composites are the right tool for --accent-soft above (it always
-// paints over one known surface, the card), but a hairline border is drawn
-// against several different surfaces on this page (--card, --bg, --card-2 --
-// see dashboard.css's table rules, input outlines, and popover borders) and
-// pasting one opaque baked-in shade would go wrong wherever the actual
-// surface differs from the base color picked at the time. A real
-// translucent color sidesteps that: it stays correct against *any* surface
-// underneath it, the way CSS alpha compositing already works for free.
-function hexToRgba(hex, alpha) {
-  const n = parseInt(hex.slice(1), 16);
-  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
-}
+applyTheme(theme); // hexToRgba/applyTheme now live in theme.js -- see its header comment
 
-// Paints the resolved theme onto CSS custom properties (dashboard.css reads
-// these) rather than keeping color logic duplicated in both CSS and JS --
-// the calendar heatmap below is the one place that also needs the raw hex
-// values in JS (to alpha-composite per-cell).
-//
-// --border/--border-soft used to be left at styles.css's dark-only literals
-// (white at 16%/7%), which is invisible once the page goes light. They're
-// derived from t.text instead of a second pair of literals so they flip
-// automatically with the mode: t.text is white in dark mode (reproducing
-// the old literals exactly) and near-black in light mode, giving a dark
-// hairline on a light surface instead of a white one nobody can see.
-function applyTheme(t) {
-  const root = document.documentElement.style;
-  root.setProperty('--bg', t.bg);
-  root.setProperty('--bg-2', t.bg);
-  root.setProperty('--card', t.surface);
-  root.setProperty('--card-2', t.surface);
-  root.setProperty('--text', t.text);
-  root.setProperty('--text-2', t.textDim);
-  root.setProperty('--text-3', t.textDim);
-  root.setProperty('--unlocked', t.accent);
-  root.setProperty('--unlocked-2', t.accent);
-  root.setProperty('--locked', t.danger);
-  root.setProperty('--locked-2', t.danger);
-  root.setProperty('--closed', t.warn);
-  // Unlike --accent-text (an authored per-accent pairing, see theme.js's
-  // ACCENTS table), --locked has no such hand-picked partner -- dashboard.css
-  // used to just hardcode `color: #fff` on top of it. That happens to clear
-  // WCAG AA against the light-mode danger red (#dc2626, 4.83:1) but fails it
-  // against the dark-mode one (#ef4444, 3.76:1) -- measured via
-  // focusStats.js's own contrast math. readableTextColor picks the higher-
-  // contrast of black/white for whichever danger red the resolved theme
-  // actually has, the same way it already does for the calendar heatmap.
-  root.setProperty('--locked-text', readableTextColor(t.danger));
-  root.setProperty('--accent', t.accent);
-  root.setProperty('--accent-text', t.accentText);
-  root.setProperty('--accent-soft', compositeHex(t.accent, t.surface, 0.12));
-  root.setProperty('--border', hexToRgba(t.text, 0.16));
-  root.setProperty('--border-soft', hexToRgba(t.text, 0.07));
-  // The nav and the mobile drawer live outside `.dash`, so dashboard.css's
-  // scoped light-mode overrides never applied to them and they kept
-  // styles.css's dark literals -- in light mode that left the wordmark
-  // (color: var(--text), now near-black) sitting on a near-black bar. These
-  // five repoint that chrome onto the resolved theme; styles.css still
-  // carries the old literals as the defaults, so index.html is unaffected.
-  root.setProperty('--surface', t.surface);          // mobile drawer fill
-  root.setProperty('--nav-bg', hexToRgba(t.bg, 0.86));
-  root.setProperty('--nav-bg-scrolled', hexToRgba(t.bg, 0.96));
-  root.setProperty('--nav-mark', t.textDim);         // brand glyph + toggle hover ring
-  root.setProperty('--wash', hexToRgba(t.text, 0.05));
-}
-applyTheme(theme);
-
-// ---------- Calendar state (month cursor + selected day) ----------
-let calCursor = startOfMonth(new Date());
-let calSelectedKey = dayKey(Date.now());
+// ---------- Calendar/sessions state (fed to calendarPanel.js/sessionsTable.js) ----------
+// The month cursor/selected day moved into calendarPanel.js, which owns them
+// privately -- dashboard.js only ever resets them via resetCalendarView (renderAll below).
 let calSessions = [];
 let calCustomLabels = [];
 
@@ -340,286 +255,6 @@ let calCustomLabels = [];
 // computeGoalProgress already does for progress.
 let calGoals = [];
 let goalsProgress = [];
-
-function renderCalendar() {
-  const byDay = groupByDay(calSessions);
-  const grid = buildMonthGrid(calCursor);
-  const todayKey = dayKey(Date.now());
-  const maxFocus = Math.max(1, ...Array.from(byDay.values()).map((list) => list.reduce((sum, s) => sum + s.actualS, 0)));
-
-  els.calMonthLabel.textContent = calCursor.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
-  clear(els.calGrid);
-
-  for (const date of grid) {
-    const cell = document.createElement('div');
-    if (!date) {
-      els.calGrid.appendChild(cell);
-      continue;
-    }
-    const key = dayKey(date.getTime());
-    const daySessions = byDay.get(key) || [];
-    const focusS = daySessions.reduce((sum, s) => sum + s.actualS, 0);
-    const dominant = dominantTopicWithCustom(daySessions, calCustomLabels, themeMode);
-
-    cell.className = 'dash__cal-cell';
-    if (key === calSelectedKey) cell.classList.add('dash__cal-cell--selected');
-    if (key === todayKey) cell.classList.add('dash__cal-cell--today');
-    if (focusS > 0) cell.classList.add('dash__cal-cell--focus');
-
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'dash__cal-daynum';
-    btn.textContent = String(date.getDate());
-    btn.setAttribute('aria-pressed', String(key === calSelectedKey));
-    if (key === todayKey) btn.setAttribute('aria-current', 'date');
-    const fullDate = date.toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' });
-    btn.setAttribute('aria-label', focusS > 0 ? `${fullDate}, ${formatDuration(focusS)} focused` : fullDate);
-    if (focusS > 0) {
-      // Mirrors the app's CalendarScreen exactly: the cell fills with the
-      // user's own accent color at an intensity scaled to that day's focus
-      // time (app: withAlpha(c.accent, intensity)). Pre-composited against
-      // the card surface (rather than a real alpha channel) so the text
-      // color below can be picked by measured contrast at this exact
-      // resulting shade, instead of assuming the app's fixed accentText
-      // clears 4.5:1 at every intensity/accent/mode combination.
-      const intensity = 0.25 + 0.75 * Math.min(1, focusS / maxFocus);
-      const fill = compositeHex(theme.accent, theme.surface, intensity);
-      btn.style.background = fill;
-      btn.style.color = readableTextColor(fill);
-    }
-    btn.addEventListener('click', () => {
-      calSelectedKey = key;
-      renderCalendar();
-    });
-    cell.appendChild(btn);
-
-    if (dominant) {
-      const dot = document.createElement('span');
-      dot.className = 'dash__cal-dot';
-      dot.style.background = dominant.color;
-      cell.appendChild(dot);
-    }
-    els.calGrid.appendChild(cell);
-  }
-
-  renderCalDayList(byDay.get(calSelectedKey) || []);
-}
-
-function renderCalDayList(daySessions) {
-  els.calDayTitle.textContent = new Date(calSelectedKey).toLocaleDateString(undefined, {
-    weekday: 'long',
-    month: 'short',
-    day: 'numeric',
-  });
-  clear(els.calDayList);
-  if (daySessions.length === 0) {
-    const li = document.createElement('li');
-    li.className = 'dash__cal-empty';
-    li.textContent = 'No focus sessions logged this day.';
-    els.calDayList.appendChild(li);
-    return;
-  }
-  for (const s of daySessions.slice().sort((a, b) => a.startedAt - b.startedAt)) {
-    const li = document.createElement('li');
-    li.dataset.sessionId = s.id;
-    const time = document.createElement('span');
-    time.textContent = new Date(s.startedAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
-    const dur = document.createElement('span');
-    dur.textContent = formatDuration(s.actualS);
-    const label = createLabelPicker(s, labelPickerCtx());
-    const outcome = document.createElement('span');
-    outcome.textContent = s.outcome === 'completed' ? 'Completed' : 'Ended early';
-    li.append(time, dur, label, outcome);
-    els.calDayList.appendChild(li);
-  }
-}
-
-els.calPrev.addEventListener('click', () => {
-  calCursor = new Date(calCursor.getFullYear(), calCursor.getMonth() - 1, 1);
-  renderCalendar();
-});
-els.calNext.addEventListener('click', () => {
-  calCursor = new Date(calCursor.getFullYear(), calCursor.getMonth() + 1, 1);
-  renderCalendar();
-});
-
-// ---------- Summary card ----------
-// Mirrors StatsScreen.tsx's single "Total focus time" card exactly (big
-// accent total + sub-copy + a borderless Completed/Streak/Longest row)
-// rather than five separately-boxed tiles.
-function renderSummary(stats) {
-  els.summaryTotal.textContent = formatDuration(stats.foc);
-  els.summarySub.textContent = `across ${stats.n} session${stats.n === 1 ? '' : 's'}`;
-  clear(els.miniRow);
-  const minis = [
-    ['Completed', `${completionRate(stats)}%`],
-    ['Streak', String(stats.str)],
-    ['Longest', formatDuration(stats.lng)],
-  ];
-  for (const [label, value] of minis) {
-    const stat = document.createElement('div');
-    stat.className = 'dash__mini-stat';
-    const v = document.createElement('div');
-    v.className = 'dash__mini-value';
-    v.textContent = value;
-    const l = document.createElement('div');
-    l.className = 'dash__mini-label';
-    l.textContent = label;
-    stat.append(v, l);
-    els.miniRow.appendChild(stat);
-  }
-}
-
-// ---------- Fun facts ----------
-// Feather-style icon outlines (award/zap), matching the app's StatsScreen use
-// of @expo/vector-icons' Feather set for this same card, rather than inventing
-// a different icon language for the same content on the website.
-const ICON_AWARD = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="7"/><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/></svg>';
-const ICON_ZAP = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>';
-
-function renderFacts(sessions, totalFocusS) {
-  clear(els.facts);
-  if (totalFocusS <= 0) {
-    const p = document.createElement('p');
-    p.className = 'dash__facts-empty';
-    p.textContent = 'Finish a focus session to see how it stacks up.';
-    els.facts.appendChild(p);
-    return;
-  }
-  const best = bestDay(sessions);
-  if (best) {
-    const banner = document.createElement('div');
-    banner.className = 'dash__best-day';
-    const dateStr = new Date(best.dateMs).toLocaleDateString(undefined, {
-      weekday: 'short', month: 'short', day: 'numeric',
-    });
-    banner.innerHTML = `${ICON_AWARD}<span>Your best day was ${dateStr} -- ${formatDuration(best.focusS)} focused.</span>`;
-    els.facts.appendChild(banner);
-  }
-  for (const cmp of topComparisons(totalFocusS).slice(0, TOP_FACTS)) {
-    const row = document.createElement('div');
-    row.className = 'dash__fact-row';
-    row.innerHTML = `${ICON_ZAP}<span>${formatComparison(cmp)}</span>`;
-    els.facts.appendChild(row);
-  }
-}
-
-// ---------- 7-day trend ----------
-function renderTrend(trend) {
-  clear(els.trend);
-  const max = Math.max(1, ...trend.map((d) => d.focusS));
-  for (const d of trend) {
-    const col = document.createElement('div');
-    col.className = 'dash__trend-day';
-    const track = document.createElement('div');
-    track.className = 'dash__trend-track';
-    const bar = document.createElement('div');
-    bar.className = 'dash__trend-bar';
-    const h = Math.max(4, Math.round((d.focusS / max) * 100));
-    // Scale a full-height bar instead of animating `height` -- see styles.css
-    // .dash__trend-bar comment for why (layout-thrash / craft-floor finding).
-    bar.style.setProperty('--h', h / 100);
-    bar.title = formatDuration(d.focusS);
-    track.appendChild(bar);
-    const label = document.createElement('div');
-    label.className = 'dash__trend-label';
-    label.textContent = d.label;
-    col.append(track, label);
-    els.trend.appendChild(col);
-  }
-}
-
-// ---------- Label breakdown ----------
-function renderBreakdown(topics) {
-  clear(els.breakdown);
-  if (topics.length === 0) {
-    const p = document.createElement('p');
-    p.className = 'dash__facts-empty';
-    p.textContent = 'No labeled sessions yet -- tag a session from the Phone Box app to see the split here.';
-    els.breakdown.appendChild(p);
-    return;
-  }
-  const max = Math.max(1, ...topics.map((t) => t.focusS));
-  for (const t of topics) {
-    const row = document.createElement('div');
-    row.className = 'dash__breakdown-row';
-    const swatch = document.createElement('span');
-    swatch.className = 'dash__breakdown-swatch';
-    swatch.style.background = t.color;
-    const meta = document.createElement('div');
-    meta.className = 'dash__breakdown-meta';
-    const name = document.createElement('span');
-    name.className = 'dash__breakdown-name';
-    name.textContent = t.label;
-    const value = document.createElement('span');
-    value.className = 'dash__breakdown-value';
-    value.textContent = `${formatDuration(t.focusS)} · ${t.n} session${t.n === 1 ? '' : 's'}`;
-    meta.append(name, value);
-    const track = document.createElement('div');
-    track.className = 'dash__breakdown-track';
-    // Tinted with this row's own topic color (not the page accent) so each
-    // track/fill pair reads as one color family, the same way the trend
-    // bars' track is a tint of the one accent color they use throughout.
-    track.style.background = compositeHex(t.color, theme.surface, 0.15);
-    const fill = document.createElement('div');
-    fill.className = 'dash__breakdown-fill';
-    // Scale via transform, not `width` -- same convention (and reason) as
-    // .dash__trend-bar just above: transform/opacity skip layout on change.
-    fill.style.setProperty('--w', Math.max(0.04, t.focusS / max));
-    fill.style.background = t.color;
-    track.appendChild(fill);
-    row.append(swatch, meta, track);
-    els.breakdown.appendChild(row);
-  }
-}
-
-// ---------- Recent sessions table ----------
-const RECENT_LIMIT = 25;
-function renderSessionsTable(sessions) {
-  clear(els.sessionsBody);
-  const recent = sessions.slice().sort((a, b) => b.startedAt - a.startedAt).slice(0, RECENT_LIMIT);
-  // Every other data panel (breakdown, facts, labels list, goals list, the
-  // calendar's day list) has its own "nothing here yet" message -- this table
-  // didn't, so a brand-new account saw a header row sitting over a blank
-  // body with no explanation, indistinguishable from a render that silently
-  // failed. dashEmptyHint (rendered above the fold) already covers the
-  // account-wide empty state, but this card is far enough down the page that
-  // its own empty row still matters.
-  if (recent.length === 0) {
-    const tr = document.createElement('tr');
-    const td = document.createElement('td');
-    td.colSpan = 5;
-    td.className = 'dash__cal-empty';
-    td.textContent = 'No sessions yet.';
-    tr.appendChild(td);
-    els.sessionsBody.appendChild(tr);
-    return;
-  }
-  for (const s of recent) {
-    const tr = document.createElement('tr');
-    tr.dataset.sessionId = s.id;
-
-    const date = document.createElement('td');
-    date.textContent = new Date(s.startedAt).toLocaleString(undefined, {
-      month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
-    });
-
-    const label = document.createElement('td');
-    label.appendChild(createLabelPicker(s, labelPickerCtx()));
-
-    const planned = document.createElement('td');
-    planned.textContent = formatDuration(s.plannedS);
-    const actual = document.createElement('td');
-    actual.textContent = formatDuration(s.actualS);
-
-    const outcome = document.createElement('td');
-    outcome.textContent = s.outcome === 'completed' ? 'Completed' : 'Ended early';
-    outcome.className = s.outcome === 'completed' ? 'dash__outcome--completed' : 'dash__outcome--overridden';
-
-    tr.append(date, label, planned, actual, outcome);
-    els.sessionsBody.appendChild(tr);
-  }
-}
 
 /** Re-renders every data view from the current (sessions, customLabels,
  * goals) state, without touching the calendar's month cursor/selected day --
@@ -637,30 +272,28 @@ function renderDataViews(sessions, customLabels, goals = calGoals) {
   const trend = lastNDays(sessions);
   const topics = topicBreakdownWithCustom(sessions, customLabels, themeMode);
 
-  // These three must be assigned BEFORE any render below, not after. They are
-  // not just a cache for renderCalendar: renderSessionsTable ->
-  // createLabelPicker(s, labelPickerCtx()) reads `calCustomLabels` through
-  // labelPickerCtx(), which closes over this module-level binding rather than
-  // taking the `customLabels` argument. When these sat after the render calls,
-  // the FIRST load rendered the sessions table while calCustomLabels was still
-  // its initial [], so resolveTopic() missed every `custom:`-prefixed id and
-  // each custom-labelled row fell through to "Untagged". It self-healed on any
-  // later renderDataViews (a relabel, a labels-panel write), which is why it
-  // read as cosmetic rather than a bug. The calendar's own day list uses the
-  // same ctx but renders after renderCalendar() below, so on one load the same
-  // session showed "Admin" in the day list and "Untagged" in the table.
+  // These three must be assigned BEFORE any render below, not after. Every
+  // renderX call below that reaches for a relabel picker does so via
+  // labelPickerCtx() (passed as ctx.labelPickerCtx to sessionsTable.js/
+  // calendarPanel.js), which closes over this module-level `calCustomLabels`
+  // rather than taking the `customLabels` argument. When these sat after the
+  // render calls, the FIRST load rendered the sessions table while
+  // calCustomLabels was still its initial [], so resolveTopic() missed every
+  // `custom:`-prefixed id and each custom-labelled row fell through to
+  // "Untagged" -- self-healing on the next renderDataViews, which is why it
+  // read as cosmetic rather than a bug. Keep this assignment order.
   calSessions = sessions;
   calCustomLabels = customLabels;
   calGoals = goals;
 
-  renderSummary(stats);
+  renderSummary(stats, els);
   els.miniRow.hidden = stats.n === 0;
   els.emptyHint.hidden = stats.n > 0;
   els.factsCard.hidden = false;
-  renderFacts(sessions, stats.foc);
-  renderTrend(trend);
-  renderBreakdown(topics);
-  renderSessionsTable(sessions);
+  renderFacts(sessions, stats.foc, els);
+  renderTrend(trend, els);
+  renderBreakdown(topics, theme, els);
+  renderSessionsTable(sessions, els, { labelPickerCtx });
   renderLabelsList(customLabels, els, labelsCtx);
   // Computed once here and passed into the panel, rather than letting
   // goalsPanel.js call computeGoalProgress itself -- both would read their
@@ -669,19 +302,13 @@ function renderDataViews(sessions, customLabels, goals = calGoals) {
   // window and its "Week of ..." caption against the next.
   goalsProgress = computeGoalProgress(goals, sessions);
   renderGoalsList(goals, goalsProgress, els, goalsCtx);
-  renderCalendar();
+  renderCalendar(sessions, customLabels, els, { theme, themeMode, labelPickerCtx });
 }
 
 function renderAll(sessions, customLabels, goals = []) {
-  calCursor = startOfMonth(new Date());
-  calSelectedKey = dayKey(Date.now());
+  resetCalendarView();
   renderDataViews(sessions, customLabels, goals);
 }
-
-// ---------- Per-session relabel picker ----------
-// Ownership moved to sessionLabelPicker.js (imported above) -- see that
-// file's header comment. dashboard.js keeps only the two call sites
-// (renderCalDayList, renderSessionsTable, both above) plus labelPickerCtx().
 
 // ---------- Focus goals persistence ----------
 // Called only from goalsPanel.js, via goalsCtx.writeGoals above -- the panel
@@ -690,8 +317,7 @@ function renderAll(sessions, customLabels, goals = []) {
 // into the panel alongside labelsPanel.js's own writeCustomLabels) so
 // dashboard.js remains the single module that touches Firestore for this doc.
 // Re-throws after surfacing the banner so the panel can tell a failed write
-// from a successful one (it restores its open form and re-enables its
-// buttons on failure).
+// from a successful one (it restores its open form and re-enables its buttons).
 /** Writes the full goals array to users/{uid}/goals/config. Unlike
  * labelsPanel.js's writeCustomLabels, this doc has no *other* fields to
  * resend -- `{ goals, updatedAt }` is its entire shape (contract §1) -- so
@@ -702,10 +328,9 @@ function renderAll(sessions, customLabels, goals = []) {
  * mirrors). `updatedAt` is stamped as a client logical clock via Date.now(),
  * exactly like writeCustomLabels/localSettingsPayload() do -- never
  * serverTimestamp(), so it stays comparable against the app's own goals doc
- * clock. Tombstones are
- * pruned right before the write lands (see goals.js's pruneArchivedGoals),
- * not on every read, so a fresh tombstone still gets its full propagation
- * window before it can be dropped by whichever side happens to write next. */
+ * clock. Tombstones are pruned right before the write lands (see goals.js's
+ * pruneArchivedGoals), not on every read, so a fresh tombstone still gets a
+ * full propagation window before it can be dropped by whichever side writes next. */
 async function writeGoals(next) {
   const pruned = pruneArchivedGoals(next, Date.now());
   try {
@@ -719,11 +344,6 @@ async function writeGoals(next) {
   }
   renderDataViews(calSessions, calCustomLabels, pruned);
 }
-
-// ---------- Manage labels panel ----------
-// Ownership moved to labelsPanel.js (imported above) -- see that file's
-// header comment. dashboard.js keeps only labelsCtx (above) and the
-// mountLabelsPanel(...) one-time wiring call in init() below.
 
 // ---------- Firebase wiring ----------
 function showError(err) {
@@ -836,6 +456,7 @@ async function init() {
   mountLabelsPanel(els, labelsCtx);
   mountGoalsPanel();
   mountAccountPanel();
+  mountCalendarPanel(els);
 
   // Fetched from Firebase Hosting rather than bundled -- see firebaseConfig.js.
   const firebaseConfig = await loadFirebaseConfigOrNull();
