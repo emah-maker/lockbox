@@ -176,10 +176,9 @@ def lerp_color(c0, c1, t):
 BAT_GAUGE_ADDR = 0x36        # MAX17043 I2C address (fixed in silicon)
 BAT_CAPACITY_MAH = 5000      # battery pack size (set to your cell) -- watt estimate only
 
-# Backlight brightness (0.0-1.0). On battery -> dimmer to save power; on USB ->
-# brighter since power isn't a concern.
+# Backlight brightness (0.0-1.0), the default level applied at startup
+# (lock_power.Backlight) before the user's own bright_pct setting takes over.
 BL_LEVEL = 0.5
-BL_LEVEL_USB = 1.0
 
 # ----- Servo lock actuator (external hobby servo on a free GPIO) -----
 # Any free GPIO works for PWM. Avoid strapping pins (GPIO0/3/45/46) and pins

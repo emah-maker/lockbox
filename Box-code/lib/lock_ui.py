@@ -1737,10 +1737,6 @@ class LockUI:
                 return i
         return None
 
-    def tag_picker_topic_at(self, y):
-        row = self.tag_picker_row_at(y)
-        return self._tp_ids[row] if row is not None else None
-
     def tag_picker_topic_for_row(self, row_idx):
         if row_idx is None or row_idx >= len(self._tp_ids):
             return None

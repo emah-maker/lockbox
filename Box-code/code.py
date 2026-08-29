@@ -12,8 +12,7 @@ from lock_ui import LockUI
 from lock_power import Backlight
 from lock_controller import LockController
 from lock_ble import PhoneBoxBLE
-from lock_config import (INACTIVITY_S, BL_LEVEL, BL_LEVEL_USB,
-                         BTN_LOCK_PIN, BTN_OVERRIDE_PIN,
+from lock_config import (BTN_LOCK_PIN, BTN_OVERRIDE_PIN,
                          CPU_FAST, CPU_SLOW, BROWNOUT_CLEAR_AFTER_S)
 
 # ----- Display + UI -----

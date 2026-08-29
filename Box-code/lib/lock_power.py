@@ -37,10 +37,6 @@ class Backlight:
     def is_on(self):
         return self._on
 
-    @property
-    def supported(self):
-        return self._supported
-
     def on(self):
         if self._supported and not self._on:
             self._set(self._level)

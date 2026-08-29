@@ -33,7 +33,6 @@
 # LockController.apply_ble_command -> lock_log.SessionLog.ack). A fresh
 # connection always forces a resend of whatever is still pending, in case the
 # previous connection dropped before the app ever saw the original notify.
-import time
 
 try:
     from adafruit_ble import BLERadio
@@ -48,13 +47,12 @@ except ImportError:
 
 from lock_config import (
     BLE_ENABLED, BLE_NAME, BLE_ADV_INTERVAL, BLE_ADV_WHEN_LOCKED,
-    BLE_ADV_REASSERT_S, BLE_CMD_MIN_INTERVAL, BLE_CALL_ALERT_S,
+    BLE_ADV_REASSERT_S, BLE_CMD_MIN_INTERVAL,
     BLE_SERVICE_UUID, BLE_UUID_STATUS, BLE_UUID_HISTORY, BLE_UUID_COMMAND,
     BLE_UUID_SETTINGS, BLE_UUID_TIME, BLE_UUID_ALERT, BLE_UUID_LABELS,
     BLE_UUID_PENDING_TOPIC,
 )
 
-_FW = "1.0"
 _LOCKED_STATES = ("running", "closed")
 
 
