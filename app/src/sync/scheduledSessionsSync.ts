@@ -208,20 +208,23 @@ async function commitBatched(uid: string, plans: ScheduledSession[], removeIds: 
 
 /**
  * Incremental push after a local mutation -- called from
- * scheduledSessionsSyncBridge.ts. No-op while signed out (the plans stay
- * local, and the next sign-in's full sync uploads them).
+ * scheduledSessionsSyncBridge.ts with exactly the plans that changed.
+ * No-op while signed out (the plans stay local, and the next sign-in's full
+ * sync uploads them).
  *
- * Pushes the WHOLE local set rather than a diff. It is capped at
- * MAX_SCHEDULED_SESSIONS and realistically holds a handful of rows, so a
- * diff would be more code and more state for no measurable saving -- and
- * every write is an idempotent set() at a deterministic id, so a redundant
- * one changes nothing.
+ * Takes a list rather than reading the whole local set, and that is a
+ * correctness requirement, not an optimization. toRemote writes
+ * `notifiedAt: null` -- deliberately, since a client write is what re-arms an
+ * EDITED plan -- so a write is not idempotent against a document the reminder
+ * job has already marked as sent. Rewriting the whole set on every mutation
+ * therefore re-armed every other plan in it, and the backend delivered their
+ * reminders a second time (anything still inside its grace window and not
+ * ticked done). Only what the user actually touched should be re-armed.
  */
-export async function pushScheduledSessions(): Promise<void> {
+export async function pushScheduledSessions(plans: ScheduledSession[]): Promise<void> {
   const uid = currentUid();
   if (!uid) return;
-  const state = useScheduleStore.getState();
-  await commitBatched(uid, state.scheduled, Object.keys(state.deletedIds));
+  await commitBatched(uid, plans, Object.keys(useScheduleStore.getState().deletedIds));
 }
 
 /**

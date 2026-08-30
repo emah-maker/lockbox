@@ -73,6 +73,21 @@ interface ScheduleState {
    * copy of a deleted plan and to retry the remote delete. See this file's
    * header for why a plain removal isn't enough. */
   deletedIds: Record<string, number>;
+  /**
+   * Counts LOCAL mutations only -- add/edit/remove/setDone. Not hydration,
+   * not a remote merge being applied, not a reminder resync.
+   *
+   * Exists because sync/scheduledSessionsSyncBridge.ts cannot tell those
+   * apart from the plan array alone, and the difference is not cosmetic. Its
+   * push rewrites whole documents including `notifiedAt: null`, the field the
+   * REMINDER JOB writes to record that it has already sent a reminder
+   * (functions/src/index.ts). Rewriting an unchanged plan therefore re-arms
+   * it: the reminder that fired at 08:50 was pushed a second time because the
+   * app was opened at 08:55 and hydration looked like a change. A remote
+   * merge echoed the same way, pushing back the very documents it had just
+   * pulled and clearing the mark on each.
+   */
+  localWrites: number;
 
   hydrate: () => Promise<void>;
   addScheduledSession: (input: ScheduledSessionInput) => void;
@@ -106,6 +121,12 @@ function persist(
   set: (partial: Partial<ScheduleState>) => void,
   items: ScheduledSession[],
   deletedIds: Record<string, number>,
+  /** 'local' = the user changed something here and it should be mirrored to
+   * Firestore. 'internal' = anything else that rewrites the array without
+   * being an edit: a remote merge landing, an account wipe. See
+   * ScheduleState.localWrites. */
+  source: 'local' | 'internal',
+  localWrites: number,
 ): void {
   const nowMs = Date.now();
   const pruned = pruneScheduledSessions(items, nowMs);
@@ -113,7 +134,12 @@ function persist(
   // `hydrated` here is not bookkeeping -- it is what stops hydrate() from
   // undoing this write; see hydrate()'s own comment, and useGoalsStore's
   // matching pair.
-  set({ hydrated: true, scheduled: pruned, deletedIds: tombstones });
+  set({
+    hydrated: true,
+    scheduled: pruned,
+    deletedIds: tombstones,
+    localWrites: source === 'local' ? localWrites + 1 : localWrites,
+  });
   setJSON(SCHEDULE_KEY, pruned);
   setJSON(DELETED_KEY, tombstones);
   // The coverage report is chained off the reconcile rather than fired
@@ -139,6 +165,7 @@ export const useScheduleStore = create<ScheduleState>((set, get) => ({
   hydrated: false,
   scheduled: [],
   deletedIds: {},
+  localWrites: 0,
 
   hydrate: async () => {
     if (get().hydrated) return;
@@ -168,11 +195,11 @@ export const useScheduleStore = create<ScheduleState>((set, get) => ({
   },
 
   addScheduledSession: (input) => {
-    persist(set, createIn(get().scheduled, input), get().deletedIds);
+    persist(set, createIn(get().scheduled, input), get().deletedIds, 'local', get().localWrites);
   },
 
   editScheduledSession: (id, input) => {
-    persist(set, updateIn(get().scheduled, id, input), get().deletedIds);
+    persist(set, updateIn(get().scheduled, id, input), get().deletedIds, 'local', get().localWrites);
   },
 
   removeScheduledSession: (id) => {
@@ -180,15 +207,18 @@ export const useScheduleStore = create<ScheduleState>((set, get) => ({
     // deleteIn no-ops on an unknown id, but a plan this device has already
     // pruned may still exist remotely, and suppressing it is exactly what
     // the tombstone is for.
-    persist(set, deleteIn(get().scheduled, id), { ...get().deletedIds, [id]: Date.now() });
+    persist(set, deleteIn(get().scheduled, id), { ...get().deletedIds, [id]: Date.now() }, 'local', get().localWrites);
   },
 
   setDone: (id, done) => {
-    persist(set, setDoneIn(get().scheduled, id, done), get().deletedIds);
+    persist(set, setDoneIn(get().scheduled, id, done), get().deletedIds, 'local', get().localWrites);
   },
 
   applyRemoteScheduledSessions: (plans) => {
-    persist(set, plans, get().deletedIds);
+    // 'internal': the sync that produced `plans` has already reconciled both
+    // sides and pushed whatever the server was missing. Counting this as a
+    // local write would send it all straight back -- see localWrites.
+    persist(set, plans, get().deletedIds, 'internal', get().localWrites);
   },
 
   resyncReminders: () => {
@@ -200,7 +230,11 @@ export const useScheduleStore = create<ScheduleState>((set, get) => ({
     // coming back from Firestore, and after a sign-out there is no such
     // account to suppress -- carrying them into the next account would mean
     // silently swallowing a plan of theirs that happened to share an id.
-    persist(set, [], {});
+    // 'internal': a wipe is not an edit to propagate. The account this data
+    // belonged to is being left behind (sync/localDataOwner.ts), and pushing
+    // on the way out is the exact shape of the sign-out bug that file exists
+    // to prevent.
+    persist(set, [], {}, 'internal', get().localWrites);
   },
 }));
 

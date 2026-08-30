@@ -25,6 +25,10 @@ import type { ScheduledSession } from '../schedule/scheduledSessions';
 
 let started = false;
 
+/** Plan ids whose push failed and have not landed since -- carried into the
+ * next push. In-memory only: a cold start re-syncs everything anyway. */
+const unpushed = new Set<string>();
+
 /** Ids present in `a` but not in `b` -- the plans deleted by this mutation,
  * which get their remote document removed immediately rather than waiting
  * for the next full sync. The store's own tombstone is what guarantees the
@@ -33,6 +37,20 @@ let started = false;
 function removedIds(a: ScheduledSession[], b: ScheduledSession[]): string[] {
   const after = new Set(b.map((p) => p.id));
   return a.filter((p) => !after.has(p.id)).map((p) => p.id);
+}
+
+/** The plans that are new in `b`, whose content differs from their copy in
+ * `a`, or that a previous push left outstanding. Compared by value rather
+ * than by `updatedAt` alone: a write that changes a field without advancing
+ * the clock is a bug elsewhere, but it should still reach Firestore rather
+ * than being silently dropped here. */
+function changedPlans(
+  a: ScheduledSession[],
+  b: ScheduledSession[],
+  outstanding: Set<string>,
+): ScheduledSession[] {
+  const before = new Map(a.map((p) => [p.id, JSON.stringify(p)]));
+  return b.filter((p) => outstanding.has(p.id) || before.get(p.id) !== JSON.stringify(p));
 }
 
 function signedIn(): boolean {
@@ -49,6 +67,7 @@ export function startScheduledSessionsSyncBridge(): void {
   started = true;
 
   let prev = useScheduleStore.getState().scheduled;
+  let prevWrites = useScheduleStore.getState().localWrites;
   useScheduleStore.subscribe((state) => {
     const next = state.scheduled;
     // Reference compare only: the store replaces this array on every write
@@ -57,10 +76,38 @@ export function startScheduledSessionsSyncBridge(): void {
     // goalNotificationWatch.ts's own session subscription documents.
     if (next === prev) return;
     const gone = removedIds(prev, next);
+    const before = prev;
     prev = next;
+
+    // Only a real edit is mirrored. Hydration, a remote merge landing, and an
+    // account wipe all replace this array without anything having been
+    // changed HERE, and pushing on those is not merely redundant: the push
+    // rewrites whole documents including `notifiedAt: null`, which un-marks
+    // any reminder the backend has already sent and gets it delivered again
+    // (functions/src/index.ts). Opening the app five minutes after a reminder
+    // arrived was enough to receive it twice.
+    const writes = state.localWrites;
+    if (writes === prevWrites) return;
+    prevWrites = writes;
+
     if (!signedIn()) return; // local-only while signed out; the next sign-in's full sync catches up
     for (const id of gone) void deleteRemoteScheduledSession(id);
-    pushScheduledSessions().catch(() => {}); // best-effort; the next full sync catches up
+    // And only the plans that actually differ, for the same reason: editing
+    // ONE plan used to rewrite all of them, re-arming every already-sent
+    // reminder in the set. Plus anything a previous push failed to deliver:
+    // pushing the whole set used to make every mutation an implicit retry of
+    // the last failed one, and a plan created offline would otherwise sit
+    // local-only until the next sign-in's full sync.
+    const changed = changedPlans(before, next, unpushed);
+    if (changed.length === 0) return;
+    const attempted = changed.map((p) => p.id);
+    for (const id of attempted) unpushed.delete(id);
+    pushScheduledSessions(changed).catch(() => {
+      // Best-effort, but remembered: offline, or a denied write. The next
+      // local mutation carries these along, and the next full sync catches
+      // whatever is still outstanding after that.
+      for (const id of attempted) unpushed.add(id);
+    });
   });
 
   // Registration attempt 1: now. Covers the ordinary warm start, where the
