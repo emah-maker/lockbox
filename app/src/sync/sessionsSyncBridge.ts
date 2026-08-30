@@ -8,7 +8,7 @@
 // awareness of sync/auth. See
 // docs/rfcs/google-signin-cross-device-sync-architecture.md §4.3.
 import { useStore } from '../store/useStore';
-import { pushNewSessions, pushSessionRetag } from './firestoreSync';
+import { pushNewSessions, pushSessionRetag } from './sessionsSync';
 import type { LoggedSession } from '../stats/sessionHistory';
 
 let started = false;

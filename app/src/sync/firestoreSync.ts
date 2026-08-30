@@ -2,49 +2,48 @@
 // local storage and Firestore. See
 // docs/rfcs/google-signin-cross-device-sync-architecture.md §4.
 //
+// SCOPE. This file owns the sign-in orchestration (runMigrationAndSync), the
+// sign-out race guard every inbound write goes through (makeSyncGuard), the
+// two last-write-wins merges -- settings and goals -- and account deletion.
+// Session history lives in sessionsSync.ts, and the handful of things both
+// need in syncCommon.ts.
+//
+// That split is along a seam these two halves already had, not a line count:
+// session history reconciles by DETERMINISTIC DOCUMENT ID and is purely
+// additive, so it has no document clock to compare and can never lose a
+// write, whereas settings and goals are last-write-wins on a store clock and
+// are entirely about which side wins. Nothing here reads a session; nothing
+// there reads a settings or goals clock.
+//
 // Every Firestore path here is built from the *signed-in* user's own uid
-// (requireUid below asserts this) -- never a client-supplied uid parameter
-// (design doc §5 checklist item 15).
+// (syncCommon's requireUid asserts this) -- never a client-supplied uid
+// parameter (design doc §5 checklist item 15).
 import {
   doc,
   getDoc,
   setDoc,
-  updateDoc,
-  deleteField,
   deleteDoc,
   collection,
   getDocs,
-  query,
-  orderBy,
   writeBatch,
   serverTimestamp,
 } from 'firebase/firestore';
 import { getDb, getFirebaseAuth } from '../auth/firebase';
-import { loadSessions, replaceSessions, clearSessions, MIN_LOGGED_SESSION_S, type LoggedSession } from '../stats/sessionHistory';
 import { useSettingsStore, type SyncableSettings } from '../store/useSettingsStore';
 import { useGoalsStore } from '../store/useGoalsStore';
 import { useScheduleStore } from '../store/useScheduleStore';
-import { useStore } from '../store/useStore';
-import { getJSON } from '../storage/storage';
 import { planSettingsSync } from './settingsSyncPlan';
-import { sessionDocId, mergeSessionsPreferLocalTopic, type SessionRetag } from './sessionMerge';
+import { syncSessions } from './sessionsSync';
+import { BATCH_LIMIT, isBeingDeleted, pushTarget, requireUid } from './syncCommon';
 import { ensureLocalDataScopedTo, localDataGeneration } from './localDataOwner';
-import { markSessionsSeen } from './sessionsSyncBridge';
 import type { Goal } from '../goals/goals';
 import { planGoalsSync } from './goalsSyncPlan';
 import { syncScheduledSessions } from './scheduledSessionsSync';
 
-const LAST_DEVICE_KEY = 'lastDeviceId'; // mirrors useStore.ts's own AsyncStorage key
-const BATCH_LIMIT = 500; // Firestore's per-batch write limit
-
-interface RemoteSession {
-  startedAt: number;
-  plannedS: number;
-  actualS: number;
-  outcome: 'completed' | 'overridden';
-  topic?: string;
-  topicUpdatedAt?: number;
-}
+// Re-exported so useAuthStore still has one import for the whole sync
+// surface. They live in syncCommon rather than here because sessionsSync's
+// own pushes read the same flag, and neither module may import the other.
+export { beginAccountDeletion, endAccountDeletion } from './syncCommon';
 
 interface RemoteSettings extends SyncableSettings {
   updatedAt: number;
@@ -57,36 +56,6 @@ interface RemoteSettings extends SyncableSettings {
 interface RemoteGoalsDoc {
   goals: unknown;
   updatedAt: number;
-}
-
-function requireUid(uid: string): string {
-  const auth = getFirebaseAuth();
-  if (!auth.currentUser || auth.currentUser.uid !== uid) {
-    throw new Error('Sync uid does not match the current signed-in Firebase user.');
-  }
-  return uid;
-}
-
-// Guards the best-effort incremental push bridges (sessionsSyncBridge.ts,
-// settingsSyncBridge.ts) against re-creating a doc that deleteAllUserData just
-// wiped. deleteAccountFully()'s own re-authentication step (a fresh native
-// Google sign-in) can take a while, and a settings/session change landing in
-// that window -- still authenticated as the same uid, since the Auth user
-// isn't removed until deleteAccountFully finishes -- would otherwise repush
-// straight back into the account being deleted (production readiness review,
-// Medium: "deleteAccount race with concurrent settings/session push
-// bridges"). Module-local, in-memory only: this only ever needs to span one
-// in-flight deleteAccount call within the current app session.
-let deletingUid: string | null = null;
-
-/** Call at the start of useAuthStore.deleteAccount, before deleteAllUserData. */
-export function beginAccountDeletion(uid: string): void {
-  deletingUid = uid;
-}
-
-/** Call once deleteAccountFully() has settled (success or failure). */
-export function endAccountDeletion(): void {
-  deletingUid = null;
 }
 
 /** Thrown by a sync guard when the local side this run was merging into is
@@ -129,22 +98,11 @@ function makeSyncGuard(uid: string): () => void {
     if (
       localDataGeneration() !== generation ||
       getFirebaseAuth().currentUser?.uid !== uid ||
-      uid === deletingUid
+      isBeingDeleted(uid)
     ) {
       throw new LocalDataSuperseded(`local data is no longer ${uid}'s`);
     }
   };
-}
-
-// Best-effort: the box's own BLE peripheral id, as last recorded by
-// useStore.ts on connect. Local session records don't currently carry a
-// per-session deviceId of their own, so this uses the most-recently-known
-// box id as the deviceId component of every session's deterministic doc ID
-// -- see this implementation's report for the noted limitation (multi-box
-// accounts could, in principle, attribute an old session to whichever box
-// most recently connected).
-async function currentDeviceId(): Promise<string> {
-  return (await getJSON<string | null>(LAST_DEVICE_KEY, null)) ?? 'unknown-device';
 }
 
 /**
@@ -250,120 +208,6 @@ export async function runMigrationAndSync(uid: string): Promise<void> {
   }
 }
 
-/** Additive-union merge of session history, deduped by deterministic doc ID (§4.2). */
-async function syncSessions(uid: string, guard: () => void): Promise<void> {
-  const db = getDb();
-  const deviceId = await currentDeviceId();
-  const [localSessions, remoteSnap] = await Promise.all([
-    loadSessions(),
-    getDocs(query(collection(db, 'users', uid, 'sessions'), orderBy('startedAt'))),
-  ]);
-
-  const remoteEntries = remoteSnap.docs
-    .map((d) => {
-      const data = d.data() as RemoteSession;
-      return {
-        id: d.id,
-        session: {
-          startedAt: data.startedAt,
-          plannedS: data.plannedS,
-          actualS: data.actualS,
-          outcome: data.outcome,
-          topic: data.topic,
-          topicUpdatedAt: data.topicUpdatedAt,
-        },
-      };
-    })
-    // A remote doc under a minute shouldn't count as real focus time any
-    // more than a local one -- see sessionHistory.ts's loadSessions. Without
-    // this, a sub-minute session written by another device (or from before
-    // this threshold existed) would sync in and re-inflate stats on every
-    // device, since it never passes through buildLoggedSessions' own filter.
-    .filter((e) => e.session.actualS >= MIN_LOGGED_SESSION_S);
-  const { merged: mergedList, toUpload, toRetag } = mergeSessionsPreferLocalTopic(localSessions, remoteEntries, deviceId);
-
-  // Write the full reconciled set back to local storage (replace, not
-  // append -- appendSessions would double-count sessions already present).
-  guard();
-  const stored = await replaceSessions(mergedList);
-  // Checked AGAIN, because this is the only guarded write in the whole sync
-  // path with a real await between the check and the commit -- every other
-  // one (applyRemoteSettings, applyRemoteGoals,
-  // applyRemoteScheduledSessions) mutates its store synchronously the
-  // instant after its guard, leaving no window at all. Here the storage
-  // write yields the event loop, so a sign-out can land in between and the
-  // two lines below would push this account's history straight into the live
-  // store the Stats/Dashboard/Calendar screens read -- the guard having
-  // already waved it through a moment earlier.
-  try {
-    guard();
-  } catch (e) {
-    // The write above may also have raced clearLocalAccountData's own
-    // clearSessions() on the same storage key, in which case this account's
-    // history is now sitting in storage on a device that just signed out.
-    // Only undo it when NOBODY is signed in: after an account SWITCH the new
-    // user's own sync owns this key (its ensureLocalDataScopedTo has already
-    // wiped and its merge will overwrite wholesale), and clearing here would
-    // be deleting their data to clean up ours.
-    if (!getFirebaseAuth().currentUser) await clearSessions();
-    throw e;
-  }
-  // Mirror into the live store too -- StatsScreen/DashboardScreen/
-  // CalendarScreen read useStore.sessions, not AsyncStorage directly, so
-  // without this they keep showing whichever account's data was in memory
-  // before this sync ran. markSessionsSeen must run first: it stops
-  // sessionsSyncBridge's push subscription from treating cross-device
-  // sessions it hasn't personally seen as newly-logged and re-uploading them
-  // under this device's doc-id namespace (see that function's own comment).
-  markSessionsSeen(stored);
-  useStore.getState().setSessions(stored);
-
-  // Idempotent set() at each deterministic ID -- re-running after a crash or
-  // retry never creates a duplicate. Chunked to Firestore's batch limit.
-  for (let i = 0; i < toUpload.length; i += BATCH_LIMIT) {
-    const batch = writeBatch(db);
-    for (const { id, session } of toUpload.slice(i, i + BATCH_LIMIT)) {
-      batch.set(doc(db, 'users', uid, 'sessions', id), sessionPayload(session));
-    }
-    await batch.commit();
-  }
-
-  await pushTopicRetags(uid, toRetag);
-}
-
-function sessionPayload(s: LoggedSession) {
-  return {
-    startedAt: s.startedAt,
-    plannedS: s.plannedS,
-    actualS: s.actualS,
-    outcome: s.outcome,
-    ...(s.topic ? { topic: s.topic } : {}),
-    ...(s.topicUpdatedAt ? { topicUpdatedAt: s.topicUpdatedAt } : {}),
-  };
-}
-
-/** Pushes a batch of local retags (topic edits on sessions that already exist
- * remotely -- see sessionMerge.ts's toRetag) as scoped Firestore `update`s,
- * matching firestore.rules' sessions `update` rule (topic + topicUpdatedAt
- * only). Uses updateDoc's field-path semantics, not a full set(), so this
- * never risks re-sending (and rules-rejecting a change to) the immutable
- * startedAt/plannedS/actualS/outcome fields. `deleteField()` clears a topic
- * rather than writing `undefined`, which the Firestore SDK rejects outright. */
-async function pushTopicRetags(uid: string, retags: SessionRetag[]): Promise<void> {
-  if (!retags.length) return;
-  const db = getDb();
-  for (let i = 0; i < retags.length; i += BATCH_LIMIT) {
-    const batch = writeBatch(db);
-    for (const { id, topic, topicUpdatedAt } of retags.slice(i, i + BATCH_LIMIT)) {
-      batch.update(doc(db, 'users', uid, 'sessions', id), {
-        topic: topic ?? deleteField(),
-        topicUpdatedAt,
-      });
-    }
-    await batch.commit();
-  }
-}
-
 /** Two-way last-write-wins merge for the four account-level settings fields (§4.2). */
 async function syncSettingsTwoWay(uid: string, guard: () => void): Promise<void> {
   const db = getDb();
@@ -459,64 +303,16 @@ function goalsPayload(goals: Goal[], updatedAt: number) {
 }
 
 /**
- * Incremental push for newly-logged sessions (called from useStore.ts's
- * handleHistory right after a local appendSessions -- §4.3). No-op if
- * signed out. Best-effort: a failure here just means the next full sync
- * (syncSessions, run on the next sign-in/syncNow) catches up.
- */
-export async function pushNewSessions(sessions: LoggedSession[]): Promise<void> {
-  if (!sessions.length) return;
-  const auth = getFirebaseAuth();
-  const user = auth.currentUser;
-  if (!user || user.uid === deletingUid) return;
-  const db = getDb();
-  const deviceId = await currentDeviceId();
-  const batch = writeBatch(db);
-  for (const s of sessions) {
-    batch.set(doc(db, 'users', user.uid, 'sessions', sessionDocId(deviceId, s)), sessionPayload(s));
-  }
-  await batch.commit();
-}
-
-/**
- * Incremental push for a single local retag (called from
- * sync/sessionsSyncBridge.ts when it notices an already-synced session's
- * topic/topicUpdatedAt changed -- mirrors pushNewSessions' "best-effort now,
- * next full sync catches up on failure" pattern). No-op if signed out, or if
- * the doc doesn't exist remotely yet (a session that hasn't been uploaded at
- * all goes through pushNewSessions with its current topic already attached,
- * not this path).
- */
-export async function pushSessionRetag(
-  target: Pick<LoggedSession, 'startedAt' | 'plannedS' | 'actualS'>,
-  topic: string | undefined,
-  topicUpdatedAt: number,
-): Promise<void> {
-  const auth = getFirebaseAuth();
-  const user = auth.currentUser;
-  if (!user || user.uid === deletingUid) return;
-  const db = getDb();
-  const deviceId = await currentDeviceId();
-  const id = sessionDocId(deviceId, target);
-  await updateDoc(doc(db, 'users', user.uid, 'sessions', id), {
-    topic: topic ?? deleteField(),
-    topicUpdatedAt,
-  });
-}
-
-/**
  * Incremental push for a local settings change (called from
  * sync/settingsSyncBridge.ts, which subscribes to useSettingsStore -- §4.3).
  * No-op if signed out. Mirrors useStore.ts's existing "optimistic local
  * write, best-effort remote sync" pattern for box settings (pushBoxSettings).
  */
 export async function pushSettingsPatch(): Promise<void> {
-  const auth = getFirebaseAuth();
-  const user = auth.currentUser;
-  if (!user || user.uid === deletingUid) return;
-  const db = getDb();
+  const target = pushTarget();
+  if (!target) return;
   const local = useSettingsStore.getState();
-  await setDoc(doc(db, 'users', user.uid, 'settings', 'app'), localSettingsPayload(local));
+  await setDoc(doc(getDb(), 'users', target.uid, 'settings', 'app'), localSettingsPayload(local));
 }
 
 /**
@@ -528,12 +324,10 @@ export async function pushSettingsPatch(): Promise<void> {
  * one for retags.
  */
 export async function pushGoalsPatch(): Promise<void> {
-  const auth = getFirebaseAuth();
-  const user = auth.currentUser;
-  if (!user || user.uid === deletingUid) return;
-  const db = getDb();
+  const target = pushTarget();
+  if (!target) return;
   const local = useGoalsStore.getState();
-  await setDoc(doc(db, 'users', user.uid, 'goals', 'config'), goalsPayload(local.goals, local.goalsUpdatedAt));
+  await setDoc(doc(getDb(), 'users', target.uid, 'goals', 'config'), goalsPayload(local.goals, local.goalsUpdatedAt));
 }
 
 /**
