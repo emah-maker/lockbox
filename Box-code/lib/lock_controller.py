@@ -1,21 +1,15 @@
 # lock_controller.py -- the timer state machine and gesture handling.
-import gc
 from lock_config import (
-    MAX_SECONDS, MAX_HOURS, MIN_SECONDS, SWIPE_MIN_PX, DEFAULT_SECONDS,
-    SWAP_XY, INVERT_X, INVERT_Y, CLOCK_FPS, SERVO_HOLD_S,
-    OVERRIDE_TIMEOUT, DONE_ANIM_S, MIN_STEP, RELEASE_FRAMES,
-    fmt_hm, clamp,
-    BLE_CALL_ALERT_S, CALL_ALERT_BLINK_HZ,
-    HOLD_REPEAT_DELAY, HOLD_REPEAT_START, HOLD_REPEAT_MIN, HOLD_REPEAT_RAMP,
-    STATUS_TAP_COOLDOWN_S, BUILTIN_TOPICS,
+    MAX_SECONDS, MAX_HOURS, MIN_SECONDS, DEFAULT_SECONDS, SWAP_XY, INVERT_X, INVERT_Y,
+    CLOCK_FPS, SERVO_HOLD_S, OVERRIDE_TIMEOUT, DONE_ANIM_S, MIN_STEP, fmt_hm, clamp,
+    BLE_CALL_ALERT_S, CALL_ALERT_BLINK_HZ, STATUS_TAP_COOLDOWN_S,
 )
-import lock_protocol
 from lock_battery import Battery
 from lock_servo import Servo
 from lock_settings import Settings
 from lock_log import SessionLog
-from lock_tag_picker import TagPicker, Select, Cancel
-from lock_topic_confirm import TopicConfirm, Confirm, Change, find_topic
+from lock_tag_picker import TagPicker
+from lock_topic_confirm import TopicConfirm
 from lock_controller_const import COMPLETED, OVERRIDDEN, VIEWS, LOCKED_VIEWS
 from lock_controller_states import StateMixin
 from lock_controller_ble import BleMixin

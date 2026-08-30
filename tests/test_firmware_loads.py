@@ -186,6 +186,96 @@ check(
 )
 
 
+# --- 5. Every name a function reads actually exists in its module -----------
+#
+# Importing a module proves its BODY runs. It proves nothing about the names
+# its functions reach for, because those resolve when the function is CALLED
+# -- which, for this firmware, means on the box. Splitting LockUI and
+# LockController across mixin modules is exactly the edit that gets this
+# wrong: move a method out and leave its import behind (or prune an import
+# whose only remaining user was the method that moved) and every check above
+# still passes, while the box raises NameError the first time that screen is
+# drawn.
+#
+# So: for each module, collect what is bound at MODULE level -- including
+# inside `try: import ... except ImportError:` blocks, which is how lock_ble
+# and lock_servo make their optional dependencies optional -- and confirm
+# every global a function reads is one of those, a local, or a builtin.
+import ast  # noqa: E402
+import builtins  # noqa: E402
+import glob  # noqa: E402
+
+_BUILTINS = set(dir(builtins)) | {"__name__", "__file__"}
+
+
+def _module_bindings(tree):
+    """Every name bound at module level, at any statement depth outside a
+    function or class body (so a `try:`-wrapped import counts)."""
+    bound = set()
+
+    def walk(nodes):
+        for n in nodes:
+            if isinstance(n, ast.Import):
+                for a in n.names:
+                    bound.add(a.asname or a.name.split(".")[0])
+            elif isinstance(n, ast.ImportFrom):
+                for a in n.names:
+                    bound.add(a.asname or a.name)
+            elif isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                bound.add(n.name)
+                continue  # do not descend: their insides are not module level
+            elif isinstance(n, ast.Assign):
+                for t in n.targets:
+                    if isinstance(t, ast.Name):
+                        bound.add(t.id)
+            elif isinstance(n, ast.AnnAssign) and isinstance(n.target, ast.Name):
+                bound.add(n.target.id)
+            for field in ("body", "orelse", "finalbody", "handlers"):
+                child = getattr(n, field, None)
+                if isinstance(child, list):
+                    walk(child)
+    walk(tree.body)
+    return bound
+
+
+def _locals_of(fn):
+    names = set()
+    for n in ast.walk(fn):
+        if isinstance(n, ast.arg):
+            names.add(n.arg)
+        elif isinstance(n, ast.Name) and isinstance(n.ctx, (ast.Store, ast.Del)):
+            names.add(n.id)
+        elif isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            names.add(n.name)
+        elif isinstance(n, ast.Import):
+            for a in n.names:
+                names.add(a.asname or a.name.split(".")[0])
+        elif isinstance(n, ast.ImportFrom):
+            for a in n.names:
+                names.add(a.asname or a.name)
+        elif isinstance(n, ast.ExceptHandler) and n.name:
+            names.add(n.name)
+    return names
+
+
+_unresolved = []
+for _path in sorted(glob.glob(os.path.join(LIB, "*.py"))):
+    _tree = ast.parse(open(_path, encoding="utf-8").read())
+    _bound = _module_bindings(_tree)
+    for _fn in [x for x in ast.walk(_tree) if isinstance(x, (ast.FunctionDef, ast.AsyncFunctionDef))]:
+        _local = _locals_of(_fn)
+        for _n in ast.walk(_fn):
+            if isinstance(_n, ast.Name) and isinstance(_n.ctx, ast.Load):
+                if _n.id not in _local and _n.id not in _bound and _n.id not in _BUILTINS:
+                    _unresolved.append("{}:{} {}() -> {}".format(
+                        os.path.basename(_path), _n.lineno, _fn.name, _n.id))
+check(
+    "every global a firmware function reads is defined or imported in its module",
+    not _unresolved,
+    "; ".join(_unresolved[:6]) + (" (+{} more)".format(len(_unresolved) - 6) if len(_unresolved) > 6 else ""),
+)
+
+
 # --- Leave the interpreter as we found it ---------------------------------
 #
 # This file imports every firmware module against DELIBERATELY EMPTY stubs --

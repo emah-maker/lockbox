@@ -1,25 +1,9 @@
 # lock_ui.py -- builds the displayio scenes and exposes display helpers.
 # Two views: "control" (set/start/stop) and "clock" (countdown dial).
-import math
-import time
-import displayio
-import terminalio
-import bitmaptools
-from adafruit_display_text import label
-from adafruit_display_shapes.roundrect import RoundRect
-from adafruit_display_shapes.rect import Rect
-from adafruit_display_shapes.circle import Circle
-from adafruit_display_shapes.triangle import Triangle
 
 from lock_config import (
-    C_BG, C_SURFACE, C_SURFACE_HILITE, C_WHITE, C_BLACK, C_GREY, C_GREEN, C_RED, C_AMBER,
-    C_ON_ACCENT_DARK, C_ON_ACCENT_LIGHT,
-    C_ALERT_RED, C_ALERT_AMBER,
-    MODE_COLORS, ACCENT_COLORS_DARK, ACCENT_COLORS_LIGHT, DEFAULT_MODE_IDX, DEFAULT_ACCENT_IDX, fmt_hms, fmt_hm, clamp,
-    RADIUS_CARD, RADIUS_BTN_SM, RADIUS_BTN_LG, STATUS_TRANSITION_S, lerp_color,
-    SPRING_STIFFNESS, SPRING_DAMPING, SPRING_MASS, PRESS_DEPTH_PX,
-    DONE_POP_OFFSET_PX, OVR_POP_OFFSET_PX, DONE_MSG_Y, DONE_BTN_CENTER_Y,
-    NATIVE_ROTATION,
+    C_WHITE, C_GREY, C_GREEN, DEFAULT_MODE_IDX, DEFAULT_ACCENT_IDX, SPRING_STIFFNESS,
+    SPRING_DAMPING, SPRING_MASS, NATIVE_ROTATION,
 )
 from lock_motion import Spring
 from lock_ui_theme import ThemeMixin
