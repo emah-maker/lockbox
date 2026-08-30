@@ -112,6 +112,40 @@ export function deleteCustomLabel(labels, id) {
   return labels.filter((l) => l.id !== id);
 }
 
+/**
+ * Untrusted value -> a label catalog this page can actually render. The twin
+ * of app/src/stats/customLabels.ts's sanitizeCustomLabels; keep the two in
+ * step, the same way the rest of this module mirrors that one.
+ *
+ * settings/app's write rule bounds the catalog SIZE and (now) that it is a
+ * list at all, but rules cannot iterate a list of maps, so nothing there
+ * checks the ENTRIES. resolveTopic reads `.name`, topicBreakdownWithCustom
+ * keys a Map by `.id`, and the pickers paint `.color` straight into a style
+ * -- so a malformed entry is a render-time throw on a page whose whole job
+ * is to render. This module used to be handed `settings.customLabels || []`
+ * on the strength of that rule alone.
+ *
+ * Drops what it cannot repair rather than substituting placeholders: an
+ * invented label would be one the user never created, and the dashboard
+ * resends this catalog on its next settings write.
+ */
+export function sanitizeCustomLabels(value) {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set();
+  const out = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== 'object') continue;
+    const { id, name, color } = entry;
+    if (typeof id !== 'string' || !id || seen.has(id)) continue;
+    if (typeof name !== 'string' || !name.trim()) continue;
+    if (typeof color !== 'string' || !color) continue;
+    seen.add(id);
+    out.push({ id, name: name.trim().slice(0, MAX_LABEL_NAME_LENGTH), color });
+    if (out.length === MAX_CUSTOM_LABELS) break;
+  }
+  return out;
+}
+
 /** Every selectable label for (re)tagging a session: built-ins in their fixed
  * order, then custom labels in creation order. Mirrors app/src/stats/
  * customLabels.ts's allLabelChoices, used to populate the dashboard's

@@ -49,7 +49,7 @@ import { loadFirebaseConfigOrNull } from './firebaseConfig.js';
 import { initAppCheck } from './appCheck.js';
 import { friendlyErrorMessage, isIgnorableAuthError, logAuthError } from './authErrors.js';
 import { resolveTheme, applyTheme, DEFAULT_THEME_MODE, DEFAULT_ACCENT } from './theme.js';
-import { aggregate, lastNDays, topicBreakdownWithCustom } from './focusStats.js';
+import { aggregate, lastNDays, sanitizeCustomLabels, topicBreakdownWithCustom } from './focusStats.js';
 import { showMessage, describeWriteError } from './dashMessage.js';
 import { mountLabelsPanel, renderLabelsList } from './labelsPanel.js';
 import { mountGoalsPanel, renderGoalsList } from './goalsPanel.js';
@@ -480,12 +480,17 @@ async function loadDashboard(db, uid) {
     // needs it to address the doc for a relabel `update`.
     const sessions = sessionsSnap.docs.map((d) => ({ id: d.id, ...d.data() })).reverse();
     const settings = settingsSnap.exists() ? settingsSnap.data() : {};
-    const customLabels = settings.customLabels || [];
+    // Sanitized, not merely defaulted. This used to be
+    // `settings.customLabels || []`, trusted on the grounds that settings/
+    // app's write rule bounds its shape -- but that rule caps the catalog's
+    // SIZE and cannot iterate a list of maps, so the ENTRIES were never
+    // checked by anything, and every renderer below reads .id/.name/.color
+    // straight out of them.
+    const customLabels = sanitizeCustomLabels(settings.customLabels);
     // sanitizeRemoteGoals is the untrusted-input boundary for this doc (see
     // its own comment in goals.js) -- run before anything else (including
-    // computeGoalProgress in renderAll/renderDataViews) ever sees it, same
-    // as customLabels above being trusted only because settings/app's own
-    // write rule already bounds its shape.
+    // computeGoalProgress in renderAll/renderDataViews) ever sees it, the
+    // same boundary customLabels just went through above.
     const goals = sanitizeRemoteGoals(goalsSnap.exists() ? goalsSnap.data().goals : []);
     // A newer loadDashboard call already started (and may have already
     // rendered) while this one's Firestore round-trip was in flight -- drop

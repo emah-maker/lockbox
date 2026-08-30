@@ -3,7 +3,8 @@
 // where text lands on a TRANSLUCENT accent fill and so cannot just use
 // `accentText`), and the fixed status colors in theme.ts's palette.
 // Everything here is pure hex math, so nothing renders. Run with `npm test`.
-import { ACCENT_KEYS, resolveTheme, THEME_MODES } from './theme';
+import { ACCENT_KEYS, DEFAULT_ACCENT, DEFAULT_THEME_MODE, resolveTheme, THEME_MODES } from './theme';
+import type { AccentKey, ThemeMode } from './theme';
 import { bestTextOn, blendOver, contrastRatio, withAlpha } from './color';
 import { ALPHA_FOR_LEVEL, dayNumColor } from './dayHeat';
 
@@ -151,5 +152,43 @@ describe('fixed status colors', () => {
         expect(contrastRatio(theme.accentText, theme.accent)).toBeGreaterThanOrEqual(AA_TEXT);
       }
     }
+  });
+});
+
+// themeMode and accent are ACCOUNT settings, synced through
+// users/{uid}/settings/app and written by both this app and the website
+// dashboard. Their rule type-checks rather than enumerating values, on
+// purpose -- so adding an accent doesn't need a rules deploy. That makes
+// "a value this build has never heard of" a state the app WILL meet in the
+// field the first time the other client ships one, and `ACCENTS[mode][accent]`
+// on an unknown mode is a TypeError thrown from the first render of every
+// themed screen.
+describe('resolveTheme with a value this build does not know', () => {
+  const unknownMode = 'system' as unknown as ThemeMode;
+  const unknownAccent = 'chartreuse' as unknown as AccentKey;
+
+  it('falls back to the default mode instead of throwing', () => {
+    expect(() => resolveTheme(unknownMode, 'mint')).not.toThrow();
+    expect(resolveTheme(unknownMode, 'mint')).toEqual(resolveTheme(DEFAULT_THEME_MODE, 'mint'));
+  });
+
+  it('falls back to the default accent instead of rendering a colorless theme', () => {
+    // Not just "doesn't throw": spreading an undefined accent yields an
+    // object missing `accent`/`accentText` entirely, which paints invisible
+    // text rather than crashing -- the harder failure to notice.
+    const theme = resolveTheme('dark', unknownAccent);
+    expect(theme).toEqual(resolveTheme('dark', DEFAULT_ACCENT));
+    expect(theme.accent).toBeDefined();
+  });
+
+  it('falls back on both at once', () => {
+    expect(resolveTheme(unknownMode, unknownAccent)).toEqual(resolveTheme(DEFAULT_THEME_MODE, DEFAULT_ACCENT));
+  });
+
+  // The defaults have to be values this build actually knows, or the fallback
+  // is a second way to reach the same crash.
+  it('has defaults inside its own tables', () => {
+    expect(THEME_MODES).toContain(DEFAULT_THEME_MODE);
+    expect(ACCENT_KEYS).toContain(DEFAULT_ACCENT);
   });
 });

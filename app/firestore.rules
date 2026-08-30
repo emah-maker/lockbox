@@ -82,6 +82,22 @@ service cloud.firestore {
                      && request.resource.data.keys().hasOnly(
                           ['themeMode', 'accent', 'callAlertsEnabled', 'customLabels', 'updatedAt'])
                      && request.resource.data.updatedAt is int
+                     // Types, not value enums, on the three preference fields:
+                     // both clients write this document, and pinning the
+                     // accepted modes/accents here would mean a rules deploy
+                     // every time one is added. What the type checks buy is
+                     // that the other client cannot write a shape this one
+                     // crashes on -- values it merely doesn't recognize are
+                     // handled on the way in (theme.ts's normalizeThemeMode,
+                     // customLabels.ts's sanitizeCustomLabels).
+                     && request.resource.data.themeMode is string
+                     && request.resource.data.accent is string
+                     && request.resource.data.callAlertsEnabled is bool
+                     // `is list` is not redundant with the size check below:
+                     // size() is defined on strings too, so without it
+                     // `customLabels: "x"` satisfied this rule and reached
+                     // both clients as a label catalog that isn't an array.
+                     && request.resource.data.customLabels is list
                      // Rules can't validate each array element's field lengths (no
                      // iteration over list-of-maps), so this bounds the catalog size;
                      // per-label name length is capped client-side (customLabels.ts).

@@ -6,6 +6,7 @@ import {
   createCustomLabel,
   renameCustomLabel,
   deleteCustomLabel,
+  sanitizeCustomLabels,
   resolveTopic,
   allLabelChoices,
   topicBreakdownWithCustom,
@@ -172,5 +173,55 @@ describe('topicBreakdownWithCustom / dominantTopicWithCustom', () => {
     const customId = customLabels[0].id;
     expect(dominantTopicWithCustom([s('work', 100), s(customId, 500)], customLabels, 'dark')?.key).toBe(customId);
     expect(dominantTopicWithCustom([s(undefined, 100)], customLabels, 'dark')).toBeNull();
+  });
+});
+
+// The boundary between users/{uid}/settings/app and everything that renders a
+// label. That document's rule bounds the catalog SIZE but cannot iterate a
+// list of maps to check the entries, so nothing before this guaranteed they
+// were even objects -- and resolveTopic/topicBreakdownWithCustom/the pickers
+// all read .id/.name/.color straight out of them.
+describe('sanitizeCustomLabels', () => {
+  const label = (over = {}) => ({ id: 'custom:1', name: 'Deep Work', color: '#123456', ...over });
+
+  it('keeps a well-formed catalog as it is', () => {
+    expect(sanitizeCustomLabels([label()])).toEqual([label()]);
+  });
+
+  it('answers with an empty catalog for anything that is not an array', () => {
+    // The shape the rule lets through: size() is defined on strings, so
+    // `customLabels: "xx"` satisfied the 40-entry cap.
+    expect(sanitizeCustomLabels('xx')).toEqual([]);
+    expect(sanitizeCustomLabels(undefined)).toEqual([]);
+    expect(sanitizeCustomLabels(null)).toEqual([]);
+    expect(sanitizeCustomLabels({ 0: label() })).toEqual([]);
+  });
+
+  it('drops entries that are missing a field, or hold the wrong type in one', () => {
+    const kept = sanitizeCustomLabels([
+      null,
+      'not-a-label',
+      label({ id: undefined }),
+      label({ id: 42 }),
+      label({ name: '   ' }),
+      label({ color: '' }),
+      label({ id: 'custom:keep' }),
+    ]);
+    expect(kept).toEqual([label({ id: 'custom:keep' })]);
+  });
+
+  it('drops a duplicate id rather than letting two labels share one key', () => {
+    const kept = sanitizeCustomLabels([label({ name: 'First' }), label({ name: 'Second' })]);
+    expect(kept).toEqual([label({ name: 'First' })]);
+  });
+
+  it('trims a name and holds it to the same cap the editor enforces', () => {
+    const long = 'x'.repeat(MAX_LABEL_NAME_LENGTH + 10);
+    expect(sanitizeCustomLabels([label({ name: `  ${long}  ` })])[0].name).toHaveLength(MAX_LABEL_NAME_LENGTH);
+  });
+
+  it('stops at the catalog cap', () => {
+    const many = Array.from({ length: MAX_CUSTOM_LABELS + 5 }, (_, i) => label({ id: `custom:${i}` }));
+    expect(sanitizeCustomLabels(many)).toHaveLength(MAX_CUSTOM_LABELS);
   });
 });

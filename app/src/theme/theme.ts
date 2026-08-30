@@ -137,7 +137,7 @@ export const ACCENT_KEYS = Object.keys(ACCENTS.dark) as AccentKey[];
 // actually apply in the currently-selected mode. See SettingsScreen's
 // accent Chip.
 export function accentSwatch(mode: ThemeMode, key: AccentKey): string {
-  return ACCENTS[mode][key].accent;
+  return ACCENTS[normalizeThemeMode(mode)][normalizeAccent(key)].accent;
 }
 
 export const ACCENT_LABELS: Record<AccentKey, string> = {
@@ -151,6 +151,46 @@ export const ACCENT_LABELS: Record<AccentKey, string> = {
   indigo: 'Indigo',
 };
 
+export const DEFAULT_THEME_MODE: ThemeMode = 'dark';
+export const DEFAULT_ACCENT: AccentKey = 'mint';
+
+/** Whether `value` is a mode this build knows how to render. Exported because
+ * themeMode arrives from Firestore, written by whichever client last changed
+ * it -- see normalizeThemeMode below. */
+export function isThemeMode(value: unknown): value is ThemeMode {
+  return typeof value === 'string' && (THEME_MODES as string[]).includes(value);
+}
+
+export function isAccentKey(value: unknown): value is AccentKey {
+  return typeof value === 'string' && (ACCENT_KEYS as string[]).includes(value);
+}
+
+/** Any value -> a mode this build can actually resolve, falling back to the
+ * default.
+ *
+ * Not defensive programming for its own sake. themeMode and accent are
+ * ACCOUNT settings synced through users/{uid}/settings/app, written by both
+ * this app and the website dashboard, and the rule guarding that document
+ * type-checks them rather than enumerating values -- deliberately, so adding
+ * an accent doesn't need a rules deploy. The consequence is that a client
+ * shipping a mode or accent this build has never heard of can put it in an
+ * account this build then reads: a website deploy adding, say, a 'system'
+ * mode would otherwise reach every older install as a hard crash inside
+ * resolveTheme, at the first render after sign-in, with no way back.
+ * website/js/theme.js's own resolveTheme has always fallen back this way;
+ * this is the app catching up to its twin. */
+export function normalizeThemeMode(value: unknown): ThemeMode {
+  return isThemeMode(value) ? value : DEFAULT_THEME_MODE;
+}
+
+export function normalizeAccent(value: unknown): AccentKey {
+  return isAccentKey(value) ? value : DEFAULT_ACCENT;
+}
+
+/** Total: an unrecognized mode or accent resolves to the default rather than
+ * throwing. `ACCENTS[mode][accent]` on an unknown mode is a TypeError, and
+ * this function runs on every render of every themed screen. */
 export function resolveTheme(mode: ThemeMode, accent: AccentKey): ThemeColors {
-  return { ...MODES[mode], ...ACCENTS[mode][accent] };
+  const m = normalizeThemeMode(mode);
+  return { ...MODES[m], ...ACCENTS[m][normalizeAccent(accent)] };
 }

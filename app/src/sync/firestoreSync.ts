@@ -26,6 +26,8 @@ import { useGoalsStore } from '../store/useGoalsStore';
 import { useScheduleStore } from '../store/useScheduleStore';
 import { useStore } from '../store/useStore';
 import { getJSON } from '../storage/storage';
+import { normalizeAccent, normalizeThemeMode } from '../theme/theme';
+import { sanitizeCustomLabels } from '../stats/customLabels';
 import { sessionDocId, mergeSessionsPreferLocalTopic, type SessionRetag } from './sessionMerge';
 import { ensureLocalDataScopedTo, localDataGeneration } from './localDataOwner';
 import { markSessionsSeen } from './sessionsSyncBridge';
@@ -378,12 +380,19 @@ async function syncSettingsTwoWay(uid: string, guard: () => void): Promise<void>
   const remote = snap.data() as RemoteSettings;
   if (remote.updatedAt > local.settingsUpdatedAt) {
     guard();
+    // Sanitized on the way in, exactly as goals are (sanitizeRemoteGoals) and
+    // plans are (scheduledSessionsSync's fromRemote). This document is
+    // written by both clients, and its rule type-checks rather than
+    // enumerating values -- so what lands here is whatever the LAST client to
+    // touch this account believed, including a mode or accent this build has
+    // never heard of. Applying that verbatim used to crash resolveTheme on
+    // the first themed render, which is every screen.
     useSettingsStore.getState().applyRemoteSettings(
       {
-        themeMode: remote.themeMode,
-        accent: remote.accent,
-        callAlertsEnabled: remote.callAlertsEnabled,
-        customLabels: remote.customLabels ?? [],
+        themeMode: normalizeThemeMode(remote.themeMode),
+        accent: normalizeAccent(remote.accent),
+        callAlertsEnabled: !!remote.callAlertsEnabled,
+        customLabels: sanitizeCustomLabels(remote.customLabels),
       },
       remote.updatedAt,
     );

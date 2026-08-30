@@ -75,6 +75,31 @@ describe('settings/app', () => {
     );
   });
 
+  // Types, not values. Both clients write this document, so what one puts
+  // here the other reads and renders -- and size() being defined on strings
+  // meant `customLabels: 'xx'` satisfied the cap above and arrived at both
+  // clients as a label catalog that isn't a list. Unrecognized VALUES are
+  // deliberately still allowed (a new accent must not need a rules deploy);
+  // they are handled on the way in, by theme.ts's normalizeThemeMode and
+  // customLabels.ts's sanitizeCustomLabels.
+  it('denies a settings document whose fields hold the wrong type', async () => {
+    const db = testEnv.authenticatedContext(OWNER).firestore();
+    const valid = {
+      themeMode: 'light',
+      accent: 'sky',
+      callAlertsEnabled: true,
+      customLabels: [],
+      updatedAt: 3,
+    };
+    await assertFails(setDoc(doc(db, `users/${OWNER}/settings/app`), { ...valid, customLabels: 'xx' }));
+    await assertFails(setDoc(doc(db, `users/${OWNER}/settings/app`), { ...valid, themeMode: 7 }));
+    await assertFails(setDoc(doc(db, `users/${OWNER}/settings/app`), { ...valid, accent: null }));
+    await assertFails(setDoc(doc(db, `users/${OWNER}/settings/app`), { ...valid, callAlertsEnabled: 'yes' }));
+    // An accent this build has never heard of is NOT rejected -- that is the
+    // forward-compatibility the value checks are deliberately left out for.
+    await assertSucceeds(setDoc(doc(db, `users/${OWNER}/settings/app`), { ...valid, accent: 'chartreuse' }));
+  });
+
   it(
     "allows the owner's delete (regression guard: a shape-validated delete condition " +
       "made this doc undeletable and broke deleteAllUserData()'s account-deletion cleanup)",

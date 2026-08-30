@@ -81,6 +81,43 @@ export function deleteCustomLabel(labels: CustomLabel[], id: string): CustomLabe
   return labels.filter((l) => l.id !== id);
 }
 
+/**
+ * Untrusted value -> a label catalog this app can actually render.
+ *
+ * The boundary-validation choke point for customLabels, the same role
+ * goals/goalSanitize.ts plays for goals -- and the one the settings merge was
+ * missing. This array arrives from users/{uid}/settings/app, whose rule
+ * bounds the catalog SIZE but cannot iterate a list of maps to check each
+ * entry (see the rule's own comment), so nothing until now guaranteed the
+ * entries were even objects. Everything downstream treats a label as
+ * `{id, name, color}` with strings in it: resolveTopic reads `.name`,
+ * topicBreakdownWithCustom keys a Map by `.id`, and the pickers paint
+ * `.color` straight into a style. A doc written by a client with a different
+ * shape -- or one where customLabels is not a list at all, which that rule
+ * also lets through -- turned into a render-time crash on a screen the user
+ * cannot navigate away from.
+ *
+ * Drops what it cannot repair rather than substituting placeholders: a label
+ * invented here would be one the user never created, and it would then be
+ * pushed back to the account by the next sync.
+ */
+export function sanitizeCustomLabels(value: unknown): CustomLabel[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const out: CustomLabel[] = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== 'object') continue;
+    const { id, name, color } = entry as Partial<CustomLabel>;
+    if (typeof id !== 'string' || !id || seen.has(id)) continue;
+    if (typeof name !== 'string' || !name.trim()) continue;
+    if (typeof color !== 'string' || !color) continue;
+    seen.add(id);
+    out.push({ id, name: name.trim().slice(0, MAX_LABEL_NAME_LENGTH), color });
+    if (out.length === MAX_CUSTOM_LABELS) break;
+  }
+  return out;
+}
+
 export interface ResolvedTopic {
   id: string;
   label: string;

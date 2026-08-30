@@ -17,6 +17,7 @@ import {
   groupByDay,
   bestDay,
   lastNDays,
+  sanitizeCustomLabels,
   topicBreakdownWithCustom,
   dominantTopicWithCustom,
   REAL_WORLD_REFS,
@@ -388,5 +389,52 @@ describe('dayKeyToDate', () => {
     assert.equal(dayKeyToDate('2026-08-28').getDate(), 28);
     assert.equal(dayKeyToDate('2026-01-01').getMonth(), 0);
     assert.equal(dayKeyToDate('2026-01-01').getFullYear(), 2026);
+  });
+});
+
+// The twin of app/src/stats/customLabels.test.ts's own sanitizeCustomLabels
+// block. settings/app's write rule bounds the catalog's size and that it is a
+// list, but rules cannot iterate a list of maps -- so the entries reaching
+// this module were never checked by anything, while every renderer reads
+// .id/.name/.color straight out of them.
+describe('sanitizeCustomLabels', () => {
+  const label = (over = {}) => ({ id: 'custom:1', name: 'Deep Work', color: '#123456', ...over });
+
+  it('keeps a well-formed catalog as it is', () => {
+    assert.deepEqual(sanitizeCustomLabels([label()]), [label()]);
+  });
+
+  it('answers with an empty catalog for anything that is not an array', () => {
+    assert.deepEqual(sanitizeCustomLabels('xx'), []);
+    assert.deepEqual(sanitizeCustomLabels(undefined), []);
+    assert.deepEqual(sanitizeCustomLabels(null), []);
+  });
+
+  it('drops entries missing a field or holding the wrong type in one', () => {
+    const kept = sanitizeCustomLabels([
+      null,
+      'not-a-label',
+      label({ id: 42 }),
+      label({ name: '   ' }),
+      label({ color: '' }),
+      label({ id: 'custom:keep' }),
+    ]);
+    assert.deepEqual(kept, [label({ id: 'custom:keep' })]);
+  });
+
+  it('drops a duplicate id rather than letting two labels share one key', () => {
+    assert.deepEqual(sanitizeCustomLabels([label({ name: 'First' }), label({ name: 'Second' })]), [
+      label({ name: 'First' }),
+    ]);
+  });
+
+  it('trims a name and holds it to the same cap the editor enforces', () => {
+    const long = 'x'.repeat(MAX_LABEL_NAME_LENGTH + 10);
+    assert.equal(sanitizeCustomLabels([label({ name: `  ${long}  ` })])[0].name.length, MAX_LABEL_NAME_LENGTH);
+  });
+
+  it('stops at the catalog cap', () => {
+    const many = Array.from({ length: MAX_CUSTOM_LABELS + 5 }, (_, i) => label({ id: `custom:${i}` }));
+    assert.equal(sanitizeCustomLabels(many).length, MAX_CUSTOM_LABELS);
   });
 });
