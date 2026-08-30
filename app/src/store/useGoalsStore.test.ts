@@ -78,6 +78,58 @@ describe('hydrate', () => {
 
     expect(useGoalsStore.getState().goals).toBe(afterAdd);
   });
+
+  it('does not let a write that lands mid-hydrate get reverted by the read hydrate started before it', async () => {
+    const stale = [goal('goal:disk', 100)];
+    await AsyncStorage.setItem('phonebox:' + GOALS_KEY, JSON.stringify(stale));
+    await AsyncStorage.setItem('phonebox:' + GOALS_UPDATED_AT_KEY, JSON.stringify(100));
+
+    // Stall the storage read so a write can land while hydrate's own reads
+    // are still in flight -- the race App.tsx's onAuthStateChanged ->
+    // syncNow -> applyRemoteGoals can trigger against this same hydrate().
+    // Capture the mock package's OWN implementation function (not a bound
+    // reference to the still-mutable jest.fn() wrapper) -- AsyncStorage's
+    // getItem is already a jest.fn() here, so spying on it and swapping its
+    // implementation mutates that same mock in place; a bound reference to
+    // it would keep re-entering our own override below forever.
+    const realGetItemImpl = (AsyncStorage.getItem as jest.Mock).getMockImplementation()!;
+    let releaseRead!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      releaseRead = resolve;
+    });
+    jest.spyOn(AsyncStorage, 'getItem').mockImplementation(async (key: string) => {
+      await gate;
+      return realGetItemImpl(key);
+    });
+
+    const hydratePromise = useGoalsStore.getState().hydrate();
+
+    const applied = [goal('goal:applied', 200)];
+    useGoalsStore.getState().applyRemoteGoals(applied, 200);
+
+    releaseRead();
+    await hydratePromise;
+
+    expect(useGoalsStore.getState().goals).toEqual(applied);
+    expect(useGoalsStore.getState().goalsUpdatedAt).toBe(200);
+
+    jest.restoreAllMocks();
+  });
+
+  it('is a no-op when hydrated was already flipped true by a write, even if hydrate() itself never ran first', async () => {
+    const stale = [goal('goal:disk', 999)];
+    await AsyncStorage.setItem('phonebox:' + GOALS_KEY, JSON.stringify(stale));
+    await AsyncStorage.setItem('phonebox:' + GOALS_UPDATED_AT_KEY, JSON.stringify(999));
+
+    const applied = [goal('goal:applied', 200)];
+    useGoalsStore.getState().applyRemoteGoals(applied, 200);
+    expect(useGoalsStore.getState().hydrated).toBe(true);
+
+    await useGoalsStore.getState().hydrate();
+
+    expect(useGoalsStore.getState().goals).toEqual(applied);
+    expect(useGoalsStore.getState().goalsUpdatedAt).toBe(200);
+  });
 });
 
 describe('addGoal', () => {

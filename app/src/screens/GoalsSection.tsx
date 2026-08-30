@@ -283,6 +283,8 @@ export function GoalsSection({
         title={editingGoal ? 'Edit goal' : 'New goal'}
         size="large"
         scrollEnabled={!formWheelActive}
+        // Wheels in the body -- see Sheet.tsx's dragBodyToDismiss.
+        dragBodyToDismiss={false}
       >
         {/* key IS the fix here, not decoration: Sheet passes `children` to
             its own <Modal> unconditionally (see this file's own comment on

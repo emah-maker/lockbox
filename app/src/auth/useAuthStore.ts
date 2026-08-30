@@ -42,6 +42,7 @@ import {
 import { toProviderKinds, canUnlink, SIGN_IN_NOT_CONFIGURED_MESSAGE } from './accountDisplay';
 import { runMigrationAndSync, deleteAllUserData, beginAccountDeletion, endAccountDeletion } from '../sync/firestoreSync';
 import { clearLocalAccountData } from '../sync/localDataOwner';
+import { unregisterPushToken } from '../push/pushRegistration';
 import { useStore } from '../store/useStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { getJSON, setJSON } from '../storage/storage';
@@ -325,6 +326,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     // why a both-linked account runs both rather than just one.
     const auth = getFirebaseAuth();
     const providers = auth.currentUser ? linkedProviders(auth.currentUser) : [];
+    // BEFORE the provider sign-outs, not after: deleting this device's push
+    // token is authorized by isOwner(uid), which needs the user still signed
+    // in. Left behind, it would keep this phone receiving the previous
+    // account's reminders -- on a shared or resold device, the worst leak
+    // this feature could produce. Best-effort, and never a reason to block a
+    // sign-out (push/pushRegistration.ts swallows its own failures).
+    const signingOutUid = auth.currentUser?.uid;
+    if (signingOutUid) await unregisterPushToken(signingOutUid);
     if (providers.includes('apple')) await signOutAppleFully();
     if (providers.includes('google') || providers.length === 0) await signOutGoogleFully();
     // After sign-out, not before: clearing settings triggers

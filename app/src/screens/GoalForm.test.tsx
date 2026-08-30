@@ -26,10 +26,18 @@ import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
 import { GoalForm } from './GoalForm';
 import { WheelPicker } from '../ui/WheelPicker';
+import { TopicChip } from './GoalTopicChips';
 import { Goal } from '../goals/goals';
 import { resolveTheme } from '../theme/theme';
 
 jest.mock('expo-haptics', () => ({ selectionAsync: jest.fn() }));
+// Same stand-in SettingsScreen.test.tsx uses, and needed here for the same
+// reason: jest-expo's expo-font mock (loadedNativeFonts) trips over
+// @expo/vector-icons' own font-loaded check outside a real native runtime.
+// This form reaches an icon through ui/FormDisclosure's chevron, which is
+// what collapses its optional field groups -- an opaque leaf as far as this
+// test is concerned, which only ever asks a WheelPicker for its index.
+jest.mock('@expo/vector-icons', () => ({ Ionicons: 'Ionicons', Feather: 'Feather', MaterialIcons: 'MaterialIcons' }));
 
 const theme = resolveTheme('dark', 'mint');
 
@@ -99,5 +107,49 @@ describe('reusing one GoalForm instance across a changed `initial`', () => {
 
     tree = renderForm(tree, goalB.id, goalB);
     expect(hoursWheelIndex(tree)).toBe(2);
+  });
+});
+
+// --- The decluttering contract -------------------------------------------
+//
+// The optional field groups (label, active days, session count, reminders)
+// are collapsed by default and only ONE can be open at a time -- that is the
+// whole reason the form stopped being a single tall stack of every control.
+// Asserted through GoalTopicChips' TopicChip, which is mounted only while
+// the "Counts" group is expanded: FormDisclosure UNMOUNTS a collapsed
+// group's children rather than hiding them (see its own header), so the
+// chip's presence is a direct read of that.
+function pressRow(tree: TestRenderer.ReactTestRenderer, accessibilityLabel: string) {
+  const hits = tree.root.findAll(
+    (n) => n.props?.accessibilityLabel === accessibilityLabel && typeof n.props?.onPress === 'function',
+  );
+  expect(hits.length).toBeGreaterThan(0);
+  act(() => hits[0].props.onPress());
+}
+
+describe('optional field groups', () => {
+  it('starts with every group collapsed', () => {
+    const tree = renderForm(null, 'collapsed', goalA);
+    expect(tree.root.findAllByType(TopicChip)).toHaveLength(0);
+    // The target wheels are NOT behind a disclosure -- they are the goal's
+    // primary field, and hiding them would trade clutter for indirection.
+    expect(hoursWheelIndex(tree)).toBe(1);
+  });
+
+  it('expands one group on tap and collapses it again', () => {
+    const tree = renderForm(null, 'toggle', goalA);
+    // The row announces itself as "<label>, <summary>" (FormDisclosure).
+    pressRow(tree, 'Counts, All focus time');
+    expect(tree.root.findAllByType(TopicChip).length).toBeGreaterThan(0);
+    pressRow(tree, 'Counts, All focus time');
+    expect(tree.root.findAllByType(TopicChip)).toHaveLength(0);
+  });
+
+  it('closes the open group when another one is opened', () => {
+    const tree = renderForm(null, 'accordion', goalA);
+    pressRow(tree, 'Counts, All focus time');
+    expect(tree.root.findAllByType(TopicChip).length).toBeGreaterThan(0);
+    pressRow(tree, 'Reminders, Off');
+    expect(tree.root.findAllByType(TopicChip)).toHaveLength(0);
   });
 });

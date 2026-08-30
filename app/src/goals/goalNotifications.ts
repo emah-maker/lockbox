@@ -21,6 +21,7 @@
 // code path depends on succeeding: the same "never crash over this" posture
 // auth/secureStorePersistence.ts takes for its own optional capability.
 import * as Notifications from 'expo-notifications';
+import { serializeLatest } from '../push/reconcileQueue';
 import { Platform } from 'react-native';
 import type { Goal } from './goals';
 import {
@@ -229,7 +230,7 @@ const DEFAULT_PREFS: NotificationPrefs = {
  * to use. Never throws: an environment with no notification capability, or a
  * user who denied the permission, just ends up scheduling nothing.
  */
-export async function syncGoalNotifications(
+export const syncGoalNotifications = serializeLatest(async function syncGoalNotifications(
   goals: Goal[],
   prefs: NotificationPrefs = DEFAULT_PREFS,
   progressById: Map<string, GoalProgressSnapshot> = new Map(),
@@ -263,4 +264,4 @@ export async function syncGoalNotifications(
       }),
     ),
   );
-}
+});

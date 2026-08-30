@@ -91,6 +91,8 @@ export function DurationSheet({
       title="Set lock duration"
       size="auto"
       scrollEnabled={sheetScrollEnabled}
+      // Wheels in the body -- see Sheet.tsx's dragBodyToDismiss.
+      dragBodyToDismiss={false}
     >
       {/* Duration only -- no lock button here. Locking has to happen at the
           box itself (tap LOCK once the phone is physically inside it); this

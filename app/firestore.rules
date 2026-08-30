@@ -97,6 +97,95 @@ service cloud.firestore {
         allow read, delete: if isOwner(uid);
       }
 
+      match /pushTokens/{tokenId} {
+        // Where this user's devices register to receive server-sent
+        // reminders (functions/src/index.ts's sendDueReminders reads these
+        // with admin credentials, which bypass these rules -- what is gated
+        // here is only what a CLIENT may write about its own devices).
+        //
+        // Two transports, deliberately kept in one collection: 'expo' is the
+        // phone app's Expo push token, 'webpush' is an FCM registration
+        // token minted by a dashboard tab. The server treats them
+        // differently on the way out, but they are the same thing here --
+        // an address this user has asked to be reached at.
+        allow read, delete: if isOwner(uid);
+        allow create, update: if isOwner(uid)
+                              && request.resource.data.keys().hasOnly(
+                                   ['transport', 'token', 'platform', 'localReminderIds', 'createdAt', 'updatedAt'])
+                              && request.resource.data.transport in ['expo', 'webpush']
+                              && request.resource.data.token is string
+                              // FCM registration tokens run to ~200 chars and
+                              // Expo's to ~50; the cap is generous enough for
+                              // both to grow, tight enough that this field
+                              // can't be used as free storage.
+                              && request.resource.data.token.size() > 0
+                              && request.resource.data.token.size() <= 512
+                              && request.resource.data.updatedAt is int
+                              && (!('platform' in request.resource.data)
+                                  || request.resource.data.platform in ['ios', 'android', 'web'])
+                              // The duplicate-suppression list (see
+                              // functions/src/reminders.ts's PushTokenDoc).
+                              // Rules can't check each element's length, so
+                              // this bounds the list itself; the app caps it
+                              // at MAX_SESSION_REMINDERS on its own side.
+                              && (!('localReminderIds' in request.resource.data)
+                                  || (request.resource.data.localReminderIds is list
+                                      && request.resource.data.localReminderIds.size() <= 50));
+      }
+
+      match /scheduledSessions/{planId} {
+        // One planned focus session, written by either client and read by
+        // the reminder job. Individual documents rather than one array field
+        // (the shape goals/config uses) specifically so the backend can find
+        // what is due with a collection-group query instead of scanning
+        // every user -- see functions/src/index.ts's readDueReminders.
+        //
+        // `notifiedAt` is the one field the SERVER writes (admin credentials
+        // bypass these rules). A client may still write it as `null`, which
+        // is what re-arms an edited plan -- and must, because Firestore
+        // cannot query for an absent field, so every document has to carry
+        // an explicit null until it is sent.
+        //
+        // read/create/update/delete are split into separate rules for the
+        // same reason every other block in this file splits them:
+        // request.resource is null on read and delete, so a shape-validated
+        // condition covering those verbs would raise -- and a rules error
+        // evaluates to deny, silently making the document unreadable and
+        // undeletable (exactly the bug settings/app's own comment records).
+        function validPlan() {
+          let d = request.resource.data;
+          return d.keys().hasOnly(
+                   ['date', 'time', 'fireAtMs', 'timeLabel', 'tz', 'topic', 'leadMinutes',
+                    'plannedS', 'note', 'done', 'notifiedAt', 'updatedAt'])
+                 && d.date is string && d.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+                 && d.time is string && d.time.matches('^[0-9]{2}:[0-9]{2}$')
+                 // The only field the backend queries on, so the only one
+                 // whose type is load-bearing for anything but display.
+                 && d.fireAtMs is int
+                 // Pre-formatted by the client that created the plan, because
+                 // only it knows the user's locale (functions/src/reminders.ts
+                 // explains why the server doesn't re-derive it). Capped so a
+                 // notification body can't be padded arbitrarily.
+                 && d.timeLabel is string && d.timeLabel.size() <= 20
+                 && d.leadMinutes is int && d.leadMinutes >= 0 && d.leadMinutes <= 1440
+                 && d.done is bool
+                 && d.updatedAt is int
+                 && (d.notifiedAt == null || d.notifiedAt is int)
+                 // 200 chars mirrors the sessions block's own topic cap, and
+                 // TopicPicker.tsx's TextInput maxLength behind both.
+                 && (!('topic' in d) || d.topic == null
+                     || (d.topic is string && d.topic.size() <= 200))
+                 // Mirrors MAX_NOTE_LENGTH in app/src/schedule/scheduledSessions.ts.
+                 && (!('note' in d) || (d.note is string && d.note.size() <= 120))
+                 && (!('plannedS' in d) || (d.plannedS is int && d.plannedS > 0 && d.plannedS <= 86400))
+                 && (!('tz' in d) || (d.tz is string && d.tz.size() <= 64));
+        }
+
+        allow read: if isOwner(uid);
+        allow create, update: if isOwner(uid) && validPlan();
+        allow delete: if isOwner(uid);
+      }
+
       match /goals/config {
         // Single doc holding the user's focus-time goals (RFC-extension
         // contract: users/{uid}/goals/config), settable from both this app

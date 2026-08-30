@@ -33,6 +33,28 @@ import { typeScale, spacing } from '../theme/tokens';
 // app's one Sunday-start convention (goalProgress.ts's weeklyWindow).
 const WEEKDAY_ABBR = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
 
+/** One-line reading of a weekday selection, for a collapsed
+ * ui/FormDisclosure row's summary -- the chips themselves are only mounted
+ * while that group is expanded, so this is the ONLY thing saying which days
+ * are chosen the rest of the time, and it has to be a real answer rather
+ * than a count.
+ *
+ * `undefined`, `[]` and all seven are all "Every day": that's goals.ts's own
+ * daysOfWeek convention (see this file's WeekdayChips doc comment), and the
+ * summary must read the same for every representation of it or a goal would
+ * appear to change when it round-trips through the form. Weekdays/Weekends
+ * are named rather than listed because those two are the selections people
+ * actually make, and "Mo, Tu, We, Th, Fr" truncates badly in a summary
+ * column. */
+export function weekdaySummary(selected: number[] | undefined): string {
+  if (!selected || selected.length === 0 || selected.length === 7) return 'Every day';
+  const sorted = Array.from(new Set(selected)).sort((a, b) => a - b);
+  const key = sorted.join(',');
+  if (key === '1,2,3,4,5') return 'Weekdays';
+  if (key === '0,6') return 'Weekends';
+  return sorted.map((d) => WEEKDAY_ABBR[d]).join(', ');
+}
+
 /** Multi-select weekday row for a daily goal's daysOfWeek. `selected: []`
  * and `selected` containing all 7 both render as "every day" would, i.e.
  * every chip filled -- see WeekdayChips' own call site in GoalForm.tsx for

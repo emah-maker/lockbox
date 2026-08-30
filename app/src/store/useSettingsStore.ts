@@ -161,6 +161,65 @@ interface SettingsState {
   resetSyncableSettings: () => void;
 }
 
+/** The one real read, extracted so hydrate() below can hold a single
+ * in-flight promise for it and hand that same promise to every concurrent
+ * caller. Nothing else should call this directly. */
+let hydrating: Promise<void> | null = null;
+
+async function hydrateOnce(set: (partial: Partial<SettingsState>) => void): Promise<void> {
+  const [
+    themeMode,
+    accent,
+    callAlertsEnabled,
+    customLabels,
+    boxSettings,
+    settingsUpdatedAt,
+    autoSyncEnabled,
+    ringBaselineWindow,
+    ringSourceKind,
+    ringGoalId,
+    ringShowTopicMix,
+    notificationsEnabled,
+    quietHoursEnabled,
+    quietStart,
+    quietEnd,
+  ] = await Promise.all([
+    getJSON<ThemeMode>('themeMode', SYNCABLE_SETTINGS_DEFAULTS.themeMode),
+    getJSON<AccentKey>('accent', SYNCABLE_SETTINGS_DEFAULTS.accent),
+    getJSON<boolean>('callAlertsEnabled', SYNCABLE_SETTINGS_DEFAULTS.callAlertsEnabled),
+    getJSON<CustomLabel[]>('customLabels', SYNCABLE_SETTINGS_DEFAULTS.customLabels),
+    getJSON<Settings>('boxSettings', DEFAULT_BOX_SETTINGS),
+    getJSON<number>('settingsUpdatedAt', 0),
+    getJSON<boolean>('autoSyncEnabled', true),
+    getJSON<RingBaselineWindow>('ringBaselineWindow', 'week'),
+    getJSON<RingSourceKind>('ringSourceKind', 'auto'),
+    getJSON<string | null>('ringGoalId', null),
+    getJSON<boolean>('ringShowTopicMix', true),
+    getJSON<boolean>('notificationsEnabled', true),
+    getJSON<boolean>('quietHoursEnabled', false),
+    getJSON<string>('quietStart', '22:00'),
+    getJSON<string>('quietEnd', '07:00'),
+  ]);
+  set({
+    hydrated: true,
+    themeMode,
+    accent,
+    callAlertsEnabled,
+    customLabels,
+    boxSettings,
+    settingsUpdatedAt,
+    autoSyncEnabled,
+    ringBaselineWindow,
+    ringSourceKind,
+    ringGoalId,
+    ringShowTopicMix,
+    notificationsEnabled,
+    quietHoursEnabled,
+    quietStart,
+    quietEnd,
+  });
+}
+
 export const useSettingsStore = create<SettingsState>((set, get) => ({
   hydrated: false,
   ...SYNCABLE_SETTINGS_DEFAULTS,
@@ -178,57 +237,31 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 
   hydrate: async () => {
     if (get().hydrated) return;
-    const [
-      themeMode,
-      accent,
-      callAlertsEnabled,
-      customLabels,
-      boxSettings,
-      settingsUpdatedAt,
-      autoSyncEnabled,
-      ringBaselineWindow,
-      ringSourceKind,
-      ringGoalId,
-      ringShowTopicMix,
-      notificationsEnabled,
-      quietHoursEnabled,
-      quietStart,
-      quietEnd,
-    ] = await Promise.all([
-      getJSON<ThemeMode>('themeMode', SYNCABLE_SETTINGS_DEFAULTS.themeMode),
-      getJSON<AccentKey>('accent', SYNCABLE_SETTINGS_DEFAULTS.accent),
-      getJSON<boolean>('callAlertsEnabled', SYNCABLE_SETTINGS_DEFAULTS.callAlertsEnabled),
-      getJSON<CustomLabel[]>('customLabels', SYNCABLE_SETTINGS_DEFAULTS.customLabels),
-      getJSON<Settings>('boxSettings', DEFAULT_BOX_SETTINGS),
-      getJSON<number>('settingsUpdatedAt', 0),
-      getJSON<boolean>('autoSyncEnabled', true),
-      getJSON<RingBaselineWindow>('ringBaselineWindow', 'week'),
-      getJSON<RingSourceKind>('ringSourceKind', 'auto'),
-      getJSON<string | null>('ringGoalId', null),
-      getJSON<boolean>('ringShowTopicMix', true),
-      getJSON<boolean>('notificationsEnabled', true),
-      getJSON<boolean>('quietHoursEnabled', false),
-      getJSON<string>('quietStart', '22:00'),
-      getJSON<string>('quietEnd', '07:00'),
-    ]);
-    set({
-      hydrated: true,
-      themeMode,
-      accent,
-      callAlertsEnabled,
-      customLabels,
-      boxSettings,
-      settingsUpdatedAt,
-      autoSyncEnabled,
-      ringBaselineWindow,
-      ringSourceKind,
-      ringGoalId,
-      ringShowTopicMix,
-      notificationsEnabled,
-      quietHoursEnabled,
-      quietStart,
-      quietEnd,
+    // Two callers now reach this concurrently on a cold boot -- useStore's
+    // own init() Promise.all, and runMigrationAndSync, which awaits the three
+    // stores before merging (a signed-in user's persisted Firebase session
+    // resolves onAuthStateChanged almost immediately). `hydrated` is only set
+    // at the very END of the read below, so both would pass the guard above,
+    // both would run their own set of ~15 storage reads, and both would
+    // commit. Whichever finished LAST won -- and if a remote settings doc had
+    // been applied in between, the straggler's unconditional `set` silently
+    // reverted themeMode/accent/callAlertsEnabled/customLabels to the
+    // pre-merge snapshot it had read before the merge ran.
+    //
+    // The goals and schedule stores close their equivalent hole by
+    // re-checking `hydrated` after their awaits and bailing. That does not
+    // work here: this store's state is far wider than what a remote-settings
+    // write touches (boxSettings, autoSyncEnabled and the ring/notification
+    // prefs are device-local and are not in a remote doc at all), so bailing
+    // would drop them and leave those fields at their defaults. Collapsing
+    // the callers onto ONE in-flight read fixes it without that cost: there
+    // is only ever one `set`, and by the time runMigrationAndSync's await
+    // returns, nothing is still pending that could land on top of the merge.
+    if (hydrating) return hydrating;
+    hydrating = hydrateOnce(set).finally(() => {
+      hydrating = null;
     });
+    return hydrating;
   },
 
   setThemeMode: (mode) => {

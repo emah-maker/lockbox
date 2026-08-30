@@ -73,6 +73,32 @@ export class PhoneBoxClient {
   // background and silently re-establishes the very connection the user
   // just asked to tear down. See disconnect() below.
   private pendingDeviceId: string | null = null;
+  // Every listener belonging to the CURRENT connection session: the
+  // onDisconnected handler plus whichever status/history notify monitors the
+  // caller asked for. Lives on the instance rather than as a local in
+  // afterConnect so a session that gets superseded by a newer connect can be
+  // torn down by the session replacing it -- see closeSession().
+  private sessionSubs: Subscription[] = [];
+
+  /** Drop every listener from the current session. Safe to call repeatedly,
+   * and safe to call from inside one of the very subscriptions it removes.
+   *
+   * A session's listeners used to be removed in exactly one place: its own
+   * `onDisconnected` handler, which bails out early if `this.device` has
+   * already moved on to a newer connection. So whenever a session WAS
+   * superseded -- the reconnect race in disconnect() below, or iOS handing
+   * back the same underlying peripheral through CoreBluetooth state
+   * restoration -- that early return was reached and the old session's
+   * status/history monitors were never removed at all. Both generations then
+   * stayed live on the same connection, so every box status tick and history
+   * push ran the caller's onStatus/onHistory twice (double-counting a
+   * session), and one more monitor leaked on every such reconnect for the
+   * life of the app. */
+  private closeSession() {
+    const subs = this.sessionSubs;
+    this.sessionSubs = [];
+    subs.forEach((s) => s.remove());
+  }
 
   /** Resolve once Bluetooth is powered on (iOS asks for permission here).
    * Rejects after `timeoutMs` if it never does -- previously had no timeout
@@ -159,25 +185,30 @@ export class PhoneBoxClient {
 
   private async afterConnect(d: Device, cb: ClientCallbacks): Promise<void> {
     await d.discoverAllServicesAndCharacteristics();
+    // Whatever session this one is replacing does not get to keep listening.
+    // Its own onDisconnected can't do this for us -- by the time it fires,
+    // the guard below sees `this.device` has moved on and returns early.
+    this.closeSession();
     this.device = d;
-    // Own array per connection session -- see the onDisconnected guard below for why.
-    const sessionSubs: Subscription[] = [];
+    const sessionSubs = this.sessionSubs;
 
-    d.onDisconnected(() => {
-      // A native disconnect event for THIS device object can arrive after
-      // it's already been superseded by a newer connection (reconnect raced
-      // ahead of a delayed callback for the old session -- observed in
-      // practice on both platforms' BLE stacks). If `this.device` has moved
-      // on, this event is stale: acting on it would tear down the new
-      // connection's subscriptions and flip the store back to disconnected
-      // out from under a connection that's actually fine -- exactly the
-      // "sometimes it just won't reconnect" symptom, since the app then
-      // looks connected but silently stops receiving status/history.
-      if (this.device !== d) return;
-      sessionSubs.forEach((s) => s.remove());
-      this.device = null;
-      cb.onDisconnect?.();
-    });
+    sessionSubs.push(
+      d.onDisconnected(() => {
+        // A native disconnect event for THIS device object can arrive after
+        // it's already been superseded by a newer connection (reconnect raced
+        // ahead of a delayed callback for the old session -- observed in
+        // practice on both platforms' BLE stacks). If `this.device` has moved
+        // on, this event is stale: acting on it would tear down the new
+        // connection's subscriptions and flip the store back to disconnected
+        // out from under a connection that's actually fine -- exactly the
+        // "sometimes it just won't reconnect" symptom, since the app then
+        // looks connected but silently stops receiving status/history.
+        if (this.device !== d) return;
+        this.closeSession();
+        this.device = null;
+        cb.onDisconnect?.();
+      }),
+    );
 
     if (cb.onStatus) {
       sessionSubs.push(
@@ -209,7 +240,29 @@ export class PhoneBoxClient {
       );
     }
     // push the current wall clock so the box can date future history/schedules
-    await this.syncTime();
+    try {
+      await this.syncTime();
+    } catch (e) {
+      // This rejection propagates out of connect()/connectById(), and every
+      // caller (useStore's connect/autoconnect) reads that as "the connection
+      // failed" -- re-enabling Connect, surfacing an error. Everything above
+      // is already committed by this point though, so without this the client
+      // was left in the opposite state from what the caller had just been
+      // told: `connected` true, both notify monitors live and still firing
+      // onStatus/onHistory into a UI that believes there is no connection,
+      // and a user-tapped retry stacking a second live session on top of it.
+      // Tear the half-built session back down so "connect failed" means
+      // disconnected.
+      this.closeSession();
+      if (this.device === d) this.device = null;
+      try {
+        await this.manager.cancelDeviceConnection(d.id);
+      } catch {
+        // Already gone -- the radio stall that failed syncTime may well have
+        // been the link dropping in the first place.
+      }
+      throw e;
+    }
   }
 
   /** The connected device's id, for remembering "the box" across app launches. */
@@ -294,14 +347,31 @@ export class PhoneBoxClient {
   }
 
   async disconnect() {
-    // Cancel whichever of "already connected" or "still connecting" applies
-    // -- see pendingDeviceId's comment above for why the latter matters.
-    const targetId = this.device?.id ?? this.pendingDeviceId;
-    if (!targetId) return;
-    try {
-      await this.manager.cancelDeviceConnection(targetId);
-    } catch {
-      // Nothing to cancel (never actually connected/connecting) -- fine.
+    // Cancel BOTH "already connected" and "still connecting" when both are
+    // set, rather than picking one -- see pendingDeviceId's comment above for
+    // why the pending one matters at all.
+    //
+    // This used to be `this.device?.id ?? this.pendingDeviceId`, which only
+    // ever cancelled one. That is fine when only one exists, but the two
+    // overlap exactly when it matters most: the link is flapping, the
+    // caller's auto-reconnect has already started a fresh connectById() (now
+    // the pending id) while the old Device object is still sitting in
+    // `this.device` because its onDisconnected hasn't fired yet. `??` picked
+    // the old one, so the user's Disconnect tore down a connection that was
+    // already dying and left the in-flight attempt running -- it resolved
+    // through afterConnect moments later and reassigned `this.device`, and
+    // the app silently reconnected to the box the user had just disconnected
+    // from. That is the same class of bug pendingDeviceId was added for, just
+    // the case where `this.device` is non-null rather than null.
+    const targets = [this.device?.id, this.pendingDeviceId].filter(
+      (id, i, all): id is string => !!id && all.indexOf(id) === i,
+    );
+    for (const id of targets) {
+      try {
+        await this.manager.cancelDeviceConnection(id);
+      } catch {
+        // Nothing to cancel (never actually connected/connecting) -- fine.
+      }
     }
   }
 }

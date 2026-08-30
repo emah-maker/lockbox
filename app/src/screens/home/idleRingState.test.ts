@@ -147,6 +147,107 @@ describe('computeIdleRingState', () => {
     ).toEqual({ progress: 0, source: 'empty' });
   });
 
+  // goalWindow: the three goal-ratio sources' own window totals (see
+  // IdleRingState.goalWindow's own doc comment on why FocusHero's caption
+  // needs these rather than deriving a comparison back out of `progress`).
+  describe('goalWindow', () => {
+    it("'weeklyGoal' puts the supplied window on the result", () => {
+      expect(
+        computeIdleRingState(
+          baseInputs({
+            ringSource: 'weeklyGoal',
+            weeklyGoalRatio: 0.6,
+            weeklyGoalWindow: { focusS: 21600, targetS: 36000 },
+          }),
+        ),
+      ).toEqual({
+        progress: 0.6,
+        source: 'weeklyGoal',
+        goalWindow: { focusS: 21600, targetS: 36000 },
+      });
+    });
+
+    it("'monthlyGoal' puts the supplied window on the result", () => {
+      expect(
+        computeIdleRingState(
+          baseInputs({
+            ringSource: 'monthlyGoal',
+            monthlyGoalRatio: 0.3,
+            monthlyGoalWindow: { focusS: 3600, targetS: 12000 },
+          }),
+        ),
+      ).toEqual({
+        progress: 0.3,
+        source: 'monthlyGoal',
+        goalWindow: { focusS: 3600, targetS: 12000 },
+      });
+    });
+
+    it("'chosenGoal' puts the supplied window on the result alongside the name", () => {
+      expect(
+        computeIdleRingState(
+          baseInputs({
+            ringSource: 'chosenGoal',
+            chosenGoalRatio: 0.75,
+            chosenGoalName: 'Reading',
+            chosenGoalWindow: { focusS: 900, targetS: 1200 },
+          }),
+        ),
+      ).toEqual({
+        progress: 0.75,
+        source: 'chosenGoal',
+        chosenGoalName: 'Reading',
+        goalWindow: { focusS: 900, targetS: 1200 },
+      });
+    });
+
+    it('omitting the window leaves the result with no goalWindow key at all', () => {
+      const weekly = computeIdleRingState(baseInputs({ ringSource: 'weeklyGoal', weeklyGoalRatio: 0.6 }));
+      expect(weekly).not.toHaveProperty('goalWindow');
+
+      const monthly = computeIdleRingState(baseInputs({ ringSource: 'monthlyGoal', monthlyGoalRatio: 0.3 }));
+      expect(monthly).not.toHaveProperty('goalWindow');
+
+      const chosen = computeIdleRingState(
+        baseInputs({ ringSource: 'chosenGoal', chosenGoalRatio: 0.75, chosenGoalName: 'Reading' }),
+      );
+      expect(chosen).not.toHaveProperty('goalWindow');
+    });
+
+    it('a null ratio still reads as empty even when a window is supplied -- the window must not resurrect a goal that does not exist', () => {
+      expect(
+        computeIdleRingState(
+          baseInputs({
+            ringSource: 'weeklyGoal',
+            weeklyGoalRatio: null,
+            weeklyGoalWindow: { focusS: 21600, targetS: 36000 },
+          }),
+        ),
+      ).toEqual({ progress: 0, source: 'empty' });
+
+      expect(
+        computeIdleRingState(
+          baseInputs({
+            ringSource: 'monthlyGoal',
+            monthlyGoalRatio: null,
+            monthlyGoalWindow: { focusS: 3600, targetS: 12000 },
+          }),
+        ),
+      ).toEqual({ progress: 0, source: 'empty' });
+
+      expect(
+        computeIdleRingState(
+          baseInputs({
+            ringSource: 'chosenGoal',
+            chosenGoalRatio: null,
+            chosenGoalName: 'Reading',
+            chosenGoalWindow: { focusS: 900, targetS: 1200 },
+          }),
+        ),
+      ).toEqual({ progress: 0, source: 'empty' });
+    });
+  });
+
   it("'rollingAverage' compares today against the average, guarding both the empty-today and no-history cases", () => {
     expect(
       computeIdleRingState(baseInputs({ ringSource: 'rollingAverage', todayFocusS: 600, rollingAverageS: 300 })),

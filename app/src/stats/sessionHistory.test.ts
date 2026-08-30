@@ -1,7 +1,20 @@
-// Unit tests for sessionHistory.ts's pure retag transform. The storage-backed
-// wrappers (retagSession, appendSessions, etc.) aren't unit-tested here, same
-// as the rest of this file -- only the pure logic is. Run with `npm test`.
-import { applyTopicUpdate, buildLoggedSessions, dayKey, dayKeyToDate, filterByWindow, LoggedSession } from './sessionHistory';
+// Unit tests for sessionHistory.ts's pure retag transform. Most of the
+// storage-backed wrappers (retagSession, etc.) aren't unit-tested here, same
+// as the rest of this file -- only the pure logic is. The one exception is
+// appendSessions' approxStart dedupe below: that logic only makes sense
+// exercised against the real (mocked) AsyncStorage, since it's the resend
+// path across two separate calls that was the actual bug. Run with `npm test`.
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import {
+  applyTopicUpdate,
+  appendSessions,
+  buildLoggedSessions,
+  dayKey,
+  dayKeyToDate,
+  filterByWindow,
+  loadSessions,
+  LoggedSession,
+} from './sessionHistory';
 import type { HistoryEntry } from '../ble/protocol';
 
 const session = (startedAt: number, plannedS: number, actualS: number, topic?: string): LoggedSession => ({
@@ -106,6 +119,78 @@ describe('buildLoggedSessions', () => {
     );
     expect(consumedPendingTopic).toBe(false);
     expect(sessions[0].topic).toBeUndefined();
+  });
+
+  // A box whose clock was never set (no phone had connected yet) reports
+  // t === -1; that's the only case a startedAt is a guess (dated from
+  // whatever moment the entry happened to arrive) rather than a reading.
+  it('marks approxStart true only for a box that never had its clock set (t < 0)', () => {
+    const { sessions } = buildLoggedSessions([entry(60, 60, 1, -1)], null, 5000, 0, 100_000);
+    expect(sessions[0].approxStart).toBe(true);
+  });
+
+  it('omits approxStart entirely for a real timestamp, so an ordinary session serialises exactly as it always has', () => {
+    const { sessions } = buildLoggedSessions([entry(60, 60, 1, 1000)], null, 5000);
+    expect(sessions[0]).not.toHaveProperty('approxStart');
+  });
+});
+
+describe('appendSessions dedupe of clock-less (approxStart) resends', () => {
+  // The box resends an un-acked history batch verbatim on its next
+  // connection. A real-timestamped session dedupes on (startedAt, plannedS);
+  // an approxStart one has no stable startedAt to key on, so it has to be
+  // matched on (plannedS, actualS, outcome) content and MULTIPLICITY instead.
+  beforeEach(async () => {
+    await AsyncStorage.clear();
+  });
+
+  it('does not double-count the same clock-less session resent after a later reconnect', async () => {
+    // Same raw entry, built twice at two different nowMs -- exactly what
+    // happens when the box (still with no clock) resends an un-acked batch
+    // on its next connection, later than the first.
+    const raw: HistoryEntry[] = [entry(1500, 900, 1, -1)];
+    const first = buildLoggedSessions(raw, null, 5000, 0, 1_000_000);
+    await appendSessions(first.sessions);
+    const second = buildLoggedSessions(raw, null, 5000, 0, 9_000_000);
+    await appendSessions(second.sessions);
+
+    const stored = await loadSessions();
+    expect(stored).toHaveLength(1);
+  });
+
+  it('stores two sessions for two identical clock-less entries in the same batch (multiplicity, not set-membership)', async () => {
+    const raw: HistoryEntry[] = [entry(1500, 900, 1, -1), entry(1500, 900, 1, -1)];
+    const { sessions } = buildLoggedSessions(raw, null, 5000, 0, 1_000_000);
+    await appendSessions(sessions);
+
+    expect(await loadSessions()).toHaveLength(2);
+  });
+
+  it('appends exactly the surplus when a later resend batch has more copies than are already stored', async () => {
+    const twoCopies: HistoryEntry[] = [entry(1500, 900, 1, -1), entry(1500, 900, 1, -1)];
+    await appendSessions(buildLoggedSessions(twoCopies, null, 5000, 0, 1_000_000).sessions);
+    expect(await loadSessions()).toHaveLength(2);
+
+    // Later reconnect: the box still hasn't gotten a clock, and now reports
+    // three identical sessions -- two of which are the earlier resend, one
+    // a legitimately new third completion.
+    const threeCopies: HistoryEntry[] = [
+      entry(1500, 900, 1, -1),
+      entry(1500, 900, 1, -1),
+      entry(1500, 900, 1, -1),
+    ];
+    await appendSessions(buildLoggedSessions(threeCopies, null, 5000, 0, 9_000_000).sessions);
+
+    expect(await loadSessions()).toHaveLength(3);
+  });
+
+  it('still dedupes real-timestamped sessions on (startedAt, plannedS), unaffected by the approxStart path', async () => {
+    const raw: HistoryEntry[] = [entry(1500, 900, 1, 2_000_000)];
+    const { sessions } = buildLoggedSessions(raw, null, 5000);
+    await appendSessions(sessions);
+    await appendSessions(sessions); // verbatim resend, same real startedAt
+
+    expect(await loadSessions()).toHaveLength(1);
   });
 });
 

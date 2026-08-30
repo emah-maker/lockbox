@@ -1,0 +1,159 @@
+// users/{uid}/pushTokens/{tokenId} and users/{uid}/scheduledSessions/{planId}
+// -- the two collections the push backend reads (functions/src/index.ts).
+//
+// These carry a different risk from the rest of this file's collections: a
+// push token is an ADDRESS the server will send to, and a scheduled session
+// is what it sends. A rule that let one user write into another's paths
+// would let them aim notifications at a stranger's phone, so the
+// cross-account cases below are the point of this suite, not an afterthought.
+import { assertFails, assertSucceeds, RulesTestEnvironment } from '@firebase/rules-unit-testing';
+import { doc, setDoc, getDoc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { createRulesTestEnv } from './helpers';
+
+let testEnv: RulesTestEnvironment;
+
+const OWNER = 'user-a';
+const OTHER = 'user-b';
+
+const validToken = () => ({
+  transport: 'expo',
+  token: 'ExponentPushToken[xxxxxxxxxxxxxxxxxxxxxx]',
+  platform: 'ios',
+  localReminderIds: ['sched_1', 'sched_2'],
+  createdAt: 1_700_000_000_000,
+  updatedAt: 1_700_000_000_000,
+});
+
+const validPlan = () => ({
+  date: '2026-09-01',
+  time: '09:00',
+  fireAtMs: 1_800_000_000_000,
+  timeLabel: '9:00 AM',
+  tz: 'America/New_York',
+  topic: null,
+  leadMinutes: 10,
+  done: false,
+  notifiedAt: null,
+  updatedAt: 1_700_000_000_000,
+});
+
+beforeAll(async () => {
+  testEnv = await createRulesTestEnv('push-reminders');
+});
+
+afterAll(async () => {
+  await testEnv.cleanup();
+});
+
+beforeEach(async () => {
+  await testEnv.clearFirestore();
+});
+
+describe('users/{uid}/pushTokens/{tokenId}', () => {
+  const path = (uid: string, id = 'device-1') => `users/${uid}/pushTokens/${id}`;
+
+  it('lets the owner register, read, update and delete their own device', async () => {
+    const db = testEnv.authenticatedContext(OWNER).firestore();
+    await assertSucceeds(setDoc(doc(db, path(OWNER)), validToken()));
+    await assertSucceeds(getDoc(doc(db, path(OWNER))));
+    await assertSucceeds(updateDoc(doc(db, path(OWNER)), { localReminderIds: ['sched_3'], updatedAt: 1 }));
+    await assertSucceeds(deleteDoc(doc(db, path(OWNER))));
+  });
+
+  // The one that actually matters: a push token is an address, so writing
+  // into someone else's collection would be aiming notifications at their
+  // phone.
+  it('denies writing a token into another account', async () => {
+    const db = testEnv.authenticatedContext(OTHER).firestore();
+    await assertFails(setDoc(doc(db, path(OWNER)), validToken()));
+    await assertFails(getDoc(doc(db, path(OWNER))));
+  });
+
+  it('denies an unauthenticated write', async () => {
+    const db = testEnv.unauthenticatedContext().firestore();
+    await assertFails(setDoc(doc(db, path(OWNER)), validToken()));
+  });
+
+  it('rejects an unknown transport, an empty token, and an unknown field', async () => {
+    const db = testEnv.authenticatedContext(OWNER).firestore();
+    await assertFails(setDoc(doc(db, path(OWNER)), { ...validToken(), transport: 'sms' }));
+    await assertFails(setDoc(doc(db, path(OWNER)), { ...validToken(), token: '' }));
+    await assertFails(setDoc(doc(db, path(OWNER)), { ...validToken(), uid: OTHER }));
+  });
+
+  // Bounds, so a token document can't be used as free storage.
+  it('rejects an over-long token and an over-long coverage list', async () => {
+    const db = testEnv.authenticatedContext(OWNER).firestore();
+    await assertFails(setDoc(doc(db, path(OWNER)), { ...validToken(), token: 'x'.repeat(513) }));
+    await assertFails(
+      setDoc(doc(db, path(OWNER)), {
+        ...validToken(),
+        localReminderIds: Array.from({ length: 51 }, (_, i) => `sched_${i}`),
+      }),
+    );
+  });
+});
+
+describe('users/{uid}/scheduledSessions/{planId}', () => {
+  const path = (uid: string, id = 'sched_1') => `users/${uid}/scheduledSessions/${id}`;
+
+  it('lets the owner create, read, edit and delete their own plan', async () => {
+    const db = testEnv.authenticatedContext(OWNER).firestore();
+    await assertSucceeds(setDoc(doc(db, path(OWNER)), validPlan()));
+    await assertSucceeds(getDoc(doc(db, path(OWNER))));
+    await assertSucceeds(updateDoc(doc(db, path(OWNER)), { time: '10:00', timeLabel: '10:00 AM', updatedAt: 2 }));
+    await assertSucceeds(deleteDoc(doc(db, path(OWNER))));
+  });
+
+  it("denies reading or writing another account's plans", async () => {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), path(OWNER)), validPlan());
+    });
+    const db = testEnv.authenticatedContext(OTHER).firestore();
+    await assertFails(getDoc(doc(db, path(OWNER))));
+    await assertFails(setDoc(doc(db, path(OWNER)), validPlan()));
+    await assertFails(deleteDoc(doc(db, path(OWNER))));
+  });
+
+  // Editing a plan legitimately re-arms it, so a client CAN write
+  // notifiedAt back to null -- that is not a hole, it is how a rescheduled
+  // session gets a fresh reminder. What it may not do is write a shape the
+  // backend would choke on.
+  it('allows re-arming an already-sent plan, but not a bogus notifiedAt', async () => {
+    const db = testEnv.authenticatedContext(OWNER).firestore();
+    await assertSucceeds(setDoc(doc(db, path(OWNER)), { ...validPlan(), notifiedAt: 1_800_000_000_001 }));
+    await assertSucceeds(updateDoc(doc(db, path(OWNER)), { notifiedAt: null, updatedAt: 3 }));
+    await assertFails(updateDoc(doc(db, path(OWNER)), { notifiedAt: 'later', updatedAt: 4 }));
+  });
+
+  // fireAtMs is the only field the backend queries on, so its type is the
+  // one that has to hold.
+  it('rejects a malformed fireAtMs, date, or time', async () => {
+    const db = testEnv.authenticatedContext(OWNER).firestore();
+    await assertFails(setDoc(doc(db, path(OWNER)), { ...validPlan(), fireAtMs: 'soon' }));
+    await assertFails(setDoc(doc(db, path(OWNER)), { ...validPlan(), date: '1/9/2026' }));
+    await assertFails(setDoc(doc(db, path(OWNER)), { ...validPlan(), time: '9:00' }));
+  });
+
+  it('rejects out-of-range and over-long fields', async () => {
+    const db = testEnv.authenticatedContext(OWNER).firestore();
+    await assertFails(setDoc(doc(db, path(OWNER)), { ...validPlan(), leadMinutes: -1 }));
+    await assertFails(setDoc(doc(db, path(OWNER)), { ...validPlan(), leadMinutes: 1441 }));
+    await assertFails(setDoc(doc(db, path(OWNER)), { ...validPlan(), plannedS: 0 }));
+    await assertFails(setDoc(doc(db, path(OWNER)), { ...validPlan(), note: 'x'.repeat(121) }));
+    await assertFails(setDoc(doc(db, path(OWNER)), { ...validPlan(), topic: 'x'.repeat(201) }));
+    // The notification body is built from timeLabel, so it is capped too.
+    await assertFails(setDoc(doc(db, path(OWNER)), { ...validPlan(), timeLabel: 'x'.repeat(21) }));
+  });
+
+  it('rejects an unknown field smuggled in alongside valid ones', async () => {
+    const db = testEnv.authenticatedContext(OWNER).firestore();
+    await assertFails(setDoc(doc(db, path(OWNER)), { ...validPlan(), uid: OTHER }));
+    await assertFails(setDoc(doc(db, path(OWNER)), { ...validPlan(), priority: 'high' }));
+  });
+
+  it('denies an unauthenticated create', async () => {
+    const db = testEnv.unauthenticatedContext().firestore();
+    await assertFails(setDoc(doc(db, path(OWNER)), validPlan()));
+  });
+});

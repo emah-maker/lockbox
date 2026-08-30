@@ -16,6 +16,7 @@ import SettingsScreen from './src/screens/SettingsScreen';
 import { useStore } from './src/store/useStore';
 import { useSettingsStore } from './src/store/useSettingsStore';
 import { useGoalsStore } from './src/store/useGoalsStore';
+import { useScheduleStore, startSessionReminderWatch } from './src/store/useScheduleStore';
 import { useTheme } from './src/theme/useTheme';
 import { isCallObserverAvailable } from './modules/call-observer';
 import { getLaunchReason, onBackgroundWake } from './modules/background-wake';
@@ -23,6 +24,7 @@ import { useAuthStore } from './src/auth/useAuthStore';
 import { startSettingsSyncBridge } from './src/sync/settingsSyncBridge';
 import { startSessionsSyncBridge } from './src/sync/sessionsSyncBridge';
 import { startGoalsSyncBridge } from './src/sync/goalsSyncBridge';
+import { startScheduledSessionsSyncBridge } from './src/sync/scheduledSessionsSyncBridge';
 import { useBatteryStore } from './src/battery/useBatteryStore';
 import { startBatterySampling } from './src/battery/batterySamplingBridge';
 import { ensureNotificationSetup } from './src/goals/goalNotifications';
@@ -113,6 +115,20 @@ export default function App() {
     // mutations alone are no longer a sufficient trigger.
     void ensureNotificationSetup();
     startGoalNotificationBridge();
+
+    // Scheduled focus sessions (the calendar's "schedule a session"
+    // reminders). Same hydrate-then-start-the-watch ordering as the stores
+    // above: hydrate() reconciles the OS's pending one-off reminders against
+    // what's persisted, and startSessionReminderWatch keeps that set in step
+    // with the global notification prefs afterwards. Fire-and-forget --
+    // nothing here waits on either, and hydrate() no-ops past its first call.
+    useScheduleStore.getState().hydrate();
+    startSessionReminderWatch();
+    // Mirrors the other three sync bridges: a local plan change becomes a
+    // best-effort Firestore push, which is what lets the backend reminder job
+    // (functions/) see a session scheduled on this phone, and what lets one
+    // scheduled on the dashboard arrive here.
+    startScheduledSessionsSyncBridge();
 
     // Foundation module (app/modules/background-wake) fires this once, early,
     // on any cold launch the OS performed for a background reason --

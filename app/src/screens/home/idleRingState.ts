@@ -67,6 +67,21 @@ export interface IdleRingState {
    * which no more reads as a percentage than a streak does, so FocusHero
    * needs the exact numbers (see `streak` above, same reasoning). */
   sessionCount?: { count: number; target: number };
+  /** Only present for the three goal-ratio sources ('weeklyGoal',
+   * 'monthlyGoal', 'chosenGoal') -- that goal's own window totals, straight
+   * from goals/goalProgress.ts's GoalProgressResult.
+   *
+   * Here for the same reason `streak`, `sessionCount` and `pace` are: the
+   * caption's percentage is not enough on its own, and the numbers behind it
+   * CANNOT be recovered from `progress`. For every other source `progress`
+   * is literally todayFocusS / comparison, so a caption can divide its way
+   * back to the comparison. These three are not: their ratio's numerator is
+   * the whole week's (or month's) focus time, not today's. Dividing today's
+   * seconds by that ratio yields a number that is neither the target nor
+   * anything else -- for a 10h weekly goal at 6h done and 30m logged today,
+   * it reports "20m to go" against a real 4h remaining. Passing the real
+   * pair is the only way a caption can say something true. */
+  goalWindow?: { focusS: number; targetS: number };
   /** Only present when source === 'pace' -- seconds expected by now vs.
    * seconds actually done, so the caption can say how far ahead or behind
    * you are in real time rather than only as a ratio. */
@@ -220,9 +235,16 @@ function computeGoalRatioRingProgress(
   ratio: number | null,
   source: 'weeklyGoal' | 'monthlyGoal' | 'chosenGoal',
   chosenGoalName?: string | null,
+  goalWindow?: { focusS: number; targetS: number } | null,
 ): IdleRingState {
   if (ratio == null) return { progress: 0, source: 'empty' };
-  return source === 'chosenGoal' ? { progress: ratio, source, chosenGoalName: chosenGoalName ?? undefined } : { progress: ratio, source };
+  // Spread conditionally so a caller that has no window to give (only the
+  // ratio, as the unit tests do) produces the same object it always did,
+  // rather than one carrying an explicit `goalWindow: undefined`.
+  const window = goalWindow ? { goalWindow } : {};
+  return source === 'chosenGoal'
+    ? { progress: ratio, source, chosenGoalName: chosenGoalName ?? undefined, ...window }
+    : { progress: ratio, source, ...window };
 }
 
 /** Today's focus time against the trailing 7-day average (today excluded
@@ -269,14 +291,26 @@ export interface IdleRingInputs {
    * ratio (goals/goalProgress.ts's GoalProgressResult.ratio), or null if no
    * such goal exists. */
   weeklyGoalRatio: number | null;
+  /** 'weeklyGoal' source only -- the same goal's raw window totals, the
+   * companion to weeklyGoalRatio above. Optional so a caller (or a test)
+   * that only cares about the arc can pass the ratio alone; supply it
+   * whenever a caption needs to state real amounts. See
+   * IdleRingState.goalWindow for why the ratio alone is not enough. */
+  weeklyGoalWindow?: { focusS: number; targetS: number } | null;
   /** 'monthlyGoal' source only -- the untopic'd monthly goal's
    * current-window ratio, or null if no such goal exists. Same shape and
    * same treatment as weeklyGoalRatio above. */
   monthlyGoalRatio: number | null;
+  /** 'monthlyGoal' source only -- companion to monthlyGoalRatio, same
+   * treatment as weeklyGoalWindow above. */
+  monthlyGoalWindow?: { focusS: number; targetS: number } | null;
   /** 'chosenGoal' source only -- the user's picked goal's current-window
    * ratio, or null if none is picked or the picked one no longer exists
    * (archived/deleted). */
   chosenGoalRatio: number | null;
+  /** 'chosenGoal' source only -- companion to chosenGoalRatio, same
+   * treatment as weeklyGoalWindow above. */
+  chosenGoalWindow?: { focusS: number; targetS: number } | null;
   /** 'chosenGoal' source only -- the picked goal's display name, already
    * resolved by the caller (DashboardScreen's describeGoalTopic). Ignored
    * (and may be null) for every other source. */
@@ -320,15 +354,15 @@ export function computeIdleRingState(inputs: IdleRingInputs): IdleRingState {
 function dispatchIdleRingState(inputs: IdleRingInputs): IdleRingState {
   switch (inputs.ringSource) {
     case 'weeklyGoal':
-      return computeGoalRatioRingProgress(inputs.weeklyGoalRatio, 'weeklyGoal');
+      return computeGoalRatioRingProgress(inputs.weeklyGoalRatio, 'weeklyGoal', null, inputs.weeklyGoalWindow);
     case 'monthlyGoal':
-      return computeGoalRatioRingProgress(inputs.monthlyGoalRatio, 'monthlyGoal');
+      return computeGoalRatioRingProgress(inputs.monthlyGoalRatio, 'monthlyGoal', null, inputs.monthlyGoalWindow);
     case 'sessionCount':
       return computeSessionCountRingProgress(inputs.todaySessionCount, inputs.dailySessionTarget);
     case 'pace':
       return computePaceRingProgress(inputs.todayFocusS, inputs.dailyGoalTargetS, inputs.nowMs);
     case 'chosenGoal':
-      return computeGoalRatioRingProgress(inputs.chosenGoalRatio, 'chosenGoal', inputs.chosenGoalName);
+      return computeGoalRatioRingProgress(inputs.chosenGoalRatio, 'chosenGoal', inputs.chosenGoalName, inputs.chosenGoalWindow);
     case 'rollingAverage':
       return computeRollingAverageRingProgress(inputs.todayFocusS, inputs.rollingAverageS);
     case 'streak':

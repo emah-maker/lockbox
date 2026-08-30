@@ -87,7 +87,11 @@ interface GoalsState {
  * outside this file should be committing to `goals` storage directly. */
 function persist(set: (partial: Partial<GoalsState>) => void, goals: Goal[], updatedAt: number): void {
   const pruned = pruneArchivedGoals(goals);
-  set({ goals: pruned, goalsUpdatedAt: updatedAt });
+  // `hydrated` here is not bookkeeping -- it is what stops hydrate() from
+  // undoing this write. See hydrate()'s own comment: a write that lands while
+  // hydrate is still awaiting its reads makes those reads stale by
+  // definition, and flipping the flag now is how hydrate finds that out.
+  set({ hydrated: true, goals: pruned, goalsUpdatedAt: updatedAt });
   setJSON(GOALS_KEY, pruned);
   setJSON(GOALS_UPDATED_AT_KEY, updatedAt);
   // Fire-and-forget: this never throws and nothing here awaits or otherwise
@@ -106,6 +110,18 @@ export const useGoalsStore = create<GoalsState>((set, get) => ({
       getJSON<Goal[]>(GOALS_KEY, []),
       getJSON<number>(GOALS_UPDATED_AT_KEY, 0),
     ]);
+    // Re-check AFTER the awaits, not just before them. App.tsx fires this
+    // hydrate and useAuthStore.init() independently, and for an already
+    // signed-in user Firebase's persisted session can resolve
+    // onAuthStateChanged -> syncNow -> applyRemoteGoals -> persist() while
+    // these two reads are still in flight. persist() writes through to
+    // storage, so by the time it has run, what we read above is a snapshot of
+    // the pre-sync past. Committing it anyway reverted the just-merged remote
+    // goals (and the reminders derived from them) to the stale local list,
+    // and left it that way until some later write happened to fix it --
+    // storage itself was already correct the whole time. Whoever wrote last
+    // wins, and a write always beats a read that started earlier.
+    if (get().hydrated) return;
     set({ hydrated: true, goals, goalsUpdatedAt });
     resyncGoalNotifications(goals);
   },

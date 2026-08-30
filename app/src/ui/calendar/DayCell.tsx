@@ -37,6 +37,7 @@ export function DayCell({
   onPress,
   streakEdge,
   showFlame,
+  hasPlan,
 }: {
   date: Date;
   focusS: number;
@@ -68,6 +69,17 @@ export function DayCell({
    * streak run -- CalendarScreen.tsx only sets this for runs of length >= 3
    * (see its own comment), so a casual 2-day pair doesn't litter the grid. */
   showFlame?: boolean;
+  /** Whether this day has at least one scheduled focus session still
+   * outstanding (schedule/scheduledSessions.ts, via CalendarScreen). Drawn
+   * as a small dot on the opposite corner from the flame badge, so a day
+   * can carry both without them overlapping.
+   *
+   * A dot, not a count: the number of things you planned is not something
+   * worth reading at a glance from a 34px circle, and the day sheet lists
+   * them the moment you tap. Deliberately a DIFFERENT mark from the goal
+   * ring and the heat fill, both of which describe what already happened --
+   * this is the one mark on the grid that points forward. */
+  hasPlan?: boolean;
 }) {
   const dayA11yLabel = `${date.toLocaleDateString(undefined, {
     weekday: 'long',
@@ -75,7 +87,7 @@ export function DayCell({
     day: 'numeric',
   })}${focusS > 0 ? `, ${formatDuration(focusS)} focused` : ', no focus time'}${goalMet ? ', goal met' : ''}${
     showFlame ? ', streak' : ''
-  }`;
+  }${hasPlan ? ', has a planned session' : ''}`;
 
   const stackTotal = topicStats.reduce((sum, t) => sum + t.focusS, 0);
   const stackSegments = topicStats.slice(0, MAX_STACK_SEGMENTS);
@@ -128,6 +140,12 @@ export function DayCell({
             <Ionicons name="flame" size={10} color={theme.warn} />
           </View>
         )}
+        {hasPlan && (
+          <View
+            pointerEvents="none"
+            style={[styles.planDot, { backgroundColor: theme.accent, borderColor: theme.surface }]}
+          />
+        )}
       </View>
       {stackSegments.length > 0 && (
         <View style={styles.stackRow}>
@@ -163,6 +181,19 @@ const styles = StyleSheet.create({
   connector: { position: 'absolute', height: 4, borderRadius: 2, top: '50%', marginTop: -2 },
   connectorLeft: { left: 0, width: '50%' },
   connectorRight: { right: 0, width: '50%' },
+  // Top-LEFT, opposite the flame badge's top-right, so a day that is both
+  // the tip of a streak and has something planned shows both marks. The
+  // surface-colored border is what keeps it legible when the day circle
+  // underneath is at a high heat level.
+  planDot: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    width: 9,
+    height: 9,
+    borderRadius: 4.5,
+    borderWidth: 1.5,
+  },
   flameBadge: {
     position: 'absolute',
     top: -2,

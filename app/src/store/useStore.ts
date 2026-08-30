@@ -152,6 +152,14 @@ export const useStore = create<AppState>((set, get) => {
     reconnectAttempts += 1;
     reconnectTimer = setTimeout(() => {
       reconnectTimer = null;
+      // Re-checked when the timer FIRES, not only when it was armed. The
+      // backoff runs up to a minute, which is plenty of time for the user to
+      // open Settings and turn Auto-connect off -- and connect() has no
+      // autoConnect gate of its own, so an already-armed timer would go
+      // ahead and reconnect to a box the user had just told the app to stop
+      // reaching for. setAutoConnect clears the timer too; this is the
+      // backstop for any other path that flips the flag.
+      if (userDisconnected || !get().autoConnect) return;
       get().connect();
     }, delay);
   };
@@ -429,7 +437,17 @@ export const useStore = create<AppState>((set, get) => {
     setAutoConnect: (on) => {
       set({ autoConnect: on });
       setJSON(AUTO_CONNECT_KEY, on);
-      if (on) get().connect();
+      if (on) {
+        get().connect();
+        return;
+      }
+      // Turning it OFF has to cancel whatever backoff is already armed.
+      // scheduleReconnect only consults autoConnect at the moment it arms a
+      // timer, so a box that dropped out of range a moment ago leaves a timer
+      // of up to a minute running -- and it used to fire regardless, silently
+      // reconnecting to the box right after the user had explicitly said not
+      // to.
+      clearReconnectTimer();
     },
 
     // Optimistically mirrors the patch into useSettingsStore immediately, then

@@ -1,0 +1,152 @@
+/* ============================================================
+   plannedSessions.css -- the "Planned" block inside the focus-calendar card
+   (plannedSessionsPanel.js): the scheduled-session rows, the add/edit form,
+   and the browser-reminder opt-in.
+
+   Its own file, loaded after dashboard.css, for the same reason
+   goalFormExtras.css and accountPanel.css are: dashboard.css is already at
+   this project's 500-line guideline. Reuses dashboard.css's :root tokens
+   (--card-2, --text, --text-2, --border-soft, --radius-sm, --unlocked,
+   --ease-snap, and the spacing and font-size scales) rather than introducing
+   a parallel design system -- the same discipline those two files state.
+
+   Careful writing those scale names as wildcards in this header: a hyphen-
+   star-slash sequence terminates the comment right there, and the rest of
+   the prose then parses as CSS and swallows the first rule below. That
+   happened here, and only a preview render caught it.
+   ============================================================ */
+
+.dash__planned {
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border-soft);
+}
+
+.dash__planned-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+.dash__planned-head h4 {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+
+.dash__plan-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1-5);
+}
+
+.dash__plan {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2-5);
+  padding: var(--space-2) 0;
+}
+/* Struck through rather than dimmed away entirely: a ticked-off plan is a
+   record of something you meant to do and did, which is worth still being
+   able to read on a past day. */
+.dash__plan--done .dash__plan-top strong { text-decoration: line-through; color: var(--text-2); }
+
+.dash__plan-check {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  line-height: 1;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-2);
+  font-size: var(--fs-base);
+}
+.dash__plan-check[aria-pressed='true'] { color: var(--unlocked); }
+
+.dash__plan-main { flex: 1 1 auto; min-width: 0; }
+.dash__plan-top {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-1-5);
+}
+.dash__plan-meta {
+  color: var(--text-2);
+  font-size: var(--fs-2xs);
+  /* Keeps a long note from stretching this row past the card. */
+  overflow-wrap: anywhere;
+}
+
+.dash__plan-action {
+  flex: none;
+  background: none;
+  border: none;
+  padding: var(--space-1) var(--space-1-5);
+  cursor: pointer;
+  color: var(--text-2);
+  font-size: var(--fs-2xs);
+  font-family: var(--font-body);
+  transition: color var(--dur-base) var(--ease-snap);
+}
+.dash__plan-action:hover { color: var(--text); }
+.dash__plan-action--danger:hover { color: var(--locked); }
+
+/* ---------- Add / edit form ---------- */
+
+.dash__plan-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2-5);
+  margin-top: var(--space-2-5);
+  padding: var(--space-3);
+  background: var(--card-2);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+}
+
+.dash__plan-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  /* Wraps to one-per-row on narrow screens rather than squeezing five
+     controls onto one line. */
+  flex: 1 1 140px;
+  min-width: 0;
+}
+.dash__plan-field > span {
+  font-size: var(--fs-2xs);
+  color: var(--text-2);
+}
+.dash__plan-field input,
+.dash__plan-field select {
+  width: 100%;
+  padding: var(--space-1-5) var(--space-2);
+  background: var(--card);
+  color: var(--text);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-body);
+  font-size: var(--fs-sm);
+}
+
+.dash__plan-form-actions {
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-end;
+  flex: 1 1 100%;
+}
+
+/* ---------- Browser-reminder opt-in ---------- */
+
+.dash__planned-push {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: var(--space-2-5) 0 0;
+}

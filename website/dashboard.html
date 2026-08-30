@@ -14,6 +14,7 @@
   <link rel="stylesheet" href="css/dashboard.css" />
   <link rel="stylesheet" href="css/accountPanel.css" />
   <link rel="stylesheet" href="css/goalFormExtras.css" />
+  <link rel="stylesheet" href="css/plannedSessions.css" />
 </head>
 <body>
   <!-- impeccable:direction
@@ -149,6 +150,24 @@
             <div class="dash__cal-day">
               <h3 id="dashCalDayTitle"></h3>
               <ul class="dash__cal-daylist" id="dashCalDayList"></ul>
+
+              <!-- Planned sessions for the selected day (plannedSessionsPanel.js).
+                   Below the logged list on purpose: this card is primarily a
+                   record of what happened, and the forward-looking block reads
+                   as an addition to that rather than displacing it. -->
+              <div class="dash__planned">
+                <div class="dash__planned-head">
+                  <h4>Planned</h4>
+                  <button id="dashPlanAdd" class="btn btn--sm btn--ghost" type="button">+ Schedule</button>
+                </div>
+                <ul class="dash__plan-list" id="dashPlanList"></ul>
+                <div id="dashPlanFormSlot"></div>
+                <p id="dashPlanMsg" class="form-msg dash__msg" role="status"></p>
+                <p class="dash__planned-push" id="dashWebPushRow" hidden>
+                  <button id="dashWebPushBtn" class="btn btn--sm btn--ghost" type="button">Enable browser reminders</button>
+                  <span id="dashWebPushStatus" class="dash__plan-meta"></span>
+                </p>
+              </div>
             </div>
           </div>
 

@@ -401,6 +401,8 @@ export default function StatsScreen() {
         title="Manage goals"
         size="large"
         scrollEnabled={!wheelActive}
+        // Wheels in the body -- see Sheet.tsx's dragBodyToDismiss.
+        dragBodyToDismiss={false}
       >
         <ManageSheet color={c} onWheelActiveChange={onWheelActiveChange} initialCreate={manageSheetAutoCreate} />
       </Sheet>

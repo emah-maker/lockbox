@@ -154,6 +154,18 @@ export function useHomeGoalRing(params: {
         weeklyGoalRatio: weeklyGoalResult ? weeklyGoalResult.ratio : null,
         monthlyGoalRatio: monthlyGoalResult ? monthlyGoalResult.ratio : null,
         chosenGoalRatio: chosenGoalResult ? chosenGoalResult.ratio : null,
+        // The raw seconds behind each of those ratios. FocusHero's caption
+        // needs them because a weekly/monthly ratio's numerator is the whole
+        // window's focus time, not today's -- see IdleRingState.goalWindow.
+        weeklyGoalWindow: weeklyGoalResult
+          ? { focusS: weeklyGoalResult.focusS, targetS: weeklyGoalResult.targetS }
+          : null,
+        monthlyGoalWindow: monthlyGoalResult
+          ? { focusS: monthlyGoalResult.focusS, targetS: monthlyGoalResult.targetS }
+          : null,
+        chosenGoalWindow: chosenGoalResult
+          ? { focusS: chosenGoalResult.focusS, targetS: chosenGoalResult.targetS }
+          : null,
         chosenGoalName: chosenGoal ? describeGoalTopic(chosenGoal.topic, customLabels, themeMode) : null,
         rollingAverageS: computeRollingAverageS(sessions),
         streakCurrent: computeDailyStreak(sessions),

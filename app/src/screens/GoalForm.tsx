@@ -9,6 +9,28 @@
 // both for the same guideline once a reminder became a list of times rather
 // than one.
 //
+// LAYOUT: essentials open, everything else collapsed. The period selector
+// and the target wheels are always visible -- they are the two fields with
+// no answer until you give one, and every goal needs both. The other four
+// (which label it counts, which weekdays it applies to, an optional session
+// count, and the whole reminder schedule) live in GoalFormGroups.tsx as
+// ui/FormDisclosure groups that each show a one-line summary of their
+// CURRENT value and expand in place, at most one at a time.
+//
+// That is the fix for this form being "too cluttered": before, every one of
+// those controls was mounted at once in a single vertical stack -- a topic
+// chip row that wraps to three lines, a weekday chip row, a stepper, and a
+// reminder block carrying three switches, a chip list, an inline time
+// picker and its own weekday row -- so the thing you came to set was buried
+// under controls you weren't using and the sheet ran well past the bottom of
+// the screen. Nothing was removed and no field changed shape; the form just
+// stopped showing all of it simultaneously. Collapsed groups are UNMOUNTED
+// (see FormDisclosure.tsx), so their wheels and chips cost nothing either.
+//
+// The target wheels deliberately did NOT go behind a disclosure. They are
+// the answer to "how much", which is the goal; a form whose primary field
+// needs a tap to appear has traded clutter for indirection.
+//
 // One form serves BOTH create and edit: a goal's editable surface (topic,
 // period, target, and now the four extension fields) is exactly its
 // creatable surface, so a second copy would only be two places to keep the
@@ -28,8 +50,7 @@ import { View, Text, StyleSheet } from 'react-native';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useTheme } from '../theme/useTheme';
 import { withAlpha } from '../theme/color';
-import { allLabelChoices } from '../stats/customLabels';
-import { Goal, GoalPeriod, MAX_TARGET_SESSIONS } from '../goals/goals';
+import { Goal, GoalPeriod } from '../goals/goals';
 import {
   PERIOD_MAX_HOURS,
   MINUTE_VALUES,
@@ -42,11 +63,10 @@ import {
 import { Button } from './SettingsPrimitives';
 import { AnimatedPressable } from '../ui/AnimatedPressable';
 import { WheelPicker } from '../ui/WheelPicker';
-import { WeekdayChips, SessionTargetControl } from './GoalFormExtras';
-import { GoalReminderControl } from './GoalReminderControl';
+import { GoalFormGroups } from './GoalFormGroups';
 import { goalNotifyTimes } from '../goals/goalReminders';
 import { typeScale } from '../theme/tokens';
-import { ALL_TOPICS_ID, topicIdToStored, orphanLabel, TopicChip } from './GoalTopicChips';
+import { ALL_TOPICS_ID, topicIdToStored } from './GoalTopicChips';
 
 // The wheels' selectable range is DERIVED from goals.ts's own bounds via
 // goalTargetParts.ts (PERIOD_MAX_HOURS/showsDaysWheel/maxDaysFor) rather than
@@ -247,16 +267,6 @@ function GoalForm({
     setMinutes(parts.minutes);
   };
 
-  const choices = allLabelChoices(customLabels, themeMode);
-  // An edit whose goal targets a since-deleted custom label: keep that id
-  // selectable so re-saving the goal doesn't silently retarget it at
-  // whatever chip happens to be first. resolveTopic returns null for it, so
-  // it would otherwise have no chip at all.
-  const orphanId =
-    initial?.topic && initial.topic !== ALL_TOPICS_ID && !choices.some((ch) => ch.id === initial.topic)
-      ? initial.topic
-      : null;
-
   const handleSubmit = () => {
     // Every weekday selected (or none) is "no restriction at all" --
     // collapsed to `undefined` here rather than left as a 7-long array, so
@@ -283,45 +293,6 @@ function GoalForm({
 
   return (
     <View style={styles.form}>
-      <Text style={[styles.formLabel, { color: color.textDim }]}>Count sessions labeled</Text>
-      <View style={styles.chipRow}>
-        <TopicChip
-          label="All focus time"
-          swatchColor={color.accent}
-          // No ResolvedTopic to read a measured `textColor` from -- but the
-          // swatch IS the theme accent, which accentText was contrast-tuned
-          // against (see theme.ts's per-mode accent audit).
-          activeTextColor={color.accentText}
-          active={topicId === ALL_TOPICS_ID}
-          onPress={() => setTopicId(ALL_TOPICS_ID)}
-          color={color}
-        />
-        {choices.map((choice) => (
-          <TopicChip
-            key={choice.id}
-            label={choice.label}
-            swatchColor={choice.color}
-            // allLabelChoices already measured this per choice (customLabels.ts's
-            // readableTextColor) -- reused rather than re-derived, exactly as
-            // TopicPicker.tsx's own chip row does.
-            activeTextColor={choice.textColor}
-            active={topicId === choice.id}
-            onPress={() => setTopicId(choice.id)}
-            color={color}
-          />
-        ))}
-        {orphanId ? (
-          <TopicChip
-            label={orphanLabel(orphanId, customLabels, themeMode)}
-            swatchColor={color.textDim}
-            activeTextColor={color.bg}
-            active={topicId === orphanId}
-            onPress={() => setTopicId(orphanId)}
-            color={color}
-          />
-        ) : null}
-      </View>
-
       <Text style={[styles.formLabel, { color: color.textDim }]}>Every</Text>
       <View style={styles.chipRow}>
         {PERIOD_OPTIONS.map((opt) => (
@@ -342,19 +313,6 @@ function GoalForm({
           </AnimatedPressable>
         ))}
       </View>
-
-      {/* Weekday restriction is only meaningful for a daily goal -- a
-          weekly/monthly goal's window already spans its whole period, so
-          "which days count" has no meaning for either (goalProgress.ts's
-          isGoalDueOn treats it the same way). Hidden rather than disabled
-          when not applicable, so the form doesn't grow taller than it needs
-          to for the common (unrestricted, or non-daily) case. */}
-      {period === 'daily' ? (
-        <>
-          <Text style={[styles.formLabel, { color: color.textDim }]}>On these days</Text>
-          <WeekdayChips selected={daysOfWeek} onChange={setDaysOfWeek} color={color} />
-        </>
-      ) : null}
 
       <Text style={[styles.formLabel, { color: color.textDim }]}>Target</Text>
       <View
@@ -415,19 +373,27 @@ function GoalForm({
         />
       </View>
 
-      <SessionTargetControl value={targetSessions} onChange={setTargetSessions} max={MAX_TARGET_SESSIONS} color={color} />
-
-      <GoalReminderControl
+      <GoalFormGroups
+        period={period}
+        topicId={topicId}
+        onTopicChange={setTopicId}
+        initialTopic={initial?.topic}
+        daysOfWeek={daysOfWeek}
+        onDaysOfWeekChange={setDaysOfWeek}
+        targetSessions={targetSessions}
+        onTargetSessionsChange={setTargetSessions}
         notify={notify}
-        times={notifyTimes}
-        days={notifyDays}
-        onlyIfBehind={notifyOnlyIfBehind}
         onNotifyChange={setNotify}
-        onTimesChange={setNotifyTimes}
-        onDaysChange={setNotifyDays}
-        onOnlyIfBehindChange={setNotifyOnlyIfBehind}
-        onWheelActiveChange={onWheelActiveChange}
+        notifyTimes={notifyTimes}
+        onNotifyTimesChange={setNotifyTimes}
+        notifyDays={notifyDays}
+        onNotifyDaysChange={setNotifyDays}
+        notifyOnlyIfBehind={notifyOnlyIfBehind}
+        onNotifyOnlyIfBehindChange={setNotifyOnlyIfBehind}
+        customLabels={customLabels}
+        themeMode={themeMode}
         color={color}
+        onWheelActiveChange={onWheelActiveChange}
       />
 
       {error ? <Text style={[styles.caption, { color: color.danger }]}>{error}</Text> : null}

@@ -55,6 +55,7 @@ import { Feather } from '@expo/vector-icons';
 import { useStore } from '../store/useStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useGoalsStore } from '../store/useGoalsStore';
+import { useScheduleStore } from '../store/useScheduleStore';
 import { useTheme } from '../theme/useTheme';
 import { dayKey, dayKeyToDate, groupByDay, LoggedSession } from '../stats/sessionHistory';
 import { topicBreakdownWithCustom } from '../stats/customLabels';
@@ -116,6 +117,7 @@ export default function CalendarScreen() {
   const sessions = useStore((s) => s.sessions);
   const retagSessionAction = useStore((s) => s.retagSession);
   const goals = useGoalsStore((s) => s.goals);
+  const scheduled = useScheduleStore((s) => s.scheduled);
   const [cursor, setCursor] = useState(startOfMonth(new Date()));
   const [selectedKey, setSelectedKey] = useState<string>(dayKey(Date.now()));
   const [daySheetVisible, setDaySheetVisible] = useState(false);
@@ -169,6 +171,20 @@ export default function CalendarScreen() {
     animateMonthChange(direction);
     setCursor((prev) => new Date(prev.getFullYear(), prev.getMonth() + direction, 1));
   };
+  // The PanResponder below is built once (useRef) and can therefore only ever
+  // call the `goToMonth` from the FIRST render -- which closed over that
+  // render's `reducedMotion`. useReducedMotion() resolves asynchronously and
+  // then tracks live changes (AccessibilityInfo's reduceMotionChanged), so
+  // that first value is `false` on every mount and goes stale the moment the
+  // user has (or turns on) Reduce Motion: the chevron buttons, whose onPress
+  // arrows are rebuilt each render, correctly skipped the slide while a swipe
+  // to the same month still ran the full animation forever. Routing the
+  // gesture through a ref that an effect keeps current fixes that without
+  // rebuilding the responder mid-gesture.
+  const goToMonthRef = useRef(goToMonth);
+  useEffect(() => {
+    goToMonthRef.current = goToMonth;
+  });
 
   // Swipe-to-change-month. No gesture-handler/reanimated dependency in this
   // app (see SettingsPrimitives.tsx's SliderRow precedent) -- PanResponder
@@ -183,8 +199,8 @@ export default function CalendarScreen() {
       onMoveShouldSetPanResponder: (_evt, gesture) =>
         Math.abs(gesture.dx) > 12 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.5,
       onPanResponderRelease: (_evt, gesture) => {
-        if (gesture.dx <= -SWIPE_THRESHOLD) goToMonth(1);
-        else if (gesture.dx >= SWIPE_THRESHOLD) goToMonth(-1);
+        if (gesture.dx <= -SWIPE_THRESHOLD) goToMonthRef.current(1);
+        else if (gesture.dx >= SWIPE_THRESHOLD) goToMonthRef.current(-1);
       },
     }),
   ).current;
@@ -210,6 +226,18 @@ export default function CalendarScreen() {
 
   const monthSummary = useMemo(() => computeMonthSummary(grid, byDay), [grid, byDay]);
 
+  // Which days carry a still-outstanding planned session. A Set of dayKeys
+  // rather than a per-cell filter of the whole array: the grid asks this
+  // question 42 times per render, and a plan is already keyed by the exact
+  // 'YYYY-MM-DD' string the grid uses (schedule/scheduledSessions.ts), so
+  // there is no date math to do here at all. Ticked-off plans are excluded
+  // -- once a plan is done the day's own heat/goal marks describe it, and a
+  // forward-pointing dot on a finished day is just noise.
+  const plannedDays = useMemo(
+    () => new Set(scheduled.filter((p) => !p.done).map((p) => p.date)),
+    [scheduled],
+  );
+
   const dayCells = useMemo(
     () =>
       grid.map((date, i) => {
@@ -232,9 +260,10 @@ export default function CalendarScreen() {
           ? { left: i > run.startIndex, right: i < run.endIndex }
           : { left: false, right: false };
         const showFlame = !!run && run.length >= 3 && i === run.endIndex;
-        return { date, key, daySessions, focusS, topicStats, goalMet, level, streakEdge, showFlame };
+        const hasPlan = plannedDays.has(key);
+        return { date, key, daySessions, focusS, topicStats, goalMet, level, streakEdge, showFlame, hasPlan };
       }),
-    [grid, byDay, customLabels, themeMode, goals, sessions, heatLevels, streakRuns],
+    [grid, byDay, customLabels, themeMode, goals, sessions, heatLevels, streakRuns, plannedDays],
   );
 
   const selectedSessions: LoggedSession[] = byDay.get(selectedKey) ?? [];
@@ -373,6 +402,7 @@ export default function CalendarScreen() {
               onPress={() => selectDay(cell.key)}
               streakEdge={cell.streakEdge}
               showFlame={cell.showFlame}
+              hasPlan={cell.hasPlan}
             />
           );
         })}

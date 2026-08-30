@@ -5,7 +5,11 @@
 // Owns: the day's session list + retag entry point, its topic breakdown
 // (each row a link out to Stats filtered to that topic), its goal status
 // (each met goal a link out to Stats' goals view), and a "See trends" link
-// to Stats' month view. Everything here reads goal state through
+// to Stats' month view, and -- since this sheet is now also where you plan
+// ahead, not only where you look back -- the day's PLANNED sessions, which
+// live in their own component (PlannedSessions.tsx) for the same 500-line
+// reason the rest of this screen is split up. Everything here reads goal
+// state through
 // goalProgress.ts's types/useGoalsStore's Goal shape -- no goal math is
 // reimplemented (that lives in monthGrid.ts's goalsMetOnDay, a thin wrapper
 // around goalProgress.ts's computeGoalProgress).
@@ -15,6 +19,7 @@ import { Feather } from '@expo/vector-icons';
 import { Sheet } from '../../ui/Sheet';
 import { AnimatedPressable } from '../../ui/AnimatedPressable';
 import { LabelPickerSheet } from '../../ui/calendar/LabelPickerSheet';
+import { PlannedSessions } from './PlannedSessions';
 import { ThemeColors } from '../../theme/theme';
 import { withAlpha } from '../../theme/color';
 import { hitSlop, typeScale } from '../../theme/tokens';
@@ -120,6 +125,13 @@ export function DaySheet({
             ))}
           </View>
         )}
+
+        {/* Ahead of the logged-session list on purpose: a day you are
+            looking at is more often today or a future day than a past one,
+            and on those days what you INTEND is the actionable half of this
+            sheet. On a past day the block reads as a record of what you had
+            planned, which sits naturally above what actually happened. */}
+        <PlannedSessions dateKey={dateKey} theme={theme} customLabels={customLabels} themeMode={themeMode} />
 
         <View style={[styles.sessionSection, { borderTopColor: withAlpha(theme.textDim, 0.25) }]}>
           {sessions.length === 0 ? (

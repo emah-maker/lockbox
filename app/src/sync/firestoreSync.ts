@@ -20,16 +20,18 @@ import {
   serverTimestamp,
 } from 'firebase/firestore';
 import { getDb, getFirebaseAuth } from '../auth/firebase';
-import { loadSessions, replaceSessions, MIN_LOGGED_SESSION_S, type LoggedSession } from '../stats/sessionHistory';
+import { loadSessions, replaceSessions, clearSessions, MIN_LOGGED_SESSION_S, type LoggedSession } from '../stats/sessionHistory';
 import { useSettingsStore, type SyncableSettings } from '../store/useSettingsStore';
 import { useGoalsStore } from '../store/useGoalsStore';
+import { useScheduleStore } from '../store/useScheduleStore';
 import { useStore } from '../store/useStore';
 import { getJSON } from '../storage/storage';
 import { sessionDocId, mergeSessionsPreferLocalTopic, type SessionRetag } from './sessionMerge';
-import { ensureLocalDataScopedTo } from './localDataOwner';
+import { ensureLocalDataScopedTo, localDataGeneration } from './localDataOwner';
 import { markSessionsSeen } from './sessionsSyncBridge';
 import type { Goal } from '../goals/goals';
 import { planGoalsSync } from './goalsSyncPlan';
+import { syncScheduledSessions } from './scheduledSessionsSync';
 
 const LAST_DEVICE_KEY = 'lastDeviceId'; // mirrors useStore.ts's own AsyncStorage key
 const BATCH_LIMIT = 500; // Firestore's per-batch write limit
@@ -86,6 +88,53 @@ export function endAccountDeletion(): void {
   deletingUid = null;
 }
 
+/** Thrown by a sync guard when the local side this run was merging into is
+ * no longer this uid's -- the user signed out, deleted the account, or
+ * another account signed in while this run was awaiting Firestore. Caught in
+ * runMigrationAndSync; never surfaced as a sync error, because nothing went
+ * wrong. */
+class LocalDataSuperseded extends Error {}
+
+/**
+ * Returns a check to call immediately before ANY write to local storage or a
+ * local store, for as long as one sync run lasts.
+ *
+ * Why every inbound write needs one: runMigrationAndSync is started
+ * fire-and-forget from onAuthStateChanged and from the manual Sync-now
+ * button, and it spends most of its life awaiting Firestore round trips. Its
+ * merge helpers then write straight into AsyncStorage and into
+ * useStore/useSettingsStore/useGoalsStore. Only the outer syncNow() wrapper
+ * re-checked the signed-in uid, and only around its own lastSyncedAt
+ * bookkeeping -- the merges themselves checked nothing.
+ *
+ * So: user A's sync is awaiting a getDocs. The user taps Sign Out, which
+ * wipes local account data and clears the live store. A's read then resolves
+ * and calls replaceSessions/setSessions/applyRemoteSettings/applyRemoteGoals
+ * with the merge it computed a moment ago -- writing A's history, theme,
+ * labels and goals back onto a device that is now signed out. That is
+ * precisely the leak clearLocalAccountData exists to prevent, arriving a few
+ * hundred milliseconds after it ran. deleteAccount is the same race with
+ * worse stakes: the data is supposed to be gone for good.
+ *
+ * Three conditions, because they fail independently: the generation catches a
+ * wipe (sign-out, account switch, deletion), currentUser catches a sign-out
+ * that somehow didn't wipe, and deletingUid catches the window inside
+ * deleteAccount where the Auth user still exists but its data is being
+ * removed.
+ */
+function makeSyncGuard(uid: string): () => void {
+  const generation = localDataGeneration();
+  return () => {
+    if (
+      localDataGeneration() !== generation ||
+      getFirebaseAuth().currentUser?.uid !== uid ||
+      uid === deletingUid
+    ) {
+      throw new LocalDataSuperseded(`local data is no longer ${uid}'s`);
+    }
+  };
+}
+
 // Best-effort: the box's own BLE peripheral id, as last recorded by
 // useStore.ts on connect. Local session records don't currently carry a
 // per-session deviceId of their own, so this uses the most-recently-known
@@ -105,6 +154,33 @@ async function currentDeviceId(): Promise<string> {
  */
 export async function runMigrationAndSync(uid: string): Promise<void> {
   requireUid(uid);
+  // Every two-way merge below reads this device's LOCAL side out of a zustand
+  // store, and those stores load from AsyncStorage asynchronously -- kicked
+  // off independently in App.tsx, awaited by nobody. For an already signed-in
+  // user, Firebase's persisted session resolves onAuthStateChanged almost
+  // immediately, so this whole function could and did run to completion
+  // before those reads landed. Two things went wrong, in ascending order of
+  // severity:
+  //
+  //   - hydrate()'s own `set` landed after a merge had already applied remote
+  //     data, silently reverting the freshly-merged goals/plans (and the
+  //     reminders derived from them) to the pre-sync local snapshot, even
+  //     though storage itself was correct. Each store now also re-checks
+  //     `hydrated` after its reads, which closes that half.
+  //   - worse, and not fixable inside the stores: a merge run against a store
+  //     that hasn't hydrated sees an EMPTY local side. Settings this device
+  //     owns compare with a settingsUpdatedAt of 0 and lose last-write-wins
+  //     to whatever the account already had; goals and plans this device
+  //     created but never pushed simply aren't in the union.
+  //
+  // Awaiting hydration first is what actually fixes that: it is cheap (each
+  // hydrate() no-ops once it has run) and it guarantees every merge below is
+  // comparing two real sides.
+  await Promise.all([
+    useSettingsStore.getState().hydrate(),
+    useGoalsStore.getState().hydrate(),
+    useScheduleStore.getState().hydrate(),
+  ]);
   // Must run before any read/write below: a device whose local storage still
   // belongs to a different (or no) account can't be allowed to blend into
   // uid's data -- see localDataOwner.ts.
@@ -125,13 +201,56 @@ export async function runMigrationAndSync(uid: string): Promise<void> {
     });
   }
 
-  await syncSessions(uid);
-  await syncSettingsTwoWay(uid);
-  await syncGoalsTwoWay(uid);
+  // Every inbound (remote -> local) write below is gated on this. See
+  // makeSyncGuard for the sign-out race it exists to stop.
+  //
+  // Created HERE, after ensureLocalDataScopedTo, and that placement is
+  // load-bearing: on a first sign-in (or an account switch)
+  // ensureLocalDataScopedTo wipes local storage itself, which bumps the very
+  // generation counter this guard snapshots. Built any earlier, the guard
+  // would see that legitimate, expected wipe as "someone signed out under me"
+  // and abandon the sync -- so the one case that most needs to merge, a brand
+  // new device pulling the account down for the first time, would abort every
+  // single time and quietly do nothing.
+  const guard = makeSyncGuard(uid);
+  try {
+    await syncSessions(uid, guard);
+    await syncSettingsTwoWay(uid, guard);
+    await syncGoalsTwoWay(uid, guard);
+    // Planned focus sessions. Last of the four, and the only one whose
+    // failure is swallowed rather than propagated: a plan that doesn't
+    // reconcile on this sign-in still exists locally and still fires its own
+    // local reminder, whereas every merge above feeds what the app actually
+    // renders.
+    //
+    // Caught, not just ordered last. This collection is the newest, and it is
+    // the one whose rules may not be deployed yet on a given project (the
+    // scheduled-session feature can be shipped in the app before the
+    // Firestore rules and its backend are) -- an un-deployed rule denies the
+    // read, and an uncaught rejection here would surface as a whole-account
+    // "sync failed" for a feature the user may not even be using. A
+    // superseded local side is re-thrown rather than swallowed: it is not
+    // this collection's own failure, it means the whole run should stop.
+    await syncScheduledSessions(uid, guard).catch((e) => {
+      if (e instanceof LocalDataSuperseded) throw e;
+      console.warn('[sync] scheduled sessions did not reconcile:', e?.message ?? e);
+    });
+  } catch (e) {
+    // Not a failure, so it must not surface as one: syncNow would otherwise
+    // put a "sync failed" error in the account UI of a device that simply
+    // signed out mid-sync, which is the expected outcome, not a fault. The
+    // remote side is untouched and correct; there is just no longer a local
+    // side belonging to this uid to merge into.
+    if (e instanceof LocalDataSuperseded) {
+      console.log('[sync] abandoned mid-run --', e.message);
+      return;
+    }
+    throw e;
+  }
 }
 
 /** Additive-union merge of session history, deduped by deterministic doc ID (§4.2). */
-async function syncSessions(uid: string): Promise<void> {
+async function syncSessions(uid: string, guard: () => void): Promise<void> {
   const db = getDb();
   const deviceId = await currentDeviceId();
   const [localSessions, remoteSnap] = await Promise.all([
@@ -164,7 +283,30 @@ async function syncSessions(uid: string): Promise<void> {
 
   // Write the full reconciled set back to local storage (replace, not
   // append -- appendSessions would double-count sessions already present).
+  guard();
   const stored = await replaceSessions(mergedList);
+  // Checked AGAIN, because this is the only guarded write in the whole sync
+  // path with a real await between the check and the commit -- every other
+  // one (applyRemoteSettings, applyRemoteGoals,
+  // applyRemoteScheduledSessions) mutates its store synchronously the
+  // instant after its guard, leaving no window at all. Here the storage
+  // write yields the event loop, so a sign-out can land in between and the
+  // two lines below would push this account's history straight into the live
+  // store the Stats/Dashboard/Calendar screens read -- the guard having
+  // already waved it through a moment earlier.
+  try {
+    guard();
+  } catch (e) {
+    // The write above may also have raced clearLocalAccountData's own
+    // clearSessions() on the same storage key, in which case this account's
+    // history is now sitting in storage on a device that just signed out.
+    // Only undo it when NOBODY is signed in: after an account SWITCH the new
+    // user's own sync owns this key (its ensureLocalDataScopedTo has already
+    // wiped and its merge will overwrite wholesale), and clearing here would
+    // be deleting their data to clean up ours.
+    if (!getFirebaseAuth().currentUser) await clearSessions();
+    throw e;
+  }
   // Mirror into the live store too -- StatsScreen/DashboardScreen/
   // CalendarScreen read useStore.sessions, not AsyncStorage directly, so
   // without this they keep showing whichever account's data was in memory
@@ -222,7 +364,7 @@ async function pushTopicRetags(uid: string, retags: SessionRetag[]): Promise<voi
 }
 
 /** Two-way last-write-wins merge for the four account-level settings fields (§4.2). */
-async function syncSettingsTwoWay(uid: string): Promise<void> {
+async function syncSettingsTwoWay(uid: string, guard: () => void): Promise<void> {
   const db = getDb();
   const ref = doc(db, 'users', uid, 'settings', 'app');
   const snap = await getDoc(ref);
@@ -235,6 +377,7 @@ async function syncSettingsTwoWay(uid: string): Promise<void> {
 
   const remote = snap.data() as RemoteSettings;
   if (remote.updatedAt > local.settingsUpdatedAt) {
+    guard();
     useSettingsStore.getState().applyRemoteSettings(
       {
         themeMode: remote.themeMode,
@@ -271,7 +414,7 @@ function localSettingsPayload(local: ReturnType<typeof useSettingsStore.getState
  * survive, which a whole-doc "newer side wins" compare (like settings/app's)
  * would silently lose one of.
  */
-async function syncGoalsTwoWay(uid: string): Promise<void> {
+async function syncGoalsTwoWay(uid: string, guard: () => void): Promise<void> {
   const db = getDb();
   const ref = doc(db, 'users', uid, 'goals', 'config');
   const snap = await getDoc(ref);
@@ -300,6 +443,7 @@ async function syncGoalsTwoWay(uid: string): Promise<void> {
   // Apply locally unconditionally -- even when nothing needs to be written
   // back to Firestore, the merge may still have pulled in a goal (or an
   // edit/archive) that only existed on the remote side.
+  guard();
   useGoalsStore.getState().applyRemoteGoals(plan.merged, plan.docUpdatedAt);
 
   if (plan.shouldPushBack) {
@@ -432,7 +576,12 @@ export async function pushGoalsPatch(): Promise<void> {
 export async function deleteAllUserData(uid: string): Promise<void> {
   requireUid(uid);
   const db = getDb();
-  const subcollections = ['settings', 'devices', 'goals'] as const;
+  // pushTokens and scheduledSessions join the original three: a token left
+  // behind would keep pushing a deleted account's reminders to a phone that
+  // no longer has an account, and a scheduled session left behind would be
+  // the thing being pushed. Both are also the only user data an automated
+  // backend job reads, which makes leaving them the worst kind of leftover.
+  const subcollections = ['settings', 'devices', 'goals', 'pushTokens', 'scheduledSessions'] as const;
   for (const sub of subcollections) {
     const snap = await getDocs(collection(db, 'users', uid, sub));
     // Firestore batches cap at 500 writes; chunk defensively even though a

@@ -56,6 +56,13 @@ import { mountGoalsPanel, renderGoalsList } from './goalsPanel.js';
 import { sanitizeRemoteGoals, computeGoalProgress, pruneArchivedGoals } from './goals.js';
 import { mountAccountPanel, renderAccountPanel } from './accountPanel.js';
 import { mountCalendarPanel, renderCalendar, resetCalendarView } from './calendarPanel.js';
+import {
+  mountPlannedSessionsPanel,
+  refreshWebPushRow,
+  renderPlannedSessions,
+} from './plannedSessionsPanel.js';
+import { loadScheduledSessions } from './scheduledSessions.js';
+import { disableWebPush, startForegroundWebPush } from './webPush.js';
 import { renderSessionsTable } from './sessionsTable.js';
 import { renderSummary, renderFacts, renderTrend, renderBreakdown } from './statsCards.js';
 
@@ -89,6 +96,13 @@ const els = {
   calGrid: document.getElementById('dashCalGrid'),
   calDayTitle: document.getElementById('dashCalDayTitle'),
   calDayList: document.getElementById('dashCalDayList'),
+  planAdd: document.getElementById('dashPlanAdd'),
+  planList: document.getElementById('dashPlanList'),
+  planFormSlot: document.getElementById('dashPlanFormSlot'),
+  planMsg: document.getElementById('dashPlanMsg'),
+  webPushRow: document.getElementById('dashWebPushRow'),
+  webPushBtn: document.getElementById('dashWebPushBtn'),
+  webPushStatus: document.getElementById('dashWebPushStatus'),
   writeError: document.getElementById('dashWriteError'),
   labelsMsg: document.getElementById('dashLabelsMsg'),
   labelsList: document.getElementById('dashLabelsList'),
@@ -129,6 +143,10 @@ let currentSettings = { themeMode: DEFAULT_THEME_MODE, accent: DEFAULT_ACCENT, c
 // caption never has to guess.
 let dashAuth = null;
 let dashUser = null;
+// The Hosting-served Firebase config (firebaseConfig.js). Kept around after
+// init because webPush.js needs its `vapidKey` -- see that module's header
+// for why the key is read from the config rather than committed here.
+let dashConfig = null;
 let lastLoadedAt = null;
 
 function showWriteError(err) {
@@ -198,6 +216,30 @@ const accountCtx = {
 // inside renderDataViews, so dashDb/dashUid/calCustomLabels/themeMode are
 // always current at call time) -- unlike labelsCtx above, no getter
 // indirection is needed here.
+// ---------- Planned sessions ctx (plannedSessionsPanel.js owns render + writes) ----------
+// Same live-getter shape as labelsCtx/goalsCtx above, and for the same
+// reason: built once at module init, before sign-in resolves dashDb/dashUid.
+//
+// Unlike goalsCtx, `onChanged` re-READS from Firestore rather than handing
+// the panel a local array to mutate. Scheduled sessions are individual
+// documents (not one array field), and the backend writes to them too --
+// `notifiedAt`, once a reminder has been sent -- so the local copy is not
+// the only writer and can't be treated as authoritative after a write.
+const plannedCtx = {
+  getDb: () => dashDb,
+  getUid: () => dashUid,
+  getPlans: () => calPlans,
+  getCustomLabels: () => calCustomLabels,
+  getThemeMode: () => themeMode,
+  getFirebaseConfig: () => dashConfig,
+  onChanged: async () => {
+    if (!dashDb || !dashUid) return;
+    calPlans = await loadScheduledSessions(dashDb, dashUid);
+    renderDataViews(calSessions, calCustomLabels);
+  },
+  onError: (err) => showWriteError(err),
+};
+
 function labelPickerCtx() {
   return {
     db: dashDb,
@@ -243,6 +285,10 @@ applyTheme(theme); // hexToRgba/applyTheme now live in theme.js -- see its heade
 // privately -- dashboard.js only ever resets them via resetCalendarView (renderAll below).
 let calSessions = [];
 let calCustomLabels = [];
+// Planned focus sessions (users/{uid}/scheduledSessions). Loaded alongside
+// everything else in loadDashboard and re-read after every write -- see
+// plannedCtx.onChanged for why re-reading rather than mutating locally.
+let calPlans = [];
 
 // ---------- Focus goals (see goals.js for the model, goalsPanel.js for the UI) ----------
 // calGoals/goalsProgress are threaded through renderAll/renderDataViews the
@@ -303,7 +349,14 @@ function renderDataViews(sessions, customLabels, goals = calGoals) {
   // window and its "Week of ..." caption against the next.
   goalsProgress = computeGoalProgress(goals, sessions);
   renderGoalsList(goals, goalsProgress, els, goalsCtx);
-  renderCalendar(sessions, customLabels, els, { theme, themeMode, labelPickerCtx });
+  renderCalendar(sessions, customLabels, els, {
+    theme,
+    themeMode,
+    labelPickerCtx,
+    // calendarPanel.js owns the selected day privately; this is how it hands
+    // that day to the planned-sessions block underneath the day list.
+    onDaySelected: renderPlannedSessions,
+  });
 }
 
 function renderAll(sessions, customLabels, goals = []) {
@@ -386,7 +439,7 @@ async function loadDashboard(db, uid) {
   dashDb = db;
   dashUid = uid;
   try {
-    const [sessionsSnap, settingsSnap, goalsSnap] = await withTimeout(Promise.all([
+    const [sessionsSnap, settingsSnap, goalsSnap, plans] = await withTimeout(Promise.all([
       getDocs(query(
         collection(db, 'users', uid, 'sessions'),
         orderBy('startedAt', 'desc'),
@@ -398,6 +451,21 @@ async function loadDashboard(db, uid) {
       // as settings/app potentially not existing for a brand-new account --
       // handled below via goalsSnap.exists(), not a catch.
       getDoc(doc(db, 'users', uid, 'goals', 'config')),
+      // Planned focus sessions. An empty collection is the normal first-run
+      // case, exactly like a missing goals/config above -- not an error.
+      //
+      // Caught HERE rather than by the outer try, because these four reads
+      // share one Promise.all: an unhandled rejection from this one would
+      // take the whole dashboard to its error state, hiding sessions, stats,
+      // goals and labels over a feature the user may not be using. That is
+      // not hypothetical -- this is the newest collection, and a project
+      // whose firestore.rules predate it denies the read outright (see
+      // docs/push-notifications.md). Degrading to "no plans" keeps the rest
+      // of the page working and leaves the Planned block simply empty.
+      loadScheduledSessions(db, uid).catch((err) => {
+        console.warn('[dashboard] could not load planned sessions:', err?.message ?? err);
+        return [];
+      }),
     ]), LOAD_TIMEOUT_MS);
     // Back to oldest-first -- the query above reads newest-first so the cap
     // keeps the *most recent* sessions, but every render/aggregate helper
@@ -418,6 +486,7 @@ async function loadDashboard(db, uid) {
     // this stale result rather than let it stomp the newer one. See loadSeq's
     // own comment above.
     if (seq !== loadSeq) return;
+    calPlans = plans;
     // Same themeMode/accent fields useSettingsStore.ts syncs from the app
     // (SyncableSettings) -- resolving them here is what makes this page look
     // like *this user's* app, not just a fixed website palette. Also kept
@@ -458,6 +527,7 @@ async function init() {
   mountGoalsPanel();
   mountAccountPanel();
   mountCalendarPanel(els);
+  mountPlannedSessionsPanel(els, plannedCtx);
 
   // Fetched from Firebase Hosting rather than bundled -- see firebaseConfig.js.
   const firebaseConfig = await loadFirebaseConfigOrNull();
@@ -465,13 +535,33 @@ async function init() {
     showState('notConfigured');
     return;
   }
+  dashConfig = firebaseConfig;
+  // The panel mounted before this fetch resolved, so its first paint saw no
+  // config and hid the browser-reminder row -- repaint now that the VAPID key
+  // (or its absence) is actually known.
+  void refreshWebPushRow();
   const app = initializeApp(firebaseConfig);
   await initAppCheck(app); // before getAuth/getFirestore -- see appCheck.js header
   const auth = getAuth(app);
   const db = getFirestore(app);
   dashAuth = auth;
 
-  els.signOutBtn.addEventListener('click', () => {
+  // A reminder that arrives while a dashboard tab is FOCUSED is delivered to
+  // the page, not to the service worker, and would otherwise be silently
+  // dropped -- the browser equivalent of the missing presentation handler
+  // documented in app/src/goals/goalNotifications.ts.
+  startForegroundWebPush({
+    config: firebaseConfig,
+    onReminder: (title, body) => showMessage(els.planMsg, `${title} -- ${body}`, { kind: 'ok' }),
+  });
+
+  els.signOutBtn.addEventListener('click', async () => {
+    // BEFORE signOut, not after: deleting this browser's push token is
+    // authorized by isOwner(uid), which needs the user still signed in. Left
+    // behind, it would keep this browser receiving the previous account's
+    // reminders. Best-effort, and never a reason to block a sign-out
+    // (webPush.js swallows its own failures).
+    if (dashDb && dashUid) await disableWebPush({ db: dashDb, uid: dashUid });
     signOut(auth).catch(showError);
   });
 

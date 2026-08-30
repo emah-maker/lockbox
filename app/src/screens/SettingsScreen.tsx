@@ -173,7 +173,15 @@ export default function SettingsScreen() {
           `!wheelActive` straight through instead of nesting a second
           ScrollView inside Sheet's (which is what the pre-Sheet version of
           this file did, before Sheet grew this prop). */}
-      <Sheet visible={sheet === 'goals'} onClose={closeSheet} size="large" scrollEnabled={!wheelActive}>
+      <Sheet
+        visible={sheet === 'goals'}
+        onClose={closeSheet}
+        size="large"
+        scrollEnabled={!wheelActive}
+        // GoalsSection's H/M wheels live in here; a body-drag dismiss would
+        // capture their spin gesture before they ever saw it (Sheet.tsx).
+        dragBodyToDismiss={false}
+      >
         <GoalsSection color={c} onWheelActiveChange={onWheelActiveChange} />
       </Sheet>
 
@@ -211,7 +219,14 @@ export default function SettingsScreen() {
       {/* Its quiet-hours wheels are vertical scrollers inside this sheet's
           own scroller -- same `wheelActive` handoff the goals sheet above
           uses, for the identical reason. */}
-      <Sheet visible={sheet === 'notifications'} onClose={closeSheet} size="large" scrollEnabled={!wheelActive}>
+      <Sheet
+        visible={sheet === 'notifications'}
+        onClose={closeSheet}
+        size="large"
+        scrollEnabled={!wheelActive}
+        // Quiet-hours wheels, same as the goals sheet above.
+        dragBodyToDismiss={false}
+      >
         <NotificationsSection color={c} onWheelActiveChange={onWheelActiveChange} />
       </Sheet>
 

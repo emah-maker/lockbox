@@ -1,6 +1,16 @@
-// Phone Box uses expo-notifications for LOCAL scheduled reminders only (see
-// src/goals/goalNotifications.ts) -- there is no push token registration
-// anywhere in the app. But expo-notifications' own config plugin
+// Phone Box's iOS builds ship with LOCAL scheduled reminders only (see
+// src/goals/goalNotifications.ts and src/schedule/sessionReminders.ts).
+//
+// NOTE, because this is no longer the whole story: the app DOES contain
+// remote-push code now (src/push/pushRegistration.ts, and the backend in
+// functions/). It is deliberately dormant on iOS while this plugin is
+// active -- getExpoPushTokenAsync throws without the entitlement, and that
+// module treats the failure like any other unavailability, so nothing
+// breaks and nothing is scheduled server-side for this device. Android is
+// unaffected by this file. See docs/push-notifications.md for how to turn
+// iOS push on, which starts with deleting this plugin.
+//
+// expo-notifications' own config plugin
 // unconditionally writes `aps-environment` into the entitlements
 // (node_modules/expo-notifications/plugin/build/withNotificationsIOS.js), and
 // @expo/prebuild-config auto-applies that plugin whenever the module is
@@ -23,9 +33,17 @@
 // costs nothing: prebuild-config auto-applies it, and app.json configures no
 // notification icon/color/sound/channel for the listed form to pick up.
 //
-// If remote push is ever added, delete this file and its `plugins` entry, then
-// enable Push Notifications on the App ID and regenerate the profile with
-// `eas credentials`.
+// TO ENABLE iOS PUSH: delete this file and its `plugins` entry, then set up an
+// APNs key (`eas credentials --platform ios` -> Push Notifications) AND
+// regenerate the provisioning profile. Both, not just the first -- a profile
+// cached from before the capability existed is what produces:
+//
+//   Provisioning profile "...AdHoc..." doesn't support the Push Notifications
+//   capability. / doesn't include the aps-environment entitlement.
+//
+// which is exactly how this file came to be restored after having been
+// deleted once. EAS syncs the App ID capability from these entitlements
+// automatically; it does not re-mint an already-cached profile.
 const { withEntitlementsPlist } = require('expo/config-plugins');
 
 module.exports = function withoutPushEntitlement(config) {

@@ -8,10 +8,10 @@
 // dependency, since this app deliberately has neither. This is the general
 // version of LabelPickerModal's one-off sheet; new popups should use this
 // instead of growing another bespoke Modal.
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
-  Dimensions,
+  Easing,
   Modal,
   PanResponder,
   Pressable,
@@ -19,16 +19,19 @@ import {
   StyleSheet,
   Text,
   View,
+  useWindowDimensions,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../theme/useTheme';
 import { useReducedMotion } from './useReducedMotion';
 import { overlay, radius, spacing, springs, typeScale } from '../theme/tokens';
 
-// Same enter/exit shape as CalendarScreen's LabelPickerModal sheet -- spring
-// up from SHEET_TRAVEL px below rest, and back down the same path on
-// dismiss -- so this app-wide primitive feels identical to the one-off it
-// generalizes, not a second sheet feel living alongside it.
+// Same enter shape as CalendarScreen's LabelPickerModal sheet -- spring up
+// from SHEET_TRAVEL px below rest -- so this app-wide primitive feels
+// identical to the one-off it generalizes, not a second sheet feel living
+// alongside it.
 const SHEET_TRAVEL = 56;
 const BACKDROP_OPACITY = 0.4;
 const SHEET_SPRING = { ...springs.default, useNativeDriver: true };
@@ -38,7 +41,30 @@ const SHEET_SPRING = { ...springs.default, useNativeDriver: true };
 // goes all the way through.
 const DISMISS_DISTANCE = 100;
 const DISMISS_VELOCITY = 0.8;
-const WINDOW_HEIGHT = Dimensions.get('window').height;
+// A committed dismiss rides the sheet the rest of the way OFF-screen rather
+// than handing straight over to the `visible: false` effect below. That
+// effect's exit target is SHEET_TRAVEL (56px), which is ABOVE where a real
+// swipe has already dragged the sheet to -- so releasing a 200px drag used
+// to yank the sheet ~150px back UP while it faded, reading as "it snapped
+// back" rather than "it dismissed", i.e. as swipe-to-dismiss not working at
+// all. The distance here is the sheet's own measured height, so the exit
+// speed stays the same whether the sheet is short or tall.
+const DISMISS_MS = 180;
+// How far a drag must travel before the sheet BODY (as opposed to the
+// grabber header, which claims any vertical drag) takes the gesture away
+// from the content under the finger. Larger than the header's own 4px so an
+// ordinary tap on a button in the body is never mistaken for a dismiss.
+const BODY_DRAG_SLOP = 8;
+// ...and how much more vertical than horizontal it has to be. The header only
+// asks for `> 1x` because there is nothing in that strip to compete with; the
+// body has to survive a drag that started on a horizontal control. Capture
+// beats a descendant mid-gesture (that is the whole reason SliderRow in
+// screens/SettingsPrimitives.tsx claims the capture phase itself -- see its
+// comment about SettingsScreen's ScrollView stealing its drag), so at a bare
+// 1x a slightly-diagonal slider drag inside the Box settings sheet would
+// throw the sheet away in the middle of the adjustment. 2x still reads as
+// "swipe down" for anyone actually meaning to.
+const BODY_DRAG_VERTICAL_RATIO = 2;
 
 export function Sheet({
   visible,
@@ -47,6 +73,7 @@ export function Sheet({
   title,
   size = 'auto',
   scrollEnabled = true,
+  dragBodyToDismiss = true,
   children,
 }: {
   visible: boolean;
@@ -64,10 +91,15 @@ export function Sheet({
    * outer sheet, and the empty state behind both of them). */
   onOpened?: () => void;
   title?: string;
-  /** 'auto' (default) hugs its content, capped so it can never exceed the
-   * screen; 'large' takes a fixed ~85% of screen height. Either way the
-   * sheet's own body scrolls internally -- the sheet never grows the
-   * underlying screen. */
+  /** How much of the screen this sheet may use AT MOST. Either size hugs its
+   * own content: a two-row sheet is two rows tall, and only a sheet whose
+   * content genuinely overflows grows to the cap and scrolls internally.
+   * 'large' just raises that cap for content known to run long (the goal
+   * form, a busy day's session list). It is NOT a fixed height -- it used to
+   * set one, which is why every sheet carrying the prop (Account, Labels,
+   * Box, Notifications, the tag picker, a quiet day's detail) opened as a
+   * near-full-screen panel of mostly empty space no matter how little was
+   * actually in it. The sheet never grows the underlying screen either way. */
   size?: 'auto' | 'large';
   /** Gates the body ScrollView's own `scrollEnabled` -- lets content that
    * embeds its own vertical scroller (e.g. a WheelPicker, see
@@ -80,11 +112,32 @@ export function Sheet({
    * onDragEnd doc comment calls out. Defaults to true (ordinary content
    * with no competing scroller of its own). */
   scrollEnabled?: boolean;
+  /** Whether a downward drag anywhere in the BODY dismisses the sheet, on top
+   * of the grabber header (which always does). Defaults to true, which is
+   * what makes the sheet feel native -- you flick the thing itself away
+   * instead of having to find a 4px handle.
+   *
+   * Pass false when the body embeds its own vertical scroller that owns drags
+   * of its own. Body dismissal has to claim the gesture in the CAPTURE phase
+   * to beat the body ScrollView's rubber-band, and capture beats a nested
+   * WheelPicker too -- so leaving it on for a wheel sheet means the wheel can
+   * never be spun at all, every attempt just throws the sheet away.
+   * `scrollEnabled` cannot stand in for this: it only goes false once the
+   * wheel's own onDragStart has fired, and that never happens if this
+   * responder took the gesture first. Every WheelPicker-bearing sheet in the
+   * app passes false (SettingsScreen's goals + notifications, StatsScreen's
+   * manage sheet, GoalsSection's form, DurationSheet, SessionReminderForm). */
+  dragBodyToDismiss?: boolean;
   children: React.ReactNode;
 }) {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const reducedMotion = useReducedMotion();
+  // Read live rather than captured once at module load: a module-level
+  // Dimensions.get('window') is evaluated at import time and never updates,
+  // so on rotation (or an iPad split-view resize) every sheet went on sizing
+  // itself against the launch orientation's height.
+  const { height: windowHeight } = useWindowDimensions();
   // Stays mounted through the exit animation, then unmounts -- same
   // "presented" pattern as LabelPickerModal, so <Modal> itself doesn't cut
   // the slide-down short.
@@ -96,6 +149,17 @@ export function Sheet({
   // to know where the sheet currently sits (it may be mid-spring on a fast
   // re-open/close) to drag relative to that instead of always assuming 0.
   const sheetYValue = useRef(SHEET_TRAVEL);
+  // The PanResponders below are built once and kept (rebuilding one
+  // mid-gesture drops the gesture), so they must not close over props or
+  // state directly: they would keep answering with the values from the render
+  // that created them. Everything they need goes through this ref instead.
+  const latest = useRef({ onClose, reducedMotion, scrollEnabled, dragBodyToDismiss });
+  const sheetHeight = useRef(0);
+  const bodyAtTop = useRef(true);
+
+  useEffect(() => {
+    latest.current = { onClose, reducedMotion, scrollEnabled, dragBodyToDismiss };
+  }, [onClose, reducedMotion, scrollEnabled, dragBodyToDismiss]);
 
   useEffect(() => {
     const id = sheetY.addListener(({ value }) => {
@@ -107,6 +171,16 @@ export function Sheet({
   useEffect(() => {
     if (visible) {
       setPresented(true);
+      // RN's Modal renders null while hidden, so the body ScrollView is
+      // genuinely unmounted between presentations and comes back at offset 0.
+      // This ref lives on the Sheet itself, which never unmounts, and is only
+      // ever written by onScroll -- so without this it stays at whatever the
+      // LAST presentation scrolled to. Scroll a long sheet down, close it via
+      // the grabber or the backdrop, reopen: the body is visibly at the top
+      // but the capture gate still believes it isn't, and body swipe-to-
+      // dismiss is dead. It self-corrects only once a scroll event fires
+      // again, which for content too short to scroll never happens at all.
+      bodyAtTop.current = true;
       if (reducedMotion) {
         backdropOpacity.setValue(BACKDROP_OPACITY);
         sheetY.setValue(0);
@@ -135,33 +209,102 @@ export function Sheet({
     });
   }, [visible, reducedMotion, backdropOpacity, sheetY]);
 
-  // Swipe-down-to-dismiss, scoped to the grabber/title header only (below),
-  // not the whole sheet -- the body needs its own vertical ScrollView for
-  // long content, and a single PanResponder spanning both would be exactly
-  // the two-scrollers-fighting-over-one-gesture problem WheelPicker's own
-  // comments describe for the Dashboard's picker-vs-screen scroll.
-  const dragStartY = useRef(0);
-  const panResponder = useRef(
-    PanResponder.create({
-      onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dy) > 4 && Math.abs(g.dy) > Math.abs(g.dx),
+  // Rides a committed swipe the rest of the way down and only then tells the
+  // caller to close, so the sheet leaves along the direction the finger was
+  // already moving. The `visible: false` effect above still runs afterwards
+  // (springing sheetY back to SHEET_TRAVEL, then unmounting), but by then the
+  // backdrop -- and with it the sheet, which shares its opacity -- has
+  // already faded to 0, so none of that is visible.
+  const dismissWithMomentum = useCallback(() => {
+    if (latest.current.reducedMotion) {
+      latest.current.onClose();
+      return;
+    }
+    Animated.parallel([
+      Animated.timing(sheetY, {
+        toValue: Math.max(sheetHeight.current, SHEET_TRAVEL),
+        duration: DISMISS_MS,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: true,
+      }),
+      Animated.timing(backdropOpacity, {
+        toValue: 0,
+        duration: DISMISS_MS,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: true,
+      }),
+    ]).start(({ finished }) => {
+      if (finished) latest.current.onClose();
+    });
+  }, [backdropOpacity, sheetY]);
+
+  // Shared drag mechanics for both responders below -- the grabber header and
+  // the body differ only in WHEN each decides to take the gesture.
+  const dragHandlers = useMemo(() => {
+    const dragStartY = { current: 0 };
+    const springBack = () => {
+      Animated.spring(sheetY, { toValue: 0, ...SHEET_SPRING }).start();
+    };
+    return {
       onPanResponderGrant: () => {
         dragStartY.current = sheetYValue.current;
       },
-      onPanResponderMove: (_, g) => {
+      onPanResponderMove: (_: unknown, g: { dy: number }) => {
         sheetY.setValue(Math.max(0, dragStartY.current + g.dy)); // can't drag up past rest
       },
-      onPanResponderRelease: (_, g) => {
+      onPanResponderRelease: (_: unknown, g: { dy: number; vy: number }) => {
         if (g.dy > DISMISS_DISTANCE || g.vy > DISMISS_VELOCITY) {
-          onClose();
+          dismissWithMomentum();
           return;
         }
-        Animated.spring(sheetY, { toValue: 0, ...SHEET_SPRING }).start();
+        springBack();
       },
-      onPanResponderTerminate: () => {
-        Animated.spring(sheetY, { toValue: 0, ...SHEET_SPRING }).start();
-      },
-    }),
-  ).current;
+      onPanResponderTerminate: springBack,
+      // Once the sheet is following the finger, nothing underneath gets to
+      // take the gesture back mid-drag.
+      onPanResponderTerminationRequest: () => false,
+    };
+  }, [dismissWithMomentum, sheetY]);
+
+  // The grabber/title header: any vertical drag here is a sheet drag, since
+  // there is nothing else in that strip to interact with.
+  const headerPan = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dy) > 4 && Math.abs(g.dy) > Math.abs(g.dx),
+        ...dragHandlers,
+      }),
+    [dragHandlers],
+  );
+
+  // The body: a clear DOWNWARD drag dismisses, but only from a body already
+  // scrolled to the top (otherwise the drag is the user scrolling back up
+  // through the content) and only for content with no inner scroller of its
+  // own -- see `dragBodyToDismiss`. Capture-phase, because the body
+  // ScrollView would otherwise rubber-band the drag itself.
+  const bodyPan = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponderCapture: (_, g) =>
+          latest.current.dragBodyToDismiss &&
+          latest.current.scrollEnabled &&
+          bodyAtTop.current &&
+          g.dy > BODY_DRAG_SLOP &&
+          g.dy > Math.abs(g.dx) * BODY_DRAG_VERTICAL_RATIO,
+        ...dragHandlers,
+      }),
+    [dragHandlers],
+  );
+
+  const onBodyScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    bodyAtTop.current = e.nativeEvent.contentOffset.y <= 0;
+  }, []);
+
+  const onSheetLayout = useCallback((e: { nativeEvent: { layout: { height: number } } }) => {
+    // Measured so a committed swipe knows how far "all the way off the
+    // bottom" actually is for THIS sheet.
+    sheetHeight.current = e.nativeEvent.layout.height;
+  }, []);
 
   const sheetOpacity = backdropOpacity.interpolate({
     inputRange: [0, BACKDROP_OPACITY],
@@ -169,7 +312,7 @@ export function Sheet({
     extrapolate: 'clamp',
   });
 
-  const maxHeight = WINDOW_HEIGHT * (size === 'large' ? 0.85 : 0.8);
+  const maxHeight = windowHeight * (size === 'large' ? 0.9 : 0.8);
 
   return (
     <Modal visible={presented} transparent animationType="none" onRequestClose={onClose}>
@@ -186,33 +329,37 @@ export function Sheet({
         style={[styles.sheetLayer, { opacity: sheetOpacity, transform: [{ translateY: sheetY }] }]}
       >
         <View
+          onLayout={onSheetLayout}
           style={[
             styles.sheet,
             {
               backgroundColor: theme.surface,
               paddingBottom: insets.bottom + spacing.lg,
               maxHeight,
-              height: size === 'large' ? maxHeight : undefined,
             },
           ]}
         >
-          <View {...panResponder.panHandlers} style={styles.header}>
+          <View {...headerPan.panHandlers} style={styles.header}>
             <View style={[styles.grabber, { backgroundColor: theme.textDim }]} />
             {title ? <Text style={[styles.title, { color: theme.text }]}>{title}</Text> : null}
           </View>
-          <ScrollView
-            style={styles.body}
-            contentContainerStyle={styles.bodyContent}
-            scrollEnabled={scrollEnabled}
-            // A sheet body that contains a TextInput (TopicPicker's one-time
-            // tag field, CustomLabelsSection's name field) would otherwise
-            // swallow the first tap on any button beside it -- the tap only
-            // dismisses the keyboard. 'handled' lets the child's own press
-            // win while a plain tap on empty body space still dismisses.
-            keyboardShouldPersistTaps="handled"
-          >
-            {children}
-          </ScrollView>
+          <View {...bodyPan.panHandlers} style={styles.bodyWrap}>
+            <ScrollView
+              style={styles.body}
+              contentContainerStyle={styles.bodyContent}
+              scrollEnabled={scrollEnabled}
+              onScroll={onBodyScroll}
+              scrollEventThrottle={16}
+              // A sheet body that contains a TextInput (TopicPicker's one-time
+              // tag field, CustomLabelsSection's name field) would otherwise
+              // swallow the first tap on any button beside it -- the tap only
+              // dismisses the keyboard. 'handled' lets the child's own press
+              // win while a plain tap on empty body space still dismisses.
+              keyboardShouldPersistTaps="handled"
+            >
+              {children}
+            </ScrollView>
+          </View>
         </View>
       </Animated.View>
     </Modal>
@@ -231,19 +378,22 @@ const styles = StyleSheet.create({
   header: { alignItems: 'center', paddingTop: spacing.sm, paddingBottom: spacing.sm },
   grabber: { width: 36, height: 4, borderRadius: radius.pill, opacity: 0.4 },
   title: { ...typeScale.sectionTitle, marginTop: spacing.sm },
-  // flexShrink:1 is load-bearing, not cosmetic. RN defaults BOTH flexGrow and
-  // flexShrink to 0, so with only `flexGrow: 0` this ScrollView measured to
-  // its full CONTENT height and overflowed the sheet's own bounded height
-  // (`maxHeight` for size 'auto', a fixed `height` for 'large'). The sheet's
-  // `overflow: 'hidden'` then clipped the bottom off, and -- because the
-  // ScrollView's own frame was as tall as its content -- it believed it had
-  // nothing to scroll, so the clipped part was simply unreachable. That's
-  // what made a tall sheet (the goal form: chips + three target wheels +
-  // session stepper + reminder wheels + Save/Cancel) look like it "almost
-  // fits" while the last rows and the submit button could never be scrolled
-  // to. flexShrink:1 lets it give back the overflow, at which point it has
-  // real scrollable overflow and behaves. flexGrow stays 0 so a SHORT sheet
-  // still hugs its content instead of stretching to fill.
+  // flexShrink:1 is load-bearing, not cosmetic, and has to be on BOTH the
+  // ScrollView and the drag wrapper now standing between it and the sheet: a
+  // wrapper left at RN's default flexShrink:0 would refuse to give back the
+  // overflow no matter what the ScrollView inside it did. RN defaults both
+  // flexGrow and flexShrink to 0, so with only `flexGrow: 0` this ScrollView
+  // measured to its full CONTENT height and overflowed the sheet's own
+  // `maxHeight`. The sheet's `overflow: 'hidden'` then clipped the bottom
+  // off, and -- because the ScrollView's own frame was as tall as its content
+  // -- it believed it had nothing to scroll, so the clipped part was simply
+  // unreachable. That's what made a tall sheet (the goal form: chips + three
+  // target wheels + session stepper + reminder wheels + Save/Cancel) look
+  // like it "almost fits" while the last rows and the submit button could
+  // never be scrolled to. flexShrink:1 lets it give back the overflow, at
+  // which point it has real scrollable overflow and behaves. flexGrow stays 0
+  // so a SHORT sheet still hugs its content instead of stretching to fill.
+  bodyWrap: { flexGrow: 0, flexShrink: 1 },
   body: { flexGrow: 0, flexShrink: 1 },
   bodyContent: { paddingHorizontal: spacing.xl, paddingBottom: spacing.md },
 });

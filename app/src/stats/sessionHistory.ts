@@ -34,6 +34,15 @@ export interface LoggedSession extends SessionRecord {
   // overwriting the other on next sync -- see firestore.rules' sessions
   // `update` rule, the backend for pushing either edit to Firestore.
   topicUpdatedAt?: number;
+  /** True when `startedAt` is a GUESS, not a reading: the box logged this
+   * session before its clock had ever been set (no phone had connected yet),
+   * so buildLoggedSessions had nothing to date it from but the moment the
+   * entry happened to arrive. Local-only bookkeeping -- firestoreSync's
+   * sessionPayload names the fields it uploads explicitly, so this never
+   * reaches Firestore (and firestore.rules' `hasOnly` allow-list would
+   * reject it if it tried). appendSessions is the only reader; see its own
+   * comment for why a guessed timestamp cannot be deduped like a real one. */
+  approxStart?: boolean;
 }
 
 /** Loads the durable session log, pruning (and persisting the prune of) any
@@ -58,12 +67,43 @@ export async function loadSessions(): Promise<LoggedSession[]> {
  * docs/rfcs/ios-call-greenlist-and-force-quit-logging-technical-design.md
  * §3.2) -- if the app already durably stored that batch but the box never
  * heard the ack (e.g. a disconnect right after), the resend would otherwise
- * double-count every session in it. */
+ * double-count every session in it.
+ *
+ * That key only works for a session with a REAL timestamp. A session the box
+ * logged before its clock was ever set (`approxStart`) was dated from
+ * whatever moment the entry arrived, so the very same session arriving again
+ * on the next connection gets a DIFFERENT startedAt, sails past the dedupe,
+ * and is counted twice -- permanently inflating focus time, goals and
+ * streaks. Those are matched on content and MULTIPLICITY instead: how many
+ * (plannedS, actualS, outcome) triples the batch carries versus how many
+ * matching guessed-time sessions are already stored, appending only the
+ * surplus. A verbatim resend has a surplus of zero. Counting rather than
+ * plain set-membership is what keeps this from swallowing real sessions: a
+ * box still stuck without a clock CAN legitimately log two identical
+ * 25-minute completions, and the second one shows up as a surplus of one.
+ * Real-timestamped sessions never take this path, and after the first
+ * successful connect the box has a clock, so nothing new enters this
+ * population at all. */
 export async function appendSessions(sessions: LoggedSession[]): Promise<LoggedSession[]> {
   if (!sessions.length) return loadSessions();
   const existing = await loadSessions();
   const seen = new Set(existing.map((s) => `${s.startedAt}:${s.plannedS}`));
+  const approxKey = (s: LoggedSession) => `${s.plannedS}:${s.actualS}:${s.outcome}`;
+  const approxBudget = new Map<string, number>();
+  for (const s of existing) {
+    if (!s.approxStart) continue;
+    approxBudget.set(approxKey(s), (approxBudget.get(approxKey(s)) ?? 0) + 1);
+  }
   const fresh = sessions.filter((s) => {
+    if (s.approxStart) {
+      const key = approxKey(s);
+      const alreadyStored = approxBudget.get(key) ?? 0;
+      if (alreadyStored > 0) {
+        approxBudget.set(key, alreadyStored - 1); // this one is the resend of a stored session
+        return false;
+      }
+      return true;
+    }
     const key = `${s.startedAt}:${s.plannedS}`;
     if (seen.has(key)) return false;
     seen.add(key); // also guards against duplicates within this same batch
@@ -176,7 +216,8 @@ export function buildLoggedSessions(
       // e.t is a wall-clock epoch second, or -1 if the box's clock was never
       // synced (no phone had connected yet); fall back to "now" so the
       // session still shows up somewhere on the calendar.
-      const startedAt = (e.t >= 0 ? e.t * 1000 : nowMs) - e.a * 1000;
+      const approxStart = e.t < 0;
+      const startedAt = (approxStart ? nowMs : e.t * 1000) - e.a * 1000;
       const endedAt = startedAt + e.a * 1000;
       let topic: string | undefined;
       let topicUpdatedAt: number | undefined;
@@ -185,7 +226,17 @@ export function buildLoggedSessions(
         topicUpdatedAt = pending.at;
         consumed = true;
       }
-      return { startedAt, plannedS: e.p, actualS: e.a, outcome: e.c ? 'completed' : 'overridden', topic, topicUpdatedAt };
+      return {
+        startedAt,
+        plannedS: e.p,
+        actualS: e.a,
+        outcome: e.c ? 'completed' : 'overridden',
+        topic,
+        topicUpdatedAt,
+        // Only set when true, so an ordinary timestamped session serialises
+        // exactly as it always has.
+        ...(approxStart ? { approxStart: true } : {}),
+      };
     });
   return { sessions, consumedPendingTopic: consumed };
 }

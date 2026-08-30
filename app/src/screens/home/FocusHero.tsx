@@ -223,15 +223,33 @@ export function FocusHero({
       default: // 'baseline'
         caption = `${pct}% of your best day ${ringBaselineWindowLabel(ringBaselineWindow)}`;
     }
-    // Every branch above is "today's focus time as a percentage of some
-    // comparison" -- the one number none of them shows is the comparison
-    // itself, which is exactly what makes a bare "62%" hard to act on.
-    if (idleRing.progress > 0) {
-      const comparisonS = todayFocusS / idleRing.progress;
+    // Every branch above is "some amount as a percentage of some comparison"
+    // -- the one number none of them shows is the comparison itself, which is
+    // exactly what makes a bare "62%" hard to act on.
+    //
+    // Two ways to get at it, and picking the wrong one was a real bug. For
+    // 'goal', 'baseline' and 'rollingAverage', progress IS todayFocusS /
+    // comparison, so dividing recovers the comparison exactly. For the three
+    // goal-window sources it is NOT: their ratio's numerator is the whole
+    // week's or month's focus time (goalProgress.ts's computeGoalProgress),
+    // and dividing TODAY's seconds by it produces a number that means
+    // nothing. A 10h weekly goal with 6h logged this week and 30m logged
+    // today rendered "20m to go" -- the true figure is 4h. It understated the
+    // remaining work by roughly (week-so-far / today), i.e. worst on exactly
+    // the days the user has done least. `goalWindow` carries the real pair
+    // for those sources, which is the only way this line can be true for
+    // them; TodaySummary.tsx already sidesteps the same trap by reading
+    // remainingS straight off the goal result rather than re-deriving it.
+    const window = idleRing.goalWindow
+      ? { doneS: idleRing.goalWindow.focusS, comparisonS: idleRing.goalWindow.targetS }
+      : idleRing.progress > 0
+        ? { doneS: todayFocusS, comparisonS: todayFocusS / idleRing.progress }
+        : null;
+    if (window && window.comparisonS > 0) {
       detail =
-        idleRing.progress >= 1
-          ? `${formatDuration(todayFocusS - comparisonS)} past ${formatDuration(comparisonS)}`
-          : `${formatDuration(comparisonS - todayFocusS)} to go`;
+        window.doneS >= window.comparisonS
+          ? `${formatDuration(window.doneS - window.comparisonS)} past ${formatDuration(window.comparisonS)}`
+          : `${formatDuration(window.comparisonS - window.doneS)} to go`;
     }
   }
 

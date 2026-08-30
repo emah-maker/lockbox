@@ -1,6 +1,11 @@
 // NotificationsSection.tsx -- the settings hub's "Notifications" sheet: the
-// global controls that sit ABOVE every individual goal's own reminder
-// settings (which live in the goal form, GoalReminderControl.tsx).
+// global controls that sit ABOVE every individual reminder's own settings --
+// a goal's (the goal form, GoalReminderControl.tsx) and a scheduled
+// session's (the calendar, screens/calendar/SessionReminderForm.tsx). Both
+// features read the same four prefs written here (see their respective
+// planners, goalNotificationPlan.ts and schedule/sessionReminderPlan.ts), so
+// the copy below is deliberately about "reminders", not about goals: a
+// switch labelled for one of the two would silently silence the other.
 //
 // Three things, in the order a user actually needs them:
 //   1. Permission status. A reminder that silently never arrives because
@@ -8,7 +13,8 @@
 //      so this says so plainly and offers the prompt where one is still
 //      possible. Read once on open and after a request -- never polled.
 //   2. A master switch, so reminders can be silenced wholesale without
-//      editing (or losing) any goal's own reminder configuration.
+//      editing (or losing) any goal's -- or any planned session's -- own
+//      reminder configuration.
 //   3. Quiet hours, a window in which no reminder is sent at all.
 //
 // Reads its own store slice rather than taking props (same shape
@@ -148,7 +154,7 @@ export function NotificationsSection({
   return (
     <Section
       title="Notifications"
-      subtitle="Global controls for goal reminders -- each goal still has its own times"
+      subtitle="Global controls for every reminder -- goals and planned sessions keep their own times"
       color={color}
     >
       {permission === 'denied' ? (
@@ -173,15 +179,18 @@ export function NotificationsSection({
         </Text>
       ) : null}
 
-      <Row label="Goal reminders" color={color}>
-        <Switch value={enabled} onValueChange={setEnabled} accessibilityLabel="Goal reminders" />
+      <Row label="All reminders" color={color}>
+        <Switch value={enabled} onValueChange={setEnabled} accessibilityLabel="All reminders" />
       </Row>
       {!enabled ? (
-        // Says what the switch actually did: nothing was erased, and every
-        // goal's own reminder times come back untouched when it's flipped
-        // on again.
+        // Says what the switch actually did, and to WHAT: nothing was
+        // erased, and every goal's reminder times and every planned
+        // session's lead time come back untouched when it's flipped on
+        // again. Naming both is the point -- this switch reaches further
+        // than its old "Goal reminders" label admitted.
         <Text style={[styles.caption, { color: color.textDim }]}>
-          All goal reminders are paused. Each goal keeps its own reminder times for when you turn this back on.
+          Goal reminders and planned-session reminders are both paused. Each one keeps its own times for when you turn
+          this back on.
         </Text>
       ) : null}
 
@@ -197,7 +206,8 @@ export function NotificationsSection({
         <>
           <Text style={[styles.caption, { color: color.textDim }]}>
             No reminder is sent between {formatClockTime(quietStart)} and {formatClockTime(quietEnd)}. A reminder that falls inside
-            this window is skipped, not moved -- the goal form flags any of its times that this affects.
+            this window is skipped, not moved -- the goal form and the schedule-a-session form each flag any of their
+            own times that this affects.
           </Text>
           <TimeWheels
             label="From"

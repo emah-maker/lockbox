@@ -30,7 +30,14 @@
      themeMode,         // 'dark' | 'light' -- for dominantTopicWithCustom
      labelPickerCtx(),  // -> a fresh sessionLabelPicker.js ctx; called once
                          //    per day-list row, same as dashboard.js did
+     onDaySelected(key), // -> plannedSessionsPanel.js's renderPlannedSessions
    }
+
+   `onDaySelected` exists because the selected day lives privately in this
+   module (see above) but the "Planned" block underneath the day list is
+   keyed by it. Rather than exposing the cursor -- which is what this
+   module's whole privacy arrangement avoids -- the day is PUSHED to whoever
+   needs it on every draw.
    ========================================================================= */
 import {
   dayKey,
@@ -63,6 +70,9 @@ let calEls = null;
 let calCtx = null;
 
 function drawDayList(daySessions) {
+  // Pushed before the list is built, so the planned block and the logged
+  // list can never disagree about which day is on screen.
+  if (calCtx.onDaySelected) calCtx.onDaySelected(calSelectedKey);
   calEls.calDayTitle.textContent = dayKeyToDate(calSelectedKey).toLocaleDateString(undefined, {
     weekday: 'long',
     month: 'short',
