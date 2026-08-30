@@ -9,13 +9,7 @@ import displayio
 import terminalio
 from adafruit_display_text import label
 from adafruit_display_shapes.roundrect import RoundRect
-from lock_config import C_BG
-from lock_config import C_WHITE
-from lock_config import C_GREY
-from lock_config import C_GREEN
-from lock_config import C_RED
-from lock_config import C_AMBER
-from lock_config import RADIUS_BTN_SM
+from lock_config import C_BG, C_WHITE, C_GREY, C_GREEN, C_RED, C_AMBER, RADIUS_BTN_SM
 from lock_ui_common import _bg_tile
 
 

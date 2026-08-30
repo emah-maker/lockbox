@@ -6,14 +6,10 @@
 # attributes are the ones its __init__ creates.
 
 import gc
-from lock_config import SWIPE_MIN_PX
-from lock_config import OVERRIDE_TIMEOUT
-from lock_config import RELEASE_FRAMES
-from lock_config import HOLD_REPEAT_DELAY
-from lock_config import HOLD_REPEAT_START
-from lock_config import HOLD_REPEAT_MIN
-from lock_config import HOLD_REPEAT_RAMP
-from lock_config import STATUS_TAP_COOLDOWN_S
+from lock_config import (
+    SWIPE_MIN_PX, OVERRIDE_TIMEOUT, RELEASE_FRAMES, HOLD_REPEAT_DELAY, HOLD_REPEAT_START,
+    HOLD_REPEAT_MIN, HOLD_REPEAT_RAMP, STATUS_TAP_COOLDOWN_S,
+)
 from lock_tag_picker import Select
 from lock_tag_picker import Cancel
 from lock_topic_confirm import Confirm

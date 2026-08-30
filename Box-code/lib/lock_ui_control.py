@@ -9,21 +9,11 @@ import displayio
 import terminalio
 from adafruit_display_text import label
 from adafruit_display_shapes.roundrect import RoundRect
-from lock_config import C_BG
-from lock_config import C_SURFACE
-from lock_config import C_WHITE
-from lock_config import C_BLACK
-from lock_config import C_GREY
-from lock_config import C_GREEN
-from lock_config import C_ON_ACCENT_DARK
-from lock_config import RADIUS_CARD
-from lock_config import RADIUS_BTN_LG
-from lock_config import SPRING_STIFFNESS
-from lock_config import SPRING_DAMPING
-from lock_config import SPRING_MASS
-from lock_config import PRESS_DEPTH_PX
-from lock_config import DONE_MSG_Y
-from lock_config import DONE_BTN_CENTER_Y
+from lock_config import (
+    C_BG, C_SURFACE, C_WHITE, C_BLACK, C_GREY, C_GREEN, C_ON_ACCENT_DARK, RADIUS_CARD,
+    RADIUS_BTN_LG, SPRING_STIFFNESS, SPRING_DAMPING, SPRING_MASS, PRESS_DEPTH_PX,
+    DONE_MSG_Y, DONE_BTN_CENTER_Y,
+)
 from lock_motion import Spring
 from lock_ui_common import _bg_tile, _clamp_offset
 

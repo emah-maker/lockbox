@@ -12,16 +12,10 @@ from adafruit_display_text import label
 from adafruit_display_shapes.roundrect import RoundRect
 from adafruit_display_shapes.rect import Rect
 from adafruit_display_shapes.circle import Circle
-from lock_config import C_BG
-from lock_config import C_WHITE
-from lock_config import C_GREY
-from lock_config import C_GREEN
-from lock_config import C_RED
-from lock_config import C_AMBER
-from lock_config import C_ALERT_RED
-from lock_config import C_ALERT_AMBER
-from lock_config import clamp
-from lock_config import OVR_POP_OFFSET_PX
+from lock_config import (
+    C_BG, C_WHITE, C_GREY, C_GREEN, C_RED, C_AMBER, C_ALERT_RED, C_ALERT_AMBER, clamp,
+    OVR_POP_OFFSET_PX,
+)
 from lock_ui_common import _bg_tile
 
 

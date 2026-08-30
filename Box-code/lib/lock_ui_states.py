@@ -5,11 +5,7 @@
 # Every method here runs as a method OF LockUI -- `self` is the whole UI, and
 # the attributes below are the ones lock_ui.py's __init__ creates.
 
-from lock_config import C_GREEN
-from lock_config import C_RED
-from lock_config import C_AMBER
-from lock_config import fmt_hm
-from lock_config import DONE_POP_OFFSET_PX
+from lock_config import C_GREEN, C_RED, C_AMBER, fmt_hm, DONE_POP_OFFSET_PX
 
 
 class StateViewMixin:

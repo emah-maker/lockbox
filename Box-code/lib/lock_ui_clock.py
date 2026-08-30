@@ -14,16 +14,10 @@ from adafruit_display_shapes.roundrect import RoundRect
 from adafruit_display_shapes.rect import Rect
 from adafruit_display_shapes.circle import Circle
 from adafruit_display_shapes.triangle import Triangle
-from lock_config import C_BG
-from lock_config import C_SURFACE
-from lock_config import C_SURFACE_HILITE
-from lock_config import C_WHITE
-from lock_config import C_GREY
-from lock_config import C_GREEN
-from lock_config import C_RED
-from lock_config import C_AMBER
-from lock_config import fmt_hms
-from lock_config import RADIUS_CARD
+from lock_config import (
+    C_BG, C_SURFACE, C_SURFACE_HILITE, C_WHITE, C_GREY, C_GREEN, C_RED, C_AMBER, fmt_hms,
+    RADIUS_CARD,
+)
 from lock_ui_common import _bg_tile
 
 

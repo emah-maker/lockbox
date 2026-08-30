@@ -1,5 +1,6 @@
 # code.py -- entry point for the touchscreen lock timer.
 # Modules live in /lib: lock_config, lock_ui, lock_power, lock_controller, axs5106l
+import gc
 import time
 import board
 import busio
@@ -16,9 +17,26 @@ from lock_config import (BTN_LOCK_PIN, BTN_OVERRIDE_PIN,
                          CPU_FAST, CPU_SLOW, BROWNOUT_CLEAR_AFTER_S)
 
 # ----- Display + UI -----
+# Free heap, reported at the two points where it matters: after the imports
+# above (every module's bytecode is resident by now) and after LockUI, which
+# is the single biggest allocation on the board -- it builds every screen's
+# displayio groups up front.
+#
+# Here because it is the one question about this firmware a host cannot
+# answer. The lock_* modules were split into per-screen mixins, which cost
+# ~11KB more bytecode than the three files they replaced (measured; see that
+# commit). Whether this board has 11KB to spare is not knowable from a
+# laptop, so the box reports it on every boot instead of anyone having to
+# remember to go and look. Prints to the USB serial console; discarded
+# harmlessly when nothing is attached.
+gc.collect()
+print("[boot] free after imports:", gc.mem_free())
+
 display = board.DISPLAY
 ui = LockUI(display)
 backlight = Backlight(display)
+gc.collect()
+print("[boot] free after UI build:", gc.mem_free())
 
 # ----- Touch -----
 try:

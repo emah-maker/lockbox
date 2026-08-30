@@ -9,16 +9,10 @@ import time
 import terminalio
 from adafruit_display_text import label
 from adafruit_display_shapes.circle import Circle
-from lock_config import C_GREY
-from lock_config import C_GREEN
-from lock_config import C_ON_ACCENT_DARK
-from lock_config import C_ON_ACCENT_LIGHT
-from lock_config import MODE_COLORS
-from lock_config import ACCENT_COLORS_DARK
-from lock_config import ACCENT_COLORS_LIGHT
-from lock_config import clamp
-from lock_config import STATUS_TRANSITION_S
-from lock_config import lerp_color
+from lock_config import (
+    C_GREY, C_GREEN, C_ON_ACCENT_DARK, C_ON_ACCENT_LIGHT, MODE_COLORS, ACCENT_COLORS_DARK,
+    ACCENT_COLORS_LIGHT, clamp, STATUS_TRANSITION_S, lerp_color,
+)
 
 
 class ThemeMixin:
