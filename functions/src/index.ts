@@ -337,13 +337,11 @@ async function removeDeadTokens(
  *
  * ACCOUNT DELETION. These rows are backend-only and are not reachable by
  * firestoreSync.ts's deleteAllUserData, which runs as the client and is
- * denied this collection by the rules. So a ticket can outlive the account it
- * names -- by at most TICKET_MAX_AGE_MS, after which it is dropped
- * unconditionally. What it holds in the meantime is a uid and a push token
- * that deleteAllUserData has already unregistered: an address that no longer
- * addresses anything, in a collection no client can read. Bounded and inert
- * rather than zero, and worth stating because it is invisible from the
- * client half of the deletion path.
+ * denied this collection by the rules -- so collectPushReceipts is the only
+ * thing that can clean up after it, which is why that job drops any ticket
+ * whose token document has gone (findOrphanedTickets). A ticket therefore
+ * outlives the account it names by at most one run of that job, not by
+ * TICKET_MAX_AGE_MS.
  */
 async function recordTickets(
   uid: string,
@@ -428,15 +426,65 @@ export const collectPushReceipts = onSchedule(
       if (await deleteTokenIfUnchanged(ticket)) dead += 1;
     }
 
-    await deleteTickets([...settled, ...expired]);
+    // Anything still pending whose token document is already gone. Such a
+    // ticket can never do anything again -- its only power is to delete a
+    // token that no longer exists -- so waiting out TICKET_MAX_AGE_MS just
+    // leaves a row naming a uid and a dead push address sitting around for a
+    // day. The case that matters is account deletion: firestoreSync's
+    // deleteAllUserData removes pushTokens, but it runs as the CLIENT and the
+    // rules deny it this collection, so this is the only path that can clean
+    // up after it. Bounds that residue at one run of this job rather than a
+    // day.
+    for (const id of settled) tickets.delete(id);
+    const orphaned = await findOrphanedTickets(tickets);
+
+    await deleteTickets([...settled, ...expired, ...orphaned]);
     logger.info('collectPushReceipts finished', {
-      asked: tickets.size,
+      asked: tickets.size + settled.length,
       settled: settled.length,
       expired: expired.length,
+      orphaned: orphaned.length,
       deadTokens: dead,
     });
   },
 );
+
+/**
+ * The ids of tickets whose token document no longer exists.
+ *
+ * Grouped by uid so this costs one collection read per USER with tickets
+ * outstanding, not one read per ticket -- a user's pushTokens collection
+ * holds a handful of documents at most (one per device), and the same
+ * snapshot answers for every ticket that user has pending.
+ *
+ * A read that fails yields nothing rather than a guess: on this path,
+ * "cannot tell" must mean "keep the ticket", since deleting it would drop a
+ * receipt that might still have had a dead token to report.
+ */
+async function findOrphanedTickets(pending: Map<string, TicketDoc>): Promise<string[]> {
+  if (pending.size === 0) return [];
+
+  const byUid = new Map<string, { ticketId: string; tokenId: string }[]>();
+  for (const [ticketId, ticket] of pending) {
+    const bucket = byUid.get(ticket.uid);
+    if (bucket) bucket.push({ ticketId, tokenId: ticket.tokenId });
+    else byUid.set(ticket.uid, [{ ticketId, tokenId: ticket.tokenId }]);
+  }
+
+  const orphaned: string[] = [];
+  for (const [uid, entries] of byUid) {
+    try {
+      const snap = await db.collection('users').doc(uid).collection('pushTokens').get();
+      const live = new Set(snap.docs.map((d) => d.id));
+      for (const { ticketId, tokenId } of entries) {
+        if (!live.has(tokenId)) orphaned.push(ticketId);
+      }
+    } catch (e) {
+      logger.warn('could not check for orphaned push tickets', { uid, error: String(e) });
+    }
+  }
+  return orphaned;
+}
 
 /**
  * Deletes the token document a receipt condemned -- but only if it still
