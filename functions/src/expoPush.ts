@@ -15,11 +15,30 @@
 // contract used here is one POST, a 100-message chunk limit, and one error
 // code worth acting on (DeviceNotRegistered). A dependency for that would be
 // more surface than it saves.
+//
+// KNOWN LIMITATION -- push RECEIPTS are not polled. A ticket coming back
+// `status: 'ok'` means Expo ACCEPTED the message, not that a device got it;
+// the delivery outcome lands later at Expo's getPushReceipts endpoint, and
+// that is where DeviceNotRegistered most often shows up for an app that was
+// simply uninstalled. The ticket-level check below catches the tokens Expo
+// can reject outright, so removeDeadTokens does prune some of them, but a
+// token belonging to a long-gone install can survive indefinitely and be
+// pushed to on every reminder. The cost of that is wasted requests, not a
+// missed or duplicated notification, which is why it stays a limitation
+// rather than the receipt-polling subsystem it would take to close (ticket
+// ids persisted per send, a second scheduled job reading them back).
 import { chunk } from './reminders';
 
 const EXPO_PUSH_ENDPOINT = 'https://exp.host/--/api/v2/push/send';
 /** Expo's documented cap on messages per request. */
 const EXPO_CHUNK_SIZE = 100;
+/** Node's fetch has no default timeout, and this runs inside a scheduled
+ * function with a 120s budget shared by every due reminder in the batch. One
+ * stalled connection to a push service would otherwise hold the whole run
+ * until the platform killed it -- taking down the reminders queued behind it
+ * as collateral, where a prompt failure only costs the one chunk (its
+ * reminders stay un-marked, and the next tick retries them). */
+const REQUEST_TIMEOUT_MS = 15000;
 
 export interface ExpoMessage {
   to: string;
@@ -68,6 +87,7 @@ export async function sendExpoPush(messages: ExpoMessage[]): Promise<PushResult[
           Accept: 'application/json',
         },
         body: JSON.stringify(batch),
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });
 
       if (!response.ok) {
@@ -98,6 +118,9 @@ export async function sendExpoPush(messages: ExpoMessage[]): Promise<PushResult[
         });
       });
     } catch (e) {
+      // Includes the timeout above, which arrives as a TimeoutError from the
+      // abort signal -- reported like any other transport failure, so no
+      // token is deleted over a slow network.
       const detail = e instanceof Error ? e.message : 'expo push failed';
       results.push(...batch.map((m) => ({ token: m.to, ok: false, unregistered: false, error: detail })));
     }
