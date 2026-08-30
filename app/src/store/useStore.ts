@@ -19,6 +19,12 @@ import { CallMonitor } from '../calls/CallMonitor';
 import type { Status, HistoryEntry, BoxState, Settings } from '../ble/protocol';
 import { getJSON, setJSON } from '../storage/storage';
 import { reconnectDelayMs, shouldScheduleReconnect } from '../ble/reconnectPolicy';
+import {
+  handleHistoryEntries,
+  PENDING_TOPIC_KEY,
+  PENDING_TOPIC_PRE_SLACK_MS,
+  PENDING_TOPIC_SLACK_MS,
+} from '../ble/historyIntake';
 import { loadSessions, appendSessions, retagSession, buildLoggedSessions, LoggedSession, PendingTopicTag } from '../stats/sessionHistory';
 import { useSettingsStore } from './useSettingsStore';
 // Remote sync (docs/rfcs/google-signin-cross-device-sync-architecture.md §4.3)
@@ -39,7 +45,6 @@ export const CONN_LABELS: Record<Conn, string> = {
 
 const AUTO_CONNECT_KEY = 'autoConnect';
 const LAST_DEVICE_KEY = 'lastDeviceId';
-const PENDING_TOPIC_KEY = 'pendingTopicTag';
 const RECONNECT_DELAY_MS = 4000;
 const MAX_RECONNECT_DELAY_MS = 60000; // cap the exponential backoff below
 // Used for both the by-id (autoconnect) and scan-then-connect paths -- see
@@ -48,13 +53,6 @@ const MAX_RECONNECT_DELAY_MS = 60000; // cap the exponential backoff below
 // connection but never finished could leave the UI stuck on "Connecting"
 // indefinitely with no error and no way to cancel.
 const CONNECT_TIMEOUT_MS = 6000;
-const PENDING_TOPIC_SLACK_MS = 5000; // tolerance past a session's end for the tag to still count
-// Tolerance before a session's start, for a tag applied via DashboardScreen's
-// pre-session picker (before the box's own LOCK button is physically
-// pressed) to still count. Comfortably covers "pick a tag, walk to the box,
-// press Lock" without being so wide it risks matching a stale tag someone
-// set and then changed their mind about -- see buildLoggedSessions.
-const PENDING_TOPIC_PRE_SLACK_MS = 120_000;
 
 interface AppState {
   initialized: boolean;
@@ -171,73 +169,15 @@ export const useStore = create<AppState>((set, get) => {
     }, delay);
   };
 
-  // The box queues every finished session in RAM (see Box-code/lib/lock_log.py
-  // SessionLog.record, called unconditionally from go_done) and pushes +
-  // clears that queue on its very next service tick whenever connected -- so
-  // this is the *only* source of session records, live or not. There is
-  // deliberately no separate "watch the status transition live" path: the
-  // box would report the same session again here within about a second,
-  // which would double-count it.
-  // A topic tagged via tagCurrentSession() while a session is running is
-  // matched here to whichever incoming history entry's time window contains
-  // the tag's timestamp -- the box has no keyboard/topic input of its own
-  // (touchscreen swipe timer only) and keeps no long-term session store (see
-  // Box-code/lib/lock_log.py's 2026-07-24 SD-card removal), so topic tagging
-  // is entirely app-side and only ever needs to survive to this hand-off.
-  const handleHistory = (entries: HistoryEntry[]) => {
-    if (!entries.length) return;
-    getJSON<PendingTopicTag | null>(PENDING_TOPIC_KEY, null).then(async (pending) => {
-      // buildLoggedSessions drops sessions under MIN_LOGGED_SESSION_S
-      // (accidental taps/instant overrides, not real focus time) so they
-      // never reach the durable log/stats, not merely hidden from it later.
-      const { sessions: logged, consumedPendingTopic } = buildLoggedSessions(
-        entries,
-        pending,
-        PENDING_TOPIC_SLACK_MS,
-        PENDING_TOPIC_PRE_SLACK_MS,
-      );
-      if (consumedPendingTopic && pending) {
-        // Compare-and-clear, not an unconditional clear: `onHistory`/
-        // `onStatus` both fire right after connect, so a fresh tag write for
-        // a just-started session (tagCurrentSession, or handleStatus's
-        // on-box tag echo below) can land in storage while this function's
-        // own PENDING_TOPIC_KEY read was still in flight. Clearing
-        // unconditionally would silently discard that newer tag instead of
-        // the stale one this call actually consumed (production readiness
-        // review, High: "handleHistory async-read-then-clear race"). Only
-        // clear if the stored tag is still the exact one just consumed.
-        const stillCurrent = await getJSON<PendingTopicTag | null>(PENDING_TOPIC_KEY, null);
-        if (stillCurrent && stillCurrent.at === pending.at && stillCurrent.topic === pending.topic) {
-          await setJSON<PendingTopicTag | null>(PENDING_TOPIC_KEY, null);
-          set((state) => (state.currentTopic === pending.topic ? { currentTopic: null } : {}));
-        }
-      }
-      // Ack by the original entry count once handled, whether or not any of
-      // them were durably logged -- see Box-code/lib/lock_log.py's
-      // SessionLog.ack and
-      // docs/rfcs/ios-call-greenlist-and-force-quit-logging-technical-design.md
-      // §3.2: the box only drops its own pending queue once it hears this
-      // back, so a dropped write here (e.g. disconnected right after this
-      // notify) just means the box resends the same batch next connection
-      // -- safe because appendSessions dedupes by (startedAt, plannedS).
-      const ack = () => client.ackHistory(entries.length).catch(() => {});
-      if (!logged.length) {
-        ack();
-        return;
-      }
-      appendSessions(logged)
-        .then((sessions) => {
-          set({ sessions });
-          ack();
-        })
-        .catch(() => {
-          // A failed local append must not ack -- the box only clears its
-          // own pending queue once it hears this back (see the comment
-          // above), so skipping ack() here leaves the batch queued for a
-          // resend next connection instead of silently losing it.
-        });
+  /** The box's finished-session batches. The rule itself is
+   * ble/historyIntake.ts; this binds it to this store and this connection. */
+  const handleHistory = (entries: HistoryEntry[]) =>
+    handleHistoryEntries(entries, {
+      onSessions: (sessions) => set({ sessions }),
+      onTopicConsumed: (topic) =>
+        set((state) => (state.currentTopic === topic ? { currentTopic: null } : {})),
+      ack: (count) => client.ackHistory(count),
     });
-  };
 
   const handleStatus = (status: Status) =>
     set((state) => {
