@@ -402,44 +402,66 @@ check("settings.save() therefore never reaches the queue's region",
 # thing being asserted IS the source form -- a converted call behaves
 # identically, which is exactly why nothing else would catch it.
 # ===================================================================
+import glob
 import re
 
+_LIB = os.path.join(os.path.dirname(__file__), "..", "Box-code", "lib")
 
-def _body_of(path, name):
+
+def _lib_sources(prefix):
+    """Every module in the prefix's family, e.g. lock_ui.py + lock_ui_*.py.
+
+    Searched as a family rather than as one file because LockUI and
+    LockController are each composed from per-concern mixins now, so a method
+    lives in whichever of its class's modules owns that screen or concern.
+    Which file it sits in is exactly what this assertion should NOT care
+    about -- what it cares about is that the function, wherever it is, stays
+    off the shared clamp().
+    """
+    return sorted(glob.glob(os.path.join(_LIB, prefix + ".py")) +
+                  glob.glob(os.path.join(_LIB, prefix + "_*.py")))
+
+
+def _body_of(prefix, name):
     """Source of one def, from its line to the next def at the same indent."""
-    with open(path, encoding="utf-8") as fh:
-        src = fh.read()
-    m = re.search("^([ \t]*)def %s\(" % re.escape(name), src, re.M)
-    assert m, "no def %s in %s" % (name, path)
-    indent = m.group(1)
-    rest = src[m.end():]
-    nxt = re.search(r"^%sdef " % re.escape(indent), rest, re.M)
-    return rest[: nxt.start()] if nxt else rest
+    found = []
+    for path in _lib_sources(prefix):
+        with open(path, encoding="utf-8") as fh:
+            src = fh.read()
+        m = re.search("^([ \t]*)def %s\(" % re.escape(name), src, re.M)
+        if not m:
+            continue
+        indent = m.group(1)
+        rest = src[m.end():]
+        nxt = re.search(r"^%sdef " % re.escape(indent), rest, re.M)
+        found.append(rest[: nxt.start()] if nxt else rest)
+    # Exactly one: none means the function was renamed or deleted and this
+    # assertion has quietly stopped asserting anything; two means the mixins
+    # define the same name twice, which shadows one of them (and which
+    # tests/test_firmware_loads.py fails on directly).
+    assert len(found) == 1, "expected exactly one def %s in %s*, found %d" % (name, prefix, len(found))
+    return found[0]
 
 
-_UI = os.path.join(os.path.dirname(__file__), "..", "Box-code", "lib", "lock_ui.py")
-_CTRL = os.path.join(os.path.dirname(__file__), "..", "Box-code", "lib", "lock_controller.py")
-
-for _path, _fn in (
-    (_CTRL, "update"),                     # main run loop
-    (_UI, "_set_gauge"),                   # countdown gauge, CLOCK_FPS=25
-    (_UI, "update_override_timeout"),      # ~50Hz, "called every frame"
-    (_UI, "step_tag_picker_hold"),         # per-frame while a touch is held
-    (_UI, "step_tag_picker_skip_hold"),
-    (_UI, "step_tag_picker_swipe_progress"),
+for _prefix, _fn in (
+    ("lock_controller", "update"),          # main run loop
+    ("lock_ui", "_set_gauge"),              # countdown gauge, CLOCK_FPS=25
+    ("lock_ui", "update_override_timeout"), # ~50Hz, "called every frame"
+    ("lock_ui", "step_tag_picker_hold"),    # per-frame while a touch is held
+    ("lock_ui", "step_tag_picker_skip_hold"),
+    ("lock_ui", "step_tag_picker_swipe_progress"),
 ):
     check("%s stays clamp()-free (per-frame hot path)" % _fn,
-          "clamp(" not in _body_of(_path, _fn))
+          "clamp(" not in _body_of(_prefix, _fn))
 
 # The flip side: the helper must actually be in use, or the six above are
 # "exclusions" from nothing and this whole block is asserting a vacuum.
 _converted = 0
-for _name in ("lock_battery", "lock_controller", "lock_log", "lock_protocol",
-              "lock_settings", "lock_ui"):
-    with open(os.path.join(os.path.dirname(__file__), "..", "Box-code",
-                           "lib", _name + ".py"), encoding="utf-8") as _fh:
-        _src = _fh.read()
-    _converted += _src.count("clamp(")
+for _prefix in ("lock_battery", "lock_controller", "lock_log", "lock_protocol",
+                "lock_settings", "lock_ui"):
+    for _path in _lib_sources(_prefix):
+        with open(_path, encoding="utf-8") as _fh:
+            _converted += _fh.read().count("clamp(")
 check("the shared clamp() is genuinely adopted elsewhere (>=15 call sites)",
       _converted >= 15)
 

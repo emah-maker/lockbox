@@ -33,6 +33,10 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LIB = os.path.join(REPO, "Box-code", "lib")
 sys.path.insert(0, LIB)
 
+# Snapshot taken before anything is stubbed or imported -- see the unwind at
+# the bottom of this file for why it has to be exact.
+_MODULES_BEFORE = set(sys.modules)
+
 _passed = 0
 _failed = 0
 
@@ -125,6 +129,82 @@ for const in (
         isinstance(value, str) and len(value) == 36,
         repr(value),
     )
+
+
+# --- 4. LockUI is still one object -----------------------------------------
+#
+# LockUI is composed from per-screen mixins (see lock_ui.py's header). That
+# split is safe only while three things hold, none of which the language
+# enforces:
+#
+#   - no two mixins define the same name. Python would silently pick whichever
+#     comes first in the MRO, and the other screen would quietly stop working.
+#   - every mixin member is reachable on LockUI, i.e. no mixin was written and
+#     then left out of the bases list.
+#   - LockUI itself still defines __init__, which is where every attribute the
+#     mixins reach for is created.
+#
+# Deliberately structural rather than a snapshot of the method list: a guard
+# that has to be edited every time a method is added is one that gets edited
+# without being read.
+import lock_ui  # noqa: E402 -- after the stubs above, deliberately
+
+MIXINS = [b for b in lock_ui.LockUI.__mro__ if b.__name__.endswith("Mixin")]
+check("LockUI is composed from the view mixins", len(MIXINS) >= 7, "found {}".format(len(MIXINS)))
+
+_seen = {}
+_collisions = []
+for base in MIXINS:
+    for member in vars(base):
+        if member.startswith("__"):
+            continue
+        if member in _seen:
+            _collisions.append("{} in both {} and {}".format(member, _seen[member], base.__name__))
+        _seen[member] = base.__name__
+check("no two mixins define the same name", not _collisions, "; ".join(_collisions))
+
+_unreachable = [n for n in _seen if not hasattr(lock_ui.LockUI, n)]
+check("every mixin member is reachable on LockUI", not _unreachable, ", ".join(_unreachable))
+
+_own = [n for n in vars(lock_ui.LockUI) if not n.startswith("__")]
+check("LockUI itself holds only its constructor", not _own, ", ".join(_own))
+check("LockUI defines __init__", "__init__" in vars(lock_ui.LockUI))
+
+# One entry point per screen. A mixin dropped from the bases list would take
+# its whole screen with it, and nothing else in this file would notice.
+for _entry in ("show_view", "show_idle", "show_tag_picker", "show_override",
+               "show_call_alert", "show_setting_detail", "update_clock_view",
+               "update_battery_view", "set_theme", "on_touch_down"):
+    check("LockUI still answers " + _entry, callable(getattr(lock_ui.LockUI, _entry, None)))
+
+check(
+    "is_flipped survived the move as a property, not a method",
+    isinstance(
+        next((vars(b)["is_flipped"] for b in lock_ui.LockUI.__mro__ if "is_flipped" in vars(b)), None),
+        property,
+    ),
+)
+
+
+# --- Leave the interpreter as we found it ---------------------------------
+#
+# This file imports every firmware module against DELIBERATELY EMPTY stubs --
+# the point is to reach each module body, not to make it work. The other test
+# files in this directory install their own, functional stand-ins for the same
+# CircuitPython names and then exercise real behaviour against them. Run
+# individually that is fine, but `python -m unittest discover` runs them all
+# in ONE interpreter, and whichever file imports a module first wins: every
+# later `import lock_log` gets the copy already bound to the empty stubs, and
+# its tests quietly measure the wrong thing.
+#
+# So this file unwinds itself: every module it added to sys.modules goes, and
+# so does its sys.path entry. Ordering between test files then stops mattering,
+# which is the only state in which it can be trusted.
+for _name in list(sys.modules):
+    if _name not in _MODULES_BEFORE:
+        del sys.modules[_name]
+if LIB in sys.path:
+    sys.path.remove(LIB)
 
 print("\n{} passed, {} failed".format(_passed, _failed))
 sys.exit(1 if _failed else 0)
