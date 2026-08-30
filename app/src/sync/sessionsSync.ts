@@ -13,7 +13,6 @@
 // makeSyncGuard for the sign-out race it exists to stop.
 import {
   doc,
-  setDoc,
   updateDoc,
   deleteField,
   collection,

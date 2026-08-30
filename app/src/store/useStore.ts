@@ -19,13 +19,8 @@ import { CallMonitor } from '../calls/CallMonitor';
 import type { Status, HistoryEntry, BoxState, Settings } from '../ble/protocol';
 import { getJSON, setJSON } from '../storage/storage';
 import { reconnectDelayMs, shouldScheduleReconnect } from '../ble/reconnectPolicy';
-import {
-  handleHistoryEntries,
-  PENDING_TOPIC_KEY,
-  PENDING_TOPIC_PRE_SLACK_MS,
-  PENDING_TOPIC_SLACK_MS,
-} from '../ble/historyIntake';
-import { loadSessions, appendSessions, retagSession, buildLoggedSessions, LoggedSession, PendingTopicTag } from '../stats/sessionHistory';
+import { handleHistoryEntries, PENDING_TOPIC_KEY } from '../ble/historyIntake';
+import { loadSessions, retagSession, LoggedSession, PendingTopicTag } from '../stats/sessionHistory';
 import { useSettingsStore } from './useSettingsStore';
 // Remote sync (docs/rfcs/google-signin-cross-device-sync-architecture.md §4.3)
 // is wired from outside this store -- see sync/sessionsSyncBridge.ts, which

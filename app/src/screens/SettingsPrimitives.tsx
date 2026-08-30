@@ -12,7 +12,6 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../theme/useTheme';
-import { withAlpha } from '../theme/color';
 import { AnimatedPressable } from '../ui/AnimatedPressable';
 import { typeScale, elevation, opacity } from '../theme/tokens';
 
@@ -172,7 +171,6 @@ export function Section({
   );
 }
 
-const RUBBER_BAND_CONSTANT = 0.55;
 export const rowLabelStyle = {
   fontSize: 15,
   flexShrink: 1 as const,

@@ -5,6 +5,15 @@
     "esModuleInterop": true,
     "resolveJsonModule": true,
     "moduleResolution": "bundler",
+    // On, and worth the friction. A refactor that moves a function to another
+    // module leaves its imports behind in the file it came from, and nothing
+    // else notices -- the code still compiles, still passes, and quietly
+    // carries names it no longer uses. That is how a 2100-line file ends up
+    // importing 36 things it never touches. In an app bundle the cost is
+    // shipped bytes; the same habit on the firmware side costs RAM on a
+    // microcontroller. Cheaper to never let it start.
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
     "types": ["jest"]
   },
   "include": ["**/*.ts", "**/*.tsx"],
