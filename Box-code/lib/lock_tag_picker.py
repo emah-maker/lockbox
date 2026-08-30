@@ -10,7 +10,7 @@
 # Select/Cancel/Page are tiny tagged results (mirrors lock_protocol.Command's
 # __slots__ style) rather than plain tuples, so callers can `isinstance()`
 # instead of unpacking by position.
-from lock_config import SWIPE_MIN_PX, TAG_HOLD_S, INVERT_X
+from lock_config import SWIPE_MIN_PX, TAG_HOLD_S
 
 
 class Select:
@@ -211,7 +211,36 @@ class TagPicker:
                 return Cancel()
             return None
         if abs(dx) >= SWIPE_MIN_PX and abs(dx) > abs(dy):
-            right = (dx < 0) if (INVERT_X != self.ui.is_flipped) else (dx > 0)
+            # Plain screen-space sign, no re-XOR, and the SAME sign in both
+            # orientations. self._start/self._last come from
+            # LockController.process(), which sets them from _map()'s return
+            # value -- so the INVERT_X/is_flipped correction has already been
+            # applied exactly once and dx is a SCREEN delta, the same space
+            # the `dy < 0` cancel check above uses and the same one
+            # LockController._handle_release's horizontal swipe uses.
+            #
+            # This line used to re-apply that XOR:
+            #     right = (dx < 0) if (INVERT_X != self.ui.is_flipped) else (dx > 0)
+            # With INVERT_X on, that resolved to `dx < 0` unflipped and
+            # `dx > 0` flipped -- opposite gestures. Paging was the only
+            # thing on the box whose direction depended on screen_flipped, so
+            # flipping the display reversed it. Reported from the box:
+            # horizontal swipe wrong when flipped.
+            #
+            # Kept at `dx < 0` (drag left = next page) because that is what
+            # the unflipped box already did and what the report treats as
+            # correct; the fix is that FLIPPED now agrees with it, not that
+            # both changed. It is also the carousel convention -- content
+            # follows the finger, the next page arrives from the right.
+            #
+            # NOTE for whoever revisits this: _build_tag_picker draws MORE in
+            # the right half with a right-pointing arrow, which reads as
+            # "swipe right" to some eyes and as "next" to others. If the
+            # intended gesture is really drag-RIGHT, flip this one comparison
+            # -- do NOT reintroduce the is_flipped term, which is what broke
+            # it. tests/test_lock_tag_picker.py pins both the direction and
+            # the flip-invariance.
+            right = dx < 0
             if right:
                 return self._advance_page()
             # swipe-left: intentionally a no-op -- SKIP is only reachable via

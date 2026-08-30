@@ -209,19 +209,58 @@ tp.on_touch((MORE_X, FakeUI.NAV_Y), 2.05, released=True)
 check("(k) tap MORE wraps back to page 0",
       ui.calls[-1] == ("show_tag_picker", tuple(t[0] for t in many_topics[0:6])))
 
-# (l) swipe-left on the picker is explicitly a no-op (regression: it used to
-# bypass hold-to-confirm and instantly SKIP). INVERT_X is on (lock_config.py),
-# so `right = (dx < 0)` -- a physical swipe-LEFT is a POSITIVE mapped dx here,
-# same sign convention LockController._handle_release's own horizontal-swipe
-# branch uses.
+# (l) Horizontal paging is in SCREEN space, and swipe-LEFT is explicitly a
+# no-op (regression: it used to bypass hold-to-confirm and instantly SKIP).
+#
+# Every point TagPicker sees has already been through LockController._map --
+# process() sets _start/_last from its return value -- so dx here is a screen
+# delta with the INVERT_X/is_flipped correction applied exactly once. A
+# NEGATIVE dx is leftward on the screen the user is looking at, in either
+# orientation -- and dragging left is what pages forward, the carousel way
+# round: the content follows the finger and the next page arrives from the
+# right. Swiping RIGHT is the no-op.
+#
+# These cases used to assert the opposite sign, on the strength of a comment
+# claiming "a physical swipe-LEFT is a POSITIVE mapped dx" -- which conflates
+# the touch chip's axis with the screen's, the precise confusion
+# LockController._handle_release's own comment warns about. They were pinning
+# the bug: _release re-applied the INVERT_X/is_flipped XOR on top of _map's,
+# which made paging the only gesture on the box that reversed when the screen
+# was flipped.
 tp, ui = make_picker()
 start_x = 120
 tp.on_touch((start_x, FakeUI.NAV_Y), 0.0, released=False)
 r = tp.on_touch((start_x + (SWIPE_MIN_PX + 10), FakeUI.NAV_Y), 0.3, released=False)
-check("(l) swipe-left live tick: no dominant-vertical swipe triggers, tick is a hold-tick no-op",
+check("(l) swipe-right live tick: no dominant-vertical swipe triggers, tick is a hold-tick no-op",
       r is None)
 r2 = tp.on_touch((start_x + (SWIPE_MIN_PX + 10), FakeUI.NAV_Y), 0.35, released=True)
-check("(l) swipe-left release is a no-op -- never Select/Cancel/Page", r2 is None)
+check("(l) swipe-right release is a no-op -- never Select/Cancel/Page", r2 is None)
+
+# ...and dragging left advances a page. MORE stays tappable in the right half
+# either way (tag_picker_nav_at), which is the discoverable route; this is the
+# shortcut.
+tp, ui = make_picker(many_topics)
+tp.on_touch((start_x, FakeUI.NAV_Y), 0.0, released=False)
+r3 = tp.on_touch((start_x - (SWIPE_MIN_PX + 10), FakeUI.NAV_Y), 0.35, released=True)
+check("(l) swipe-left advances a page", isinstance(r3, Page))
+
+# The whole point of the fix: the gesture must not depend on which way up the
+# box is mounted. Everything the user sees on this screen is drawn in screen
+# space and rotates WITH the display, so it reads identically in both
+# orientations -- and so must the swipe. This is the case that was failing on
+# the real box.
+for _flipped in (False, True):
+    tp, ui = make_picker(many_topics)
+    ui.is_flipped = _flipped
+    tp.on_touch((start_x, FakeUI.NAV_Y), 0.0, released=False)
+    _r = tp.on_touch((start_x - (SWIPE_MIN_PX + 10), FakeUI.NAV_Y), 0.35, released=True)
+    check("(l) swipe-left pages with is_flipped=%s" % _flipped, isinstance(_r, Page))
+
+    tp, ui = make_picker(many_topics)
+    ui.is_flipped = _flipped
+    tp.on_touch((start_x, FakeUI.NAV_Y), 0.0, released=False)
+    _r = tp.on_touch((start_x + (SWIPE_MIN_PX + 10), FakeUI.NAV_Y), 0.35, released=True)
+    check("(l) swipe-right stays a no-op with is_flipped=%s" % _flipped, _r is None)
 
 # (m) a small swipe (below jitter guard) while a hold is armed does not cancel the hold
 tp, ui = make_picker()
