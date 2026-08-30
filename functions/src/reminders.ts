@@ -145,8 +145,12 @@ export function reminderContent(plan: RemoteScheduledSession): { title: string; 
  * -- a half-written doc from an interrupted registration would otherwise be
  * sent to the push service as an empty address and come back as an error
  * every single run.
+ *
+ * Generic over the token type so a caller that carries the document id along
+ * with the fields gets it back -- index.ts needs the id to address the token
+ * document again when a receipt reports it gone.
  */
-export function tokensForReminder(planId: string, tokens: PushTokenDoc[]): PushTokenDoc[] {
+export function tokensForReminder<T extends PushTokenDoc>(planId: string, tokens: T[]): T[] {
   return tokens.filter((t) => {
     if (typeof t.token !== 'string' || t.token.length === 0) return false;
     if ((t.localReminderIds ?? []).includes(planId)) return false;

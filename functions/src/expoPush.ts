@@ -16,17 +16,15 @@
 // code worth acting on (DeviceNotRegistered). A dependency for that would be
 // more surface than it saves.
 //
-// KNOWN LIMITATION -- push RECEIPTS are not polled. A ticket coming back
-// `status: 'ok'` means Expo ACCEPTED the message, not that a device got it;
-// the delivery outcome lands later at Expo's getPushReceipts endpoint, and
-// that is where DeviceNotRegistered most often shows up for an app that was
-// simply uninstalled. The ticket-level check below catches the tokens Expo
-// can reject outright, so removeDeadTokens does prune some of them, but a
-// token belonging to a long-gone install can survive indefinitely and be
-// pushed to on every reminder. The cost of that is wasted requests, not a
-// missed or duplicated notification, which is why it stays a limitation
-// rather than the receipt-polling subsystem it would take to close (ticket
-// ids persisted per send, a second scheduled job reading them back).
+// TWO STEPS, NOT ONE. A ticket coming back `status: 'ok'` means Expo
+// ACCEPTED the message, not that a device got it. The delivery outcome lands
+// later, at the getPushReceipts endpoint -- and that is where
+// DeviceNotRegistered shows up for the ordinary case of an app that was
+// simply uninstalled, which the ticket almost never reports. So sendExpoPush
+// returns the ticket id for every accepted message, index.ts persists those,
+// and collectPushReceipts reads them back a few minutes later through
+// fetchExpoReceipts below. Without that second half, a token belonging to a
+// long-gone install survives forever and is pushed to on every reminder.
 import { chunk } from './reminders';
 
 const EXPO_PUSH_ENDPOINT = 'https://exp.host/--/api/v2/push/send';
@@ -59,6 +57,11 @@ export interface PushResult {
   ok: boolean;
   unregistered: boolean;
   error?: string;
+  /** Expo's id for an ACCEPTED message, to be redeemed for a receipt later
+   * (see this file's header). Present only when `ok`, and only when Expo
+   * actually returned one -- it is the handle to the delivery outcome, not
+   * the outcome. */
+  ticketId?: string;
 }
 
 /**
@@ -107,7 +110,7 @@ export async function sendExpoPush(messages: ExpoMessage[]): Promise<PushResult[
           return;
         }
         if (ticket.status === 'ok') {
-          results.push({ token: message.to, ok: true, unregistered: false });
+          results.push({ token: message.to, ok: true, unregistered: false, ...(ticket.id ? { ticketId: ticket.id } : {}) });
           return;
         }
         results.push({
@@ -132,6 +135,80 @@ export async function sendExpoPush(messages: ExpoMessage[]): Promise<PushResult[
 interface ExpoTicket {
   status: 'ok' | 'error';
   id?: string;
+  message?: string;
+  details?: { error?: string };
+}
+
+const EXPO_RECEIPTS_ENDPOINT = 'https://exp.host/--/api/v2/push/getReceipts';
+/** Expo's documented cap on ids per receipts request. */
+const EXPO_RECEIPT_CHUNK_SIZE = 1000;
+
+/** What a redeemed ticket says about the delivery it stood for. */
+export interface ReceiptOutcome {
+  ticketId: string;
+  /** Delivered as far as the push service is concerned. */
+  ok: boolean;
+  /** The registration is gone -- app uninstalled, notifications revoked.
+   * The ONLY outcome that should cost a token its document. */
+  unregistered: boolean;
+  error?: string;
+}
+
+/**
+ * Redeems ticket ids for their receipts.
+ *
+ * Returns an entry ONLY for ids Expo actually answered about. An id it omits
+ * is not an error and must not be read as one: a receipt is simply not
+ * available yet, and the caller's job is to leave that ticket alone and ask
+ * again later. Conflating "no receipt yet" with "delivered" would throw away
+ * the very DeviceNotRegistered this path exists to catch.
+ *
+ * Never throws, for the same reason sendExpoPush doesn't: this runs inside a
+ * scheduled job whose failure mode should be "try again next tick", not a
+ * crashed run. A transport failure simply yields no outcomes.
+ */
+export async function fetchExpoReceipts(ticketIds: string[]): Promise<ReceiptOutcome[]> {
+  const outcomes: ReceiptOutcome[] = [];
+
+  for (const batch of chunk(ticketIds, EXPO_RECEIPT_CHUNK_SIZE)) {
+    try {
+      const response = await fetch(EXPO_RECEIPTS_ENDPOINT, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ ids: batch }),
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+      if (!response.ok) continue; // nothing learned; the tickets stay pending
+
+      const payload = (await response.json()) as { data?: Record<string, ExpoReceipt> };
+      const data = payload.data;
+      if (!data || typeof data !== 'object') continue;
+
+      for (const ticketId of batch) {
+        const receipt = data[ticketId];
+        if (!receipt) continue; // not available yet -- ask again next run
+        if (receipt.status === 'ok') {
+          outcomes.push({ ticketId, ok: true, unregistered: false });
+          continue;
+        }
+        outcomes.push({
+          ticketId,
+          ok: false,
+          unregistered: receipt.details?.error === 'DeviceNotRegistered',
+          error: receipt.message ?? 'expo receipt error',
+        });
+      }
+    } catch {
+      // Offline, timed out, or a malformed body. Learn nothing, delete
+      // nothing, and let the next run ask again.
+    }
+  }
+
+  return outcomes;
+}
+
+interface ExpoReceipt {
+  status: 'ok' | 'error';
   message?: string;
   details?: { error?: string };
 }

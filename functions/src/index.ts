@@ -3,12 +3,17 @@
 // clock and by documents the clients have already written under their own
 // uid, so there is no request surface to authenticate or abuse.
 //
-//   sendDueReminders   -- every minute: find scheduled-session reminders
-//                         whose moment has arrived, push them to the user's
-//                         registered devices, mark them handled.
-//   pruneOldReminders  -- daily: drop scheduled-session documents whose day
-//                         is long past, mirroring the pruning both clients
-//                         already do locally.
+//   sendDueReminders    -- every minute: find scheduled-session reminders
+//                          whose moment has arrived, push them to the user's
+//                          registered devices, mark them handled.
+//   collectPushReceipts -- every 15 minutes: redeem the ticket ids that send
+//                          left behind for their delivery receipts, and
+//                          delete the tokens those report as gone. See
+//                          expoPush.ts's header for why acceptance and
+//                          delivery are two separate answers.
+//   pruneOldReminders   -- daily: drop scheduled-session documents whose day
+//                          is long past, mirroring the pruning both clients
+//                          already do locally.
 //
 // WHY A SERVER AT ALL, when the phone app already schedules these locally:
 // a local notification can only exist on a device that has seen the plan. A
@@ -23,7 +28,7 @@ import { initializeApp } from 'firebase-admin/app';
 import { getFirestore, type Query } from 'firebase-admin/firestore';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { logger } from 'firebase-functions';
-import { sendExpoPush, type ExpoMessage, type PushResult } from './expoPush';
+import { fetchExpoReceipts, sendExpoPush, type ExpoMessage, type PushResult } from './expoPush';
 import { sendWebPush } from './webPush';
 import {
   isSendable,
@@ -64,6 +69,28 @@ const MAX_CONSECUTIVE_MARK_FAILURES = 3;
 
 /** Where a web-push notification lands when tapped. */
 const DASHBOARD_URL = 'https://phonebox-d14b7.web.app/dashboard.html';
+
+/** Where a sent message's ticket id waits to be redeemed for its receipt.
+ * A top-level collection rather than a subcollection of the user, because
+ * this job queries across every pending ticket at once; firestore.rules'
+ * deny-by-default catchall already puts it out of every client's reach. */
+const TICKETS = 'pushTickets';
+
+/** How long a ticket must sit before it is worth asking about. Expo does not
+ * have a receipt the instant it accepts a message, and asking too early just
+ * gets an omission -- harmless, but it spends a request to learn nothing. */
+const RECEIPT_DELAY_MS = 5 * 60 * 1000;
+
+/** A ticket this old is abandoned. Expo keeps receipts for about a day, so
+ * past that the answer is never coming and the row would otherwise be
+ * re-queried forever. Dropped WITHOUT touching its token: no receipt is no
+ * evidence, and this path may only ever delete a token on a receipt that
+ * actually said DeviceNotRegistered. */
+const TICKET_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+/** Bound on one receipts run -- the same safety valve MAX_REMINDERS_PER_RUN
+ * is for the sender. */
+const MAX_TICKETS_PER_RUN = 1000;
 
 /** Scheduled-session documents older than this are deleted server-side.
  * Matches SCHEDULED_PRUNE_MS in app/src/schedule/scheduledSessions.ts -- the
@@ -202,6 +229,12 @@ async function deliverForUser(uid: string, reminders: DueReminder[]): Promise<{ 
     if (results.some((r) => r.ok)) delivered += 1;
     else skipped += 1;
 
+    // Park the ticket ids for collectPushReceipts. Its own failure is logged
+    // and swallowed: a ticket that does not get stored costs one missed
+    // chance to notice a dead token, which is strictly better than letting
+    // that interfere with the reminders still queued behind it.
+    await recordTickets(uid, results, expo);
+
     // Marked regardless of whether anything was actually delivered. The
     // alternative -- retry until something succeeds -- means a user with no
     // registered device, or one whose only device already covers this
@@ -282,6 +315,148 @@ async function removeDeadTokens(
     ),
   );
   logger.info('removed dead push tokens', { uid, count: doomed.length });
+}
+
+/**
+ * Files one ticket document per ACCEPTED expo message, so its delivery
+ * outcome can be looked up later.
+ *
+ * Keyed BY the ticket id, which makes the write idempotent: re-storing an id
+ * already present simply overwrites itself rather than queueing the same
+ * lookup twice.
+ *
+ * `tokenId` is stored alongside the token VALUE deliberately. The id makes
+ * the eventual delete a direct addressing rather than a scan; the value is
+ * what makes it safe. By the time a receipt says "gone", that device may have
+ * re-registered under the same document with a fresh token, and deleting it
+ * then would unsubscribe a working device over a receipt about a token it no
+ * longer has.
+ */
+async function recordTickets(
+  uid: string,
+  results: PushResult[],
+  expoTargets: (PushTokenDoc & { id: string })[],
+): Promise<void> {
+  const byToken = new Map(expoTargets.map((t) => [t.token, t.id]));
+  const pending = results.filter((r) => r.ticketId && byToken.has(r.token));
+  if (pending.length === 0) return;
+
+  try {
+    const batch = db.batch();
+    const now = Date.now();
+    for (const r of pending) {
+      batch.set(db.collection(TICKETS).doc(r.ticketId!), {
+        uid,
+        tokenId: byToken.get(r.token),
+        token: r.token,
+        createdAt: now,
+      });
+    }
+    await batch.commit();
+  } catch (e) {
+    logger.warn('could not record push tickets', { uid, error: String(e) });
+  }
+}
+
+interface TicketDoc {
+  uid: string;
+  tokenId: string;
+  token: string;
+  createdAt: number;
+}
+
+export const collectPushReceipts = onSchedule(
+  {
+    // Not every minute: nothing a user sees depends on a receipt, and asking
+    // before Expo has one spends a request to learn nothing.
+    schedule: 'every 15 minutes',
+    region: REGION,
+    timeoutSeconds: 120,
+    maxInstances: 1,
+    retryCount: 0,
+  },
+  async () => {
+    const nowMs = Date.now();
+    const snap = await db
+      .collection(TICKETS)
+      .where('createdAt', '<=', nowMs - RECEIPT_DELAY_MS)
+      .orderBy('createdAt')
+      .limit(MAX_TICKETS_PER_RUN)
+      .get();
+    if (snap.empty) return;
+
+    const tickets = new Map<string, TicketDoc>();
+    const expired: string[] = [];
+    for (const d of snap.docs) {
+      const data = d.data() as TicketDoc;
+      if (typeof data?.token !== 'string' || typeof data?.uid !== 'string' || typeof data?.tokenId !== 'string') {
+        expired.push(d.id); // malformed: nothing to look up, nothing to keep
+        continue;
+      }
+      if (nowMs - (data.createdAt ?? 0) > TICKET_MAX_AGE_MS) {
+        expired.push(d.id);
+        continue;
+      }
+      tickets.set(d.id, data);
+    }
+
+    const outcomes = await fetchExpoReceipts([...tickets.keys()]);
+
+    // Only ids Expo actually answered about are settled. Anything omitted is
+    // left exactly where it is, to be asked about again next run -- see
+    // fetchExpoReceipts for why that distinction is load-bearing.
+    const settled: string[] = [];
+    let dead = 0;
+    for (const outcome of outcomes) {
+      const ticket = tickets.get(outcome.ticketId);
+      if (!ticket) continue;
+      settled.push(outcome.ticketId);
+      if (!outcome.unregistered) continue;
+      if (await deleteTokenIfUnchanged(ticket)) dead += 1;
+    }
+
+    await deleteTickets([...settled, ...expired]);
+    logger.info('collectPushReceipts finished', {
+      asked: tickets.size,
+      settled: settled.length,
+      expired: expired.length,
+      deadTokens: dead,
+    });
+  },
+);
+
+/**
+ * Deletes the token document a receipt condemned -- but only if it still
+ * holds the token that receipt was about. See recordTickets for why that
+ * check is the point rather than a nicety.
+ */
+async function deleteTokenIfUnchanged(ticket: TicketDoc): Promise<boolean> {
+  const ref = db.collection('users').doc(ticket.uid).collection('pushTokens').doc(ticket.tokenId);
+  try {
+    const snap = await ref.get();
+    if (!snap.exists) return false;
+    if ((snap.data() as PushTokenDoc)?.token !== ticket.token) return false; // re-registered since
+    await ref.delete();
+    return true;
+  } catch (e) {
+    logger.warn('could not delete a token a receipt reported gone', { uid: ticket.uid, error: String(e) });
+    return false;
+  }
+}
+
+async function deleteTickets(ids: string[]): Promise<void> {
+  for (let i = 0; i < ids.length; i += 500) {
+    const batch = db.batch();
+    for (const id of ids.slice(i, i + 500)) batch.delete(db.collection(TICKETS).doc(id));
+    try {
+      await batch.commit();
+    } catch (e) {
+      // A ticket that fails to delete is simply re-read next run: the receipt
+      // lookup is idempotent, and TICKET_MAX_AGE_MS bounds how long it can
+      // keep coming back.
+      logger.warn('could not delete redeemed push tickets', { error: String(e) });
+    }
+  }
 }
 
 export const pruneOldReminders = onSchedule(
