@@ -13,9 +13,10 @@
    backend instead (functions/src/index.ts) -- to the phone app, and to this
    browser if it has been granted permission (webPush.js).
 
-   Owns no Firestore path of its own: scheduledSessions.js is the one module
-   that knows the collection and the document shape, and this file calls it.
-   Same division goalsPanel.js has with goals.js.
+   Owns no Firestore path of its own: scheduledSessionsSync.js is the one
+   module that knows the collection, over shapes scheduledSessions.js
+   defines, and this file calls both. Same division goalsPanel.js has with
+   goals.js.
 
    ctx = {
      getDb(), getUid(),      // resolved after sign-in, so read live
@@ -37,11 +38,10 @@ import {
   formatClockTime,
   leadLabel,
   makeScheduledSessionId,
-  removeScheduledSession,
   sessionsOnDay,
   validatePlan,
-  writeScheduledSession,
 } from './scheduledSessions.js';
+import { removeScheduledSession, writeScheduledSession } from './scheduledSessionsSync.js';
 import { disableWebPush, enableWebPush, webPushRegistered, webPushStatus } from './webPush.js';
 
 let els = null;

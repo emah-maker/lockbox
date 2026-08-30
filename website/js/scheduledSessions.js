@@ -1,7 +1,16 @@
 /* =========================================================================
    scheduledSessions.js -- the dashboard's half of planned focus sessions:
-   the model (mirroring app/src/schedule/scheduledSessions.ts) plus the
-   Firestore read/write path for users/{uid}/scheduledSessions/{planId}.
+   the model, mirroring app/src/schedule/scheduledSessions.ts.
+
+   PURE. No Firestore import, deliberately: the read/write path lives in
+   scheduledSessionsSync.js, the same split the app has between
+   schedule/scheduledSessions.ts and sync/scheduledSessionsSync.ts, and the
+   same one goals.js already has with goalsPanel.js. It is not a matter of
+   taste here -- this module's twin in the app is covered by 20-odd unit
+   tests, and this one had none at all, because a single
+   `https://www.gstatic.com/...` import at the top made the whole file
+   unimportable under `node --test`. The bounds and the fire-time math below
+   are exactly what a drift between the two surfaces would break.
 
    CROSS-RUNTIME MIRROR. Every bound and every field shape here has a twin in
    app/src/schedule/scheduledSessions.ts, exactly as this site's goals.js
@@ -18,26 +27,31 @@
    phone app and/or to this browser (see webPush.js). That is the whole
    reason the push infrastructure exists.
    ========================================================================= */
-import {
-  collection,
-  doc,
-  getDocs,
-  setDoc,
-  deleteDoc,
-} from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
-
 /* ---------- Bounds (mirror app/src/schedule/scheduledSessions.ts) ---------- */
 export const MAX_SCHEDULED_SESSIONS = 200;
 export const MAX_PER_DAY = 12;
 export const MAX_NOTE_LENGTH = 120;
 export const LEAD_MINUTE_OPTIONS = [0, 5, 10, 15, 30, 60];
+/** The bound validatePlan actually enforces, mirroring the app's own
+ * MAX_LEAD_MINUTES and the rules' `leadMinutes <= 1440`. LEAD_MINUTE_OPTIONS
+ * above is what the PICKER offers, which is a narrower thing on purpose --
+ * validating against that list rejected any plan whose lead came from
+ * somewhere else, and the app's validator has always accepted the full
+ * range. A plan carrying a 45-minute lead was editable in the app and, on
+ * this page, refused an edit to its NOTE with a complaint about its reminder
+ * time. A validator must not reject what the other surface can legitimately
+ * write. */
+export const MAX_LEAD_MINUTES = 24 * 60;
 /** Offered as chips rather than a free-form field, same as the app's form --
  * a planned session's length is a rough intention picked from a handful of
  * habitual values, and the box's real timer is set at the box anyway. */
 export const DURATION_OPTIONS_S = [15 * 60, 25 * 60, 30 * 60, 45 * 60, 60 * 60, 90 * 60, 120 * 60];
 
-const DATE_RE = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
-const TIME_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
+/** Exported, like the app's twin exports its own, so a test can pin the one
+ * thing both surfaces must agree on about a date: which strings are even
+ * calendar dates. */
+export const DATE_RE = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
+export const TIME_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
 
 /** Same id shape the app mints (app/src/schedule/scheduledSessions.ts's
  * makeScheduledSessionId) -- ids from the two surfaces share one namespace
@@ -92,7 +106,9 @@ export function sessionsOnDay(plans, dateKey) {
 export function validatePlan(input, existing, editingId) {
   if (!DATE_RE.test(input.date || '')) throw new Error('Pick a valid date for this session.');
   if (!TIME_RE.test(input.time || '')) throw new Error('Pick a valid start time for this session.');
-  if (!LEAD_MINUTE_OPTIONS.includes(input.leadMinutes)) throw new Error('That reminder lead time is out of range.');
+  if (!Number.isInteger(input.leadMinutes) || input.leadMinutes < 0 || input.leadMinutes > MAX_LEAD_MINUTES) {
+    throw new Error('That reminder lead time is out of range.');
+  }
   if (input.note && input.note.length > MAX_NOTE_LENGTH) {
     throw new Error(`Note must be ${MAX_NOTE_LENGTH} characters or fewer.`);
   }
@@ -174,24 +190,4 @@ export function fromRemote(id, data) {
     notifiedAt: typeof data.notifiedAt === 'number' ? data.notifiedAt : null,
     updatedAt: typeof data.updatedAt === 'number' ? data.updatedAt : 0,
   };
-}
-
-/* ---------- Firestore ---------- */
-
-/** Every plan for this user, malformed documents dropped. */
-export async function loadScheduledSessions(db, uid) {
-  const snap = await getDocs(collection(db, 'users', uid, 'scheduledSessions'));
-  return snap.docs.map((d) => fromRemote(d.id, d.data())).filter(Boolean);
-}
-
-/** Creates or replaces one plan. Whole-document writes, not merges: the
- * rules validate the complete shape (`hasOnly` plus per-field checks), and a
- * partial merge could leave a document that satisfies the rule on its own
- * delta while being incoherent overall. */
-export async function writeScheduledSession(db, uid, plan) {
-  await setDoc(doc(db, 'users', uid, 'scheduledSessions', plan.id), toRemote(plan));
-}
-
-export async function removeScheduledSession(db, uid, planId) {
-  await deleteDoc(doc(db, 'users', uid, 'scheduledSessions', planId));
 }

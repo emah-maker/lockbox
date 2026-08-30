@@ -61,7 +61,7 @@ import {
   refreshWebPushRow,
   renderPlannedSessions,
 } from './plannedSessionsPanel.js';
-import { loadScheduledSessions } from './scheduledSessions.js';
+import { loadScheduledSessions } from './scheduledSessionsSync.js';
 import { disableWebPush, startForegroundWebPush } from './webPush.js';
 import { renderSessionsTable } from './sessionsTable.js';
 import { renderSummary, renderFacts, renderTrend, renderBreakdown } from './statsCards.js';
