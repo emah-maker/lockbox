@@ -1,5 +1,11 @@
 # lock_config.py -- tunables, colors, and small shared helpers.
 
+# The shared pure helpers live in lock_util.py now (lock_config is values,
+# lock_util is behaviour). Re-exported here, and imported BEFORE the colour
+# tables below because they call fix() at module level, so every existing
+# `from lock_config import clamp, fix, ...` keeps working unchanged.
+from lock_util import clamp, fix, fmt_hm, fmt_hms, lerp_color, snap_to_option
+
 # ----- Behavior -----
 MAX_HOURS = 9                 # hours selectable (0..9)
 MAX_SECONDS = MAX_HOURS * 3600 + 55 * 60   # cap is 9h55m, not a clean 9h
@@ -90,12 +96,6 @@ NATIVE_ROTATION = 0
 SCREEN_FLIPPED_DEFAULT = False
 
 
-# This panel's init has color INVERSION on (red->cyan, white->black).
-# fix() sends the inverse so colors render correctly.
-def fix(c):
-    return 0xFFFFFF ^ c
-
-
 # Modern dark theme: a muted slate background with a soft off-white ink and a
 # calmer, less saturated accent set (mint/coral/amber) instead of pure
 # primaries, used consistently across every screen (including the clock faces,
@@ -129,50 +129,6 @@ C_ALERT_AMBER = fix(0xFFC400)
 RADIUS_CARD = 8       # status bar, digital-clock card
 RADIUS_BTN_SM = 10    # small square controls (settings detail [-]/[+])
 RADIUS_BTN_LG = 12    # primary LOCK/OPEN button (larger element)
-
-
-def clamp(value, lo, hi):
-    """Clamp value into [lo, hi]. Works for int or float alike; cast first
-    (e.g. int(x)) if the call site needs a specific type -- this only orders
-    the comparisons. Not for per-frame/hot-path call sites (see lock_ui.py's
-    _set_gauge/update_override_timeout/step_tag_picker_* and
-    LockController.update, which inline this instead)."""
-    return max(lo, min(hi, value))
-
-
-def fmt_hms(secs):
-    secs = max(0, int(secs))
-    return "{:d}:{:02d}:{:02d}".format(secs // 3600, (secs % 3600) // 60, secs % 60)
-
-
-def fmt_hm(secs):
-    """H:MM, no seconds -- the control ("home") screen's clock label only
-    (LockUI.set_clock/set_clock_text). The clock view's analog/digital/ring/
-    elapsed styles still show full H:MM:SS via fmt_hms above; this is a
-    separate, coarser display, not a change to fmt_hms itself. Rounds UP to
-    the next whole minute (except on an exact minute) so the displayed
-    minute never ticks down a full minute early -- the same "never show less
-    time than is actually left" rule fmt_hms's callers apply via a `+0.999`
-    ceiling, just baked in here since there's no seconds digit left to
-    absorb the fractional remainder."""
-    secs = max(0, int(secs))
-    mins = (secs + 59) // 60 if secs % 60 else secs // 60
-    return "{:d}:{:02d}".format(mins // 60, mins % 60)
-
-
-def lerp_color(c0, c1, t):
-    """Linear-blend two already-`fix()`ed 0xRRGGBB colors by t in [0, 1].
-    fix() is a per-channel bitwise complement (an affine map), so lerping the
-    fixed ints gives the exact same result as fixing a lerp of the originals --
-    no need to un-invert first. Cheap integer channel math, no allocation, safe
-    to call every frame (see LockUI's digital-clock "breathing" highlight)."""
-    t = 0.0 if t < 0.0 else (1.0 if t > 1.0 else t)
-    r0, g0, b0 = (c0 >> 16) & 0xFF, (c0 >> 8) & 0xFF, c0 & 0xFF
-    r1, g1, b1 = (c1 >> 16) & 0xFF, (c1 >> 8) & 0xFF, c1 & 0xFF
-    r = int(r0 + (r1 - r0) * t)
-    g = int(g0 + (g1 - g0) * t)
-    b = int(b0 + (b1 - b0) * t)
-    return (r << 16) | (g << 8) | b
 
 
 # ----- Battery (MAX17043 fuel gauge, I2C @ 0x36 on the shared touch bus)
@@ -377,18 +333,6 @@ OVR_STEP = 5
 SLEEP_OPTIONS = (10, 20, 30, 60)      # screen-sleep seconds (on battery)
 BRIGHT_OPTIONS = (10, 30, 50, 70, 100)    # backlight percent (min 10)
 
-
-def snap_to_option(options, value):
-    """Nearest member of a discrete option tuple (SLEEP_OPTIONS/
-    BRIGHT_OPTIONS) to an arbitrary value -- used wherever a value can arrive
-    from outside the on-box stepper (a BLE write carries whatever the app's
-    slider sent, not a value pre-guaranteed to already be one of these
-    options). Without this, a stored value that isn't an exact option member
-    makes lock_settings._step_in's `options.index(value)` raise, silently
-    resetting the on-box stepper to the first option on the very next swipe
-    instead of stepping from where the phone left it. Ties round toward the
-    lower option (min()'s first-match-wins on equal key)."""
-    return min(options, key=lambda o: abs(o - value))
 
 # ----- Settings detail page: [-]/[+] and swipe press-and-hold auto-repeat -----
 # A tap (or the start of a swipe) always applies one step immediately (on
