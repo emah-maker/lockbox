@@ -26,6 +26,20 @@ import type { IdleRingState } from './idleRingState';
 // native runtime.
 jest.mock('@expo/vector-icons', () => ({ Ionicons: 'Ionicons', Feather: 'Feather', MaterialIcons: 'MaterialIcons' }));
 
+// Every tree this file mounts, unmounted in afterEach. FocusHero starts a
+// 220ms opacity timing on mount; it stops that on unmount, but only if
+// something unmounts it. Left mounted, the timing fires after Jest tears the
+// environment down. Same `mounted`/afterEach shape ui/Sheet.test.tsx and
+// ui/WheelPicker.test.tsx use for their own pending animations.
+const mounted: TestRenderer.ReactTestRenderer[] = [];
+
+afterEach(() => {
+  act(() => {
+    mounted.forEach((t) => t.unmount());
+  });
+  mounted.length = 0;
+});
+
 function renderHero(idleRing: IdleRingState, todayFocusS: number) {
   let tree: TestRenderer.ReactTestRenderer;
   act(() => {
@@ -46,6 +60,7 @@ function renderHero(idleRing: IdleRingState, todayFocusS: number) {
       />,
     );
   });
+  mounted.push(tree!);
   return tree!;
 }
 

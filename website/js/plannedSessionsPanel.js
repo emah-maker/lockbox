@@ -42,7 +42,7 @@ import {
   validatePlan,
   writeScheduledSession,
 } from './scheduledSessions.js';
-import { enableWebPush, webPushStatus } from './webPush.js';
+import { disableWebPush, enableWebPush, webPushRegistered, webPushStatus } from './webPush.js';
 
 let els = null;
 let ctx = null;
@@ -337,6 +337,11 @@ async function remove(plan) {
 
 /* ---------- Browser-reminder opt-in ---------- */
 
+/** What the row's single button currently does -- 'enable' or 'disable'.
+ * Read by the click handler, written by paintPushStatus, so the two can never
+ * disagree about which action the label is offering. */
+let pushMode = 'enable';
+
 async function paintPushStatus() {
   const status = await webPushStatus();
   const hasVapid = !!ctx.getFirebaseConfig()?.vapidKey;
@@ -348,14 +353,28 @@ async function paintPushStatus() {
   if (!possible) return;
 
   if (status === 'granted') {
-    els.webPushBtn.hidden = true;
-    els.webPushStatus.textContent = 'Reminders will also appear in this browser.';
+    // Permission granted is not the same as registered. Once given, browser
+    // permission stays 'granted' for good, so treating it as the whole
+    // answer left this row saying "reminders will also appear here" with no
+    // way to make them stop -- an opt-in with no opt-out, where the only
+    // escape was the browser's own site settings. What the backend actually
+    // pushes to is the token document, so that is what the control operates
+    // on and what its label has to reflect.
+    const registered = await webPushRegistered({ db: ctx.getDb(), uid: ctx.getUid() });
+    pushMode = registered ? 'disable' : 'enable';
+    els.webPushBtn.hidden = false;
+    els.webPushBtn.textContent = registered ? 'Turn off browser reminders' : 'Enable browser reminders';
+    els.webPushStatus.textContent = registered
+      ? 'Reminders will also appear in this browser.'
+      : 'Reminders go to your phone. Enable them here too?';
   } else if (status === 'denied') {
     els.webPushBtn.hidden = true;
     els.webPushStatus.textContent =
       'This browser is blocking notifications. Allow them in your browser settings to get reminders here too.';
   } else {
+    pushMode = 'enable';
     els.webPushBtn.hidden = false;
+    els.webPushBtn.textContent = 'Enable browser reminders';
     els.webPushStatus.textContent = 'Reminders go to your phone. Enable them here too?';
   }
 }
@@ -367,6 +386,11 @@ async function paintPushStatus() {
  * push is impossible, and hides the row permanently. dashboard.js calls this
  * again once the config is in hand. (Found by rendering the dashboard against
  * the mock-preview harness, not by reading the code.)
+ *
+ * And a THIRD time, from loadDashboard, once there is a signed-in uid: the
+ * config-time repaint above still has no database handle, so it cannot tell
+ * an already-registered browser from a fresh one and would offer to enable
+ * what is already enabled.
  */
 export async function refreshWebPushRow() {
   await paintPushStatus();
@@ -384,17 +408,23 @@ export function mountPlannedSessionsPanel(elements, context) {
 
   els.webPushBtn.addEventListener('click', async () => {
     els.webPushBtn.disabled = true;
-    const result = await enableWebPush({
-      config: ctx.getFirebaseConfig(),
-      db: ctx.getDb(),
-      uid: ctx.getUid(),
-    });
-    els.webPushBtn.disabled = false;
-    if (result === 'error') {
-      showMessage(els.planMsg, 'Could not enable browser reminders. Reminders still go to your phone.', {
-        kind: 'err',
+    if (pushMode === 'disable') {
+      // No confirmation step: this is reversible with the same button, and
+      // the reminders themselves are still on the phone.
+      await disableWebPush({ db: ctx.getDb(), uid: ctx.getUid() });
+    } else {
+      const result = await enableWebPush({
+        config: ctx.getFirebaseConfig(),
+        db: ctx.getDb(),
+        uid: ctx.getUid(),
       });
+      if (result === 'error') {
+        showMessage(els.planMsg, 'Could not enable browser reminders. Reminders still go to your phone.', {
+          kind: 'err',
+        });
+      }
     }
+    els.webPushBtn.disabled = false;
     await paintPushStatus();
   });
 

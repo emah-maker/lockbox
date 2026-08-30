@@ -99,8 +99,7 @@
         },
         "transformIgnorePatterns": [
           "node_modules/(?!(firebase|@firebase))"
-        ],
-        "testTimeout": 20000
+        ]
       }
     ]
   },

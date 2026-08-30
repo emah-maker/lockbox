@@ -77,6 +77,23 @@ describe('tokensForReminder', () => {
     expect(tokensForReminder('plan-1', [legacy])).toHaveLength(1);
   });
 
+  // The other half of that contract, and the one that makes quiet hours mean
+  // anything: a reminder the device deliberately silenced is -- by
+  // construction -- one it does not report covering, so without this it fell
+  // straight into the "nobody has this, push it" path. The user's 06:40
+  // silence became a 06:40 push.
+  it('skips a device that silenced this plan for quiet hours', () => {
+    const quiet: PushTokenDoc = { transport: 'expo', token: 'phone', suppressedReminderIds: ['plan-1'] };
+    expect(tokensForReminder('plan-1', [quiet])).toHaveLength(0);
+    // Only that plan -- silencing one reminder is not silencing the device.
+    expect(tokensForReminder('plan-2', [quiet]).map((t) => t.token)).toEqual(['phone']);
+  });
+
+  it('treats a missing suppression list the same way as a missing coverage list', () => {
+    const legacy: PushTokenDoc = { transport: 'expo', token: 'old-build', localReminderIds: [] };
+    expect(tokensForReminder('plan-1', [legacy])).toHaveLength(1);
+  });
+
   it('drops a half-written token document instead of addressing an empty string', () => {
     const broken = { transport: 'expo', token: '' } as PushTokenDoc;
     expect(tokensForReminder('plan-1', [broken, expo('good')]).map((t) => t.token)).toEqual(['good']);

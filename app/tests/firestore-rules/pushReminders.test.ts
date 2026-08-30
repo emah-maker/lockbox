@@ -20,6 +20,7 @@ const validToken = () => ({
   token: 'ExponentPushToken[xxxxxxxxxxxxxxxxxxxxxx]',
   platform: 'ios',
   localReminderIds: ['sched_1', 'sched_2'],
+  suppressedReminderIds: ['sched_7'],
   createdAt: 1_700_000_000_000,
   updatedAt: 1_700_000_000_000,
 });
@@ -81,16 +82,37 @@ describe('users/{uid}/pushTokens/{tokenId}', () => {
     await assertFails(setDoc(doc(db, path(OWNER)), { ...validToken(), uid: OTHER }));
   });
 
-  // Bounds, so a token document can't be used as free storage.
+  // Bounds, so a token document can't be used as free storage. Both lists
+  // are bounded, and independently: a device reports what it scheduled AND
+  // what it silenced for quiet hours (functions/src/reminders.ts's
+  // PushTokenDoc), so a rule that only capped the first would leave the
+  // second as unbounded storage.
   it('rejects an over-long token and an over-long coverage list', async () => {
     const db = testEnv.authenticatedContext(OWNER).firestore();
+    const tooMany = Array.from({ length: 51 }, (_, i) => `sched_${i}`);
     await assertFails(setDoc(doc(db, path(OWNER)), { ...validToken(), token: 'x'.repeat(513) }));
-    await assertFails(
-      setDoc(doc(db, path(OWNER)), {
-        ...validToken(),
-        localReminderIds: Array.from({ length: 51 }, (_, i) => `sched_${i}`),
+    await assertFails(setDoc(doc(db, path(OWNER)), { ...validToken(), localReminderIds: tooMany }));
+    await assertFails(setDoc(doc(db, path(OWNER)), { ...validToken(), suppressedReminderIds: tooMany }));
+  });
+
+  // The write the app actually makes after every reconcile: both lists at
+  // once, on a document that already exists. Written together on purpose --
+  // reporting one without the other describes a device that either silences
+  // reminders it is showing, or shows ones it silenced.
+  it('accepts a coverage report carrying both lists, and a token that omits them', async () => {
+    const db = testEnv.authenticatedContext(OWNER).firestore();
+    await assertSucceeds(setDoc(doc(db, path(OWNER)), validToken()));
+    await assertSucceeds(
+      updateDoc(doc(db, path(OWNER)), {
+        localReminderIds: ['sched_3'],
+        suppressedReminderIds: ['sched_4'],
+        updatedAt: 2,
       }),
     );
+    // Absent is legal, and means "silenced nothing" -- what a token document
+    // written by an older client build looks like.
+    const { suppressedReminderIds: _omitted, ...withoutSuppressed } = validToken();
+    await assertSucceeds(setDoc(doc(db, path(OWNER, 'device-2')), withoutSuppressed));
   });
 });
 

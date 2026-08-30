@@ -39,6 +39,8 @@ import { doc, setDoc, deleteDoc } from 'firebase/firestore';
 import { getDb, getFirebaseAuth } from '../auth/firebase';
 import { getJSON } from '../storage/storage';
 import { getGoalNotificationPermission } from '../goals/goalNotifications';
+import { useSettingsStore } from '../store/useSettingsStore';
+import type { ReminderCoverage } from '../schedule/sessionReminders';
 
 // Same AsyncStorage key useStore.ts and firestoreSync.ts's currentDeviceId
 // already use -- this device's token doc is keyed by the SAME id its session
@@ -47,10 +49,11 @@ import { getGoalNotificationPermission } from '../goals/goalNotifications';
 const LAST_DEVICE_KEY = 'lastDeviceId';
 const FALLBACK_DEVICE_ID = 'unknown-device';
 
-/** Mirrors the rules cap on pushTokens.localReminderIds (app/firestore.rules)
- * and sits at the same order of magnitude as the backend's own
- * MAX_SESSION_REMINDERS -- a device can't report covering more reminders
- * than it is allowed to schedule. */
+/** Mirrors the rules cap on pushTokens.localReminderIds /
+ * suppressedReminderIds (app/firestore.rules) and sits at the same order of
+ * magnitude as the backend's own MAX_SESSION_REMINDERS -- a device can't
+ * report covering more reminders than it is allowed to schedule. Applied to
+ * each list separately, exactly as the rule bounds each separately. */
 const MAX_REPORTED_COVERAGE = 50;
 
 /** The last coverage list actually written, so an unchanged reconcile (the
@@ -86,6 +89,18 @@ function easProjectId(): string | undefined {
  * Mints (or refreshes) this device's Expo push token and stores it under the
  * signed-in user.
  *
+ * Does nothing while the notification MASTER SWITCH is off, and that check is
+ * load-bearing rather than an optimization. The server pushes exactly what no
+ * registered device reports covering locally, and a device with notifications
+ * off covers NOTHING (syncSessionReminders returns an empty list for that
+ * case) -- so a registered token belonging to a switched-off device is an
+ * instruction to the backend to deliver every reminder here by push. Turning
+ * reminders off would have started producing them. Having no token at all is
+ * the only state that actually means "do not notify this device", which is
+ * why the switch going off also DELETES the token
+ * (sync/scheduledSessionsSyncBridge.ts) rather than merely stopping the next
+ * registration.
+ *
  * Deliberately does NOT prompt for notification permission: it only registers
  * when permission is ALREADY granted. Somewhere in the app has to ask, and
  * that somewhere should be the moment the user does something that wants a
@@ -100,6 +115,7 @@ function easProjectId(): string | undefined {
 export async function registerPushToken(): Promise<void> {
   const uid = currentUid();
   if (!uid) return;
+  if (!useSettingsStore.getState().notificationsEnabled) return;
 
   try {
     if ((await getGoalNotificationPermission()) !== 'granted') return;
@@ -134,28 +150,42 @@ export async function registerPushToken(): Promise<void> {
 }
 
 /**
- * Records which plan ids this device currently holds as local notifications.
+ * Records what this device has settled about the current plans: which ids it
+ * holds as local notifications, and which it deliberately silenced.
  *
  * Called after every reminder reconcile (useScheduleStore's persist), with
  * exactly the ids that were handed to the OS -- so the backend's view can
- * never be more optimistic than reality. An empty list is meaningful and IS
- * written: it says "this device now covers nothing", which is what should
- * happen when the user turns notifications off, and it is what lets the
- * server take over delivery from that moment.
+ * never be more optimistic than reality. Both lists are written even when
+ * empty: an empty pair says "this device covers nothing and silences
+ * nothing", which is what lets the server take over delivery.
+ *
+ * The one case that must NOT be expressed here is the notification master
+ * switch being off. "Cover nothing" then means the server delivers
+ * everything, which is the opposite of what the switch says -- so that state
+ * is carried by this device having no token document at all
+ * (registerPushToken's header, and the unregister in
+ * sync/scheduledSessionsSyncBridge.ts).
  */
-export async function reportLocalCoverage(planIds: string[]): Promise<void> {
+export async function reportLocalCoverage(coverage: ReminderCoverage): Promise<void> {
   const uid = currentUid();
   if (!uid) return;
+  // Nothing to report to: the master switch being off means this device has
+  // no token document (registerPushToken's header). The write would be a
+  // merge that tries to CREATE one carrying only these two lists, which the
+  // rules reject for having no `transport` or `token` -- a denied round trip
+  // on every plan edit, for a device that is deliberately not a push target.
+  if (!useSettingsStore.getState().notificationsEnabled) return;
 
-  const capped = planIds.slice(0, MAX_REPORTED_COVERAGE);
-  const key = capped.join('|');
+  const capped = coverage.scheduled.slice(0, MAX_REPORTED_COVERAGE);
+  const suppressed = coverage.suppressed.slice(0, MAX_REPORTED_COVERAGE);
+  const key = `${capped.join('|')}!${suppressed.join('|')}`;
   if (key === lastCoverageKey) return;
 
   try {
     const id = await deviceId();
     await setDoc(
       doc(getDb(), 'users', uid, 'pushTokens', id),
-      { localReminderIds: capped, updatedAt: Date.now() },
+      { localReminderIds: capped, suppressedReminderIds: suppressed, updatedAt: Date.now() },
       { merge: true },
     );
     lastCoverageKey = key;

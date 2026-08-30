@@ -29,6 +29,14 @@ import type { NotificationPrefs } from '../goals/goalNotificationPlan';
 import { planSessionReminders, SESSION_NOTIF_ID_PREFIX } from './sessionReminderPlan';
 import type { ScheduledSession } from './scheduledSessions';
 
+/** What this device tells the push backend about a set of plans: the ones it
+ * will show itself, and the ones it deliberately won't show anyone. Every
+ * other plan is the server's to deliver. */
+export interface ReminderCoverage {
+  scheduled: string[];
+  suppressed: string[];
+}
+
 const ANDROID_CHANNEL_ID = 'session-reminders';
 
 let channelDone = false;
@@ -93,30 +101,38 @@ async function cancelAllSessionReminders(): Promise<void> {
  * the calendar can't interrupt someone who has never scheduled anything.
  * Never throws.
  *
- * Returns the plan ids this device now genuinely holds as local
- * notifications -- empty when nothing was scheduled, for ANY reason
- * (notifications off, permission denied, no native module, every plan in the
- * past). The caller reports that list to the push backend, which pushes only
- * what is NOT on it, so this return value has to describe what actually
- * happened rather than what was intended: over-reporting here would silence a
- * server-side reminder that the phone then never shows.
+ * Returns what this device has settled for the push backend: `scheduled` is
+ * the plan ids it now genuinely holds as local notifications -- empty when
+ * nothing was scheduled, for ANY reason (notifications off, permission
+ * denied, no native module, every plan in the past) -- and `suppressed` is
+ * the ids quiet hours silenced.
+ *
+ * `scheduled` has to describe what actually happened rather than what was
+ * intended: over-reporting there would silence a server-side reminder that
+ * the phone then never shows. `suppressed` is the opposite direction and
+ * exists for the opposite reason -- under-reporting it hands a reminder the
+ * user deliberately silenced to the server to deliver instead (see
+ * SessionReminderPlan.quietHoursSuppressed).
  */
 export const syncSessionReminders = serializeLatest(async function syncSessionReminders(
   items: ScheduledSession[],
   prefs: NotificationPrefs,
   nowMs: number = Date.now(),
-): Promise<string[]> {
+): Promise<ReminderCoverage> {
   await cancelAllSessionReminders();
 
-  const requests = planSessionReminders(items, prefs, nowMs);
-  if (requests.length === 0) return [];
+  const { requests, quietHoursSuppressed } = planSessionReminders(items, prefs, nowMs);
+  // Note the early return still carries the suppressed ids: "every plan I
+  // know about is inside quiet hours" schedules nothing at all, and that is
+  // exactly the case where the server must be told not to step in.
+  if (requests.length === 0) return { scheduled: [], suppressed: quietHoursSuppressed };
 
   // Ordered before the permission prompt so the handler/channel are in place
   // by the time the first reminder can possibly be delivered.
   await ensureSessionChannel();
 
   const granted = await requestGoalNotificationPermission();
-  if (!granted) return [];
+  if (!granted) return { scheduled: [], suppressed: quietHoursSuppressed };
 
   // Collected from the individual results rather than assumed from
   // `requests`: a request whose schedule call rejected is NOT covered
@@ -151,5 +167,5 @@ export const syncSessionReminders = serializeLatest(async function syncSessionRe
         }),
     ),
   );
-  return scheduled;
+  return { scheduled, suppressed: quietHoursSuppressed };
 });

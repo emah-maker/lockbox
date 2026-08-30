@@ -19,7 +19,7 @@ import { useScheduleStore } from '../store/useScheduleStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { getFirebaseAuth } from '../auth/firebase';
 import { pushScheduledSessions, deleteRemoteScheduledSession } from './scheduledSessionsSync';
-import { registerPushToken } from '../push/pushRegistration';
+import { registerPushToken, unregisterPushToken } from '../push/pushRegistration';
 import { useAuthStore } from '../auth/useAuthStore';
 import type { ScheduledSession } from '../schedule/scheduledSessions';
 
@@ -89,10 +89,27 @@ export function startScheduledSessionsSyncBridge(): void {
   // registerPushToken only registers when permission is ALREADY granted (see
   // its own header), so without this a user who signs in first and enables
   // notifications later would never register until the next app start.
+  //
+  // And the mirror image, which is not symmetry for its own sake: turning the
+  // switch OFF has to delete the token, or it turns reminders ON. The
+  // reconcile that follows cancels this device's local notifications and
+  // reports covering nothing, and "covers nothing" is precisely what tells
+  // sendDueReminders to deliver every due reminder here by push. Without this
+  // branch, a user who switched reminders off kept receiving them -- as
+  // pushes, which is the one form they can't silence from inside the app.
+  // Also covers the startup ordering: settings hydrate asynchronously, so an
+  // off switch arrives as a change from the default `true` shortly after the
+  // registration attempt above.
   let prevEnabled = useSettingsStore.getState().notificationsEnabled;
   useSettingsStore.subscribe((state) => {
     if (state.notificationsEnabled === prevEnabled) return;
     prevEnabled = state.notificationsEnabled;
-    if (state.notificationsEnabled && signedIn()) void registerPushToken();
+    if (!signedIn()) return;
+    if (state.notificationsEnabled) {
+      void registerPushToken();
+      return;
+    }
+    const uid = useAuthStore.getState().user?.uid ?? null;
+    if (uid) void unregisterPushToken(uid);
   });
 }

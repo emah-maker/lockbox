@@ -77,6 +77,28 @@ export interface PushTokenDoc {
    * token doc written by an older client version still gets pushed to.
    */
   localReminderIds?: string[];
+  /**
+   * Plan ids this device deliberately did NOT schedule because they land
+   * inside the user's quiet hours.
+   *
+   * Treated exactly like localReminderIds on the way out, for the opposite
+   * reason. That list says "already handled here"; this one says "the user
+   * asked for silence here" -- and without it, quiet hours inverted
+   * themselves: a locally suppressed reminder is, by construction, one no
+   * device reports covering, which is precisely the condition this job
+   * pushes on. The 06:40 reminder a user silenced arrived at 06:40 as a
+   * push, which is the one form they cannot mute from inside the app.
+   *
+   * Quiet hours are a LOCAL, per-device setting (see the app's
+   * useSettingsStore), and their window is local wall-clock time, so this
+   * cannot be evaluated here: the fire time is absolute and this process has
+   * no idea what timezone the device is in. The device evaluating it and
+   * reporting the result is what keeps a tz database out of this backend.
+   *
+   * Absent/undefined means "silenced nothing", the same
+   * bias-toward-delivering default localReminderIds takes.
+   */
+  suppressedReminderIds?: string[];
 }
 
 /** A reminder paired with the user it belongs to and the document id that
@@ -116,15 +138,19 @@ export function reminderContent(plan: RemoteScheduledSession): { title: string; 
  * Which of a user's registered tokens should receive `planId`.
  *
  * Skips any token whose device reports it already holds this plan as a local
- * notification (see PushTokenDoc.localReminderIds), and skips a token with no
- * `token` string at all -- a half-written doc from an interrupted
- * registration would otherwise be sent to the push service as an empty
- * address and come back as an error every single run.
+ * notification (PushTokenDoc.localReminderIds) or has deliberately silenced
+ * it (PushTokenDoc.suppressedReminderIds) -- "I am showing this myself" and
+ * "the user asked me not to show this" are different reasons that call for
+ * the same restraint here. Also skips a token with no `token` string at all
+ * -- a half-written doc from an interrupted registration would otherwise be
+ * sent to the push service as an empty address and come back as an error
+ * every single run.
  */
 export function tokensForReminder(planId: string, tokens: PushTokenDoc[]): PushTokenDoc[] {
   return tokens.filter((t) => {
     if (typeof t.token !== 'string' || t.token.length === 0) return false;
-    return !(t.localReminderIds ?? []).includes(planId);
+    if ((t.localReminderIds ?? []).includes(planId)) return false;
+    return !(t.suppressedReminderIds ?? []).includes(planId);
   });
 }
 

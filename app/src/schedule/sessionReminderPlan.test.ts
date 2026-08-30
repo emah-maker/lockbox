@@ -39,7 +39,7 @@ const plan = (over: Partial<ScheduledSession> = {}): ScheduledSession => ({
 describe('planSessionReminders', () => {
   it('schedules an upcoming plan at leadMinutes before its start', () => {
     const item = plan();
-    const [request] = planSessionReminders([item], PREFS, NOW);
+    const [request] = planSessionReminders([item], PREFS, NOW).requests;
     expect(request.fireAtMs).toBe(reminderFireMs(item));
     expect(request.identifier.startsWith(SESSION_NOTIF_ID_PREFIX)).toBe(true);
   });
@@ -48,33 +48,41 @@ describe('planSessionReminders', () => {
   // collide with its own still-pending schedule on a reconcile that hasn't
   // cancelled yet.
   it('gives an edited plan a different identifier', () => {
-    const [before] = planSessionReminders([plan()], PREFS, NOW);
-    const [after] = planSessionReminders([plan({ time: '11:00' })], PREFS, NOW);
+    const [before] = planSessionReminders([plan()], PREFS, NOW).requests;
+    const [after] = planSessionReminders([plan({ time: '11:00' })], PREFS, NOW).requests;
     expect(after.identifier).not.toBe(before.identifier);
   });
 
   it('drops a plan whose reminder has already passed', () => {
     // 08:00 start, 10 min lead -> fires 07:50, which is before NOW (08:00).
-    expect(planSessionReminders([plan({ time: '08:00' })], PREFS, NOW)).toEqual([]);
+    expect(planSessionReminders([plan({ time: '08:00' })], PREFS, NOW).requests).toEqual([]);
   });
 
   // Exactly-now is treated as past. A reminder scheduled for the current
   // instant either races the OS or is delivered immediately, and neither is
   // what "remind me at 10:00" meant.
   it('drops a plan whose reminder is due exactly now', () => {
-    expect(planSessionReminders([plan({ time: '08:10' })], PREFS, NOW)).toEqual([]);
+    expect(planSessionReminders([plan({ time: '08:10' })], PREFS, NOW).requests).toEqual([]);
   });
 
   it('drops a plan that has been ticked done', () => {
-    expect(planSessionReminders([plan({ done: true })], PREFS, NOW)).toEqual([]);
+    expect(planSessionReminders([plan({ done: true })], PREFS, NOW).requests).toEqual([]);
   });
 
   it('drops a malformed plan rather than scheduling something arbitrary', () => {
-    expect(planSessionReminders([plan({ time: 'noon' })], PREFS, NOW)).toEqual([]);
+    expect(planSessionReminders([plan({ time: 'noon' })], PREFS, NOW).requests).toEqual([]);
   });
 
-  it('plans nothing at all when the global switch is off', () => {
-    expect(planSessionReminders([plan()], { ...PREFS, enabled: false }, NOW)).toEqual([]);
+  // Nothing scheduled AND nothing reported as suppressed. The master switch
+  // is not expressed as a per-plan silence -- see planSessionReminders' own
+  // comment, and pushRegistration.ts's registerPushToken for what carries it
+  // instead. Reporting it here would say "silence these 24 of my 200 plans",
+  // which is both wrong and unbounded.
+  it('plans nothing at all when the global switch is off, and suppresses nothing either', () => {
+    expect(planSessionReminders([plan()], { ...PREFS, enabled: false }, NOW)).toEqual({
+      requests: [],
+      quietHoursSuppressed: [],
+    });
   });
 
   // The quiet-hours check has to run against the REMINDER's time of day, not
@@ -84,8 +92,60 @@ describe('planSessionReminders', () => {
     const earlyNow = new Date(2026, 8, 1, 5, 0, 0, 0).getTime();
     const item = plan({ time: '07:10', leadMinutes: 30 });
     const quiet = { ...PREFS, quietHoursEnabled: true };
-    expect(planSessionReminders([item], quiet, earlyNow)).toEqual([]);
-    expect(planSessionReminders([item], PREFS, earlyNow)).toHaveLength(1);
+    expect(planSessionReminders([item], quiet, earlyNow).requests).toEqual([]);
+    expect(planSessionReminders([item], PREFS, earlyNow).requests).toHaveLength(1);
+  });
+
+  // The half that makes quiet hours mean silence rather than a handoff: a
+  // reminder dropped here is one no device reports covering, and an uncovered
+  // reminder is exactly what the push backend delivers. Unless it is told.
+  it('reports a quiet-hours drop as suppressed, so the server does not push it instead', () => {
+    const earlyNow = new Date(2026, 8, 1, 5, 0, 0, 0).getTime();
+    const item = plan({ time: '07:10', leadMinutes: 30 });
+    const quiet = { ...PREFS, quietHoursEnabled: true };
+    expect(planSessionReminders([item], quiet, earlyNow).quietHoursSuppressed).toEqual([item.id]);
+    // Not suppressed when quiet hours are off -- it is scheduled instead, and
+    // reporting it in both lists would be a contradiction.
+    expect(planSessionReminders([item], PREFS, earlyNow).quietHoursSuppressed).toEqual([]);
+  });
+
+  // Only a reminder that still had a future to be silenced in. A plan whose
+  // moment has passed is dropped by the past-check before quiet hours are
+  // ever consulted, and reporting it would spend a capped slot saying
+  // nothing -- the backend's own grace window has the same view of it.
+  it('does not report an already-past reminder as suppressed', () => {
+    const quiet = { ...PREFS, quietHoursEnabled: true };
+    // 23:00 the previous night: inside the window, but long past NOW.
+    const past = plan({ date: '2026-08-31', time: '23:30', leadMinutes: 30 });
+    expect(planSessionReminders([past], quiet, NOW)).toEqual({ requests: [], quietHoursSuppressed: [] });
+  });
+
+  // Same soonest-first cap the schedulable half gets, and for the same
+  // reason: this list is written to a Firestore document with a hard 50-entry
+  // rule, and the near-term entries are the only ones that can come due
+  // before the next reconcile rewrites it.
+  it('caps the suppressed list at MAX_SESSION_REMINDERS, soonest first', () => {
+    // Every one of these fires at 23:30 local, inside the quiet window.
+    const count = MAX_SESSION_REMINDERS + 5;
+    const many = Array.from({ length: count }, (_, i) => {
+      const d = new Date(2026, 8, 2 + (count - 1 - i)); // descending dates
+      return plan({
+        id: `sched_${i}`,
+        date: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`,
+        time: '23:30',
+        leadMinutes: 0,
+      });
+    });
+    const quiet = { ...PREFS, quietHoursEnabled: true };
+    const { requests, quietHoursSuppressed } = planSessionReminders(many, quiet, NOW);
+    expect(requests).toEqual([]);
+    expect(quietHoursSuppressed).toHaveLength(MAX_SESSION_REMINDERS);
+    // Soonest-first: the LAST-built plans are the earliest dates.
+    const soonestIds = [...many]
+      .sort((a, b) => reminderFireMs(a) - reminderFireMs(b))
+      .slice(0, MAX_SESSION_REMINDERS)
+      .map((p) => p.id);
+    expect(quietHoursSuppressed).toEqual(soonestIds);
   });
 
   it('keeps the SOONEST plans, in order, up to the cap', () => {
@@ -103,7 +163,7 @@ describe('planSessionReminders', () => {
       });
     });
 
-    const requests = planSessionReminders(many, PREFS, NOW);
+    const { requests } = planSessionReminders(many, PREFS, NOW);
     const soonestFirst = many.map(reminderFireMs).sort((a, b) => a - b);
 
     expect(requests).toHaveLength(MAX_SESSION_REMINDERS);

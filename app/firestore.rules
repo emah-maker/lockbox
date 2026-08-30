@@ -111,7 +111,8 @@ service cloud.firestore {
         allow read, delete: if isOwner(uid);
         allow create, update: if isOwner(uid)
                               && request.resource.data.keys().hasOnly(
-                                   ['transport', 'token', 'platform', 'localReminderIds', 'createdAt', 'updatedAt'])
+                                   ['transport', 'token', 'platform', 'localReminderIds',
+                                    'suppressedReminderIds', 'createdAt', 'updatedAt'])
                               && request.resource.data.transport in ['expo', 'webpush']
                               && request.resource.data.token is string
                               // FCM registration tokens run to ~200 chars and
@@ -130,7 +131,16 @@ service cloud.firestore {
                               // at MAX_SESSION_REMINDERS on its own side.
                               && (!('localReminderIds' in request.resource.data)
                                   || (request.resource.data.localReminderIds is list
-                                      && request.resource.data.localReminderIds.size() <= 50));
+                                      && request.resource.data.localReminderIds.size() <= 50))
+                              // Its counterpart: reminders this device
+                              // silenced for quiet hours, which the server
+                              // must also not push (same PushTokenDoc).
+                              // Bounded separately and identically -- one
+                              // device's two lists are each at most the
+                              // reminders it could have scheduled.
+                              && (!('suppressedReminderIds' in request.resource.data)
+                                  || (request.resource.data.suppressedReminderIds is list
+                                      && request.resource.data.suppressedReminderIds.size() <= 50));
       }
 
       match /scheduledSessions/{planId} {

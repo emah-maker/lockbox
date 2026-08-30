@@ -51,6 +51,24 @@ const goal = (id: string, targetS: number): Goal => ({
   archived: false,
 });
 
+// Every tree this file mounts, unmounted in afterEach. FormDisclosure's
+// chevron runs a 160ms Animated.timing on each expand/collapse, which it
+// stops in an unmount-only effect (see its own header) -- but only if
+// something actually unmounts it. Left mounted, the tests below that press a
+// disclosure row finish while that timing is still scheduling frames, and it
+// fires after Jest has torn the environment down: a torn-down-environment
+// stack plus an update-not-wrapped-in-act warning, printed over a PASSING
+// run. Same `mounted`/afterEach shape ui/Sheet.test.tsx and
+// ui/WheelPicker.test.tsx already use for their own pending animations.
+const mounted: TestRenderer.ReactTestRenderer[] = [];
+
+afterEach(() => {
+  act(() => {
+    mounted.forEach((t) => t.unmount());
+  });
+  mounted.length = 0;
+});
+
 const goalA = goal('goal-a', 3600); // 1h00m
 const goalB = goal('goal-b', 7200); // 2h00m
 
@@ -74,6 +92,7 @@ function renderForm(tree: TestRenderer.ReactTestRenderer | null, formKey: string
     act(() => {
       created = TestRenderer.create(element);
     });
+    mounted.push(created!);
     return created!;
   }
   act(() => tree.update(element));

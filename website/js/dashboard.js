@@ -438,6 +438,12 @@ async function loadDashboard(db, uid) {
   showState('loading');
   dashDb = db;
   dashUid = uid;
+  // Now that there IS a uid, the browser-reminder row can finally tell
+  // "enabled here" from "not enabled here" -- that answer lives in a
+  // Firestore document under the user, and every earlier paint ran before
+  // sign-in resolved. Not awaited: it is one small read for a single row,
+  // and the dashboard's own four reads below should not queue behind it.
+  void refreshWebPushRow();
   try {
     const [sessionsSnap, settingsSnap, goalsSnap, plans] = await withTimeout(Promise.all([
       getDocs(query(

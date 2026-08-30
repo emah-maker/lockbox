@@ -31,7 +31,7 @@ import {
   isSupported,
   onMessage,
 } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-messaging.js';
-import { doc, setDoc, deleteDoc } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
+import { doc, getDoc, setDoc, deleteDoc } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
 
 /** Served from the site root -- Firebase Messaging requires the worker at a
  * scope that covers the pages it serves, and the root is the one scope that
@@ -139,9 +139,37 @@ export async function enableWebPush({ config, db, uid }) {
 }
 
 /**
+ * Whether this browser currently has a token document under `uid` -- i.e.
+ * whether the backend would actually push a reminder here.
+ *
+ * Distinct from webPushStatus(), and the UI needs both. That one reports the
+ * BROWSER PERMISSION, which stays 'granted' forever once given: after the
+ * user turns browser reminders off, permission still says yes while the
+ * address the server pushes to is gone. Asked of Firestore rather than
+ * tracked in localStorage so it stays true when the backend removes a dead
+ * token on its own (functions/src/index.ts's removeDeadTokens).
+ *
+ * Never throws; a read that fails answers `false`, which shows the user the
+ * enable control -- re-enabling an already-enabled browser rewrites the same
+ * document at the same id and is harmless.
+ */
+export async function webPushRegistered({ db, uid }) {
+  if (!db || !uid) return false;
+  try {
+    const snap = await getDoc(doc(db, 'users', uid, 'pushTokens', browserTokenId()));
+    return snap.exists();
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Removes this browser's token document. Called on sign-out, while the user
  * is still authorized to delete it -- left behind, it would keep this browser
- * receiving the previous account's reminders.
+ * receiving the previous account's reminders. Also the dashboard's own "turn
+ * off" control: deleting the address is the only thing that actually stops
+ * the pushes, since the browser permission this page can ask for cannot be
+ * un-asked from script.
  */
 export async function disableWebPush({ db, uid }) {
   try {

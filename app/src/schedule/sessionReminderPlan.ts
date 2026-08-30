@@ -92,6 +92,33 @@ function contentFor(item: ScheduledSession, lead: number): { title: string; body
   };
 }
 
+/** What a reconcile pass concluded about the current plans: what to hand the
+ * OS, and what was deliberately silenced. Both halves matter to the caller,
+ * because the push backend pushes exactly what no device reports handling --
+ * see `quietHoursSuppressed`. */
+export interface SessionReminderPlan {
+  requests: SessionReminderRequest[];
+  /**
+   * Plan ids dropped for landing inside quiet hours -- and ONLY for that.
+   *
+   * Reported to the push backend as "do not push these here" alongside the
+   * ones actually scheduled (push/pushRegistration.ts's reportLocalCoverage).
+   * Without it, quiet hours had the exact opposite of their effect: a
+   * reminder suppressed locally is by definition one this device does not
+   * report covering, and an uncovered reminder is what sendDueReminders
+   * exists to deliver -- so the 06:40 reminder the user silenced arrived at
+   * 06:40 as a push instead. A local drop the server doesn't know about is
+   * not silence, it is a handoff.
+   *
+   * Ids only, never the whole plan: this list is written to a Firestore
+   * document a rule caps at 50 entries, and it is capped at
+   * MAX_SESSION_REMINDERS soonest-first for the same reason `requests` is.
+   * Suppressed plans further out than that are not near enough to be due
+   * before the next reconcile rewrites this list.
+   */
+  quietHoursSuppressed: string[];
+}
+
 /**
  * Which one-off reminders should currently exist.
  *
@@ -106,7 +133,9 @@ function contentFor(item: ScheduledSession, lead: number): { title: string; body
  *   4. Its fire time lands inside quiet hours. Dropped rather than moved,
  *      matching the goal side exactly: a reminder silently relocated to a
  *      time the user never picked is more confusing than one that doesn't
- *      arrive, and the form warns about it up front.
+ *      arrive, and the form warns about it up front. Unlike the other three,
+ *      this drop is REPORTED -- see SessionReminderPlan.quietHoursSuppressed
+ *      for why silence has to be told to the server to actually be silence.
  *
  * The survivors are sorted soonest-first and capped at
  * MAX_SESSION_REMINDERS.
@@ -115,18 +144,31 @@ export function planSessionReminders(
   items: ScheduledSession[],
   prefs: NotificationPrefs,
   nowMs: number,
-): SessionReminderRequest[] {
-  if (!prefs.enabled) return [];
+): SessionReminderPlan {
+  // The master switch is NOT reported as suppression. It is handled one level
+  // up by removing this device's push token entirely
+  // (push/pushRegistration.ts): "notify me for none of my 200 plans" is a
+  // property of the device, and expressing it as a list of plan ids would
+  // both overflow the 50-entry cap on that list and re-state it once per
+  // plan.
+  if (!prefs.enabled) return { requests: [], quietHoursSuppressed: [] };
 
   const requests: SessionReminderRequest[] = [];
+  // Kept with their fire times so this can be sorted soonest-first like
+  // `requests`, then reduced to bare ids on the way out.
+  const suppressed: { planId: string; fireAtMs: number }[] = [];
   for (const item of items) {
     if (item.done) continue;
     const startMs = scheduledStartMs(item);
     if (!Number.isFinite(startMs)) continue;
     const fireAtMs = reminderFireMs(item);
+    // A plan whose moment has already passed is not "suppressed" -- there is
+    // nothing left to suppress, and the backend's own grace window has the
+    // same view of it. Only a future reminder the user silenced counts.
     if (!(fireAtMs > nowMs)) continue;
 
     if (prefs.quietHoursEnabled && isInQuietHours(fireTimeOfDay(fireAtMs), prefs.quietStart, prefs.quietEnd)) {
+      suppressed.push({ planId: item.id, fireAtMs });
       continue;
     }
 
@@ -140,7 +182,13 @@ export function planSessionReminders(
     });
   }
 
-  return requests.sort((a, b) => a.fireAtMs - b.fireAtMs).slice(0, MAX_SESSION_REMINDERS);
+  return {
+    requests: requests.sort((a, b) => a.fireAtMs - b.fireAtMs).slice(0, MAX_SESSION_REMINDERS),
+    quietHoursSuppressed: suppressed
+      .sort((a, b) => a.fireAtMs - b.fireAtMs)
+      .slice(0, MAX_SESSION_REMINDERS)
+      .map((x) => x.planId),
+  };
 }
 
 /** The 'HH:MM' local clock time of an absolute moment -- the shape

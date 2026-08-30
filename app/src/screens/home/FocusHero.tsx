@@ -136,6 +136,16 @@ export function FocusHero({
     fade.setValue(0.35);
     Animated.timing(fade, { toValue: 1, duration: 220, useNativeDriver: true }).start();
   }, [status?.st, reducedMotion, fade]);
+  // Unmount-only, and deliberately NOT a cleanup on the effect above -- same
+  // split, for the same reason, as ui/FormDisclosure's chevron: that effect's
+  // deps include `status?.st`, so a cleanup there would cancel the fade every
+  // time the status changed, which is precisely when the fade is supposed to
+  // be running. Left unstopped, a hero that unmounts mid-fade (App.tsx's tab
+  // switcher unmounts the outgoing tab) keeps scheduling Animated frames
+  // against a detached node for the rest of the 220ms -- and under Jest that
+  // outlives the environment itself, printing a torn-down-environment stack
+  // over an otherwise passing run.
+  useEffect(() => () => fade.stopAnimation(), [fade]);
 
   const ringColor = running ? theme.accent : withAlpha(theme.accent, closed ? 0.55 : 0.3);
   const trackColor = withAlpha(theme.accent, 0.14);
