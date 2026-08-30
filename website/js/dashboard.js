@@ -37,23 +37,17 @@ import {
 import {
   getFirestore,
   doc,
-  getDoc,
   setDoc,
-  collection,
-  getDocs,
-  query,
-  orderBy,
-  limit,
 } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
 import { loadFirebaseConfigOrNull } from './firebaseConfig.js';
 import { initAppCheck } from './appCheck.js';
 import { friendlyErrorMessage, isIgnorableAuthError, logAuthError } from './authErrors.js';
 import { resolveTheme, applyTheme, DEFAULT_THEME_MODE, DEFAULT_ACCENT } from './theme.js';
-import { aggregate, lastNDays, sanitizeCustomLabels, topicBreakdownWithCustom } from './focusStats.js';
+import { aggregate, lastNDays, topicBreakdownWithCustom } from './focusStats.js';
 import { showMessage, describeWriteError } from './dashMessage.js';
 import { mountLabelsPanel, renderLabelsList } from './labelsPanel.js';
 import { mountGoalsPanel, renderGoalsList } from './goalsPanel.js';
-import { sanitizeRemoteGoals, pruneArchivedGoals } from './goals.js';
+import { pruneArchivedGoals } from './goals.js';
 import { computeGoalProgress } from './goalProgress.js';
 import { mountAccountPanel, renderAccountPanel } from './accountPanel.js';
 import { mountCalendarPanel, renderCalendar, resetCalendarView } from './calendarPanel.js';
@@ -63,63 +57,13 @@ import {
   renderPlannedSessions,
 } from './plannedSessionsPanel.js';
 import { loadScheduledSessions } from './scheduledSessionsSync.js';
+// The read side lives in dashboardData.js -- this file is the wiring.
+import { fetchDashboardData } from './dashboardData.js';
 import { disableWebPush, startForegroundWebPush } from './webPush.js';
 import { renderSessionsTable } from './sessionsTable.js';
 import { renderSummary, renderFacts, renderTrend, renderBreakdown } from './statsCards.js';
-
-// Defensive cap, not a product window: the summary tiles/streak/calendar all
-// want true all-time data, so this reads newest-first and reverses back to the
-// oldest-first order aggregate()/renderAll() expect, rather than windowing to
-// "recent N days" and changing what "Total focus time"/"Streak"/"Longest"
-// mean. At a few sessions/day this is years of history before it ever
-// truncates anything; it exists only to bound one account's per-load read.
-const SESSIONS_QUERY_LIMIT = 2000;
-
-const els = {
-  notConfigured: document.getElementById('dashNotConfigured'),
-  loading: document.getElementById('dashLoading'),
-  error: document.getElementById('dashError'),
-  errorMsg: document.getElementById('dashErrorMsg'),
-  content: document.getElementById('dashContent'),
-  summaryTotal: document.getElementById('dashSummaryTotal'),
-  summarySub: document.getElementById('dashSummarySub'),
-  miniRow: document.getElementById('dashMiniRow'),
-  emptyHint: document.getElementById('dashEmptyHint'),
-  factsCard: document.getElementById('dashFactsCard'),
-  facts: document.getElementById('dashFacts'),
-  trend: document.getElementById('dashTrend'),
-  breakdown: document.getElementById('dashBreakdown'),
-  sessionsBody: document.getElementById('dashSessionsBody'),
-  signOutBtn: document.getElementById('signOutBtn'),
-  calPrev: document.getElementById('dashCalPrev'),
-  calNext: document.getElementById('dashCalNext'),
-  calMonthLabel: document.getElementById('dashCalMonthLabel'),
-  calGrid: document.getElementById('dashCalGrid'),
-  calDayTitle: document.getElementById('dashCalDayTitle'),
-  calDayList: document.getElementById('dashCalDayList'),
-  planAdd: document.getElementById('dashPlanAdd'),
-  planList: document.getElementById('dashPlanList'),
-  planFormSlot: document.getElementById('dashPlanFormSlot'),
-  planMsg: document.getElementById('dashPlanMsg'),
-  webPushRow: document.getElementById('dashWebPushRow'),
-  webPushBtn: document.getElementById('dashWebPushBtn'),
-  webPushStatus: document.getElementById('dashWebPushStatus'),
-  writeError: document.getElementById('dashWriteError'),
-  labelsMsg: document.getElementById('dashLabelsMsg'),
-  labelsList: document.getElementById('dashLabelsList'),
-  labelAddForm: document.getElementById('dashLabelAddForm'),
-  labelAddSwatches: document.getElementById('dashLabelAddSwatches'),
-  labelAddName: document.getElementById('dashLabelAddName'),
-  labelAddSubmit: document.getElementById('dashLabelAddSubmit'),
-  labelsCapMsg: document.getElementById('dashLabelsCapMsg'),
-  goalsMsg: document.getElementById('dashGoalsMsg'),
-  goalsList: document.getElementById('dashGoalsList'),
-  goalFormSlot: document.getElementById('dashGoalFormSlot'),
-  goalsCapMsg: document.getElementById('dashGoalsCapMsg'),
-  accountMsg: document.getElementById('dashAccountMsg'),
-  accountBody: document.getElementById('dashAccountBody'),
-};
-
+// Every element on dashboard.html this page touches, looked up once.
+import { els } from './domRefs.js';
 // ---------- Write state (populated once loadDashboard resolves) ----------
 // dashDb/dashUid: needed by every write below, set once per sign-in. Named
 // distinctly from loadDashboard's own (db, uid) parameters below, which
@@ -408,19 +352,6 @@ function showError(err) {
   showState('error');
 }
 
-// Firestore's SDK can retry a stuck connection (missing database, blocked
-// request) silently instead of rejecting, which left this screen stuck on
-// "Loading..." forever with no error. Race it against a timeout so a stall
-// always surfaces as an actionable error instead of hanging indefinitely.
-const LOAD_TIMEOUT_MS = 15000;
-function withTimeout(promise, ms) {
-  return Promise.race([
-    promise,
-    new Promise((_, reject) => {
-      setTimeout(() => reject(Object.assign(new Error('Dashboard load timed out'), { code: 'timeout' })), ms);
-    }),
-  ]);
-}
 
 // Bumped at the start of every loadDashboard call, captured as `seq` in each
 // call's own closure -- guards against two overlapping loads (a manual
@@ -446,53 +377,7 @@ async function loadDashboard(db, uid) {
   // and the dashboard's own four reads below should not queue behind it.
   void refreshWebPushRow();
   try {
-    const [sessionsSnap, settingsSnap, goalsSnap, plans] = await withTimeout(Promise.all([
-      getDocs(query(
-        collection(db, 'users', uid, 'sessions'),
-        orderBy('startedAt', 'desc'),
-        limit(SESSIONS_QUERY_LIMIT),
-      )),
-      getDoc(doc(db, 'users', uid, 'settings', 'app')),
-      // users/{uid}/goals/config -- see goals.js's header. A missing doc here
-      // is the normal first-run case (no goals set yet), not an error, same
-      // as settings/app potentially not existing for a brand-new account --
-      // handled below via goalsSnap.exists(), not a catch.
-      getDoc(doc(db, 'users', uid, 'goals', 'config')),
-      // Planned focus sessions. An empty collection is the normal first-run
-      // case, exactly like a missing goals/config above -- not an error.
-      //
-      // Caught HERE rather than by the outer try, because these four reads
-      // share one Promise.all: an unhandled rejection from this one would
-      // take the whole dashboard to its error state, hiding sessions, stats,
-      // goals and labels over a feature the user may not be using. That is
-      // not hypothetical -- this is the newest collection, and a project
-      // whose firestore.rules predate it denies the read outright (see
-      // docs/push-notifications.md). Degrading to "no plans" keeps the rest
-      // of the page working and leaves the Planned block simply empty.
-      loadScheduledSessions(db, uid).catch((err) => {
-        console.warn('[dashboard] could not load planned sessions:', err?.message ?? err);
-        return [];
-      }),
-    ]), LOAD_TIMEOUT_MS);
-    // Back to oldest-first -- the query above reads newest-first so the cap
-    // keeps the *most recent* sessions, but every render/aggregate helper
-    // below expects oldest-first input. Keeps its own doc id (unlike the
-    // previous read-only version, which discarded it) -- createLabelPicker
-    // needs it to address the doc for a relabel `update`.
-    const sessions = sessionsSnap.docs.map((d) => ({ id: d.id, ...d.data() })).reverse();
-    const settings = settingsSnap.exists() ? settingsSnap.data() : {};
-    // Sanitized, not merely defaulted. This used to be
-    // `settings.customLabels || []`, trusted on the grounds that settings/
-    // app's write rule bounds its shape -- but that rule caps the catalog's
-    // SIZE and cannot iterate a list of maps, so the ENTRIES were never
-    // checked by anything, and every renderer below reads .id/.name/.color
-    // straight out of them.
-    const customLabels = sanitizeCustomLabels(settings.customLabels);
-    // sanitizeRemoteGoals is the untrusted-input boundary for this doc (see
-    // its own comment in goals.js) -- run before anything else (including
-    // computeGoalProgress in renderAll/renderDataViews) ever sees it, the
-    // same boundary customLabels just went through above.
-    const goals = sanitizeRemoteGoals(goalsSnap.exists() ? goalsSnap.data().goals : []);
+    const { sessions, settings, customLabels, goals, plans } = await fetchDashboardData(db, uid);
     // A newer loadDashboard call already started (and may have already
     // rendered) while this one's Firestore round-trip was in flight -- drop
     // this stale result rather than let it stomp the newer one. See loadSeq's
