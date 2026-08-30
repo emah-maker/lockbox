@@ -313,19 +313,32 @@ class GestureMixin:
         # them), so this swipes within LOCKED_VIEWS's own order instead of
         # VIEWS's while running.
         if abs(dx) >= SWIPE_MIN_PX and abs(dx) > abs(dy):
-            right = dx > 0
+            # Drag LEFT advances. The carousel convention: the content follows
+            # your finger, so dragging left slides the current view off to the
+            # left and brings the next one in from the right -- the same way
+            # phone home screens and photo galleries page, and the same
+            # direction TagPicker._release uses for MORE, so the box has one
+            # rule for both of its horizontal gestures.
+            #
+            # This was `dx > 0` (drag right = next) and was reported wrong in
+            # BOTH orientations -- which is what finally identified it. The
+            # first two attempts at this report chased a flip-dependent bug,
+            # because the symptom was first noticed after flipping the screen;
+            # the direction had simply always been backwards, and flipping
+            # just prompted someone to try it.
+            forward = dx < 0
             if self.state == "running":
                 if self.view in LOCKED_VIEWS:
                     idx = LOCKED_VIEWS.index(self.view)
-                    if right and idx < len(LOCKED_VIEWS) - 1:
+                    if forward and idx < len(LOCKED_VIEWS) - 1:
                         self.set_view(LOCKED_VIEWS[idx + 1])
-                    elif not right and idx > 0:
+                    elif not forward and idx > 0:
                         self.set_view(LOCKED_VIEWS[idx - 1])
             else:
                 idx = VIEWS.index(self.view)
-                if right and idx < len(VIEWS) - 1:
+                if forward and idx < len(VIEWS) - 1:
                     self.set_view(VIEWS[idx + 1])
-                elif not right and idx > 0:
+                elif not forward and idx > 0:
                     self.set_view(VIEWS[idx - 1])
             return
 

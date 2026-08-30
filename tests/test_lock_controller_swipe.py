@@ -98,19 +98,28 @@ try:
         for invert_x in (False, True):
             label = "flipped=%s invert_x=%s" % (is_flipped, invert_x)
 
-            # A rightward swipe in already-mapped screen space must always
+            # A LEFTWARD swipe in already-mapped screen space must always
             # advance to the next view (control -> battery), regardless of
             # flip/calibration -- the correction was already applied once by
             # _map before self._start/self._last were ever set.
+            #
+            # Leftward, not rightward: the content follows the finger, so
+            # dragging left brings the next view in from the right. These two
+            # cases asserted the opposite until the direction was reported
+            # wrong in BOTH orientations -- they had been pinning the bug, and
+            # their flip-invariance (the part that IS right, and the reason
+            # this file exists) was what made the real fault hard to see: a
+            # gesture can be perfectly orientation-independent and still point
+            # the wrong way.
             check(
-                "swipe right advances view (%s)" % label,
-                _swipe(is_flipped, invert_x, 60) == "battery",
+                "swipe left advances view (%s)" % label,
+                _swipe(is_flipped, invert_x, -60) == "battery",
             )
 
-            # A leftward swipe must always go back (control -> clock).
+            # A rightward swipe must always go back (control -> clock).
             check(
-                "swipe left goes back (%s)" % label,
-                _swipe(is_flipped, invert_x, -60) == "clock",
+                "swipe right goes back (%s)" % label,
+                _swipe(is_flipped, invert_x, 60) == "clock",
             )
 finally:
     lock_controller.INVERT_X = _orig_invert_x

@@ -29,7 +29,24 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 
+def _clear_bytecode():
+    """Delete any cached firmware bytecode before running.
+
+    CPython caches .pyc by (mtime, size), and an edit that changes neither --
+    flipping `<` to `>`, say -- can leave a stale cache in play. That bit
+    during a mutation check: the source said one thing, the loaded module did
+    another, and the run was quietly measuring code that no longer existed on
+    disk. A mutation test that silently passes because it never loaded the
+    mutation is worse than no mutation test.
+    """
+    import shutil
+    for d in (os.path.join(os.path.dirname(HERE), "Box-code", "lib", "__pycache__"),
+              os.path.join(HERE, "__pycache__")):
+        shutil.rmtree(d, ignore_errors=True)
+
+
 def main():
+    _clear_bytecode()
     files = sorted(glob.glob(os.path.join(HERE, "test_*.py")))
     if not files:
         print("no firmware tests found in " + HERE)
