@@ -15,9 +15,6 @@ import {
   sanitizeRemoteGoals,
   mergeGoals,
   mergedGoalsDocUpdatedAt,
-  goalWindow,
-  isGoalDueOn,
-  computeGoalProgress,
   MAX_GOALS,
   MAX_GOAL_ID_LENGTH,
   MAX_TOPIC_LENGTH,
@@ -28,6 +25,9 @@ import {
   MAX_TARGET_SESSIONS,
   ARCHIVED_GOAL_PRUNE_MS,
 } from '../../website/js/goals.js';
+// The window/progress math is its own module now, mirroring the app's
+// goals.ts / goalProgress.ts split. Same functions, same cases below.
+import { goalWindow, isGoalDueOn, computeGoalProgress } from '../../website/js/goalProgress.js';
 
 describe('makeGoalId', () => {
   it('generates a "goal:"-prefixed id well within MAX_GOAL_ID_LENGTH', () => {

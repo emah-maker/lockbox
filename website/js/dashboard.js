@@ -53,7 +53,8 @@ import { aggregate, lastNDays, sanitizeCustomLabels, topicBreakdownWithCustom } 
 import { showMessage, describeWriteError } from './dashMessage.js';
 import { mountLabelsPanel, renderLabelsList } from './labelsPanel.js';
 import { mountGoalsPanel, renderGoalsList } from './goalsPanel.js';
-import { sanitizeRemoteGoals, computeGoalProgress, pruneArchivedGoals } from './goals.js';
+import { sanitizeRemoteGoals, pruneArchivedGoals } from './goals.js';
+import { computeGoalProgress } from './goalProgress.js';
 import { mountAccountPanel, renderAccountPanel } from './accountPanel.js';
 import { mountCalendarPanel, renderCalendar, resetCalendarView } from './calendarPanel.js';
 import {

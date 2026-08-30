@@ -29,7 +29,8 @@
    whole-minute targetS, so nothing about the STORED shape or the sync
    semantics differs -- only the widget.
    ========================================================================= */
-import { createGoal, updateGoal, archiveGoal, goalWindow, isGoalDueOn, MAX_GOALS } from './goals.js';
+import { createGoal, updateGoal, archiveGoal, MAX_GOALS } from './goals.js';
+import { goalWindow, isGoalDueOn } from './goalProgress.js';
 import { resolveTopic, formatDuration } from './focusStats.js';
 import { showMessage } from './dashMessage.js';
 import { buildGoalForm } from './goalForm.js';

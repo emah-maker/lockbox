@@ -24,7 +24,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { computeGoalProgress } from '../../website/js/goals.js';
+import { computeGoalProgress } from '../../website/js/goalProgress.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const fixturePath = path.join(__dirname, '..', 'fixtures', 'goalProgress.golden.json');
