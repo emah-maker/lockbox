@@ -18,6 +18,7 @@ import { PhoneBoxClient } from '../ble/PhoneBoxClient';
 import { CallMonitor } from '../calls/CallMonitor';
 import type { Status, HistoryEntry, BoxState, Settings } from '../ble/protocol';
 import { getJSON, setJSON } from '../storage/storage';
+import { reconnectDelayMs, shouldScheduleReconnect } from '../ble/reconnectPolicy';
 import { loadSessions, appendSessions, retagSession, buildLoggedSessions, LoggedSession, PendingTopicTag } from '../stats/sessionHistory';
 import { useSettingsStore } from './useSettingsStore';
 // Remote sync (docs/rfcs/google-signin-cross-device-sync-architecture.md §4.3)
@@ -147,8 +148,14 @@ export const useStore = create<AppState>((set, get) => {
   };
 
   const scheduleReconnect = () => {
-    if (userDisconnected || !get().autoConnect || reconnectTimer) return;
-    const delay = Math.min(MAX_RECONNECT_DELAY_MS, RECONNECT_DELAY_MS * 2 ** reconnectAttempts);
+    // Both halves of the decision live in ble/reconnectPolicy.ts, where they
+    // can be tested; what stays here is the timer and the closure state they
+    // read. Same plan/execute split goalNotificationPlan and
+    // sessionReminderPlan have with their own executors.
+    if (!shouldScheduleReconnect({ userDisconnected, autoConnect: get().autoConnect, timerArmed: !!reconnectTimer })) {
+      return;
+    }
+    const delay = reconnectDelayMs(reconnectAttempts, RECONNECT_DELAY_MS, MAX_RECONNECT_DELAY_MS);
     reconnectAttempts += 1;
     reconnectTimer = setTimeout(() => {
       reconnectTimer = null;

@@ -330,7 +330,20 @@ async function removeDeadTokens(
  * what makes it safe. By the time a receipt says "gone", that device may have
  * re-registered under the same document with a fresh token, and deleting it
  * then would unsubscribe a working device over a receipt about a token it no
- * longer has.
+ * longer has. (An `updatedAt` comparison would not do instead: an Expo token
+ * is stable for an install, so an ordinary re-registration rewrites the same
+ * value, and treating that as "changed" would block a deletion that is in
+ * fact correct.)
+ *
+ * ACCOUNT DELETION. These rows are backend-only and are not reachable by
+ * firestoreSync.ts's deleteAllUserData, which runs as the client and is
+ * denied this collection by the rules. So a ticket can outlive the account it
+ * names -- by at most TICKET_MAX_AGE_MS, after which it is dropped
+ * unconditionally. What it holds in the meantime is a uid and a push token
+ * that deleteAllUserData has already unregistered: an address that no longer
+ * addresses anything, in a collection no client can read. Bounded and inert
+ * rather than zero, and worth stating because it is invisible from the
+ * client half of the deletion path.
  */
 async function recordTickets(
   uid: string,
