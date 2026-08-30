@@ -7,6 +7,7 @@
 
 import gc
 from lock_config import (
+    TOUCH_DEBUG,
     SWIPE_MIN_PX, OVERRIDE_TIMEOUT, RELEASE_FRAMES, HOLD_REPEAT_DELAY, HOLD_REPEAT_START,
     HOLD_REPEAT_MIN, HOLD_REPEAT_RAMP, STATUS_TAP_COOLDOWN_S,
 )
@@ -93,9 +94,11 @@ class GestureMixin:
         if len(points) > 0:
             # a real touch: reset the dropout counter and track the point
             self._miss = 0
-            pt = self._map(points[0])
+            raw = points[0]
+            pt = self._map(raw)
             if not self._was_down:
                 self._start = pt
+                self._start_raw = raw
                 # Suppress the press-dip too while the status-bar toggle is
                 # still cooling down (STATUS_TAP_COOLDOWN_S) -- on_touch_down
                 # is purely cosmetic (LockUI.on_touch_down) but a chattering
@@ -107,6 +110,7 @@ class GestureMixin:
                 if not in_cooldown:
                     self.ui.on_touch_down(*pt)   # cosmetic only -- see LockUI.on_touch_down
             self._last = pt
+            self._last_raw = raw
             self._was_down = True
             if self._editing:
                 self._update_hold(now)
@@ -233,6 +237,23 @@ class GestureMixin:
     def _handle_release(self):
         dx = self._last[0] - self._start[0]
         dy = self._last[1] - self._start[1]
+
+        # See lock_config.TOUCH_DEBUG. Everything needed to tell a mapping
+        # bug from a direction bug, in one line: if RAW dx and MAPPED dx have
+        # the same sign in one orientation and opposite signs in the other,
+        # _map is doing its job and the fault is in whoever reads the sign;
+        # if they track each other in BOTH orientations, _map is not
+        # correcting at all and no amount of fixing the readers will help.
+        if TOUCH_DEBUG:
+            try:
+                rot = self.ui.display.rotation
+            except AttributeError:
+                rot = None
+            print("[touch] rot=%s flip=%s raw=%s->%s rawdx=%s map=%s->%s dx=%s dy=%s view=%s state=%s" % (
+                rot, self.ui.is_flipped,
+                self._start_raw, self._last_raw,
+                (self._last_raw[0] - self._start_raw[0]) if (self._start_raw and self._last_raw) else None,
+                self._start, self._last, dx, dy, self.view, self.state))
 
         # Per-setting detail page: a tap or hold on [-]/[+], or a held swipe,
         # was already applied live in _update_hold as the finger went down

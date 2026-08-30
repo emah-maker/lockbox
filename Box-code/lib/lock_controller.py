@@ -40,6 +40,9 @@ class LockController(StateMixin, BleMixin, GestureMixin):
         self.done_start = 0.0
         self._was_down = False
         self._start = None
+        # Raw, pre-_map copies, for the TOUCH_DEBUG trace only.
+        self._start_raw = None
+        self._last_raw = None
         self._last = None
         self._miss = 0
         self._now = 0.0

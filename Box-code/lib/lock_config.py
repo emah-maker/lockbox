@@ -19,6 +19,23 @@ MIN_STEP = 5                  # minutes change per swipe on the M column
 # was only ever a silent-failure backstop, not a floor on the value itself.
 MIN_SECONDS = MIN_STEP * 60
 SWIPE_MIN_PX = 35             # min vertical travel to count as a swipe
+
+# Print one line per touch release: the RAW point from the touch chip, the
+# MAPPED screen point _map turned it into, the deltas, and what the swipe
+# branch decided. Off by default; costs nothing when off.
+#
+# Here because touch/orientation mapping is this project's most-repeated bug
+# -- three separate "swipe is backwards / touch is mapped as if unflipped"
+# reports are recorded in lock_ui.py's and lock_controller._map's own
+# comments, and each was chased by reasoning about INVERT_X/is_flipped from
+# source. That reasoning is where it keeps going wrong, because it rests on
+# assumptions about the panel (which way its raw axes run, what a 180
+# displayio rotation does to them) that cannot be checked from a laptop. One
+# line of real numbers from the box settles in a single swipe what a day of
+# algebra does not.
+#
+# Turn on, deploy, swipe once, read the USB serial console, turn off.
+TOUCH_DEBUG = False
 RELEASE_FRAMES = 2            # consecutive empty touch reads before a "release"
 DONE_ANIM_S = 2.0             # auto-dismiss the unlock animation after this (auto-open)
 CLOCK_FPS = 25                # clock-view refresh rate while counting down (smooth)
