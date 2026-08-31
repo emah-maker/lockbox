@@ -9,7 +9,6 @@ import math
 import displayio
 import terminalio
 from adafruit_display_text import label
-from adafruit_display_shapes.roundrect import RoundRect
 from adafruit_display_shapes.rect import Rect
 from adafruit_display_shapes.circle import Circle
 from lock_config import (
@@ -17,6 +16,11 @@ from lock_config import (
     OVR_POP_OFFSET_PX,
 )
 from lock_ui_common import _bg_tile
+from lock_ui_kit import (
+    build_screen_title, build_card, build_track_bg, build_nav_left,
+    build_nav_right, build_hint, build_card_row_text, build_card_value,
+)
+from lock_ui_widgets import bar_fill_width
 
 
 class PanelsMixin:
@@ -28,104 +32,145 @@ class PanelsMixin:
         group.append(_tile)
         self._bg_tiles.append(_tile)
 
-        ttl = label.Label(terminalio.FONT, text="BATTERY", color=C_GREY, scale=2)
-        ttl.anchor_point = (0.5, 0.5)
-        ttl.anchored_position = (W // 2, 26)
+        ttl = build_screen_title(W, "BATTERY")
         group.append(ttl)
         self._dim_widgets.append((ttl, 'color'))
-
-        # battery icon: body outline + terminal nub, with a variable fill bar
-        self.bat_x = 36
-        self.bat_y = 70
-        self.bat_w = W - 72
-        self.bat_h = 60
-        _bat_outline = RoundRect(self.bat_x, self.bat_y, self.bat_w, self.bat_h, 6,
-                                 outline=C_WHITE, stroke=3)
-        group.append(_bat_outline)
-        self._fg_widgets.append((_bat_outline, 'outline'))
-        nub_h = 24
-        _bat_nub = Rect(self.bat_x + self.bat_w,
-                       self.bat_y + (self.bat_h - nub_h) // 2, 6, nub_h,
-                       fill=C_WHITE)
-        group.append(_bat_nub)
-        self._fg_widgets.append((_bat_nub, 'fill'))
-
-        # fill lives in its own group so it can be redrawn at a new width
-        self.bat_pad = 6
-        self.bat_fill_x = self.bat_x + self.bat_pad
-        self.bat_fill_y = self.bat_y + self.bat_pad
-        self.bat_fill_h = self.bat_h - 2 * self.bat_pad
-        self.bat_fill_max = self.bat_w - 2 * self.bat_pad
-        self.bat_fill_group = displayio.Group()
-        group.append(self.bat_fill_group)
-        self._bat_bar_last_key = None  # see update_battery_view
 
         self.bat_pct = label.Label(terminalio.FONT, text="--%", color=C_WHITE,
                                    scale=3)
         self.bat_pct.anchor_point = (0.5, 0.5)
-        self.bat_pct.anchored_position = (W // 2, self.bat_y + self.bat_h + 44)
+        self.bat_pct.anchored_position = (W // 2, 66)
         group.append(self.bat_pct)
         self._fg_widgets.append((self.bat_pct, 'color'))
 
-        self.bat_volts = label.Label(terminalio.FONT, text="-.-- V", color=C_GREY,
-                                     scale=2)
-        self.bat_volts.anchor_point = (0.5, 0.5)
-        self.bat_volts.anchored_position = (W // 2, self.bat_y + self.bat_h + 84)
-        group.append(self.bat_volts)
-        self._dim_widgets.append((self.bat_volts, 'color'))
-
-        self.bat_chg = label.Label(terminalio.FONT, text="", color=C_AMBER, scale=2)
+        # Charging indicator: kept as a text label rather than recoloring
+        # the track fill (spec's "your call" -- see update_battery_view).
+        # A voltage-only gauge can't know the true % while charging, so the
+        # track has nothing true to fill either way; a plain green label is
+        # the one signal that IS true, and it is the exact "CHG"/"Charging"
+        # information the old glyph-based view already showed, just moved
+        # off the glyph.
+        self.bat_chg = label.Label(terminalio.FONT, text="", color=C_GREEN, scale=2)
         self.bat_chg.anchor_point = (0.5, 0.5)
-        self.bat_chg.anchored_position = (W // 2, self.bat_y + self.bat_h + 120)
+        self.bat_chg.anchored_position = (W // 2, 92)
         group.append(self.bat_chg)
 
-        self.bat_watts = label.Label(terminalio.FONT, text="", color=C_GREY)
-        self.bat_watts.anchor_point = (0.5, 0.5)
-        self.bat_watts.anchored_position = (W // 2, self.bat_y + self.bat_h + 150)
-        group.append(self.bat_watts)
-        self._dim_widgets.append((self.bat_watts, 'color'))
+        # ----- charge track -----
+        # Replaces the old glyph (RoundRect outline + terminal-nub Rect +
+        # fill Rect -- 3 shapes, hard square fill corners inside a rounded
+        # outline) with the shared language's own track: one theme-fixed
+        # groove (build_track_bg, see its docstring for why it is never
+        # registered) plus one rebuilt accent Rect on top -- 2 shapes, and
+        # the same visual vocabulary as the settings detail page's progress
+        # track (lock_ui_widgets.build_detail_track_bg/_fill).
+        # DELIBERATELY raw width-proportional and UN-EASED, same as the
+        # override timeout bar in this file -- see lock_ui.py's color-
+        # transition-engine comment: this bar's width IS the literal
+        # percent remaining, so easing it would show a percent for a few
+        # frames that is not the true one.
+        self.bat_track_x = 16
+        self.bat_track_y = 118
+        self.bat_track_w = 140
+        self.bat_track_h = 14
+        _bat_track_bg = build_track_bg(self.bat_track_x, self.bat_track_y,
+                                       self.bat_track_w, self.bat_track_h)
+        group.append(_bat_track_bg)
+        self.bat_fill_group = displayio.Group()
+        group.append(self.bat_fill_group)
+        self._bat_bar_last_key = None  # see update_battery_view
 
-        hint = label.Label(terminalio.FONT, text="<- timer    settings ->",
-                           color=C_GREY)
-        hint.anchor_point = (0.5, 0.5)
-        hint.anchored_position = (W // 2, 316)
-        group.append(hint)
-        self._dim_widgets.append((hint, 'color'))
+        # ----- two data rows -----
+        # The old "3.87 V" and "~0.4 W (est)" were floating centred labels
+        # with no card/border of their own (the "orphaned" readout the spec
+        # calls out); these are now two proper card rows, name left / value
+        # right, in the same language as every settings row.
+        row1_top = 154
+        row2_top = 202
+        card1 = build_card(row1_top, 42)
+        group.append(card1)
+        self._surface_widgets.append((card1, 'fill'))
+        # The unit lives in the DESC line, not beside the number. "Voltage"
+        # is 7 glyphs (84px from CARD_TEXT_X, ending x=96) and the value is
+        # right-anchored at x=156, so "3.87" (4 glyphs, 48px, starting x=108)
+        # clears it by 12px but "3.87V" (5 glyphs, starting x=96) would touch
+        # it exactly. The Power row below can afford its inline "W" because
+        # "Power" is only 5 glyphs and leaves 36px of slack. Rather than let
+        # one row silently lose its unit to fit, the desc carries it -- that
+        # line has 24 glyphs of budget and is already there.
+        n1, d1 = build_card_row_text(row1_top, "Voltage", "volts, live reading")
+        group.append(n1)
+        self._fg_widgets.append((n1, 'color'))
+        group.append(d1)
+        self._dim_widgets.append((d1, 'color'))
+        self.bat_volts = build_card_value(row1_top)
+        group.append(self.bat_volts)
+        self._accent_widgets.append((self.bat_volts, 'color'))
+
+        card2 = build_card(row2_top, 42)
+        group.append(card2)
+        self._surface_widgets.append((card2, 'fill'))
+        n2, d2 = build_card_row_text(row2_top, "Power", "estimated draw")
+        group.append(n2)
+        self._fg_widgets.append((n2, 'color'))
+        group.append(d2)
+        self._dim_widgets.append((d2, 'color'))
+        self.bat_watts = build_card_value(row2_top)
+        group.append(self.bat_watts)
+        self._accent_widgets.append((self.bat_watts, 'color'))
+
+        # Chevron nav pair, replacing the ASCII "<- timer    settings ->".
+        nav_l_chev, nav_l_lbl = build_nav_left("timer")
+        group.append(nav_l_chev)
+        self._dim_widgets.append((nav_l_chev, 'fill'))
+        group.append(nav_l_lbl)
+        self._dim_widgets.append((nav_l_lbl, 'color'))
+        nav_r_lbl, nav_r_chev = build_nav_right(W, "settings")
+        group.append(nav_r_lbl)
+        self._dim_widgets.append((nav_r_lbl, 'color'))
+        group.append(nav_r_chev)
+        self._dim_widgets.append((nav_r_chev, 'fill'))
+        # Bottom view-position dots (ThemeMixin._add_view_dots) -- the battery
+        # screen is one of the top-level VIEWS, so it carries the same row as
+        # control/clock/settings. The override and call-alert screens below in
+        # this file deliberately do NOT: neither is in VIEWS (both are
+        # overlays that take over whichever view is showing), so a position
+        # indicator on them would point at a screen the user is not on.
+        self._add_view_dots(group, W)
 
     def update_battery_view(self, r):
         if not r.available:
             self.bat_pct.text = "N/A"
-            self.bat_volts.text = "no gauge"
             self.bat_chg.text = ""
-            self.bat_watts.text = ""
+            self.bat_volts.text = "N/A"
+            self.bat_watts.text = "N/A"
+            key = None
+        elif r.charging:
+            # A voltage-only gauge can't know the true level while
+            # charging, so don't fake a %: show "CHG" and leave the track
+            # empty. The voltage card row keeps showing its real reading
+            # regardless -- that number is genuine even while charging.
+            self.bat_pct.text = "CHG"
+            self.bat_chg.text = "Charging"
+            self.bat_volts.text = "{:.2f}".format(r.volts)
+            self.bat_watts.text = "N/A"
             key = None
         else:
-            self.bat_volts.text = "{:.2f} V".format(r.volts)
-            if r.charging:
-                # A voltage-only gauge can't know the true level while
-                # charging, so don't fake a %: show "CHG" and leave the bar
-                # empty.
-                self.bat_pct.text = "CHG"
-                self.bat_chg.text = "Charging"
-                self.bat_chg.color = C_GREEN
-                self.bat_watts.text = "-- W"
-                key = None
+            pct = clamp(r.percent, 0, 100)
+            self.bat_pct.text = "{}%".format(pct)
+            # No "On battery" label here (manager request) -- the percent
+            # readout above already implies it whenever bat_chg isn't
+            # showing "Charging", so the extra line was redundant.
+            self.bat_chg.text = ""
+            self.bat_volts.text = "{:.2f}".format(r.volts)
+            self.bat_watts.text = "{:.1f}W".format(r.watts)
+            if pct >= 50:
+                col = C_GREEN
+            elif pct >= 20:
+                col = C_AMBER
             else:
-                pct = clamp(r.percent, 0, 100)
-                self.bat_pct.text = "{}%".format(pct)
-                # No "On battery" label here (manager request) -- the percent
-                # readout above already implies it whenever bat_chg isn't
-                # showing "Charging", so the extra line was redundant.
-                self.bat_chg.text = ""
-                self.bat_watts.text = "~{:.1f} W (est)".format(r.watts)
-                if pct >= 50:
-                    col = C_GREEN
-                elif pct >= 20:
-                    col = C_AMBER
-                else:
-                    col = C_RED
-                w = max(1, int(self.bat_fill_max * pct / 100))
-                key = (w, col)
+                col = C_RED
+            w = bar_fill_width(self.bat_track_w, pct / 100.0, min_w=1)
+            key = (w, col)
         # Only rebuild the fill Rect when it actually changed -- see the
         # identical fix (and the reason) in update_override_timeout above.
         # Falling through to this gate even in the "not available"/"charging"
@@ -140,8 +185,8 @@ class PanelsMixin:
             self.bat_fill_group.pop()
         if key is not None:
             w, col = key
-            self.bat_fill_group.append(Rect(self.bat_fill_x, self.bat_fill_y, w,
-                                            self.bat_fill_h, fill=col))
+            self.bat_fill_group.append(Rect(self.bat_track_x, self.bat_track_y, w,
+                                            self.bat_track_h, fill=col))
 
     # =================== override counter overlay ===================
     def _build_override(self, W, H):
@@ -151,9 +196,15 @@ class PanelsMixin:
         group.append(_tile)
         self._bg_tiles.append(_tile)
 
-        ttl = label.Label(terminalio.FONT, text="OVERRIDE", color=C_AMBER, scale=2)
-        ttl.anchor_point = (0.5, 0.5)
-        ttl.anchored_position = (W // 2, 26)
+        ttl = build_screen_title(W, "OVERRIDE")
+        # Amber, and deliberately registered in NO theme registry (not
+        # _dim_widgets, not anywhere else) -- this overlay only ever shows
+        # up mid force-unlock, so amber here IS the caution signal itself,
+        # not chrome that should track the user's dim/fg theme choice. Do
+        # not "fix" this to build_screen_title's default dim color later;
+        # that would quietly remove the one screen where amber means
+        # something rather than decorates.
+        ttl.color = C_AMBER
         group.append(ttl)
 
         # Circular progress ring around the press counter -- same
@@ -207,42 +258,44 @@ class PanelsMixin:
         self._fg_widgets.append((self.ov_count, 'color'))
         self._ovr_count_base = self.ov_count.anchored_position
 
-        # Positioned below the ring's bottom edge (ovr_ring_cy + ovr_ring_r =
-        # 145 + 72 = 217), not at a value chosen independently of it -- this
-        # row (and the bar/hint2 below) used to sit inside the ring's circle,
-        # overlapping it.
-        hint = label.Label(terminalio.FONT, text="keep pressing to unlock",
-                           color=C_GREY)
-        hint.anchor_point = (0.5, 0.5)
-        hint.anchored_position = (W // 2, 248)
-        group.append(hint)
-        self._dim_widgets.append((hint, 'color'))
-
         # ----- auto-reset countdown bar -----
         # A missed press previously reset the counter silently at
         # OVERRIDE_TIMEOUT with no on-screen warning; this bar depletes in
         # real time (driven by update_override_timeout each frame) and
         # changes color as the deadline nears, same idiom as the battery bar.
+        # Positioned below the ring's bottom edge (ovr_ring_cy + ovr_ring_r =
+        # 145 + 72 = 217), not at a value chosen independently of it -- this
+        # row (and the hint below) used to sit inside the ring's circle,
+        # overlapping it.
         self.ov_bar_x = W // 2 - 70
         self.ov_bar_y = 264
         self.ov_bar_w = 140
         self.ov_bar_h = 14
-        _ov_bar_bg = Rect(self.ov_bar_x, self.ov_bar_y, self.ov_bar_w,
-                          self.ov_bar_h, fill=None, outline=C_GREY, stroke=2)
+        # Groove via the shared language's own track background instead of
+        # a bare outlined Rect -- build_track_bg's docstring (lock_ui_kit.py)
+        # is explicit that it is INTENTIONALLY THEME-FIXED and must never be
+        # registered in a theme bucket, which also matches this bar's own
+        # constraint below: its width is the literal remaining fraction, not
+        # a themed decoration.
+        _ov_bar_bg = build_track_bg(self.ov_bar_x, self.ov_bar_y, self.ov_bar_w,
+                                    self.ov_bar_h)
         group.append(_ov_bar_bg)
-        self._dim_widgets.append((_ov_bar_bg, 'outline'))
         self.ov_bar_fill_group = displayio.Group()
         group.append(self.ov_bar_fill_group)
         # last (w, color) actually drawn -- see update_override_timeout, which
         # only touches the group when this changes instead of on every frame
         self._ov_bar_last_key = None
 
-        hint2 = label.Label(terminalio.FONT, text="resets if you stop",
-                            color=C_GREY)
-        hint2.anchor_point = (0.5, 0.5)
-        hint2.anchored_position = (W // 2, 296)
-        group.append(hint2)
-        self._dim_widgets.append((hint2, 'color'))
+        # One consolidated hint, replacing the old two ("keep pressing to
+        # unlock" + "resets if you stop") -- they were the same message in
+        # two lines (what to do, and what happens if you don't), and the
+        # depleting bar right above already shows the "or it resets" half
+        # visually. Kept at y=296, the lower of the two old positions, since
+        # the bar (264..278) needs the room the old y=248 hint used to sit
+        # in.
+        hint = build_hint(W, "keep pressing or it resets", 296)
+        group.append(hint)
+        self._dim_widgets.append((hint, 'color'))
 
     def _set_ovr_ring(self, frac):
         # Same key-gated redraw idiom as _set_gauge/update_override_timeout

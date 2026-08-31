@@ -70,7 +70,13 @@ class SettingsMixin:
         group.append(_tile)
         self._bg_tiles.append(_tile)
 
-        ttl = label.Label(terminalio.FONT, text="SETTINGS", color=C_GREY, scale=2)
+        # "1/2", not a bare "SETTINGS": page 1's six cards run to the bottom of
+        # the screen, so there is no room for a footer hint saying a second
+        # page exists -- and a second page nobody knows about is worse than no
+        # second page. The counter is the whole discoverability mechanism, and
+        # it costs nothing: 12 glyphs at scale 2 is 144px, centred x 14..158 on
+        # a 172px screen. lock_ui_settings2.py's title is the matching "2/2".
+        ttl = label.Label(terminalio.FONT, text="SETTINGS 1/2", color=C_GREY, scale=2)
         ttl.anchor_point = (0.5, 0.5)
         ttl.anchored_position = (W // 2, 20)
         group.append(ttl)
@@ -139,6 +145,12 @@ class SettingsMixin:
                 group.append(vlbl)
                 self._accent_widgets.append((vlbl, 'color'))
                 self._set_value_labels[i] = vlbl
+
+        # Bottom view-position dots (ThemeMixin._add_view_dots). Fits only
+        # because SET_ROW_PITCH tightened 46 -> 44: the last card now ends at
+        # y=302 instead of 314, freeing 303..320 for the row at
+        # VIEW_DOTS_Y=312. Appended last so it paints over nothing.
+        self._add_view_dots(group, W)
 
     def update_settings(self, s):
         self._set_value_labels[0].text = str(s.override_presses)

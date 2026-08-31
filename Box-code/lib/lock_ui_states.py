@@ -34,6 +34,13 @@ class StateViewMixin:
     def set_button(self, text, color):
         self.btn_label.text = text
         self.button.fill = color
+        # Outline follows fill exactly now (see the comment on self.button's
+        # construction in lock_ui_control.py) -- keeping both assignments
+        # here, not just at build/set_theme time, means a same-theme state
+        # change (e.g. show_idle -> show_done, no accent change involved)
+        # can never leave the outline one step behind a fill that this
+        # method just changed.
+        self.button.outline = color
 
     def set_clock(self, secs):
         # Home screen only -- no seconds (see fmt_hm's docstring); the clock
@@ -90,6 +97,16 @@ class StateViewMixin:
         self.clock.hidden = True
         self._clk_bg.hidden = True
         self.big_msg.hidden = False
+        # This state can be entered straight from "closed" (an override or a
+        # remote unlock before LOCK was ever pressed -- see
+        # LockController.go_done's "can also be reached from 'closed'"
+        # comment), which is the one other state that shows these -- unlike
+        # "running", show_done had never hidden them itself, so they used to
+        # be left visible and sitting right where the OPEN button springs to
+        # (found by actually rendering this state instead of assuming
+        # show_running's call was the only path in). Same call show_running
+        # already makes; harmless if they were already hidden.
+        self._idle_widgets(False)
         # The single highest-payoff moment on the device -- spring the
         # message up into place (unchanged from before), while the OPEN
         # button itself is now the primary unlock animation: it springs from

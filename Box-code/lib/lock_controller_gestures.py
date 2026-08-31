@@ -11,11 +11,8 @@ from lock_config import (
     SWIPE_MIN_PX, RELEASE_FRAMES, HOLD_REPEAT_DELAY, HOLD_REPEAT_START,
     HOLD_REPEAT_MIN, HOLD_REPEAT_RAMP, STATUS_TAP_COOLDOWN_S,
 )
-from lock_tag_picker import Select
-from lock_tag_picker import Cancel
-from lock_topic_confirm import Confirm
-from lock_topic_confirm import Change
-from lock_topic_confirm import find_topic
+from lock_tag_picker import Select, Cancel
+from lock_topic_confirm import Confirm, Change, find_topic
 from lock_settings_nav import Open, Changed
 from lock_controller_const import LOCKED_VIEWS, OVERRIDDEN, VIEWS
 
@@ -128,15 +125,16 @@ class GestureMixin:
                 # branch above -- see lock_topic_confirm.TopicConfirm.on_touch.
                 result = self.topic_confirm.on_touch(pt, now, released=False)
                 self._apply_topic_confirm_result(result, now)
-            elif self.view == "settings" and not self._editing:
+            elif self.view in ("settings", "settings2") and not self._editing:
                 # Same same-call-arms-and-ticks contract as "picking"/
-                # "confirming" above, but keyed off self.view rather than
-                # self.state -- "settings" is a VIEW, so self.state stays
-                # idle/closed/running/done underneath it. `not self._editing`
-                # is redundant with the first branch above, spelled out so
-                # this condition reads correctly on its own. Also the only
-                # branch that can hand back a result LIVE, mid-touch (a
-                # completed hold-to-enable).
+                # "confirming" above, keyed off self.view (both settings
+                # screens are VIEWS; self.state stays idle/closed/running/
+                # done underneath either). `not self._editing` is redundant
+                # with the first branch above, spelled out so this reads
+                # correctly alone. Also the only branch that can hand back a
+                # result LIVE, mid-touch (page 1's hold-to-enable).
+                # settings_nav.page (set by LockController.set_view) already
+                # picks which screen's rows it is arbitrating.
                 result = self.settings_nav.on_touch(pt, now, released=False)
                 self._apply_settings_nav_result(result)
         elif self._was_down:
@@ -215,12 +213,12 @@ class GestureMixin:
             self._hold_dir = direction
             if direction != 0:
                 self.settings.adjust(self._edit_idx, direction)
-                self.ui.update_setting_detail(self._edit_idx, self.settings)
+                self._update_edit_detail(self._edit_idx)
                 self._hold_next_at = now + HOLD_REPEAT_DELAY
                 self._hold_interval = HOLD_REPEAT_START
         elif direction != 0 and now >= self._hold_next_at:
             self.settings.adjust(self._edit_idx, direction)
-            self.ui.update_setting_detail(self._edit_idx, self.settings)
+            self._update_edit_detail(self._edit_idx)
             self._hold_interval = max(HOLD_REPEAT_MIN,
                                        self._hold_interval * HOLD_REPEAT_RAMP)
             self._hold_next_at = now + self._hold_interval
@@ -268,23 +266,32 @@ class GestureMixin:
     # ----- settings list: apply a SettingsNav.on_touch result -----
     def _apply_settings_nav_result(self, result):
         """Reacts to whatever lock_settings_nav.SettingsNav.on_touch just
-        returned -- called after every on_touch call, from both process()
-        (mid-touch, only ever for a completed hold-to-enable) and
-        _handle_release, mirroring _apply_tag_picker_result /
-        _apply_topic_confirm_result above. None means nothing to do (the nav
-        already handled its own live press/hold feedback). Needs no `now`,
-        unlike those two: neither outcome is a timestamped state change."""
+        returned -- called from both process() (mid-touch, only ever a
+        completed hold-to-enable) and _handle_release, mirroring
+        _apply_tag_picker_result/_apply_topic_confirm_result above. None
+        means nothing to do. Needs no `now`: neither outcome is timestamped."""
         if isinstance(result, Open):
             self._edit_idx = result.row
             self._editing = True
-            self.ui.show_setting_detail(result.row, self.settings)
+            self._show_edit_detail(result.row)
         elif isinstance(result, Changed):
             # The nav mutates self.settings in-RAM but deliberately never
             # saves (same debounce-to-release/commit division of labour as
             # Settings.adjust/_update_hold below) -- one save() call here
             # covers a plain-tap toggle AND a completed hold alike.
             self.settings.save()
-            self.ui.update_settings(self.settings)
+            row = result.row
+            # Page 2's theme/accent/flip rows (6/7/8) need more than a
+            # repaint. Order matters: set_theme FIRST, THEN update_settings2
+            # below, which re-derives switch/swatch colors off its result.
+            if row == 6 or row == 7:
+                self.ui.set_theme(self.settings.theme_mode, self.settings.accent_idx)
+            elif row == 8:
+                self.ui.set_screen_flipped(self.settings.screen_flipped)
+            if row >= 6:
+                self.ui.update_settings2(self.settings)
+            else:
+                self.ui.update_settings(self.settings)
 
     def _handle_release(self):
         dx = self._last[0] - self._start[0]
@@ -316,11 +323,11 @@ class GestureMixin:
         if self._editing:
             self._hold_dir = 0
             self.ui.press_setting_stepper(None)   # finger is up; never leave a button lit
-            self.settings.save()
+            # No save() here any more -- it moved to _exit_editing(), one write
+            # when the page is LEFT rather than one per button release. See
+            # there for the measurement that motivated it.
             if abs(dx) >= SWIPE_MIN_PX and abs(dx) > abs(dy):
-                self._editing = False
-                self.ui.show_view("settings")
-                self.ui.update_settings(self.settings)
+                self._exit_editing()
                 return
             # Tap on the back chevron/label -- the discoverable alternative
             # to the swipe above, added alongside it (the swipe keeps
@@ -331,9 +338,7 @@ class GestureMixin:
             if (abs(dx) < SWIPE_MIN_PX and abs(dy) < SWIPE_MIN_PX and
                     self.ui.in_settings_back(*self._start) and
                     self.ui.in_settings_back(*self._last)):
-                self._editing = False
-                self.ui.show_view("settings")
-                self.ui.update_settings(self.settings)
+                self._exit_editing()
             return
 
         # Pre-session tag picker (see go_picking): hold a row or SKIP to
@@ -379,19 +384,16 @@ class GestureMixin:
         # them), so this swipes within LOCKED_VIEWS's own order instead of
         # VIEWS's while running.
         if abs(dx) >= SWIPE_MIN_PX and abs(dx) > abs(dy):
-            # Hand this release to the settings nav BEFORE switching views.
-            # This is the one branch above the settings block below that can
-            # `return` while the nav is still mid-touch, and SettingsNav
-            # infers "a fresh touch-down" from its own _active flag -- a
-            # release it never sees leaves that flag stuck True, so it reads
-            # the NEXT touch-down as a continuation of this dead one and
-            # silently swallows the tap. Worst on the forward swipe from
-            # "settings" (last in VIEWS): it switches to nothing, so it does
-            # not even get the set_view() -> settings_nav.show() reset that
-            # recovers the other directions. Safe unconditionally -- a drag
-            # this far can only resolve to None in SettingsNav._release (same
-            # |dx| check), so it clears leftover visuals and commits nothing.
-            if self.view == "settings":
+            # Hand this release to the settings nav BEFORE switching views --
+            # SettingsNav infers "a fresh touch-down" from its own _active
+            # flag, and a release it never sees leaves that stuck True, so
+            # it reads the NEXT touch-down as a continuation of this dead
+            # one. Worst on the forward swipe from "settings2" (now last in
+            # VIEWS): it switches to nothing, so it never gets the
+            # set_view()->settings_nav.show() reset the other directions
+            # get. Safe unconditionally: a drag this far can only resolve to
+            # None here (same |dx| check in SettingsNav._release).
+            if self.view in ("settings", "settings2"):
                 self._apply_settings_nav_result(
                     self.settings_nav.on_touch(self._last, self._now, released=True))
             # Drag LEFT advances. The carousel convention: the content follows
@@ -431,14 +433,12 @@ class GestureMixin:
                 self._refresh_clock_view(self._now)
             return
 
-        # Settings list: all six rows' tap/hold arbitration now lives in
-        # lock_settings_nav.SettingsNav (see its module docstring) -- numeric
-        # rows open the detail page (Open), boolean rows toggle in place
-        # (Changed), with Remote/On call requiring a completed hold to turn
-        # ON. Replaces the old two-case `if row == 1: toggle elif row >= 0:
-        # open detail`, which had no room for hold-to-enable or per-row
-        # press/hold visuals.
-        if self.view == "settings":
+        # Settings list(s): row tap/hold arbitration lives in
+        # lock_settings_nav.SettingsNav -- numeric rows open the detail page
+        # (Open), boolean/cycle rows change in place (Changed), page 1's
+        # Remote/On call need a completed hold. settings_nav.page (set by
+        # set_view) picks which screen's rows it is arbitrating.
+        if self.view in ("settings", "settings2"):
             result = self.settings_nav.on_touch(self._last, self._now, released=True)
             self._apply_settings_nav_result(result)
             return

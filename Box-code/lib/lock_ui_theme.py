@@ -13,6 +13,12 @@ from lock_config import (
     C_GREY, C_GREEN, C_ON_ACCENT_DARK, C_ON_ACCENT_LIGHT, MODE_COLORS, ACCENT_COLORS_DARK,
     ACCENT_COLORS_LIGHT, clamp, STATUS_TRANSITION_S, lerp_color,
 )
+from lock_ui_kit import build_dots_h, paint_dots
+# The view ORDER, so set_view_dots can resolve a view name to a dot index
+# without a second copy of that order living here. lock_controller_const.py
+# imports nothing at all (that is why it exists -- see its header), so this
+# does not create a cycle back through lock_controller.py.
+from lock_controller_const import VIEWS
 
 
 class ThemeMixin:
@@ -172,3 +178,43 @@ class ThemeMixin:
         color = C_GREEN if connected else C_GREY
         for dot in self._corner_ble_dots:
             dot.fill = color
+
+    # ----- bottom view-position dots -----
+    # Lives here beside the corner indicators for the same reason those do:
+    # it is one small piece of chrome that EVERY top-level screen carries, so
+    # it needs one implementation rather than one per screen. See
+    # lock_ui_kit.py's dot section for the orientation rule (horizontal row =
+    # the horizontal view swipe; the clock's vertical style column is the
+    # other half of that rule).
+    def _add_view_dots(self, group, W):
+        """Append a view-position dot row to `group` and remember it, so
+        set_view_dots below can repaint every screen's row at once. One row
+        per screen that calls this, all kept in step -- the alternative,
+        repainting only the row on the screen being shown, leaves every other
+        screen's row stale for the frame the display switches on."""
+        dots = build_dots_h(W, len(VIEWS))
+        for dot in dots:
+            group.append(dot)
+        self._view_dot_rows.append(dots)
+        return dots
+
+    def set_view_dots(self, view):
+        """Light the dot for `view` (a name from VIEWS) on every screen's row.
+
+        Takes the NAME and resolves it against VIEWS here, rather than taking
+        an index, so there is no second copy of the view ORDER anywhere -- a
+        screen inserted into VIEWS then simply gets a dot, with nothing else
+        to update. An unknown name (the tag picker and topic-confirm screens
+        borrow the control view's real estate without being in VIEWS) leaves
+        every dot idle rather than raising.
+
+        Deliberately not registered in a theme registry: which dot is active
+        is STATE, so set_theme would fight it. Colors are read live from
+        self._accent_color / self._dim_color instead, exactly as the settings
+        switch's track/knob are (see _apply_switch)."""
+        try:
+            active = VIEWS.index(view)
+        except ValueError:
+            active = -1
+        for dots in self._view_dot_rows:
+            paint_dots(dots, active, self._accent_color, self._dim_color)

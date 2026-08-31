@@ -11,6 +11,7 @@ from lock_config import (
     SCREEN_FLIPPED_DEFAULT, SERVO_LOCK_ANGLE, SERVO_UNLOCK_ANGLE,
     SERVO_ANGLE_MIN, SERVO_ANGLE_MAX, NVM_SETTINGS_BASE, NVM_SETTINGS_LEN,
     OVERRIDE_TIMEOUT, OVR_TIMEOUT_MIN_TENTHS, OVR_TIMEOUT_MAX_TENTHS,
+    OVR_TIMEOUT_STEP_TENTHS, SERVO_ANGLE_STEP,
     clamp,
 )
 
@@ -136,34 +137,100 @@ class Settings:
         except Exception:
             pass
 
+    def _pack(self):
+        """The whole settings region as a bytes-like, laid out EXACTLY as
+        _load() reads it back. Offsets are positional here rather than
+        written as `_BASE + n`, so read this against _load() index by index
+        when adding a field -- one transposed offset silently corrupts a
+        user's settings with no error anywhere.
+
+          0  magic          4  bright_pct        9  override high byte
+          1  ovr low byte   5  allow_remote     10  screen_flipped
+          2  auto_open      6  unlock_on_call   11  lock_angle   (+90)
+          3  sleep_s        7  theme_mode       12  unlock_angle (+90)
+                           8  accent_idx       13  override_timeout (tenths)
+        """
+        # 2-byte little-endian split -- OVR_MAX=500 exceeds a single byte's
+        # 0-255 range. Low byte kept at offset 1 so this stayed a
+        # value-format-only change rather than a layout shift of every other
+        # field; high byte appended at offset 9 rather than reordering.
+        ovr = clamp(int(self.override_presses), OVR_MIN, OVR_MAX)
+        lock_angle = clamp(int(self.lock_angle), SERVO_ANGLE_MIN, SERVO_ANGLE_MAX)
+        unlock_angle = clamp(int(self.unlock_angle), SERVO_ANGLE_MIN, SERVO_ANGLE_MAX)
+        buf = bytearray(_MAX_FIELD_OFF + 1)
+        buf[0] = _MAGIC
+        buf[1] = ovr & 0xFF
+        buf[2] = 1 if self.auto_open else 0
+        buf[3] = clamp(int(self.sleep_s), 0, 255)
+        buf[4] = clamp(int(self.bright_pct), 0, 100)
+        buf[5] = 1 if self.allow_remote_unlock else 0
+        buf[6] = 1 if self.unlock_on_call else 0
+        buf[7] = clamp(int(self.theme_mode), 0, 1)
+        buf[8] = clamp(int(self.accent_idx), 0, len(ACCENT_COLORS) - 1)
+        buf[9] = (ovr >> 8) & 0xFF
+        buf[10] = 1 if self.screen_flipped else 0
+        buf[11] = lock_angle + _ANGLE_BYTE_OFFSET
+        buf[12] = unlock_angle + _ANGLE_BYTE_OFFSET
+        buf[13] = clamp(int(round(self.override_timeout * _TENTHS)),
+                        OVR_TIMEOUT_MIN_TENTHS, OVR_TIMEOUT_MAX_TENTHS)
+        return buf
+
     def save(self):
+        """ONE region write, and none at all when nothing changed.
+
+        REPORTED FROM HARDWARE, and the reason this is not fourteen byte
+        assignments any more: "the add and subtract buttons take a long time
+        to press - long cooldown". This used to do
+
+            nvm[_BASE] = _MAGIC
+            nvm[_BASE + 1] = ...      # x14, one statement per field
+
+        and on CircuitPython every single-byte assignment to
+        microcontroller.nvm is a read-modify-ERASE-write of the NVM
+        partition. Flash erase is measured in tens of milliseconds, so one
+        settings-detail button release cost ~14 erase cycles back to back --
+        several hundred milliseconds of a blocked run loop, during which
+        touch is not sampled at all. That is the "cooldown": not a debounce,
+        not a repeat delay, just flash.
+
+        The debounce-to-release design is unchanged and still correct (see
+        adjust()'s comment -- a hold-repeat calls adjust 10+ times/second and
+        must not write flash per step). What changed is that one save is now
+        one erase cycle, via a single slice assignment.
+
+        And usually zero: a release that changed nothing -- a stray tap, a
+        value already at its clamp limit, or just entering and leaving the
+        detail page -- previously still paid the full cost. Comparing against
+        what is already stored costs one read and skips the write entirely,
+        which also spares the flash's finite erase budget.
+
+        DO NOT "simplify" this back to per-field assignment."""
         try:
             nvm = microcontroller.nvm
             if nvm is None:
                 return
-            nvm[_BASE] = _MAGIC
-            # 2-byte little-endian split -- OVR_MAX=500 exceeds a single
-            # byte's 0-255 range. Low byte kept at the original offset
-            # (_BASE+1) so this stays a value-format-only change, not a
-            # layout shift of every other field; high byte appended at a
-            # new offset (_BASE+9) rather than reordering the existing ones.
-            ovr = clamp(int(self.override_presses), OVR_MIN, OVR_MAX)
-            nvm[_BASE + 1] = ovr & 0xFF
-            nvm[_BASE + 9] = (ovr >> 8) & 0xFF
-            nvm[_BASE + 2] = 1 if self.auto_open else 0
-            nvm[_BASE + 3] = clamp(int(self.sleep_s), 0, 255)
-            nvm[_BASE + 4] = clamp(int(self.bright_pct), 0, 100)
-            nvm[_BASE + 5] = 1 if self.allow_remote_unlock else 0
-            nvm[_BASE + 6] = 1 if self.unlock_on_call else 0
-            nvm[_BASE + 7] = clamp(int(self.theme_mode), 0, 1)
-            nvm[_BASE + 8] = clamp(int(self.accent_idx), 0, len(ACCENT_COLORS) - 1)
-            nvm[_BASE + 10] = 1 if self.screen_flipped else 0
-            lock_angle = clamp(int(self.lock_angle), SERVO_ANGLE_MIN, SERVO_ANGLE_MAX)
-            unlock_angle = clamp(int(self.unlock_angle), SERVO_ANGLE_MIN, SERVO_ANGLE_MAX)
-            nvm[_BASE + 11] = lock_angle + _ANGLE_BYTE_OFFSET
-            nvm[_BASE + 12] = unlock_angle + _ANGLE_BYTE_OFFSET
-            nvm[_BASE + 13] = clamp(int(round(self.override_timeout * _TENTHS)),
-                                    OVR_TIMEOUT_MIN_TENTHS, OVR_TIMEOUT_MAX_TENTHS)
+            buf = self._pack()
+            end = _BASE + len(buf)
+            # Skip an unchanged region entirely -- see the docstring. Wrapped
+            # separately from the write below so a board whose nvm does not
+            # support slice READS still falls through to writing rather than
+            # silently never saving again.
+            try:
+                if bytes(nvm[_BASE:end]) == bytes(buf):
+                    return
+            except Exception:
+                pass
+            try:
+                nvm[_BASE:end] = buf
+            except (TypeError, AttributeError, ValueError):
+                # Explicit fallback, NOT a reliance on the outer catch: if
+                # this build's nvm rejects slice assignment we still have to
+                # persist, and letting it fall out to `except Exception: pass`
+                # would turn "slower saves" into "settings never save",
+                # which is far worse than the latency this method exists to
+                # fix. Byte-wise is the old behaviour, cost and all.
+                for i in range(len(buf)):
+                    nvm[_BASE + i] = buf[i]
         except Exception:
             pass
 
@@ -194,3 +261,39 @@ class Settings:
             self.allow_remote_unlock = direction > 0
         elif idx == 5:
             self.unlock_on_call = direction > 0
+        # ----- page 2 of the on-box settings list (indices 6..11) -----
+        # One FLAT index space continuing page 1's 0..5, deliberately: it is
+        # what lets LockController._edit_idx and the existing per-setting
+        # detail page serve both pages with no notion of which page a row
+        # came from. Do not renumber -- lock_controller_ble.py's live-refresh
+        # path indexes the detail page by the same number.
+        #
+        # These six were previously app-only, and lock_settings.py's own
+        # comments said why: "the box's own settings list is a fixed six rows
+        # whose layout can't be checked off-device." Both halves of that are
+        # now false -- there is a second page, and tests/preview/ renders the
+        # layout on a host -- so the reason to withhold them is gone.
+        elif idx == 6:
+            # Two options, so direction IS the value rather than a step.
+            self.theme_mode = 1 if direction > 0 else 0
+        elif idx == 7:
+            self.accent_idx = clamp(self.accent_idx + (1 if direction > 0 else -1),
+                                    0, len(ACCENT_COLORS) - 1)
+        elif idx == 8:
+            self.screen_flipped = direction > 0
+        elif idx == 9:
+            # Stepped in TENTHS, the unit this is stored and transmitted in
+            # (see OVR_TIMEOUT_MIN_TENTHS's comment), then converted back
+            # once. Stepping the float directly would accumulate binary
+            # rounding error across a hold-repeat and land on values that do
+            # not round-trip through the single NVM byte.
+            tenths = _step_clamped(int(round(self.override_timeout * _TENTHS)),
+                                   direction, OVR_TIMEOUT_STEP_TENTHS,
+                                   OVR_TIMEOUT_MIN_TENTHS, OVR_TIMEOUT_MAX_TENTHS)
+            self.override_timeout = tenths / _TENTHS
+        elif idx == 10:
+            self.lock_angle = _step_clamped(self.lock_angle, direction, SERVO_ANGLE_STEP,
+                                            SERVO_ANGLE_MIN, SERVO_ANGLE_MAX)
+        elif idx == 11:
+            self.unlock_angle = _step_clamped(self.unlock_angle, direction, SERVO_ANGLE_STEP,
+                                              SERVO_ANGLE_MIN, SERVO_ANGLE_MAX)

@@ -10,8 +10,12 @@ COMPLETED = "completed"
 
 OVERRIDDEN = "overridden"
 
-# ordered top-level views; horizontal swipe moves between them
-VIEWS = ("clock", "control", "battery", "settings")
+# ordered top-level views; horizontal swipe moves between them. "settings2"
+# added after "settings" (phase 2's second on-box settings page) -- so the
+# existing swipe reaches it with no new gesture, and it also becomes the
+# view-position dot row's 5th/last dot (lock_ui_kit.build_dots_h sizes
+# itself from len(VIEWS), nothing else to update there).
+VIEWS = ("clock", "control", "battery", "settings", "settings2")
 
 # Reachable while state == "running" (see _handle_release's horizontal-swipe
 # branch) -- control/settings are blocked while actually locked, but battery

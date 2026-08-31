@@ -19,22 +19,95 @@ from lock_config import (
     RADIUS_CARD,
 )
 from lock_ui_common import _bg_tile
+from lock_ui_kit import (
+    build_screen_title, build_dots_v, TITLE_Y, HEADER_Y,
+)
 
 
 class ClockMixin:
     # =================== clock view (multiple styles) ===================
     # Swipe up/down on the clock screen cycles these appearances.
-    def _clock_hints(self, group, W):
-        h1 = label.Label(terminalio.FONT, text="swipe right = timer", color=C_GREY)
-        h1.anchor_point = (0.5, 0.5)
-        h1.anchored_position = (W // 2, 298)
-        group.append(h1)
-        self._dim_widgets.append((h1, 'color'))
-        h2 = label.Label(terminalio.FONT, text="up/down = style", color=C_GREY)
-        h2.anchor_point = (0.5, 0.5)
-        h2.anchored_position = (W // 2, 314)
-        group.append(h2)
-        self._dim_widgets.append((h2, 'color'))
+
+    # One shared y for every style's countdown-state label (LOCKED /
+    # UNLOCKED / not started). Was 274 on analog, 250 on the ring/gauge, and
+    # 224 on both digital and elapsed -- three values with no reason to
+    # differ, and 224 in particular left a ~90px empty band down to the old
+    # ASCII hints (298/314). Picked one value close to where analog's ring
+    # and the gauge's arch both actually end (~y=222-230), so the label
+    # reads as "just below the graphic" on every style, and moved DOWN from
+    # digital/elapsed's old 224 so the gap to the footer below closes
+    # instead of sitting empty.
+    _STATE_Y = 272
+
+    # 4-dot style indicator (see _build_style_dots). Replaces the deleted
+    # "up/down = style" caption with a real indicator instead of an
+    # instruction -- "a caption that explains a gesture" is exactly what the
+    # settings redesign removed elsewhere, so style-cycling shouldn't grow a
+    # new one either. 4 shapes per screen.
+    #
+    # A VERTICAL COLUMN AT THE RIGHT EDGE, not the horizontal bottom row this
+    # started as. The rule (lock_ui_kit.py's dot section states it in full): a
+    # dot row's orientation matches the swipe axis it reports on. Style
+    # cycling is the VERTICAL swipe, and these dots sat along the bottom on
+    # the same axis as the horizontal view swipe -- so they described the
+    # wrong gesture, and now that the bottom row genuinely is the view
+    # indicator they would have been actively misleading sitting beside it.
+    #
+    # One fixed centre y for all four styles, deliberately: the dots must not
+    # jump when you cycle, and each style's face has a different vertical
+    # extent (the analog dial is far taller than the digital card). 160 is the
+    # middle of the content band between the header (y=20) and the state text
+    # (_STATE_Y = 272). Vertical extent is 42px for 4 dots, so y 139..181 --
+    # comfortably inside that band.
+    _STYLE_DOTS_CY = 160
+
+    def _build_style_dots(self, group, W, active_idx):
+        """Static per-style dot row: THIS screen's own index is baked in as
+        the accent-filled dot at build time. Each clock style is its own
+        displayio.Group (self.clock_groups) and cycle_clock_style only ever
+        swaps which whole group is root_group -- so whichever group you are
+        looking at is always the group whose own dot was already built
+        correct, and nothing has to be told to update on a cycle. No method
+        is exposed for cycle_clock_style to call because none is needed;
+        if a future style ever needs a dynamic indicator (e.g. an in-place
+        preview instead of a full group swap), add one here without editing
+        cycle_clock_style itself, per the spec's boundary."""
+        dots = build_dots_v(len(self.clock_styles), self._STYLE_DOTS_CY)
+        for i, dot in enumerate(dots):
+            if i == active_idx:
+                dot.fill = self._accent_color
+                self._accent_widgets.append((dot, 'fill'))
+            else:
+                # Fixed, unregistered -- C_SURFACE_HILITE is a flat constant
+                # (not mode-dependent; see lock_config.py), same precedent
+                # as build_track_bg's groove in lock_ui_kit.py.
+                dot.fill = C_SURFACE_HILITE
+            group.append(dot)
+
+    def _clock_footer(self, group, W):
+        """The clock faces' footer: the view-position dot row, and nothing
+        else.
+
+        NO CHEVRON NAV PAIR HERE. This screen briefly carried the "<| timer
+        ... battery |>" pair the other views use, itself a replacement for two
+        older ASCII captions -- but once the bottom dot row landed, the two
+        were saying the same thing on the same edge of the same screen: that
+        there are screens either side and which one you are on. The dots say
+        it in five shapes instead of two labels and two triangles, and they
+        say it on every screen identically, so the labels were the redundant
+        half and they went.
+
+        The clock faces are also the one view where that redundancy actually
+        cost something. This is the screen you stare at for a whole locked
+        session, and it is the only one carrying a SECOND indicator (the
+        vertical style column, _build_style_dots) -- so it is the screen with
+        the least room for chrome that repeats itself.
+
+        Added here rather than in each of the four _build_clock_* methods:
+        all four styles are separate top-level groups showing the SAME view
+        ("clock"), so each needs its own row, and one call site guarantees
+        they can never disagree about it."""
+        self._add_view_dots(group, W)
 
     # ----- style 1: analog clock (dark face, mint hands) -----
     def _build_clock_analog(self, W, H):
@@ -44,12 +117,10 @@ class ClockMixin:
         group.append(_tile)
         self._bg_tiles.append(_tile)
 
-        ttl = label.Label(terminalio.FONT, text="ANALOG", color=C_GREY, scale=2)
-        ttl.anchor_point = (0.5, 0.5)
-        ttl.anchored_position = (W // 2, 26)
+        ttl = build_screen_title(W, "ANALOG")
         group.append(ttl)
         self._dim_widgets.append((ttl, 'color'))
-        self._add_corner_indicators(group, W, y=26)
+        self._add_corner_indicators(group, W, y=HEADER_Y)
 
         self.ring_cx = W // 2
         self.ring_cy = 148
@@ -96,11 +167,12 @@ class ClockMixin:
 
         self.an_state = label.Label(terminalio.FONT, text="", color=C_GREY)
         self.an_state.anchor_point = (0.5, 0.5)
-        self.an_state.anchored_position = (W // 2, 274)
+        self.an_state.anchored_position = (W // 2, self._STATE_Y)
         group.append(self.an_state)
         self._dim_widgets.append((self.an_state, 'color'))
 
-        self._clock_hints(group, W)
+        self._build_style_dots(group, W, 0)
+        self._clock_footer(group, W)
         self._set_hands(0)
 
     # ----- style 2: digital clock (dark card, big LCD readout) -----
@@ -111,12 +183,10 @@ class ClockMixin:
         group.append(_tile)
         self._bg_tiles.append(_tile)
 
-        ttl = label.Label(terminalio.FONT, text="DIGITAL", color=C_GREY, scale=2)
-        ttl.anchor_point = (0.5, 0.5)
-        ttl.anchored_position = (W // 2, 26)
+        ttl = build_screen_title(W, "DIGITAL")
         group.append(ttl)
         self._dim_widgets.append((ttl, 'color'))
-        self._add_corner_indicators(group, W, y=26)
+        self._add_corner_indicators(group, W, y=HEADER_Y)
 
         fh = 70
         _dig_bg = RoundRect(12, 150 - fh // 2, W - 24, fh, RADIUS_CARD,
@@ -142,11 +212,12 @@ class ClockMixin:
         self.dig_state = label.Label(terminalio.FONT, text="", color=C_GREY,
                                      scale=2)
         self.dig_state.anchor_point = (0.5, 0.5)
-        self.dig_state.anchored_position = (W // 2, 224)
+        self.dig_state.anchored_position = (W // 2, self._STATE_Y)
         group.append(self.dig_state)
         self._dim_widgets.append((self.dig_state, 'color'))
 
-        self._clock_hints(group, W)
+        self._build_style_dots(group, W, 1)
+        self._clock_footer(group, W)
 
     # ----- style 3: arch gauge (dark, thick two-colour progress ring) -----
     def _build_clock_ring(self, W, H):
@@ -156,12 +227,10 @@ class ClockMixin:
         group.append(_tile)
         self._bg_tiles.append(_tile)
 
-        ttl = label.Label(terminalio.FONT, text="GAUGE", color=C_GREY, scale=2)
-        ttl.anchor_point = (0.5, 0.5)
-        ttl.anchored_position = (W // 2, 26)
+        ttl = build_screen_title(W, "GAUGE")
         group.append(ttl)
         self._dim_widgets.append((ttl, 'color'))
-        self._add_corner_indicators(group, W, y=26)
+        self._add_corner_indicators(group, W, y=HEADER_Y)
 
         # A 270-degree arch (open at the bottom) built from overlapping dots so
         # the band is thick and each segment can be recoloured cheaply to show
@@ -204,11 +273,12 @@ class ClockMixin:
 
         self.rg_state = label.Label(terminalio.FONT, text="", color=C_GREY)
         self.rg_state.anchor_point = (0.5, 0.5)
-        self.rg_state.anchored_position = (W // 2, 250)
+        self.rg_state.anchored_position = (W // 2, self._STATE_Y)
         group.append(self.rg_state)
         self._dim_widgets.append((self.rg_state, 'color'))
 
-        self._clock_hints(group, W)
+        self._build_style_dots(group, W, 2)
+        self._clock_footer(group, W)
         self._set_gauge(0.0)
 
     def _set_gauge(self, frac_elapsed):
@@ -275,11 +345,16 @@ class ClockMixin:
         group.append(_tile)
         self._bg_tiles.append(_tile)
 
+        # NOT build_screen_title -- that constructor hardcodes C_GREY/dim,
+        # and this title stays fixed amber and unregistered for the same
+        # reason the rest of this style does (see the style-header comment
+        # above). Only the Y moves, to TITLE_Y, so the header row still
+        # lines up with the other three styles.
         ttl = label.Label(terminalio.FONT, text="ELAPSED", color=C_AMBER, scale=2)
         ttl.anchor_point = (0.5, 0.5)
-        ttl.anchored_position = (W // 2, 26)
+        ttl.anchored_position = (W // 2, TITLE_Y)
         group.append(ttl)
-        self._add_corner_indicators(group, W, y=26)
+        self._add_corner_indicators(group, W, y=HEADER_Y)
 
         fh = 70
         _el_bg = RoundRect(12, 150 - fh // 2, W - 24, fh, RADIUS_CARD,
@@ -305,10 +380,11 @@ class ClockMixin:
         self.el_state = label.Label(terminalio.FONT, text="", color=C_AMBER,
                                     scale=2)
         self.el_state.anchor_point = (0.5, 0.5)
-        self.el_state.anchored_position = (W // 2, 224)
+        self.el_state.anchored_position = (W // 2, self._STATE_Y)
         group.append(self.el_state)
 
-        self._clock_hints(group, W)
+        self._build_style_dots(group, W, 3)
+        self._clock_footer(group, W)
 
     # ----- view switching -----
     def show_view(self, view):
@@ -323,6 +399,17 @@ class ClockMixin:
         restore then applies whatever the latest intended view turned out to
         be while it was masked."""
         self.view = view
+        # Ahead of the call-alert short-circuit below, deliberately -- dots
+        # are cheap (a handful of live-color palette writes, no bitmap
+        # rebuild, see ThemeMixin.set_view_dots) and every settings screen
+        # owns its OWN dot row, painted inside a group that is not the one
+        # on screen while the alert overlay owns root_group. Keeping this
+        # unconditional means every dot row is already correct the instant
+        # hide_call_alert() restores root_group via this same method,
+        # rather than tracking a second "dots are stale" flag to catch up
+        # on later -- the same "always track intent" treatment `self.view =
+        # view` above already gets regardless of the overlay.
+        self.set_view_dots(view)
         if self._call_alert_active:
             return
         if view == "clock":
@@ -331,6 +418,8 @@ class ClockMixin:
             self.display.root_group = self.battery_group
         elif view == "settings":
             self.display.root_group = self.settings_group
+        elif view == "settings2":
+            self.display.root_group = self.settings2_group
         else:
             self.display.root_group = self.control_group
 

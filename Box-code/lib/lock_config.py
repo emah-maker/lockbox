@@ -36,6 +36,27 @@ SWIPE_MIN_PX = 35             # min vertical travel to count as a swipe
 #
 # Turn on, deploy, swipe once, read the USB serial console, turn off.
 TOUCH_DEBUG = False
+
+# Print a periodic frame-time breakdown to the USB serial console: total
+# frame ms, and the ms spent in the touch read, ctrl.update(), and BLE
+# service separately, plus the worst frame seen since the last line.
+#
+# Here for the same reason TOUCH_DEBUG is (read its comment): "the UI feels
+# laggy" is a report that cannot be chased from a laptop. The run loop's cost
+# is split across a touch read over I2C, a displayio refresh whose cost
+# depends on which screen is showing and how many shapes it has, an NVM write
+# whose cost is a flash erase cycle, and a radio service call -- and which of
+# those dominates is not deducible from reading any of them. One line of real
+# per-stage numbers off the box identifies the culprit immediately; reasoning
+# about it does not.
+#
+# Off by default and costs nothing when off (the timing calls are inside the
+# `if` in code.py, not around it). Turn on, deploy, use the box for a few
+# seconds, read the serial console, turn off.
+PERF_DEBUG = False
+# Seconds between PERF_DEBUG lines -- slow enough that the printing itself
+# (USB serial writes are not free) can't become the thing being measured.
+PERF_DEBUG_INTERVAL_S = 2.0
 RELEASE_FRAMES = 2            # consecutive empty touch reads before a "release"
 DONE_ANIM_S = 2.0             # auto-dismiss the unlock animation after this (auto-open)
 CLOCK_FPS = 25                # clock-view refresh rate while counting down (smooth)
@@ -77,6 +98,24 @@ OVR_POP_OFFSET_PX = 8       # how far the override count bumps on each press
 CPU_FAST = 240_000_000       # screen on: responsive touch + stable servo PWM
 CPU_SLOW = 80_000_000        # screen asleep: battery saving
 INACTIVITY_S = 20             # turn the screen off after this many idle seconds
+
+# ----- Run-loop frame pacing (code.py's tail) -----
+# TARGET PERIODS, not sleep durations. code.py used to end with a flat
+# `time.sleep(0.02 if backlight.is_on else 0.1)`, which is 20ms added ON TOP
+# of however long the frame's work already took -- so a frame doing 20ms of
+# touch reading, display refresh and BLE service ran at 25Hz, not the ~50Hz
+# the rest of this file's comments assume, and a frame that briefly did more
+# (an NVM write, a full-screen repaint) dropped further still. Reported as
+# "the ui is just laggy". Now the loop sleeps only the REMAINDER of the
+# target period, so work and wait share one budget instead of stacking.
+FRAME_AWAKE_S = 0.02          # 50Hz while the screen is on
+FRAME_ASLEEP_S = 0.1          # 10Hz asleep -- still fast enough to catch a
+                              # physical button press and wake (the reason
+                              # the asleep poll is not slower than this)
+# Floor, so a frame whose work already overran its target still yields to the
+# interpreter rather than spinning. Small enough to be invisible, non-zero so
+# this can never become a busy-loop burning current on a battery device.
+FRAME_MIN_SLEEP_S = 0.002
 
 # How long code.py's main loop must run, past a first successful ctrl.update(),
 # before a normal boot clears safemode.py's brownout-retry counter -- long
@@ -175,6 +214,14 @@ SERVO_ANGLE_MIN = -90        # servo's real range (see lock_servo.Servo._write_a
 SERVO_ANGLE_MAX = 90         # which already clamps to this) -- shared clamp
                              # bounds for Settings.lock_angle/unlock_angle and
                              # their BLE fields ("langle"/"uangle")
+# Step for the box's own stepper on the two servo angles (page 2 of the
+# settings list). 5 degrees gives 37 steps across the -90..90 range, which the
+# detail page's hold-to-repeat ramp crosses comfortably, while still being
+# fine enough to dial in a latch that only just catches. A servo angle is
+# also the one setting on the box where the RIGHT value is found by watching
+# the physical latch move rather than by reading a number, so the step wants
+# to be small enough to creep up on it.
+SERVO_ANGLE_STEP = 5
 SERVO_MIN_US = 500           # pulse width at -90 deg (servo calibration)
 SERVO_MAX_US = 2500          # pulse width at +90 deg
 SERVO_HOLD_S = 1.0           # keep PWM on this long after a move, then relax
@@ -210,6 +257,12 @@ OVERRIDE_TIMEOUT = 1.0
 # anything.
 OVR_TIMEOUT_MIN_TENTHS = 3
 OVR_TIMEOUT_MAX_TENTHS = 100
+# Step for the box's own stepper on this setting (page 2 of the settings
+# list). One tenth of a second per press: the range is only 0.3-10.0s, so a
+# coarser step could not express the low end where the setting actually
+# matters, and the detail page's hold-to-repeat ramp covers the distance to
+# the ceiling without needing a bigger unit.
+OVR_TIMEOUT_STEP_TENTHS = 1
 
 # Minimum time between status-bar tap-to-toggle actions (see
 # LockController._handle_release's status-bar branch). If the AXS5106L

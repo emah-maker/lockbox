@@ -20,7 +20,17 @@ from adafruit_display_shapes.triangle import Triangle
 from lock_config import (
     C_SURFACE, C_SURFACE_HILITE, C_WHITE, C_GREY, C_AMBER, RADIUS_CARD, RADIUS_BTN_LG,
     OVR_MIN, OVR_MAX, SLEEP_OPTIONS, BRIGHT_OPTIONS,
+    SERVO_ANGLE_MIN, SERVO_ANGLE_MAX, OVR_TIMEOUT_MIN_TENTHS, OVR_TIMEOUT_MAX_TENTHS,
 )
+
+# override_timeout's real range in SECONDS (float) -- OVR_TIMEOUT_MIN/MAX_
+# TENTHS (lock_config.py) is the wire/NVM unit (see lock_settings.py's
+# _TENTHS), but setting_fraction/setting_bounds_text below work in the same
+# unit Settings.override_timeout itself is in, matching fmt_setting's
+# "{:.1f}s" of the seconds value -- one /10.0 here rather than repeating it
+# at every call site.
+_OVR_TIMEOUT_MIN_S = OVR_TIMEOUT_MIN_TENTHS / 10.0
+_OVR_TIMEOUT_MAX_S = OVR_TIMEOUT_MAX_TENTHS / 10.0
 
 
 # ----- value formatting + range math for the three numeric settings -----
@@ -41,33 +51,66 @@ def fmt_sleep(sleep_s):
 
 
 def fmt_setting(idx, s):
+    # Page 2 additions (indices 6..11). idx 7 (Accent) and 8 (Flip) never
+    # reach this: Accent is a swatch strip, Flip a switch. idx 6 (Theme)
+    # DOES have a text value despite being cycle-on-tap, formatted here so
+    # the list can never drift from any future second reader of it.
+    if idx == 6:
+        return "Light" if s.theme_mode == 1 else "Dark"
     if idx == 0:
         return str(s.override_presses)
     if idx == 2:
         return fmt_sleep(s.sleep_s)
-    return "{}%".format(s.bright_pct)
+    if idx == 3:
+        return "{}%".format(s.bright_pct)
+    if idx == 9:
+        # Tenths precision even at the low end (0.3s) -- fewer digits would
+        # round two adjacent OVR_TIMEOUT_STEP_TENTHS values to the same
+        # on-screen text.
+        return "{:.1f}s".format(s.override_timeout)
+    if idx == 10:
+        return str(int(round(s.lock_angle)))
+    return str(int(round(s.unlock_angle)))   # idx == 11
 
 
 def setting_fraction(idx, s):
     """Where the current value sits in its own range, 0..1 -- drives the
     detail page's progress track so "30s" reads as visibly near the middle
-    instead of forcing the user to remember SLEEP_OPTIONS's shape."""
+    instead of forcing the user to remember SLEEP_OPTIONS's shape.
+
+    idx 9-11 (page 2) are a continuous range rather than an options tuple,
+    so linear interpolation instead of an `.index()` call."""
     if idx == 0:
         return (s.override_presses - OVR_MIN) / float(OVR_MAX - OVR_MIN)
     if idx == 2:
         return SLEEP_OPTIONS.index(s.sleep_s) / float(len(SLEEP_OPTIONS) - 1)
-    return BRIGHT_OPTIONS.index(s.bright_pct) / float(len(BRIGHT_OPTIONS) - 1)
+    if idx == 3:
+        return BRIGHT_OPTIONS.index(s.bright_pct) / float(len(BRIGHT_OPTIONS) - 1)
+    if idx == 9:
+        return ((s.override_timeout - _OVR_TIMEOUT_MIN_S) /
+                float(_OVR_TIMEOUT_MAX_S - _OVR_TIMEOUT_MIN_S))
+    if idx == 10:
+        return (s.lock_angle - SERVO_ANGLE_MIN) / float(SERVO_ANGLE_MAX - SERVO_ANGLE_MIN)
+    return (s.unlock_angle - SERVO_ANGLE_MIN) / float(SERVO_ANGLE_MAX - SERVO_ANGLE_MIN)  # idx == 11
 
 
 def setting_bounds_text(idx):
     """The track's endpoint labels, formatted with the SAME functions the big
     value uses, so the ends read OFF/60s, 5/500, 10%/100% instead of a bare
-    number that means something different from the value above it."""
+    number that means something different from the value above it.
+
+    idx 9-11 (page 2): Window reads 0.3s/10.0s rather than raw tenths; the
+    two servo rows share one MIN/MAX since both angles clamp to the same
+    SERVO_ANGLE_MIN/MAX range."""
     if idx == 0:
         return str(OVR_MIN), str(OVR_MAX)
     if idx == 2:
         return fmt_sleep(SLEEP_OPTIONS[0]), fmt_sleep(SLEEP_OPTIONS[-1])
-    return "{}%".format(BRIGHT_OPTIONS[0]), "{}%".format(BRIGHT_OPTIONS[-1])
+    if idx == 3:
+        return "{}%".format(BRIGHT_OPTIONS[0]), "{}%".format(BRIGHT_OPTIONS[-1])
+    if idx == 9:
+        return "{:.1f}s".format(_OVR_TIMEOUT_MIN_S), "{:.1f}s".format(_OVR_TIMEOUT_MAX_S)
+    return str(SERVO_ANGLE_MIN), str(SERVO_ANGLE_MAX)   # idx == 10 or 11
 
 # ----- switch: track + knob -----
 # Apple's UISwitch is 51x31 pt (ratio 1.645), 27pt knob, 2pt inset. Ported at
@@ -187,10 +230,19 @@ def row_at(y, rows_top, pitch, row_count):
 # helpers here rather than trim comments. lock_ui_settings.py imports these
 # constants back wherever hit-testing/hold-fill math needs them.
 SET_ROWS_TOP = 40
-SET_ROW_PITCH = 46
+# 44, not the original 46 -- tightened to free a footer row for the
+# view-position dots (lock_ui_kit.build_dots_h / ThemeMixin.set_view_dots,
+# lead-owned) at VIEW_DOTS_Y=312. Both settings pages import this one
+# constant, so they stay pitch-matched automatically.
+SET_ROW_PITCH = 44
 SET_CARD_X = 4
 SET_CARD_W = 158
-SET_CARD_H = 42
+# 40, not the original 42 -- shrunk by the same 2px so the gap between one
+# row's card and the next stays 2px. Every offset measured FROM band_top
+# (name +15, desc +33, switch +12) still clears it: the desc's glyphs end
+# at band+36 (unaffected by this) and the card's bottom edge is now
+# band+42, a 6px margin (was 8px).
+SET_CARD_H = 40
 SET_TEXT_X = 12
 # Hold-to-confirm sweep (SS6): x=6/w=154 leaves a 2px margin inside the
 # card's own x=4..162 span on both sides, so the amber fill never paints
@@ -213,22 +265,21 @@ SET_TEXT_X = 12
 # (C_SURFACE_HILITE) and the "hold to enable" desc swap carry the rest of
 # the feedback -- see SettingsMixin.set_settings_row_hint.
 #
-# y: the desc line's glyphs end at band+36 (cy band+33, 8px tall at
-# scale 1) and the card's bottom edge is band+44, so band+38..band+42
-# clears the text by 1px and the card edge by 2px.
+# y: was band+38 against the old band+44 edge; moved up 2px to band+36
+# against the new band+42 edge, keeping the SAME clearance from both the
+# desc glyphs above (unaffected -- band+36) and the card edge below.
 #
 # x=8/w=150 (a 4px inset inside the card's x=4..162 span), not the 2px the
-# full-height wash used: now that the bar sits only 2-6px above the card's
-# BOTTOM edge, it runs through the RADIUS_CARD=8 rounded corners rather than
-# the card's straight sides. At the bar's lowest row (band+42, 2px above the
-# card edge) the corner's arc has already pulled the card's own left
-# boundary in to x~6.7, so a bar starting at x=6 would spill a pixel of
-# amber outside the card it belongs to. 8 clears the arc at every row the
-# bar occupies.
+# full-height wash used: the bar runs through the RADIUS_CARD=8 rounded
+# corners rather than the card's straight sides. Re-checked against the
+# shorter card: the bar's lowest OCCUPIED pixel row (Y_OFFSET+H-1 = band+40)
+# sits the identical 2px above its card edge (band+42) that the original
+# 8/42 pairing was measured against (band+42 was 2px above the old band+44
+# edge) -- same corner pull-in, so X did not need to move.
 SET_HOLD_FILL_X = 8
 SET_HOLD_FILL_W = SET_CARD_W - 8
 SET_HOLD_FILL_H = 5
-SET_HOLD_FILL_Y_OFFSET = 38
+SET_HOLD_FILL_Y_OFFSET = 36
 
 
 def build_settings_card(band_top):
@@ -391,3 +442,58 @@ def in_back_region(x, y):
     the target is a small glyph pair, but the tappable area is the whole
     top-left corner of the screen, not just the glyphs themselves."""
     return 0 <= x <= 96 and 0 <= y <= 34
+
+
+# ----- settings list page 2: accent swatch strip (row "Accent") -----
+# Shows every accent as a small dot instead of a text value -- a color
+# reads faster as color than as a name, and it doubles as feedback for the
+# cycle-on-tap gesture (lock_settings_nav.py), showing where in the cycle
+# you landed.
+#
+# DEVIATION FROM THE FROZEN SPEC, flagged in the top-level report: it
+# measured this strip for exactly 5 fixed dots at cx=100..152 (13px pitch).
+# lock_config.ACCENT_COLORS has since grown to 8 (teal/indigo), and 5 fixed
+# dots would silently make 3 of them unreachable from this strip even
+# though the cycle-on-tap still visits all 8. Positions are derived from
+# the ACTUAL accent count instead, at a tighter pitch, so every accent
+# stays both selectable and visibly marked.
+ACCENT_SWATCH_LEFT_CX = 100    # unchanged from the spec's 5-dot example
+ACCENT_SWATCH_RIGHT_CX = 156   # unchanged -- CARD_VALUE_RIGHT_X, the same
+                               # right edge every other value column ends at
+ACCENT_SWATCH_R = 3            # was 4 for 5 dots at 13px pitch; shrunk 1px
+                               # so 8 dots at ~8px pitch keep a visible gap
+ACCENT_SWATCH_RING_R = 6       # unchanged -- rightmost dot's ring (cx=156)
+                               # spans 150..162, touching the card's own
+                               # right edge but never past it
+
+
+def accent_swatch_centers(n):
+    """n evenly-spaced dot centres spanning ACCENT_SWATCH_LEFT_CX..RIGHT_CX
+    -- a pure function of the count so the strip keeps working if
+    ACCENT_COLORS' length ever changes again."""
+    if n <= 1:
+        return [ACCENT_SWATCH_LEFT_CX]
+    span = ACCENT_SWATCH_RIGHT_CX - ACCENT_SWATCH_LEFT_CX
+    step = span / float(n - 1)
+    return [int(round(ACCENT_SWATCH_LEFT_CX + i * step)) for i in range(n)]
+
+
+def build_accent_swatches(band_top, colors, selected_idx, ring_color):
+    """The whole row's swatch strip for one live theme: one small Circle per
+    entry in `colors` (already the right per-mode tuple -- ACCENT_COLORS_
+    DARK or _LIGHT, chosen by the caller), plus a ring Circle around
+    `selected_idx`. Returns shapes in paint order (dots, then the ring).
+
+    Deliberately in NO theme registry -- same reasoning as build_switch_
+    track/knob's docstring: every fill here is state, not one of the four
+    roles set_theme walks. The caller rebuilds this whole list from scratch
+    on every theme/accent change rather than mutating in place -- cheap (a
+    handful of tiny Circles, not RoundRects) and can't leave a stale dot."""
+    cy = band_top + 15
+    centers = accent_swatch_centers(len(colors))
+    shapes = [Circle(cx, cy, ACCENT_SWATCH_R, fill=color)
+              for cx, color in zip(centers, colors)]
+    if 0 <= selected_idx < len(centers):
+        shapes.append(Circle(centers[selected_idx], cy, ACCENT_SWATCH_RING_R,
+                             fill=None, outline=ring_color, stroke=2))
+    return shapes

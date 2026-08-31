@@ -178,6 +178,58 @@ class LockController(StateMixin, BleMixin, GestureMixin):
             # leave a stale row highlight or amber fill armed against a
             # touch that no longer exists.
             self.settings_nav.show()
+        elif view == "settings2":
+            # Mirrors the "settings" branch above exactly -- its own repaint
+            # entry point (update_settings2) and page-aware nav reset
+            # (show(2), see lock_settings_nav.SettingsNav.show's own
+            # docstring on the page argument).
+            self.ui.update_settings2(self.settings)
+            self.settings_nav.show(2)
+
+    # ----- shared per-setting detail page: dispatch by flat index -----
+    # idx 0-5 are page 1's rows (lock_ui_settings.py's fixed-6 _SET_NAMES);
+    # 6-11 are page 2's (lock_ui_settings2.py) -- both populate the SAME
+    # detail screen/widgets, only which name/desc table backs idx differs.
+    # Used by GestureMixin (lock_controller_gestures.py); living here rather
+    # than there is a line-budget call, not a meaningful ownership split --
+    # nothing here is gesture-specific.
+    def _show_edit_detail(self, idx):
+        (self.ui.show_setting_detail2 if idx >= 6 else self.ui.show_setting_detail)(
+            idx, self.settings)
+
+    def _update_edit_detail(self, idx):
+        (self.ui.update_setting_detail2 if idx >= 6 else self.ui.update_setting_detail)(
+            idx, self.settings)
+
+    def _exit_editing(self):
+        """Leaves the shared detail page for whichever settings LIST it was
+        opened from -- self._edit_idx alone decides (>=6 is page 2's flat
+        range), so no separate "which page opened this" flag is needed."""
+        self._editing = False
+        # THE one NVM write for this whole edit. It used to run on every touch
+        # release while the detail page was open, which is what made the
+        # [-]/[+] buttons feel like they had a cooldown: an NVM write on this
+        # board is a flash erase, measured at ~85ms with PERF_DEBUG (see
+        # lock_config.py), and the run loop samples no touch at all while it
+        # blocks. Tapping [+] ten times therefore paid ten 85ms stalls. One
+        # write per VISIT costs the same 85ms once, on the way out, where the
+        # user is already leaving and cannot feel it.
+        #
+        # Nothing is lost by deferring: the value is live in RAM the whole
+        # time (brightness is re-applied from it every frame by code.py), and
+        # the only other way out of an edit -- set_view() being forced by a
+        # BLE command mid-edit -- has always saved for itself, see its own
+        # _editing guard. The residual window is power actually being cut
+        # while the detail page sits open and no view change has happened
+        # since; that loses one in-progress value rather than corrupting
+        # anything, which is a better trade than a stall on every press.
+        self.settings.save()
+        page_view = "settings2" if self._edit_idx >= 6 else "settings"
+        self.ui.show_view(page_view)
+        if page_view == "settings2":
+            self.ui.update_settings2(self.settings)
+        else:
+            self.ui.update_settings(self.settings)
 
     # ----- lock hardware hooks (wire a relay/solenoid here later) -----
     def engage_lock(self):

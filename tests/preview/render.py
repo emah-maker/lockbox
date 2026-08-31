@@ -135,6 +135,7 @@ def populate(ui):
     ui.clock_style_idx = 0
     ui.update_battery_view(battery)
     ui.update_settings(settings)
+    ui.update_settings2(settings)
     ui.show_setting_detail(0, settings)
     ui.show_tag_picker(lock_config.BUILTIN_TOPICS)
     # 12 chars = BLE_LABEL_NAME_MAX_LEN, the widest a synced custom label's

@@ -12,6 +12,7 @@ from lock_ui_states import StateViewMixin
 from lock_ui_clock import ClockMixin
 from lock_ui_panels import PanelsMixin
 from lock_ui_settings import SettingsMixin
+from lock_ui_settings2 import Settings2Mixin
 from lock_ui_tags import TagPickerMixin
 
 # COMPOSED FROM MIXINS. LockUI is one object with one set of attributes -- the
@@ -33,7 +34,8 @@ from lock_ui_tags import TagPickerMixin
 # fails on the host rather than on the box.
 
 
-class LockUI(ThemeMixin, ControlMixin, StateViewMixin, ClockMixin, PanelsMixin, SettingsMixin, TagPickerMixin):
+class LockUI(ThemeMixin, ControlMixin, StateViewMixin, ClockMixin, PanelsMixin, SettingsMixin,
+             Settings2Mixin, TagPickerMixin):
     def __init__(self, display):
         self.display = display
         self.W = W = display.width
@@ -75,6 +77,13 @@ class LockUI(ThemeMixin, ControlMixin, StateViewMixin, ClockMixin, PanelsMixin, 
         # update_corner_ble.
         self._corner_ble_dots = []
         self._corner_bat_labels = []
+        # View-position dot rows (one per screen that calls _add_view_dots,
+        # ThemeMixin/lock_ui_kit.py) -- kept in a list, not a single row,
+        # because every screen that has one needs repainting together on a
+        # view change (see set_view_dots). Not a theme-registry bucket:
+        # which dot is lit is STATE, repainted live off self._accent_color/
+        # self._dim_color, same as the settings switch's track/knob.
+        self._view_dot_rows = []
         self._mode_idx = DEFAULT_MODE_IDX
         self._accent_idx = DEFAULT_ACCENT_IDX
         self._fg_color = C_WHITE
@@ -133,6 +142,7 @@ class LockUI(ThemeMixin, ControlMixin, StateViewMixin, ClockMixin, PanelsMixin, 
         self._build_call_alert(W, H)
         self._build_override(W, H)
         self._build_settings(W, H)
+        self._build_settings2(W, H)
         self._build_setting_detail(W, H)
         self._build_tag_picker(W, H)
         self._build_topic_confirm(W, H)
@@ -144,3 +154,8 @@ class LockUI(ThemeMixin, ControlMixin, StateViewMixin, ClockMixin, PanelsMixin, 
         # registered itself; LockController re-applies the persisted theme
         # (if different) right after this once Settings() has loaded.
         self.set_theme(DEFAULT_MODE_IDX, DEFAULT_ACCENT_IDX)
+        # Dots are colored live off self._accent_color/_dim_color (see
+        # set_view_dots), not a theme registry -- called AFTER set_theme,
+        # not before, so the very first paint uses the real colors above
+        # rather than this file's early placeholder defaults.
+        self.set_view_dots(self.view)

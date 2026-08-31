@@ -11,7 +11,20 @@
 # See settings-ui-spec.md SS6/SS7 for the behaviour this implements, and
 # lock_config.SETTINGS_HOLD_S's comment for why rows 4/5 are the only ones
 # that ever hold, and only OFF->ON.
-from lock_config import SWIPE_MIN_PX, SETTINGS_HOLD_S
+#
+# PAGE-AWARE (phase 2 addition): this module now arbitrates BOTH settings
+# list screens, not just page 1's six rows. `self.page` (1 or 2, set by
+# show()) selects which of a small number of page-specific tuples/branches
+# below applies, and which UI method name row-hit-testing/press-highlight
+# calls -- lock_ui_settings2.Settings2Mixin exposes deliberately DIFFERENT
+# method names (settings2_row_at, press_settings2_row) rather than the same
+# names page 1 uses, per tests/test_firmware_loads.py's "no two mixins
+# define the same name" structural check. Every `row`/`self._armed_row`
+# below is PAGE-RELATIVE (0..5 within whichever page is active, the same
+# range row_at() already produces) -- only Open/Changed's own `.row` is the
+# FLAT 0..11 index Settings.adjust/lock_controller expect, converted right
+# at the point a result is returned (see _resolve_tap_page2).
+from lock_config import SWIPE_MIN_PX, SETTINGS_HOLD_S, ACCENT_COLORS
 
 # Row indices that are boolean AND security-weakening -- the box's only
 # standing escape hatches from its own purpose (Settings.allow_remote_unlock,
@@ -21,8 +34,20 @@ from lock_config import SWIPE_MIN_PX, SETTINGS_HOLD_S
 # either OFF is the safe direction and stays a single instant tap, and row 1
 # ("Auto") is a convenience setting, not a security one, so it is a plain tap
 # both ways. Fixed index order (0..5) matches Settings.adjust's contract --
-# do not renumber.
+# do not renumber. PAGE 1 ONLY -- see _PAGE2_* below for page 2's rows,
+# none of which ever hold (frozen spec's Interaction section: "No
+# hold-to-confirm on this page").
 _HOLD_ROWS = (4, 5)
+
+# ----- page 2 row semantics (flat indices 6..11, local/page-relative 0..5) --
+# Theme/Accent cycle forward on a plain tap (no detail page -- the change is
+# visible everywhere at once, so a separate picker page would be strictly
+# more taps for less feedback); Flip is a plain switch tap, exactly like
+# page 1's row 1 (Auto); Window/Lock pos/Open pos open the shared detail
+# page, exactly like page 1's rows 0/2/3. None of the six ever holds.
+_PAGE2_CYCLE_ROWS = (0, 1)     # Theme, Accent
+_PAGE2_SWITCH_ROW = 2          # Flip
+_PAGE2_OPEN_ROWS = (3, 4, 5)   # Window, Lock pos, Open pos
 
 
 class Open:
@@ -60,31 +85,59 @@ class SettingsNav:
     def __init__(self, ui, settings_fn):
         self.ui = ui
         self._settings_fn = settings_fn
+        # Which settings screen is currently being arbitrated -- 1 or 2, set
+        # by show(page). Defaults to 1 so every existing caller/test that
+        # constructs a SettingsNav and never calls show() at all still gets
+        # page 1's behaviour exactly as before this attribute existed.
+        self.page = 1
         self._active = False
         self._start = None
         self._last = None
         # The row armed at touch-down (press highlight owner), or None if
-        # the touch-down missed every row band.
+        # the touch-down missed every row band. PAGE-RELATIVE (0..5).
         self._armed_row = None
         # True only while _armed_row is also mid hold-to-enable (an OFF
-        # risky row) -- see _arm.
+        # risky row) -- see _arm. Can only ever be True on page 1 -- page 2
+        # has no hold rows (_PAGE2_* above), so nothing new is needed here.
         self._holding = False
         self._hold_start = 0.0
 
-    def show(self):
+    # ----- page-aware dispatch to the two screens' differently-named UI
+    # entry points (see this module's header for why the names differ) -----
+    def _row_at(self, y):
+        if self.page == 2:
+            return self.ui.settings2_row_at(y)
+        return self.ui.settings_row_at(y)
+
+    def _press_row(self, row):
+        if self.page == 2:
+            self.ui.press_settings2_row(row)
+        else:
+            self.ui.press_settings_row(row)
+
+    def show(self, page=1):
         """Resets all touch/press/hold state -- call this instead of
-        touching the ui directly whenever the settings view is (re)entered
+        touching the ui directly whenever a settings view is (re)entered
         (LockController.set_view), so a view switch mid-press or mid-hold
         can never leave a stale row highlight or a stale amber fill armed
-        against a touch that no longer exists."""
-        self._active = False
-        self._start = None
-        self._last = None
+        against a touch that no longer exists.
+
+        `page` defaults to 1 so every pre-existing call site (and
+        tests/test_lock_settings_nav.py, which this module must keep
+        passing UNCHANGED) keeps working with no argument. Reads/clears
+        state through self.page as it stood BEFORE this call -- i.e. it
+        unpresses whichever screen's row was actually armed -- and only
+        then switches self.page to the incoming value, so touches from here
+        on are arbitrated against the NEW page."""
         if self._armed_row is not None:
-            self.ui.press_settings_row(None)
+            self._press_row(None)
         if self._holding:
             self.ui.cancel_settings_hold()
             self.ui.set_settings_row_hint(self._armed_row, None)
+        self.page = page
+        self._active = False
+        self._start = None
+        self._last = None
         self._armed_row = None
         self._holding = False
 
@@ -114,12 +167,16 @@ class SettingsNav:
     # ----- touch-down: arm a press, and a hold if this is an OFF risky row -----
     def _arm(self, point, now):
         x, y = point
-        row = self.ui.settings_row_at(y)
+        row = self._row_at(y)
         if row < 0:
             return
         self._armed_row = row
-        self.ui.press_settings_row(row)   # instant highlight -- see spec SS2.4
-        if row in _HOLD_ROWS and not self._row_is_on(row):
+        self._press_row(row)   # instant highlight -- see spec SS2.4
+        # page == 1 guard is load-bearing, not redundant with _HOLD_ROWS:
+        # page 2's row-relative numbers reuse 0..5 same as page 1's, so
+        # without it page 2's row 4 (Lock pos) would be misread as page 1's
+        # row 4 (Remote) and try to arm a hold that has no meaning there.
+        if self.page == 1 and row in _HOLD_ROWS and not self._row_is_on(row):
             self._holding = True
             self._hold_start = now
             self.ui.start_settings_hold(row)
@@ -166,7 +223,7 @@ class SettingsNav:
         # press highlight that stays lit under a finger that has wandered
         # onto a different row is exactly the kind of "target you see isn't
         # the target you get" bug SS1b called out.
-        if self.ui.settings_row_at(y) != self._armed_row:
+        if self._row_at(y) != self._armed_row:
             self._cancel_armed()
             return None
         if self._holding:
@@ -179,7 +236,7 @@ class SettingsNav:
 
     def _cancel_armed(self):
         if self._armed_row is not None:
-            self.ui.press_settings_row(None)
+            self._press_row(None)
         if self._holding:
             self.ui.cancel_settings_hold()
             self.ui.set_settings_row_hint(self._armed_row, None)
@@ -199,7 +256,7 @@ class SettingsNav:
             s.unlock_on_call = True
         self.ui.cancel_settings_hold()
         self.ui.set_settings_row_hint(row, None)
-        self.ui.press_settings_row(None)
+        self._press_row(None)
         self._armed_row = None
         self._holding = False
         return Changed(row)
@@ -213,7 +270,7 @@ class SettingsNav:
         # Always clear the press highlight and any fill/hint here, whatever
         # the outcome below turns out to be -- a finger that has already
         # lifted must never leave a row looking armed.
-        self.ui.press_settings_row(None)
+        self._press_row(None)
         if holding_row is not None:
             self.ui.cancel_settings_hold()
             self.ui.set_settings_row_hint(holding_row, None)
@@ -228,6 +285,11 @@ class SettingsNav:
         return self._resolve_tap(row)
 
     def _resolve_tap(self, row):
+        if self.page == 2:
+            return self._resolve_tap_page2(row)
+        return self._resolve_tap_page1(row)
+
+    def _resolve_tap_page1(self, row):
         if row == 0 or row == 2 or row == 3:
             return Open(row)
         if row == 1:
@@ -255,4 +317,42 @@ class SettingsNav:
             # risky row on -- an accidental tap must never silently defeat
             # the box. Do not "fix" this into a toggle.
             return None
+        return None
+
+    # ----- page 2's tap resolution (flat indices 6..11) -----
+    # `row` here is PAGE-RELATIVE (0..5, see this module's header) -- every
+    # returned Open/Changed carries the FLAT index the rest of the firmware
+    # (Settings.adjust, LockController._edit_idx, the shared detail page)
+    # already speaks, via the one `+ 6` conversion below.
+    def _resolve_tap_page2(self, row):
+        flat = row + 6
+        if row in _PAGE2_OPEN_ROWS:
+            return Open(flat)
+        if row == _PAGE2_SWITCH_ROW:
+            # Flip -- plain tap toggles either direction, same as page 1's
+            # Auto (row 1): a mount orientation is not security-weakening,
+            # so it never arms a hold (see this module's header).
+            s = self._settings_fn()
+            s.screen_flipped = not s.screen_flipped
+            return Changed(flat)
+        if row in _PAGE2_CYCLE_ROWS:
+            s = self._settings_fn()
+            if row == 0:
+                # Theme: exactly two values, so "cycle" is just a flip --
+                # equivalent to Settings.adjust(6, +1 or -1) but there is no
+                # direction to derive one from on a single-tap row, so the
+                # field is flipped directly (same division of labour as
+                # page 1's row 1/4/5 above: this nav mutates in-RAM, the
+                # controller's _apply_settings_nav_result saves+repaints).
+                s.theme_mode = 0 if s.theme_mode else 1
+            else:
+                # Accent: cycling must WRAP (mint -> ... -> indigo -> mint),
+                # not saturate at the last entry -- a forward-only tap that
+                # dead-ends at the last accent with no way back is not a
+                # cycle. This is why Accent is not routed through
+                # Settings.adjust(7, direction): adjust's own clamp (used by
+                # the app's bidirectional +/- push) is the right behaviour
+                # THERE, but wrong for a single-direction tap button here.
+                s.accent_idx = (s.accent_idx + 1) % len(ACCENT_COLORS)
+            return Changed(flat)
         return None

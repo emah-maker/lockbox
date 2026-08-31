@@ -16,6 +16,7 @@ from lock_config import (
 )
 from lock_motion import Spring
 from lock_ui_common import _bg_tile, _clamp_offset
+from lock_ui_kit import build_nav_left, build_nav_right
 
 
 class ControlMixin:
@@ -61,7 +62,17 @@ class ControlMixin:
         group.append(self.status_lbl)
         self._status_lbl_rest_pos = self.status_lbl.anchored_position
 
-        self._add_corner_indicators(group, W, y=55)
+        # y=53, not the old 55 -- this screen has no title (build_screen_title
+        # is what the clock/battery/settings screens put at HEADER_Y's shared
+        # line), so the corner glyphs have nothing of their own to sit next
+        # to. Pulling them right up against the status bar's bottom edge
+        # (46) instead of floating 9px below it reads them as that bar's own
+        # caption row -- the header's second line -- rather than three
+        # unrelated fragments dropped in the gap above the clock card. Still
+        # clear of the status press ring's own bottom edge (STATUS_Y - 2 +
+        # STATUS_H + 4 = 48) by a full pixel, so a status-bar press never
+        # visibly touches this row.
+        self._add_corner_indicators(group, W, y=53)
 
         # Small override-press-count indicator -- not a sentence explaining
         # what override is (that was the clutter just cut above), just the
@@ -69,10 +80,12 @@ class ControlMixin:
         # battery-% row so it doesn't cost this screen a new row. "x" (ASCII),
         # not "x" unicode multiplication sign -- terminalio.FONT's glyph set
         # isn't guaranteed to cover non-ASCII. Kept live via update_settings,
-        # the same call every settings-change path already makes.
+        # the same call every settings-change path already makes. Same y as
+        # the corner indicators just above (53, not the old 55) -- these
+        # three pieces are meant to read as one row, so they share one line.
         self.ov_count_hint = label.Label(terminalio.FONT, text="", color=C_GREY)
         self.ov_count_hint.anchor_point = (0.5, 0.5)
-        self.ov_count_hint.anchored_position = (W // 2, 55)
+        self.ov_count_hint.anchored_position = (W // 2, 53)
         group.append(self.ov_count_hint)
         self._dim_widgets.append((self.ov_count_hint, 'color'))
 
@@ -130,16 +143,26 @@ class ControlMixin:
         _clock_left = W // 2 - 2 * _clock_char_w  # left edge of "H:MM"'s 4 glyphs
         _hour_digit_cx = _clock_left + _clock_char_w // 2
         _minutes_cx = _clock_left + 2 * _clock_char_w + _clock_char_w
-        # y=168, not 156: the clock's surface card (fh=60, centered on the
-        # clock's own y=120) bottom edge is at 150 -- 156 put these scale-2
-        # labels (~16px tall, so spanning roughly 148-164) overlapping the
-        # card's bottom edge. 168 clears it with real margin, still well
-        # short of nav_hint at 205.
-        self.guide_h = label.Label(terminalio.FONT, text="H", color=C_GREY, scale=2)
-        self.guide_m = label.Label(terminalio.FONT, text="M", color=C_GREY, scale=2)
+        # scale=1, not the old 2 -- these are labels for the columns they
+        # select, not a second readout competing with the clock card above
+        # them for attention, so they take the kit's secondary-caption
+        # weight (build_hint / the nav row below are both scale 1, dim)
+        # instead of the card-value scale that made two bare letters read as
+        # stray glyphs floating under the card.
+        # y=186, not the old 168: was the gap the manager flagged -- a large
+        # dead band between this row and the nav caption at 205 (only 37px
+        # apart from a fixed y=168, all of it empty). The clock's surface
+        # card (fh=60, centered on the clock's own y=120) bottom edge is at
+        # 150, so 186 still clears it (now a deliberate ~30px breathing gap
+        # under the card, not a stray leftover one just above the nav row)
+        # while closing the nav gap to a real 19px -- both this screen's
+        # gaps to its neighbours are now close to the same size instead of
+        # one being twice the other.
+        self.guide_h = label.Label(terminalio.FONT, text="H", color=C_GREY)
+        self.guide_m = label.Label(terminalio.FONT, text="M", color=C_GREY)
         for g, gx in ((self.guide_h, _hour_digit_cx), (self.guide_m, _minutes_cx)):
             g.anchor_point = (0.5, 0.5)
-            g.anchored_position = (gx, 168)
+            g.anchored_position = (gx, 186)
             group.append(g)
             self._dim_widgets.append((g, 'color'))
 
@@ -148,15 +171,40 @@ class ControlMixin:
         # itself the instruction; a redundant sentence restating it in the
         # same grey, same size, right below was exactly the kind of "every
         # element has equal weight" clutter that made this screen feel busy.
-        # always-visible navigation hint. "clock", not "styles" -- "styles"
-        # assumes the reader already knows the clock view has multiple
-        # appearances; "clock" names the actual destination screen.
-        self.nav_hint = label.Label(terminalio.FONT, text="<- clock   battery ->",
-                                    color=C_GREY)
-        self.nav_hint.anchor_point = (0.5, 0.5)
-        self.nav_hint.anchored_position = (W // 2, 205)
-        group.append(self.nav_hint)
-        self._dim_widgets.append((self.nav_hint, 'color'))
+        # Real chevron affordances (lock_ui_kit.build_nav_left/right) in
+        # place of the old ASCII "<- clock   battery ->" caption -- the same
+        # replacement the clock and battery screens already made (see
+        # ClockMixin._clock_footer / PanelsMixin._build_battery), so "there
+        # is a screen that way" looks identical everywhere on the box.
+        # "clock", not "styles" -- "styles" assumes the reader already knows
+        # the clock view has multiple appearances; "clock" names the actual
+        # destination screen.
+        # y=205, explicitly NOT the kit's own NAV_Y=306 -- this is the one
+        # screen where the footer nav row can't live at the shared y: the
+        # LOCK/OPEN button occupies the bottom of this screen (BTN_Y = H -
+        # BTN_H - 24 = 240), and 306 would sit on top of it. 205 is this
+        # screen's own pre-existing nav row, kept exactly where it was so
+        # only the caption's rendering changes, not its position. No
+        # `self.` attribute for either piece -- nothing else on this screen
+        # reads them back, same as the clock/battery footers.
+        nav_l_chev, nav_l_lbl = build_nav_left("clock", y=205)
+        group.append(nav_l_chev)
+        self._dim_widgets.append((nav_l_chev, 'fill'))
+        group.append(nav_l_lbl)
+        self._dim_widgets.append((nav_l_lbl, 'color'))
+        nav_r_lbl, nav_r_chev = build_nav_right(W, "battery", y=205)
+        group.append(nav_r_lbl)
+        self._dim_widgets.append((nav_r_lbl, 'color'))
+        group.append(nav_r_chev)
+        self._dim_widgets.append((nav_r_chev, 'fill'))
+        # Bottom view-position dots (ThemeMixin._add_view_dots). This screen's
+        # chevrons sit at y=205 because the LOCK/OPEN button owns the bottom,
+        # but the dots stay at the shared VIEW_DOTS_Y=312 like every other
+        # screen's -- an indicator that moved between screens would be worse
+        # than none, and 312 is clear of the button (BTN_Y=240 + BTN_H=56 ends
+        # at 296). It also stays clear in the done state, where the button
+        # springs UP to DONE_BTN_CENTER_Y rather than down.
+        self._add_view_dots(group, W)
         # Reverted the third caption line added here (an override-discovery
         # hint) -- three stacked grey hint lines plus a title all reading at
         # the same visual weight made this screen feel cluttered rather than
@@ -183,10 +231,24 @@ class ControlMixin:
         self.BTN_H = 56
         self.BTN_X = (W - self.BTN_W) // 2
         self.BTN_Y = H - self.BTN_H - 24
+        # outline was a fixed fg C_WHITE (near-black in light mode) stroke on
+        # top of an already-saturated accent fill -- a saturated fill AND a
+        # heavy contrasting stroke together made this the loudest thing on
+        # the box (manager report). The fill is correct and load-bearing (it
+        # IS the primary-action signal), so only the outline changes: it now
+        # tracks _accent_widgets instead of _fg_widgets, so set_theme paints
+        # it the same accent as the fill, and set_button (lock_ui_states.py)
+        # keeps the two in lockstep on every state change. Same precedent as
+        # an ON switch's track outline (lock_ui_widgets.build_switch_track's
+        # docstring) -- matching the outline to the fill exactly makes the
+        # stroke vanish on this display's no-anti-aliasing renderer, so the
+        # button reads as one solid accent pill instead of a pill wearing a
+        # separate white collar. C_GREEN here is the same construction-time
+        # placeholder every other themed fill/outline in this module uses.
         self.button = RoundRect(self.BTN_X, self.BTN_Y, self.BTN_W, self.BTN_H,
-                                RADIUS_BTN_LG, fill=C_GREEN, outline=C_WHITE, stroke=2)
+                                RADIUS_BTN_LG, fill=C_GREEN, outline=C_GREEN, stroke=2)
         group.append(self.button)
-        self._fg_widgets.append((self.button, 'outline'))
+        self._accent_widgets.append((self.button, 'outline'))
         # Press-feedback ring for the button (see on_touch_down/on_touch_up)
         # -- appended between the button and its label for the same z-order
         # reason as status_press_ring above: the label must always paint on
