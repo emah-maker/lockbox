@@ -45,7 +45,10 @@ import { typeScale } from '../theme/tokens';
 import { GoalsEmptyState } from './stats/GoalsEmptyState';
 import { GoalRow, describeTopic } from './GoalRow';
 
-
+// Matches DurationSheet.tsx's SCROLL_LOCK_SAFETY_MS -- long enough that a
+// real wheel drag never trips it, short enough that a dropped release isn't
+// felt as a frozen screen. See onFormWheelActiveChange below.
+const WHEEL_LOCK_SAFETY_MS = 600;
 
 export function GoalsSection({
   color,
@@ -109,10 +112,36 @@ export function GoalsSection({
   // comment) so an existing caller keeps seeing the identical signal it
   // always has.
   const [formWheelActive, setFormWheelActive] = React.useState(false);
+  // The safety timer is not optional here, it's the whole point: this lock is
+  // released only by a wheel's onDragEnd (or closeForm). If a single gesture's
+  // release is ever dropped -- the app backgrounded mid-drag by an incoming
+  // call or a control-center swipe is the realistic case, since RN doesn't
+  // guarantee a synthetic touch-end then -- `formWheelActive` sticks true and
+  // this Sheet stays scrollEnabled={false} forever. That's a `size="large"`
+  // form whose Save/Cancel sit below the wheels, so the user is left unable to
+  // scroll to either: the "the time picker froze the screen" report. The
+  // forwarded parent flag can't cover this, because the parent's own timer
+  // (SettingsScreen/StatsScreen) guards the parent's OUTER sheet, never this
+  // nested one. Mirrors DurationSheet.tsx's lock/unlock pair.
+  const wheelSafetyTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearWheelSafetyTimer = () => {
+    if (wheelSafetyTimer.current) {
+      clearTimeout(wheelSafetyTimer.current);
+      wheelSafetyTimer.current = null;
+    }
+  };
   const onFormWheelActiveChange = (active: boolean) => {
     setFormWheelActive(active);
     onWheelActiveChange(active);
+    clearWheelSafetyTimer();
+    if (active) {
+      wheelSafetyTimer.current = setTimeout(() => {
+        setFormWheelActive(false);
+        onWheelActiveChange(false);
+      }, WHEEL_LOCK_SAFETY_MS);
+    }
   };
+  React.useEffect(() => clearWheelSafetyTimer, []);
 
   // Archived goals are tombstones, not removals (see Goal.archived in
   // goals.ts) -- filtered out here so a "deleted" goal never renders while
@@ -145,6 +174,7 @@ export function GoalsSection({
     configureLayoutAnimation(reducedMotion);
     setError(null);
     setFormOpen(false);
+    clearWheelSafetyTimer(); // this release is definitive; no backstop needed
     setFormWheelActive(false);
     onWheelActiveChange(false);
   };

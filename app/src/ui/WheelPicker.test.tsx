@@ -239,3 +239,100 @@ describe('unchanged behavior', () => {
     expect(onChange).toHaveBeenCalledTimes(1);
   });
 });
+
+// The mirror of the correctingRef races above: isBusyRef is set the instant a
+// drag begins and was cleared ONLY inside commit(). If the event that runs
+// commit() never arrives -- a flick whose trailing onMomentumScrollEnd a
+// platform declines to emit, or a drag whose native gesture recognizer is
+// CANCELLED rather than ended (cancellation fires no scroll-lifecycle event
+// at all) -- isBusyRef stayed true for the life of the component, and the
+// resync effect's `if (isBusyRef.current || ...) return;` silently swallowed
+// every future selectedIndex change. Not a glitch: a permanently dead wheel,
+// which is what "the time picker still freezes sometimes" actually was.
+describe('a dropped scroll-lifecycle event cannot wedge the wheel forever', () => {
+  /** A parent driven from OUTSIDE the wheel's own onChange -- a paired wheel
+   * wrapping around, a box-sync tick, a reset. Harness above only ever reacts
+   * to onChange, which can't express "the world moved on while wedged". */
+  function renderControlled(initial: number) {
+    let tree: TestRenderer.ReactTestRenderer;
+    const render = (i: number) => (
+      <WheelPicker
+        labels={LABELS}
+        selectedIndex={i}
+        onChange={() => {}}
+        accessibilityLabel="test wheel"
+      />
+    );
+    act(() => {
+      tree = TestRenderer.create(render(initial));
+    });
+    mounted.push(tree!);
+    const sv = () => tree!.root.findAll((n) => n.props?.snapToInterval === WHEEL_ITEM_SIZE)[0];
+    return {
+      tree: tree!,
+      props: () => sv().props,
+      update: (next: number) => act(() => tree!.update(render(next))),
+    };
+  }
+
+  it('recovers when a flick never gets its trailing onMomentumScrollEnd', () => {
+    const { props, update } = renderControlled(3);
+
+    act(() => props().onScrollBeginDrag());
+    // Released while still coasting, so commit() correctly defers -- and the
+    // event it defers to is exactly the one being dropped here.
+    act(() => props().onScrollEndDrag(scrollEvent(172, 2.5)));
+
+    act(() => {
+      jest.advanceTimersByTime(10_000);
+    });
+    update(7);
+
+    // Pre-fix: [] -- scrollTo was never called again, ever.
+    expect(scrolledOffsets()).toContain(7 * WHEEL_ITEM_SIZE);
+  });
+
+  it('recovers when a drag begin gets no end event at all', () => {
+    const { props, update } = renderControlled(3);
+
+    act(() => props().onScrollBeginDrag());
+    act(() => {
+      jest.advanceTimersByTime(10_000);
+    });
+    update(9);
+
+    expect(scrolledOffsets()).toContain(9 * WHEEL_ITEM_SIZE);
+  });
+
+  it('does not fire its backstop while a normal settle is still pending', () => {
+    const { props } = renderControlled(3);
+
+    act(() => props().onScrollBeginDrag());
+    act(() => props().onScrollEndDrag(scrollEvent(172, 2.5)));
+    // The momentum event arrives normally, well inside the settle window.
+    act(() => props().onMomentumScrollEnd(scrollEvent(4 * WHEEL_ITEM_SIZE)));
+    const afterSettle = scrolledOffsets().length;
+
+    // The disarmed backstop must not now force a spurious extra scroll.
+    act(() => {
+      jest.advanceTimersByTime(10_000);
+    });
+    expect(scrolledOffsets().length).toBe(afterSettle);
+  });
+
+  it('never re-aims the native view via contentOffset after mount', () => {
+    // contentOffset is forwarded straight to the native scroll view, so
+    // recomputing it from a live selectedIndex was a SECOND, unguarded channel
+    // repositioning the same ScrollView the resync effect guards -- including
+    // out from under a live touch, which is how a gesture gets cancelled and
+    // the wedge above gets triggered in the first place.
+    const { props, update } = renderControlled(3);
+    const mountOffset = props().contentOffset;
+
+    act(() => props().onScrollBeginDrag()); // finger down
+    update(8); // a paired wheel / box-sync tick lands mid-drag
+
+    expect(props().contentOffset).toBe(mountOffset);
+    expect(props().contentOffset).toEqual({ x: 0, y: 3 * WHEEL_ITEM_SIZE });
+  });
+});

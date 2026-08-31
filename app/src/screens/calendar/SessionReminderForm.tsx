@@ -53,6 +53,11 @@ const HOUR_LABELS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '
 const DEFAULT_TIME = '09:00';
 const DEFAULT_LEAD = 10;
 
+// Matches DurationSheet.tsx's SCROLL_LOCK_SAFETY_MS -- long enough that a
+// real wheel drag never trips it, short enough that a dropped release isn't
+// felt as a frozen screen. See wheelSafetyTimer below.
+const WHEEL_LOCK_SAFETY_MS = 600;
+
 // Durations offered as chips instead of a third and fourth WheelPicker.
 // A planned session's length is a rough intention picked from a handful of
 // habitual values, not an arbitrary number needing 24x12 reachable
@@ -134,6 +139,32 @@ export function SessionReminderForm({
   // default -- everything else has a sensible one the summary already shows.
   const [open, setOpen] = React.useState<OpenGroup>('time');
   const [wheelActive, setWheelActive] = React.useState(false);
+  // Every release path below (onDragEnd, onTouchEnd/-Cancel, toggle) depends
+  // on an event actually arriving. This timer is the backstop for when one
+  // doesn't -- realistically, the app being backgrounded mid-drag by an
+  // incoming call or a control-center swipe, where RN makes no promise of a
+  // synthetic touch-end. Without it a single dropped release leaves this
+  // `size="large"` sheet scrollEnabled={false} for good, with Save/Cancel
+  // below the fold and unreachable: the "the time picker froze the screen"
+  // report. Mirrors DurationSheet.tsx's lock/unlock pair, which is why this
+  // is the only wheel-in-sheet call site that lacked one.
+  const wheelSafetyTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearWheelSafetyTimer = () => {
+    if (wheelSafetyTimer.current) {
+      clearTimeout(wheelSafetyTimer.current);
+      wheelSafetyTimer.current = null;
+    }
+  };
+  const lockSheetScroll = () => {
+    setWheelActive(true);
+    clearWheelSafetyTimer();
+    wheelSafetyTimer.current = setTimeout(() => setWheelActive(false), WHEEL_LOCK_SAFETY_MS);
+  };
+  const unlockSheetScroll = () => {
+    clearWheelSafetyTimer();
+    setWheelActive(false);
+  };
+  React.useEffect(() => clearWheelSafetyTimer, []);
 
   const { hour, minuteIndex } = parseTime(time);
   const choices = allLabelChoices(customLabels, themeMode);
@@ -149,7 +180,7 @@ export function SessionReminderForm({
     // own onDragEnd, which would otherwise leave the sheet permanently
     // unscrollable (the stuck-lock class of bug WheelPicker's
     // onDragStart/onDragEnd contract exists to prevent).
-    setWheelActive(false);
+    unlockSheetScroll();
     setOpen((current) => (current === group ? null : group));
   };
 
@@ -194,9 +225,9 @@ export function SessionReminderForm({
         >
           <View
             style={styles.wheelRow}
-            onTouchStart={() => setWheelActive(true)}
-            onTouchEnd={() => setWheelActive(false)}
-            onTouchCancel={() => setWheelActive(false)}
+            onTouchStart={() => lockSheetScroll()}
+            onTouchEnd={() => unlockSheetScroll()}
+            onTouchCancel={() => unlockSheetScroll()}
           >
             {/* Same three-way gesture handoff GoalForm's own wheels use:
                 onTouchStart claims the gesture early, onTouchEnd/-Cancel
@@ -209,16 +240,16 @@ export function SessionReminderForm({
               labels={HOUR_LABELS}
               selectedIndex={hour}
               onChange={(i) => setTime(formatTime(i, MINUTE_VALUES[minuteIndex]))}
-              onDragStart={() => setWheelActive(true)}
-              onDragEnd={() => setWheelActive(false)}
+              onDragStart={() => lockSheetScroll()}
+              onDragEnd={() => unlockSheetScroll()}
               accessibilityLabel="Session start time, hour"
             />
             <WheelPicker
               labels={MINUTE_LABELS}
               selectedIndex={minuteIndex}
               onChange={(i) => setTime(formatTime(hour, MINUTE_VALUES[i]))}
-              onDragStart={() => setWheelActive(true)}
-              onDragEnd={() => setWheelActive(false)}
+              onDragStart={() => lockSheetScroll()}
+              onDragEnd={() => unlockSheetScroll()}
               accessibilityLabel="Session start time, minute"
             />
           </View>

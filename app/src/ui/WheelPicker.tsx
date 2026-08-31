@@ -35,6 +35,32 @@ const DRAG_SETTLE_VELOCITY = 0.05;
 // when it lands, and this just guarantees the flag can't stick if some
 // platform/version declines to emit that event for a programmatic scroll.
 const CORRECTION_SETTLE_MS = 400;
+// (Needs no distance scaling: commit() derives its target index by ROUNDING
+// the release position to the nearest item, so a correction never travels
+// more than half an itemSize -- ~20px at the default -- however many items
+// the wheel has. It is always a short animation.)
+
+// isBusyRef's own backstops, the mirror of CORRECTION_SETTLE_MS above.
+// isBusyRef is set the instant a drag begins and cleared ONLY inside
+// commit(), which runs only from onScrollEndDrag/onMomentumScrollEnd. If
+// neither ever arrives -- a flick whose trailing momentum event a platform
+// declines to emit, or a drag whose native gesture recognizer is CANCELLED
+// rather than ended (cancellation doesn't invoke the end-dragging delegate
+// callback at all) -- isBusyRef stays true for the life of the component and
+// the resync effect below silently no-ops on every future selectedIndex
+// change. That is a permanently dead wheel: it stops tracking its own prop,
+// which is the "wheel picker still freezes sometimes" report these two
+// constants exist to make unreachable. correctingRef always had this
+// safeguard; isBusyRef never did.
+// After the finger is up (onScrollEndDrag deferring to momentum) the coast is
+// this component's own bounded animation, so a short window suffices.
+const BUSY_SETTLE_MS = 900;
+// While a finger may still be down, only a long watchdog is safe -- a real
+// scrub of a long wheel can legitimately last seconds, and clearing the flag
+// under a live touch is what re-opens the scrollTo-vs-drag fight. Chosen long
+// enough that a genuine drag effectively never trips it, but finite so a
+// cancelled gesture can't wedge the wheel forever.
+const BUSY_MAX_DRAG_MS = 4000;
 
 export function WheelPicker({
   labels,
@@ -100,6 +126,12 @@ export function WheelPicker({
   const horizontal = orientation === 'horizontal';
   const PAD = (itemSize * (VISIBLE_COUNT - 1)) / 2;
   const scrollPos = useRef(new Animated.Value(selectedIndex * itemSize)).current;
+  // Captured once, at mount -- see the contentOffset prop below for why this
+  // must not track `selectedIndex`. Held in a ref so even the object identity
+  // is stable across renders.
+  const initialOffset = useRef(
+    horizontal ? { x: selectedIndex * itemSize, y: 0 } : { x: 0, y: selectedIndex * itemSize },
+  ).current;
   const settledIndexRef = useRef(selectedIndex);
   // True from the moment a finger touches this wheel until its settle
   // (drag-release commit, or the momentum coast that follows a flick) has
@@ -134,6 +166,8 @@ export function WheelPicker({
   // would strand the wheel showing an index the caller had already rejected).
   const [, forceResync] = useReducer((n: number) => n + 1, 0);
 
+  const busyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const cancelCorrecting = () => {
     correctingRef.current = false;
     if (correctingTimerRef.current) {
@@ -148,8 +182,40 @@ export function WheelPicker({
     forceResync();
   };
 
-  // Belt-and-suspenders: the safety timer must not outlive the component.
-  useEffect(() => cancelCorrecting, []);
+  // Marks the wheel busy and (re-)arms the backstop that guarantees the flag
+  // can't outlive the gesture -- see BUSY_SETTLE_MS/BUSY_MAX_DRAG_MS.
+  const beginBusy = (ms: number) => {
+    isBusyRef.current = true;
+    if (busyTimerRef.current) clearTimeout(busyTimerRef.current);
+    busyTimerRef.current = setTimeout(endBusy, ms);
+  };
+
+  const clearBusy = () => {
+    isBusyRef.current = false;
+    if (busyTimerRef.current) {
+      clearTimeout(busyTimerRef.current);
+      busyTimerRef.current = null;
+    }
+  };
+
+  // The settle that should have cleared isBusyRef never arrived. Drop the
+  // guard and force the render the resync effect needs, so the wheel catches
+  // up to whatever selectedIndex it was ignoring while wedged -- the same
+  // deferred-not-dropped handoff endCorrecting() does for correctingRef.
+  const endBusy = () => {
+    if (!isBusyRef.current) return;
+    clearBusy();
+    forceResync();
+  };
+
+  // Belt-and-suspenders: neither safety timer must outlive the component.
+  useEffect(
+    () => () => {
+      cancelCorrecting();
+      clearBusy();
+    },
+    [],
+  );
 
   // Dedupes a single physical release from committing twice. With
   // snapToInterval set, iOS keeps running its own momentum/settle pass to
@@ -242,7 +308,9 @@ export function WheelPicker({
     settledIndexRef.current = index;
     // The touch and its momentum are done. A corrective scroll may still be
     // animating, but that's correctingRef's job to cover, not this flag's.
-    isBusyRef.current = false;
+    // Disarms the backstop too: the settle arrived on its own, so there's
+    // nothing left for it to rescue.
+    clearBusy();
     if (alreadyCommitted) return; // see committedRef's own comment -- the other event already handled this exact settle
     if (index !== selectedIndex) {
       Haptics.selectionAsync();
@@ -313,13 +381,30 @@ export function WheelPicker({
         bounces={false}
         overScrollMode="never"
         contentContainerStyle={horizontal ? { paddingHorizontal: PAD } : { paddingVertical: PAD }}
-        contentOffset={
-          horizontal ? { x: selectedIndex * itemSize, y: 0 } : { x: 0, y: selectedIndex * itemSize }
-        }
+        // INITIAL parking position only -- deliberately frozen at its mount
+        // value, never recomputed from the live `selectedIndex`. RN forwards
+        // this straight through to the native scroll view as an ordinary prop
+        // (only experimental_endDraggingSensitivityMultiplier is stripped), so
+        // React re-sends it on any render where the value changed and the
+        // native side repositions the content there. That made it a SECOND,
+        // fully unguarded channel driving the same ScrollView the resync
+        // effect above guards so carefully: `selectedIndex` changing mid-drag
+        // is routine here (a paired wheel's clamp, a box-sync tick -- see that
+        // effect's own comment), and while the effect correctly skipped its
+        // scrollTo, this prop repositioned the view under the live touch
+        // anyway. Beyond the visible jump, a native pan recognizer whose view
+        // is moved out-of-band by something other than the gesture can end up
+        // CANCELLED rather than ended -- and cancellation never fires
+        // onScrollEndDrag/onMomentumScrollEnd, so commit() never ran, isBusyRef
+        // stayed set, and the wheel silently ignored `selectedIndex` from then
+        // on. That's the "still freezes sometimes" report: every earlier fix
+        // hardened the imperative scrollTo path, which was never the whole
+        // story. Position after mount is owned solely by scrollToIndex().
+        contentOffset={initialOffset}
         onScroll={onScroll}
         scrollEventThrottle={16}
         onScrollBeginDrag={() => {
-          isBusyRef.current = true;
+          beginBusy(BUSY_MAX_DRAG_MS);
           // A new touch supersedes any correction still in flight from the
           // last one; cancel rather than end it, since this drag will drive
           // the next commit anyway and forcing a resync render mid-gesture
@@ -343,7 +428,15 @@ export function WheelPicker({
           // picker/screen intermittently "glitching" or going unresponsive.
           onDragEnd?.();
           const velocity = horizontal ? e.nativeEvent.velocity?.x : e.nativeEvent.velocity?.y;
-          if (Math.abs(velocity ?? 0) > DRAG_SETTLE_VELOCITY) return; // momentum will settle the snap itself
+          if (Math.abs(velocity ?? 0) > DRAG_SETTLE_VELOCITY) {
+            // Handing this settle to onMomentumScrollEnd -- which is exactly
+            // the event some platforms decline to emit for a flick. Re-arm the
+            // backstop on the short post-release window now that the finger is
+            // off the screen, so a dropped momentum event can no longer leave
+            // isBusyRef set for the life of the component.
+            beginBusy(BUSY_SETTLE_MS);
+            return;
+          }
           commit(e);
         }}
       >
