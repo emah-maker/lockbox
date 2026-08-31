@@ -217,6 +217,34 @@ export default function StatsScreen() {
     [windowOnlySessions, selectedTopic],
   );
 
+  // A topic filter can outlive the topic it names. The retag affordance is
+  // ON this screen (SessionListSheet's onRetag, in both sheets below), so
+  // the ordinary "notice a mislabelled session while filtered to a topic,
+  // fix it right there" path relabels the last session carrying the very
+  // topic being filtered by. `topics` recomputes and drops it, but
+  // `selectedTopic` kept pointing at it -- and since every card reads
+  // topicScoped/scopedWindowed rather than `topics`, the whole screen read
+  // 0 sessions / 0m while the un-filtered "By topic" list beside it still
+  // listed the real ones. The only clue was an unlabelled "Clear filter"
+  // link, next to a donut with no highlighted segment to explain itself.
+  //
+  // Reconciled against the FULL session history, deliberately not against
+  // `topics` (which is windowed). Filtering to a topic and switching to a
+  // period it has no sessions in is a legitimate state whose correct answer
+  // IS zero -- "no study time today" -- and clearing the filter there would
+  // silently discard a choice the user just made. Only a topic that no
+  // session anywhere still carries is genuinely stale. An empty `sessions`
+  // is left alone so a deep link (useNav's intent.topic, consumed on mount)
+  // survives until the store has hydrated.
+  useEffect(() => {
+    if (!sessions.length) return;
+    const orphaned = (topic: string | null) => topic !== null && !sessions.some((s) => s.topic === topic);
+    if (orphaned(selectedTopic)) setSelectedTopic(null);
+    // Same rule for the topic sheet, which otherwise stayed open with an
+    // `undefined` title -- a blank header over an empty-state line.
+    if (orphaned(topicSheetKey)) setTopicSheetKey(null);
+  }, [sessions, selectedTopic, topicSheetKey]);
+
   const stats = useMemo(() => aggregate(scopedWindowed), [scopedWindowed]);
   const unwindowedStats = useMemo(() => aggregate(topicScoped), [topicScoped]);
   const comparisons = useMemo(() => topComparisons(stats.foc).slice(0, TOP_N), [stats.foc]);
