@@ -27,7 +27,7 @@ import TestRenderer, { act } from 'react-test-renderer';
 import { GoalForm } from './GoalForm';
 import { WheelPicker } from '../ui/WheelPicker';
 import { TopicChip } from './GoalTopicChips';
-import { Goal } from '../goals/goals';
+import { Goal, MAX_DAILY_TARGET_S } from '../goals/goals';
 import { resolveTheme } from '../theme/theme';
 
 jest.mock('expo-haptics', () => ({ selectionAsync: jest.fn() }));
@@ -170,5 +170,66 @@ describe('optional field groups', () => {
     expect(tree.root.findAllByType(TopicChip).length).toBeGreaterThan(0);
     pressRow(tree, 'Reminders, Off');
     expect(tree.root.findAllByType(TopicChip)).toHaveLength(0);
+  });
+});
+
+// The weekly/monthly Days wheel shrinks Hours/Minutes to a single "0" once
+// Days is maxed, so the wheels can never build a value past the period's
+// bound. Daily has the same boundary one wheel to the left --
+// MAX_DAILY_TARGET_S is exactly 24h, and hourLabelsFor('daily') includes
+// "24h" so that max is reachable -- but only the Days half was guarded, so
+// daily let the wheels reach 24h05m with the submit button still enabled.
+describe('daily target wheels cannot build a value past the daily maximum', () => {
+  const wheels = (tree: TestRenderer.ReactTestRenderer) => tree.root.findAllByType(WheelPicker);
+  const dailyGoal: Goal = { ...goal('goal-daily', 3600), period: 'daily' };
+
+  const mountDaily = () => {
+    let tree!: TestRenderer.ReactTestRenderer;
+    act(() => {
+      tree = TestRenderer.create(
+        <GoalForm
+          initial={dailyGoal}
+          customLabels={[]}
+          themeMode="dark"
+          color={theme}
+          error={null}
+          submitLabel="Save goal"
+          onSubmit={() => {}}
+          onCancel={() => {}}
+          onWheelActiveChange={() => {}}
+        />,
+      );
+    });
+    mounted.push(tree);
+    return tree;
+  };
+
+  it('offers only "00m" once Hours is at the daily maximum', () => {
+    const tree = mountDaily();
+    // Daily has two wheels: [hours, minutes].
+    const [hoursWheel] = wheels(tree);
+    act(() => hoursWheel.props.onChange(24)); // 24h
+    const [, minutesWheel] = wheels(tree);
+    expect(minutesWheel.props.labels).toEqual(['00m']);
+  });
+
+  it('forces Minutes back to 0 when Hours is scrolled to the maximum', () => {
+    const tree = mountDaily();
+    let [hoursWheel, minutesWheel] = wheels(tree);
+    act(() => minutesWheel.props.onChange(1)); // 05m first
+    [hoursWheel, minutesWheel] = wheels(tree);
+    act(() => hoursWheel.props.onChange(24)); // then 24h -- 24h05m would overshoot
+    [hoursWheel, minutesWheel] = wheels(tree);
+    // Index 0 of a single-entry ['00m'] list, i.e. zero minutes.
+    expect(minutesWheel.props.selectedIndex).toBe(0);
+    expect(minutesWheel.props.labels).toEqual(['00m']);
+  });
+
+  it('still lets the exact daily maximum be reached', () => {
+    // 24h00m == MAX_DAILY_TARGET_S must stay selectable; the guard shrinks
+    // Minutes, it does not cap Hours below the max.
+    const tree = mountDaily();
+    const [hoursWheel] = wheels(tree);
+    expect(hoursWheel.props.labels).toContain(`${MAX_DAILY_TARGET_S / 3600}h`);
   });
 });

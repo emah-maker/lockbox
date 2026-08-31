@@ -230,9 +230,19 @@ function GoalForm({
   const showDaysWheel = showsDaysWheel(period);
   const maxDays = maxDaysFor(period);
   const atMaxDays = showDaysWheel && days >= maxDays;
+  // Daily has the SAME boundary, one wheel to the left: MAX_DAILY_TARGET_S
+  // is 86400 == exactly 24h, so hours-at-max also requires minutes at 0, and
+  // hourLabelsFor('daily') deliberately includes "24h" so that exact max is
+  // reachable. Only the Days-wheel half of this was ever guarded, so daily
+  // let the wheels build 24h05m -- past the max, with the submit button
+  // still enabled, because `disabled` only tests the lower bound. The throw
+  // from validateGoalFields IS caught and shown, so nothing breaks; the user
+  // just gets a goal that refuses to save and a message to work backwards
+  // from, which is precisely what shrinking the wheels exists to avoid.
+  const atMaxHours = !showDaysWheel && hours >= PERIOD_MAX_HOURS[period];
   const dayLabels = showDaysWheel ? dayLabelsFor(period) : [];
   const hourLabels = showDaysWheel ? (atMaxDays ? ['0h'] : HOUR_OF_DAY_LABELS) : hourLabelsFor(period);
-  const minuteLabels = showDaysWheel && atMaxDays ? ['00m'] : MINUTE_LABELS;
+  const minuteLabels = atMaxDays || atMaxHours ? ['00m'] : MINUTE_LABELS;
   // Three wheels at WheelPicker's own 90pt default would need 286pt of row
   // (3*90 + 2*8 gap), which overflows a 320pt-wide device once the sheet's
   // horizontal padding is taken out. Two wheels keep the default.
@@ -262,6 +272,19 @@ function GoalForm({
   // period's bound.
   const setDaysClamped = (nextDays: number) => {
     const parts = clampPartsForPeriod({ days: nextDays, hours, minutes }, period);
+    setDays(parts.days);
+    setHours(parts.hours);
+    setMinutes(parts.minutes);
+  };
+
+  // The Hours wheel's counterpart, for the daily layout that has no Days
+  // wheel to clamp through: scrolling Hours to the period max forces Minutes
+  // back to 0 in the same state update, so the pair can never sit at a
+  // combination past the bound even for the render between the two.
+  // Routed through the same clampPartsForPeriod the Days wheel uses rather
+  // than a second rule, so there is one definition of "too big" in the form.
+  const setHoursClamped = (nextHours: number) => {
+    const parts = clampPartsForPeriod({ days, hours: nextHours, minutes }, period);
     setDays(parts.days);
     setHours(parts.hours);
     setMinutes(parts.minutes);
@@ -356,7 +379,7 @@ function GoalForm({
         <WheelPicker
           labels={hourLabels}
           selectedIndex={Math.min(hours, hourLabels.length - 1)}
-          onChange={(i) => setHours(i)}
+          onChange={setHoursClamped}
           crossAxisSize={wheelWidth}
           onDragStart={() => onWheelActiveChange(true)}
           onDragEnd={() => onWheelActiveChange(false)}
