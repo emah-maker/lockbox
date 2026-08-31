@@ -163,7 +163,7 @@ while True:
     if btn_override is not None:
         v = btn_override.value
         if _prev_override and not v:
-            ctrl.press_override()
+            ctrl.press_override(now)
             last_activity = now
             backlight.on()
         _prev_override = v

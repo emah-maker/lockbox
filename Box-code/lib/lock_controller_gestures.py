@@ -34,14 +34,25 @@ class GestureMixin:
         if self.state == "idle":
             self.go_closed(now)
 
-    def press_override(self):
+    def press_override(self, now=None):
         """Button 2: count presses while locked (with on-screen counter);
         force-unlock at the limit. Also usable from the post-timeout "done,
         not yet opened" holding state (auto_open off -- see go_done), since
         the box is still physically shut there and override stays the
         always-available emergency path; NOT usable once the box is actually
         open (auto_open on, or already forced open) -- nothing left to
-        override."""
+        override.
+
+        Takes `now` for the same reason press_lock does. self._now is only
+        written by process() and update(), and code.py polls the buttons
+        BETWEEN those two calls -- so a press read here carried the previous
+        frame's timestamp. While the screen is asleep process() is skipped
+        entirely and the loop drops to FRAME_ASLEEP_S, making that stamp a
+        full 100ms old -- a tenth of the (now 1.0s) default override window,
+        thrown away on every press of a sequence that has to stay unbroken.
+        Defaults to None -> self._now so the older no-arg call still works."""
+        if now is None:
+            now = self._now
         if self.state == "done":
             # Whether there's still something to override in "done" is
             # whether the box is still physically shut, not whether a
@@ -56,14 +67,14 @@ class GestureMixin:
         elif self.state not in ("running", "closed"):
             return
         self._override += 1
-        self._override_at = self._now
+        self._override_at = now
         target = self.settings.override_presses
         if self._override >= target:
             self._clear_override()
             if self.state == "done":
                 self.go_idle()   # force-open the holding state; flushes the deferred log
             else:
-                self.go_done(self._now, OVERRIDDEN)  # unlock -> done; sensor ignored until RESET
+                self.go_done(now, OVERRIDDEN)  # unlock -> done; sensor ignored until RESET
         else:
             self.ui.show_override(self._override, target)
             # each press resets the timeout, so the countdown bar restarts full
