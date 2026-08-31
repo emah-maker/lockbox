@@ -97,21 +97,62 @@ describe('formatShortDate', () => {
 });
 
 describe('providerActionErrorMessage', () => {
+  // What a real Firebase SDK rejection looks like: a `.code`, and a `.message`
+  // that is developer-facing whatever the code is.
+  const sdk = (code: string) => ({ code, message: `Firebase: Error (${code}).` });
+
   it('maps known link/unlink error codes to friendly, credential-free text', () => {
-    expect(providerActionErrorMessage('auth/credential-already-in-use', 'fallback')).toBe(
+    expect(providerActionErrorMessage(sdk('auth/credential-already-in-use'), 'fallback')).toBe(
       'That account is already linked to a different sign-in.',
     );
-    expect(providerActionErrorMessage('auth/email-already-in-use', 'fallback')).toBe(
+    expect(providerActionErrorMessage(sdk('auth/email-already-in-use'), 'fallback')).toBe(
       'That account is already linked to a different sign-in.',
     );
-    expect(providerActionErrorMessage('auth/provider-already-linked', 'fallback')).toBe(
+    expect(providerActionErrorMessage(sdk('auth/provider-already-linked'), 'fallback')).toBe(
       'That sign-in method is already linked.',
     );
   });
 
-  it('falls back to the caller-supplied message for anything else', () => {
-    expect(providerActionErrorMessage('auth/network-request-failed', 'fallback')).toBe('fallback');
+  it('never renders a raw SDK message, whatever the code', () => {
+    // The bug this signature exists to make impossible: SignInMethodsSection's
+    // link handler passed `e.message` as the fallback, so any code outside the
+    // three above put "Firebase: Error (...)" on the Account screen.
+    for (const code of ['auth/network-request-failed', 'auth/internal-error', 'auth/weird-future-code']) {
+      const shown = providerActionErrorMessage(sdk(code), 'Could not link account. Please try again.');
+      expect(shown).not.toMatch(/Firebase:/);
+      expect(shown).not.toMatch(code);
+    }
+  });
+
+  it('reuses the shared table so a link failure reads like a sign-in failure', () => {
+    expect(providerActionErrorMessage(sdk('auth/network-request-failed'), 'fallback')).toBe(
+      'No connection. Check your network and try again.',
+    );
+    expect(providerActionErrorMessage(sdk('auth/too-many-requests'), 'fallback')).toBe(
+      'Too many attempts. Try again later.',
+    );
+  });
+
+  it('falls back to the caller-supplied message for an unrecognized code', () => {
+    expect(providerActionErrorMessage(sdk('auth/weird-future-code'), 'fallback')).toBe('fallback');
+  });
+
+  it('returns null for a user-initiated cancel, so nothing is shown', () => {
+    // googleAuth/appleAuth throw a plain Error (no `.code`) on cancel.
+    expect(providerActionErrorMessage(new Error('Google Sign-In was cancelled.'), 'fallback')).toBeNull();
+    expect(providerActionErrorMessage(new Error('Apple Sign-In was cancelled.'), 'fallback')).toBeNull();
+  });
+
+  it("shows this codebase's own thrown messages as-is, since they are already safe", () => {
+    expect(providerActionErrorMessage(new Error('Cannot remove your only sign-in method.'), 'fallback')).toBe(
+      'Cannot remove your only sign-in method.',
+    );
+  });
+
+  it('falls back when there is no error object or no message at all', () => {
     expect(providerActionErrorMessage(undefined, 'fallback')).toBe('fallback');
+    expect(providerActionErrorMessage(null, 'fallback')).toBe('fallback');
+    expect(providerActionErrorMessage({ message: '' }, 'fallback')).toBe('fallback');
   });
 });
 

@@ -85,21 +85,51 @@ export function formatShortDate(isoString: string | null): string | null {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-/** Friendly, credential-free text for the link/unlink error codes Firebase
- * can throw (auth/credential-already-in-use when the credential is already
- * tied to a different Firebase user, auth/provider-already-linked on a
- * stale double-tap) -- falls back to the caller-supplied generic message for
- * anything else. Matches this codebase's "never surface a raw Firebase
- * error payload" discipline (design doc §5 checklist item 3) without
- * needing every call site to duplicate this code/message table. */
-export function providerActionErrorMessage(code: string | undefined, fallback: string): string {
+/**
+ * Friendly, credential-free text for a failed link/unlink action -- the
+ * already-signed-in counterpart to signInErrorMessage below, and it follows
+ * that function's rules exactly rather than a looser set of its own.
+ *
+ * Takes the ERROR, not `(code, fallback)`. That earlier signature made the
+ * caller decide when `e.message` was safe to pass as the fallback, and one
+ * of the two call sites got it wrong: SignInMethodsSection's link handler
+ * passed `e.message` itself, so every code outside the three below rendered
+ * the raw SDK string ("Firebase: Error (auth/network-request-failed).")
+ * straight into the Account screen -- the exact thing design doc §5
+ * checklist item 3 forbids, arrived at by way of the helper that exists to
+ * prevent it. Only this function can safely judge that, because the judgement
+ * depends on whether `.code` is set, so only this function is asked to.
+ *
+ * Returns null for "show nothing": a user-initiated cancel, which
+ * googleAuth/appleAuth throw as a plain Error whose message contains
+ * "cancel" -- same convention, and same null return, as signInErrorMessage.
+ */
+export function providerActionErrorMessage(
+  e: { code?: string; message?: string } | null | undefined,
+  fallback: string,
+): string | null {
+  const message = typeof e?.message === 'string' ? e.message : '';
+  if (/cancel/i.test(message)) return null;
+
+  const code = e?.code;
   if (code === 'auth/credential-already-in-use' || code === 'auth/email-already-in-use') {
     return 'That account is already linked to a different sign-in.';
   }
   if (code === 'auth/provider-already-linked') {
     return 'That sign-in method is already linked.';
   }
-  return fallback;
+  if (code) {
+    // A real Firebase SDK error. Its `.message` is developer-facing whatever
+    // the code, so it is never rendered -- the shared table first (a link
+    // dropping the network deserves the same "No connection" wording a
+    // sign-in gets, rather than a vaguer one just because it came from a
+    // different screen), then the caller's own generic line.
+    return SIGN_IN_ERROR_MESSAGES[code] ?? fallback;
+  }
+  // No `.code`: one of this codebase's own thrown Errors, whose message is
+  // already a static, credential-free string safe to show -- the same
+  // reasoning signInErrorMessage's final branch gives.
+  return message || fallback;
 }
 
 /** Shared by signInErrorMessage below and useAuthStore.ts's init()/

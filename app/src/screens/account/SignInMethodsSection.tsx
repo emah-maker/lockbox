@@ -52,8 +52,12 @@ export function SignInMethodsSection({ color }: { color: ReturnType<typeof useTh
     try {
       await linkProvider(provider);
     } catch (e: any) {
-      const fallback = typeof e?.message === 'string' ? e.message : 'Could not link account. Please try again.';
-      if (!/cancel/i.test(fallback)) setError(providerActionErrorMessage(e?.code, fallback));
+      // The cancel check and the "is this message safe to render" judgement
+      // both live in providerActionErrorMessage now -- it returns null for a
+      // user-initiated cancel, so there is nothing to suppress here. This
+      // used to pass `e.message` as the fallback, which handed the raw SDK
+      // string straight back for any code the mapping didn't cover.
+      setError(providerActionErrorMessage(e, 'Could not link account. Please try again.'));
     } finally {
       setBusyProvider(null);
     }
@@ -74,8 +78,7 @@ export function SignInMethodsSection({ color }: { color: ReturnType<typeof useTh
             try {
               await unlinkProvider(provider);
             } catch (e: any) {
-              const fallback = 'Could not remove that sign-in method. Please try again.';
-              setError(providerActionErrorMessage(e?.code, fallback));
+              setError(providerActionErrorMessage(e, 'Could not remove that sign-in method. Please try again.'));
             } finally {
               setBusyProvider(null);
             }
