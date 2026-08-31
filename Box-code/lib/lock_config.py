@@ -197,6 +197,17 @@ RADIUS_BTN_LG = 12    # primary LOCK/OPEN button (larger element)
 BAT_GAUGE_ADDR = 0x36        # MAX17043 I2C address (fixed in silicon)
 BAT_CAPACITY_MAH = 5000      # battery pack size (set to your cell) -- watt estimate only
 
+# Power draw is a derivative of state of charge, so it needs a measuring window
+# wide enough for the charge to actually move. The SOC register's LSB is 1/256%
+# = 0.0039% -- on a 5000 mAh pack, 0.195 mAh. At a typical ~1 W draw the pack
+# loses ~0.073 mAh/s, so a one-second window is BELOW the gauge's resolution and
+# reads a flat zero; ~20 s puts several LSBs inside the window. The ceiling is
+# what caps a stale reading when draw drops: after this long with no measurable
+# change, the true draw must be under what one LSB over that span implies, so
+# the displayed number is pulled down to that bound instead of sitting high.
+BAT_WATT_WINDOW_S = 20.0     # min span before a draw estimate is computed
+BAT_WATT_CEILING_S = 60.0    # after this long with no change, decay the estimate
+
 # Backlight brightness (0.0-1.0), the default level applied at startup
 # (lock_power.Backlight) before the user's own bright_pct setting takes over.
 BL_LEVEL = 0.5
