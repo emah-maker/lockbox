@@ -1,20 +1,24 @@
 // Unit tests for the pure trend helpers. Run with `npm test` (jest-expo).
 import { lastNDays, lastNDaysHeatmap, bestDay } from './trend';
 import { LoggedSession } from './sessionHistory';
+import { CustomLabel } from './customLabels';
 
 // Wednesday, noon local time, so days both before and after in the window
 // stay inside the same month.
 const NOW = new Date(2026, 6, 15, 12, 0, 0).getTime(); // 2026-07-15
 const DAY_MS = 86400000;
 
-function sessionOnDaysAgo(daysAgo: number, actualS: number): LoggedSession {
+function sessionOnDaysAgo(daysAgo: number, actualS: number, topic?: string): LoggedSession {
   return {
     startedAt: NOW - daysAgo * DAY_MS,
     plannedS: actualS,
     actualS,
     outcome: 'completed',
+    topic,
   };
 }
+
+const SLEEP_LABEL: CustomLabel[] = [{ id: 'custom:sleep', name: 'Sleep', color: '#123456', excludeFromTotals: true }];
 
 describe('lastNDays', () => {
   it('returns `days` entries, oldest first, ending on today', () => {
@@ -41,6 +45,17 @@ describe('lastNDays', () => {
   it('ignores sessions outside the window', () => {
     const totals = lastNDays([sessionOnDaysAgo(30, 999)], 7, NOW);
     expect(totals.reduce((sum, d) => sum + d.focusS, 0)).toBe(0);
+  });
+
+  it('excludes a session tagged with an excludeFromTotals label from its day\'s total', () => {
+    const sessions = [sessionOnDaysAgo(0, 300, 'work'), sessionOnDaysAgo(0, 28800, 'custom:sleep')];
+    const totals = lastNDays(sessions, 7, NOW, SLEEP_LABEL);
+    expect(totals[6].focusS).toBe(300);
+  });
+
+  it('omitting labels counts everything, same as before this parameter existed', () => {
+    const sessions = [sessionOnDaysAgo(0, 300, 'custom:sleep')];
+    expect(lastNDays(sessions, 7, NOW)[6].focusS).toBe(300);
   });
 });
 
@@ -93,6 +108,12 @@ describe('bestDay with a window', () => {
     const sessions = [sessionOnDaysAgo(60, 500)];
     expect(bestDay(sessions, 'week', NOW)).toBeNull();
   });
+
+  it('excludes an excludeFromTotals label\'s time so a day of pure "Sleep" is never the best day', () => {
+    const sessions = [sessionOnDaysAgo(0, 28800, 'custom:sleep'), sessionOnDaysAgo(1, 100, 'work')];
+    const best = bestDay(sessions, 'all', NOW, SLEEP_LABEL);
+    expect(best?.focusS).toBe(100);
+  });
 });
 
 describe('lastNDaysHeatmap', () => {
@@ -114,5 +135,11 @@ describe('lastNDaysHeatmap', () => {
   it('is unaffected by sessions outside the 35-day window', () => {
     const days = lastNDaysHeatmap([sessionOnDaysAgo(100, 999)], NOW);
     expect(days.every((d) => d.focusS === 0 && d.level === 0)).toBe(true);
+  });
+
+  it('excludes an excludeFromTotals label from every cell\'s total/level', () => {
+    const sessions = [sessionOnDaysAgo(0, 28800, 'custom:sleep')];
+    const days = lastNDaysHeatmap(sessions, NOW, SLEEP_LABEL);
+    expect(days[34]).toMatchObject({ focusS: 0, level: 0 });
   });
 });

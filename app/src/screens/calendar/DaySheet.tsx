@@ -39,6 +39,7 @@ export function DaySheet({
   goals,
   theme,
   customLabels,
+  excludedTopicKeys,
   themeMode,
   onRetag,
 }: {
@@ -50,6 +51,11 @@ export function DaySheet({
   goals: Goal[];
   theme: ThemeColors;
   customLabels: CustomLabel[];
+  /** Built-in topics excluded from totals/goals/streaks (stats/
+   * customLabels.ts) -- forwarded to allLabelChoices below so the retag
+   * picker's "Not counted" tag (LabelPickerSheet.tsx) shows for an excluded
+   * built-in the same way it already does for an excluded custom label. */
+  excludedTopicKeys?: string[];
   themeMode: 'dark' | 'light';
   onRetag: (target: LoggedSession, topic: string | undefined) => void;
 }) {
@@ -177,7 +183,7 @@ export function DaySheet({
 
       <LabelPickerSheet
         visible={taggingSession !== null}
-        choices={allLabelChoices(customLabels, themeMode)}
+        choices={allLabelChoices(customLabels, themeMode, excludedTopicKeys)}
         current={taggingSession ? resolveTopic(taggingSession.topic, customLabels, themeMode)?.id : undefined}
         theme={theme}
         onClose={() => setTaggingSession(null)}

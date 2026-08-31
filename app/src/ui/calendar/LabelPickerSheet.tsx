@@ -54,6 +54,17 @@ export function LabelPickerSheet({
           >
             <View style={[styles.dot, { backgroundColor: choice.color }]} />
             <Text style={[styles.rowLabel, { color: theme.text }]}>{choice.label}</Text>
+            {/* Doesn't change what's pickable -- an excluded label tags a
+                session exactly the same as any other (this file's own
+                header: "still pickable for tagging a session"). Only flags,
+                for whoever's about to pick it, that this one's time won't
+                show up in totals/goals/streaks/the heat map
+                (stats/customLabels.ts's sessionCountsTowardTotals). */}
+            {choice.excludedFromTotals && (
+              <Text style={[styles.excludedTag, { color: theme.textDim, borderColor: theme.textDim }]}>
+                Not counted
+              </Text>
+            )}
             {current === choice.id && <Feather name="check" size={16} color={theme.accent} />}
           </AnimatedPressable>
         ))}
@@ -85,5 +96,13 @@ const styles = StyleSheet.create({
     flex: 1,
     letterSpacing: typeScale.body.letterSpacing,
     lineHeight: typeScale.body.lineHeight,
+  },
+  excludedTag: {
+    fontSize: 11,
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    letterSpacing: typeScale.caption.letterSpacing,
   },
 });

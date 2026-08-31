@@ -83,6 +83,7 @@ export function GoalsSection({
 }) {
   const sessions = useStore((s) => s.sessions);
   const customLabels = useSettingsStore((s) => s.customLabels);
+  const excludedTopicKeys = useSettingsStore((s) => s.excludedTopicKeys);
   const themeMode = useSettingsStore((s) => s.themeMode);
   const goals = useGoalsStore((s) => s.goals);
   const addGoal = useGoalsStore((s) => s.addGoal);
@@ -153,9 +154,13 @@ export function GoalsSection({
   // goal's window boundary is a render-time fact, not a prop -- and this
   // recomputes on every sessions/goals change anyway, which is the only time
   // a bar can actually move.
+  // customLabels/excludedTopicKeys so a session tagged with an
+  // excludeFromTotals label, or an excluded built-in topic (stats/
+  // customLabels.ts), never advances a goal's bar here, matching every other
+  // computeGoalProgress call site in the app.
   const progress = React.useMemo(
-    () => computeGoalProgress(goals, sessions, Date.now()),
-    [goals, sessions],
+    () => computeGoalProgress(goals, sessions, Date.now(), customLabels, excludedTopicKeys),
+    [goals, sessions, customLabels, excludedTopicKeys],
   );
   const progressById = React.useMemo(
     () => new Map(progress.map((p) => [p.goalId, p])),

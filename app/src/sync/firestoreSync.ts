@@ -208,7 +208,7 @@ export async function runMigrationAndSync(uid: string): Promise<void> {
   }
 }
 
-/** Two-way last-write-wins merge for the four account-level settings fields (§4.2). */
+/** Two-way last-write-wins merge for the five account-level settings fields (§4.2). */
 async function syncSettingsTwoWay(uid: string, guard: () => void): Promise<void> {
   const db = getDb();
   const ref = doc(db, 'users', uid, 'settings', 'app');
@@ -240,6 +240,7 @@ function localSettingsPayload(local: ReturnType<typeof useSettingsStore.getState
     accent: local.accent,
     callAlertsEnabled: local.callAlertsEnabled,
     customLabels: local.customLabels,
+    excludedTopicKeys: local.excludedTopicKeys,
     updatedAt: local.settingsUpdatedAt,
   };
 }

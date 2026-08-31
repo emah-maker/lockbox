@@ -27,6 +27,7 @@
 // just one more pure module reused instead of re-derived.
 import { groupByDay, dayKey, type LoggedSession } from '../../stats/sessionHistory';
 import { lastNDays } from '../../stats/trend';
+import { CustomLabel, filterCountedSessions } from '../../stats/customLabels';
 // The three sources added after the original five live next door -- see
 // idleRingSources.ts's header for why.
 import { computeSessionCountRingProgress, computePaceRingProgress } from './idleRingSources';
@@ -391,9 +392,20 @@ function dayKeyOffset(nowMs: number, offsetDays: number): string {
  * session -- 0 if today itself has no focus time yet (an idle ring on a
  * fresh day before the first session shouldn't claim yesterday's streak is
  * still "current"; today has to have already contributed). Walks backward
- * one day at a time and stops at the first day with no sessions at all. */
-export function computeDailyStreak(sessions: LoggedSession[], nowMs: number = Date.now()): number {
-  const byDay = groupByDay(sessions);
+ * one day at a time and stops at the first day with no sessions at all.
+ *
+ * `labels` and `excludedTopicKeys` (both default `[]`) are run through
+ * customLabels.ts's filterCountedSessions before bucketing by day, same as
+ * stats/trend.ts's bestDay/lastNDays -- a day where every session was tagged
+ * with an excludeFromTotals label (e.g. only "Sleep"), or with an excluded
+ * built-in topic, doesn't count as a day this streak was kept. */
+export function computeDailyStreak(
+  sessions: LoggedSession[],
+  nowMs: number = Date.now(),
+  labels: CustomLabel[] = [],
+  excludedTopicKeys: string[] = [],
+): number {
+  const byDay = groupByDay(filterCountedSessions(sessions, labels, excludedTopicKeys));
   let streak = 0;
   for (let i = 0; i < MAX_STREAK_DAYS; i++) {
     if (!byDay.has(dayKeyOffset(nowMs, i))) break;
@@ -415,9 +427,17 @@ function nextDayKey(key: string): string {
 /** The longest run of consecutive calendar days with at least one logged
  * session anywhere in history -- a single linear pass over every distinct
  * day key present (sorted -- 'Y-M-D' zero-padded keys sort chronologically
- * as plain strings, so no date parsing is needed just to order them). */
-export function computeLongestDailyStreak(sessions: LoggedSession[]): number {
-  const byDay = groupByDay(sessions);
+ * as plain strings, so no date parsing is needed just to order them).
+ *
+ * `labels` and `excludedTopicKeys` (both default `[]`) exclude
+ * `excludeFromTotals`-tagged/excluded-built-in-topic sessions before
+ * bucketing, same as computeDailyStreak above. */
+export function computeLongestDailyStreak(
+  sessions: LoggedSession[],
+  labels: CustomLabel[] = [],
+  excludedTopicKeys: string[] = [],
+): number {
+  const byDay = groupByDay(filterCountedSessions(sessions, labels, excludedTopicKeys));
   const keys = Array.from(byDay.keys()).sort();
   let longest = 0;
   let run = 0;
@@ -437,9 +457,19 @@ export function computeLongestDailyStreak(sessions: LoggedSession[]): number {
  * day-bucketing every other trend view in this app draws from) for 8 days
  * (today + the 7 before it), then averages every day except the last
  * (today). 0 when there's no prior history at all (a brand-new install) --
- * computeRollingAverageRingProgress above is what guards dividing by that. */
-export function computeRollingAverageS(sessions: LoggedSession[], nowMs: number = Date.now()): number {
-  const days = lastNDays(sessions, 8, nowMs);
+ * computeRollingAverageRingProgress above is what guards dividing by that.
+ *
+ * `labels` and `excludedTopicKeys` (both default `[]`) are forwarded straight
+ * to lastNDays, so an excludeFromTotals label's (or excluded built-in
+ * topic's) time is out of both the average AND the "today" side of the
+ * comparison this ring draws -- see lastNDays's own comment. */
+export function computeRollingAverageS(
+  sessions: LoggedSession[],
+  nowMs: number = Date.now(),
+  labels: CustomLabel[] = [],
+  excludedTopicKeys: string[] = [],
+): number {
+  const days = lastNDays(sessions, 8, nowMs, labels, excludedTopicKeys);
   const prior = days.slice(0, -1);
   if (!prior.length) return 0;
   return prior.reduce((sum, d) => sum + d.focusS, 0) / prior.length;

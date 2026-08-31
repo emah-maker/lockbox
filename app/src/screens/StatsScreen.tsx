@@ -80,6 +80,7 @@ export default function StatsScreen() {
   const sessions = useStore((s) => s.sessions);
   const themeMode = useSettingsStore((s) => s.themeMode);
   const customLabels = useSettingsStore((s) => s.customLabels);
+  const excludedTopicKeys = useSettingsStore((s) => s.excludedTopicKeys);
   const retagSession = useStore((s) => s.retagSession);
   // The session whose label is being changed, or null. Reuses the exact
   // picker + retagSession path CalendarScreen's day sheet already uses, so
@@ -245,12 +246,33 @@ export default function StatsScreen() {
     if (orphaned(topicSheetKey)) setTopicSheetKey(null);
   }, [sessions, selectedTopic, topicSheetKey]);
 
-  const stats = useMemo(() => aggregate(scopedWindowed), [scopedWindowed]);
-  const unwindowedStats = useMemo(() => aggregate(topicScoped), [topicScoped]);
+  // Every aggregate below is handed `customLabels`/`excludedTopicKeys` so a
+  // session tagged with an excludeFromTotals label, or an excluded built-in
+  // topic (stats/customLabels.ts), drops out of the total/comparisons/trend/
+  // heatmap the same way it does everywhere else that counts -- while still
+  // appearing in `topics` above and in the session-list sheets below, which
+  // never filter by this flag.
+  const stats = useMemo(
+    () => aggregate(scopedWindowed, customLabels, excludedTopicKeys),
+    [scopedWindowed, customLabels, excludedTopicKeys],
+  );
+  const unwindowedStats = useMemo(
+    () => aggregate(topicScoped, customLabels, excludedTopicKeys),
+    [topicScoped, customLabels, excludedTopicKeys],
+  );
   const comparisons = useMemo(() => topComparisons(stats.foc).slice(0, TOP_N), [stats.foc]);
-  const best = useMemo(() => bestDay(topicScoped), [topicScoped]);
-  const trend = useMemo(() => lastNDays(topicScoped), [topicScoped]);
-  const heatmap = useMemo(() => lastNDaysHeatmap(topicScoped), [topicScoped]);
+  const best = useMemo(
+    () => bestDay(topicScoped, 'all', Date.now(), customLabels, excludedTopicKeys),
+    [topicScoped, customLabels, excludedTopicKeys],
+  );
+  const trend = useMemo(
+    () => lastNDays(topicScoped, 7, Date.now(), customLabels, excludedTopicKeys),
+    [topicScoped, customLabels, excludedTopicKeys],
+  );
+  const heatmap = useMemo(
+    () => lastNDaysHeatmap(topicScoped, Date.now(), customLabels, excludedTopicKeys),
+    [topicScoped, customLabels, excludedTopicKeys],
+  );
 
   const daySheetSessions: LoggedSession[] = daySheetKey
     ? topicScoped.filter((s) => dayKey(s.startedAt) === daySheetKey)
@@ -375,7 +397,7 @@ export default function StatsScreen() {
           two-Modal layering DaySheet.tsx already uses for this picker. */}
       <LabelPickerSheet
         visible={retagTarget !== null}
-        choices={allLabelChoices(customLabels, themeMode)}
+        choices={allLabelChoices(customLabels, themeMode, excludedTopicKeys)}
         current={retagTarget ? resolveTopic(retagTarget.topic, customLabels, themeMode)?.id : undefined}
         theme={c}
         onClose={() => setRetagTarget(null)}

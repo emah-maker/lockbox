@@ -27,6 +27,23 @@ export const TOPIC_LABELS: Record<TopicKey, string> = {
   other: 'Other',
 };
 
+/** Type-safe test for "is this one of the six real built-in topic keys".
+ * Deliberately NOT `value in TOPIC_LABELS` (or `in TOPIC_HEX`) -- both are
+ * plain object literals, so the `in` operator also matches anything
+ * inherited from `Object.prototype` (`toString`, `constructor`,
+ * `hasOwnProperty`, `valueOf`, `__proto__`, ...). A one-time free-text tag
+ * (screens/TopicPicker.tsx's "Type a label..." field, or a session synced
+ * from another client) can be literally the string "toString" -- `in` would
+ * then treat it as the built-in TopicKey "toString", index TOPIC_HEX with
+ * it, and get back the INHERITED `Function.prototype.toString` instead of a
+ * color, corrupting every screen that resolves the topic (and, before this
+ * fix, letting such a tag silently ride sessionCountsTowardTotals'
+ * excludedTopicKeys check as if it were a real built-in). TOPIC_KEYS is a
+ * plain array, so `.includes` has no such inherited-property hazard. */
+export function isTopicKey(value: string): value is TopicKey {
+  return (TOPIC_KEYS as string[]).includes(value);
+}
+
 const TOPIC_HEX: Record<TopicKey, { light: string; dark: string }> = {
   work: { light: '#2a78d6', dark: '#3987e5' },
   study: { light: '#eb6834', dark: '#d95926' },
@@ -80,7 +97,7 @@ export function topicBreakdown(sessions: LoggedSession[], mode: ThemeMode): Topi
   const totals = new Map<TopicKey, { focusS: number; n: number }>();
   for (const s of sessions) {
     const key = s.topic as TopicKey | undefined;
-    if (!key || !(key in TOPIC_LABELS)) continue;
+    if (!key || !isTopicKey(key)) continue;
     const cur = totals.get(key) ?? { focusS: 0, n: 0 };
     cur.focusS += s.actualS;
     cur.n += 1;

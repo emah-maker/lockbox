@@ -13,7 +13,7 @@
 // is load-bearing too -- a themeMode this build has never heard of used to
 // crash resolveTheme on the first render after sign-in.
 import { normalizeAccent, normalizeThemeMode } from '../theme/theme';
-import { sanitizeCustomLabels } from '../stats/customLabels';
+import { sanitizeCustomLabels, sanitizeExcludedTopicKeys } from '../stats/customLabels';
 import type { SyncableSettings } from '../store/useSettingsStore';
 
 /** What the sync should do about settings/app, given both sides. */
@@ -49,6 +49,7 @@ export function sanitizeRemoteSettings(remote: Partial<SyncableSettings> | undef
     accent: normalizeAccent(remote?.accent),
     callAlertsEnabled: !!remote?.callAlertsEnabled,
     customLabels: sanitizeCustomLabels(remote?.customLabels),
+    excludedTopicKeys: sanitizeExcludedTopicKeys(remote?.excludedTopicKeys),
   };
 }
 
@@ -57,7 +58,7 @@ export function sanitizeRemoteSettings(remote: Partial<SyncableSettings> | undef
  *
  * Whole-document last-write-wins on `updatedAt`, a client-side logical clock
  * (firestore.rules' settings/app block says the same). Deliberately NOT the
- * per-field union the goals merge does: these four fields are set together
+ * per-field union the goals merge does: these five fields are set together
  * from one screen, and a device that is behind is behind on all of them --
  * whereas two goals edited on two devices are genuinely independent facts.
  *

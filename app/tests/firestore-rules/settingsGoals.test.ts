@@ -60,6 +60,7 @@ describe('settings/app', () => {
         accent: 'blue',
         callAlertsEnabled: true,
         customLabels: [],
+        excludedTopicKeys: [],
         updatedAt: 2,
       }),
     );
@@ -70,6 +71,22 @@ describe('settings/app', () => {
     await assertFails(
       setDoc(doc(db, `users/${OWNER}/settings/app`), {
         customLabels: Array.from({ length: 41 }, (_, i) => ({ id: `l${i}`, name: `Label ${i}` })),
+        excludedTopicKeys: [],
+        updatedAt: 1,
+      }),
+    );
+  });
+
+  // customLabels.ts's sanitizeExcludedTopicKeys/MAX_EXCLUDED_TOPIC_KEYS
+  // counterpart to the customLabels cap just above -- there are only ever six
+  // built-in topics (topics.ts's TOPIC_KEYS) to exclude, so anything past
+  // that count could only be a hostile or buggy write.
+  it('denies excludedTopicKeys over the 6-entry cap', async () => {
+    const db = testEnv.authenticatedContext(OWNER).firestore();
+    await assertFails(
+      setDoc(doc(db, `users/${OWNER}/settings/app`), {
+        customLabels: [],
+        excludedTopicKeys: ['work', 'study', 'reading', 'creative', 'exercise', 'other', 'seventh'],
         updatedAt: 1,
       }),
     );
@@ -89,15 +106,21 @@ describe('settings/app', () => {
       accent: 'sky',
       callAlertsEnabled: true,
       customLabels: [],
+      excludedTopicKeys: [],
       updatedAt: 3,
     };
     await assertFails(setDoc(doc(db, `users/${OWNER}/settings/app`), { ...valid, customLabels: 'xx' }));
+    await assertFails(setDoc(doc(db, `users/${OWNER}/settings/app`), { ...valid, excludedTopicKeys: 'work' }));
     await assertFails(setDoc(doc(db, `users/${OWNER}/settings/app`), { ...valid, themeMode: 7 }));
     await assertFails(setDoc(doc(db, `users/${OWNER}/settings/app`), { ...valid, accent: null }));
     await assertFails(setDoc(doc(db, `users/${OWNER}/settings/app`), { ...valid, callAlertsEnabled: 'yes' }));
     // An accent this build has never heard of is NOT rejected -- that is the
     // forward-compatibility the value checks are deliberately left out for.
+    // Same forward-compatibility for an excludedTopicKeys entry this build
+    // has never heard of -- unrecognized VALUES are handled on the way in by
+    // customLabels.ts's sanitizeExcludedTopicKeys, not rejected by the rule.
     await assertSucceeds(setDoc(doc(db, `users/${OWNER}/settings/app`), { ...valid, accent: 'chartreuse' }));
+    await assertSucceeds(setDoc(doc(db, `users/${OWNER}/settings/app`), { ...valid, excludedTopicKeys: ['not-a-real-topic'] }));
   });
 
   it(

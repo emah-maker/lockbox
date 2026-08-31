@@ -80,7 +80,7 @@ service cloud.firestore {
         // deletion (firestoreSync.ts).
         allow create, update: if isOwner(uid)
                      && request.resource.data.keys().hasOnly(
-                          ['themeMode', 'accent', 'callAlertsEnabled', 'customLabels', 'updatedAt'])
+                          ['themeMode', 'accent', 'callAlertsEnabled', 'customLabels', 'excludedTopicKeys', 'updatedAt'])
                      && request.resource.data.updatedAt is int
                      // Types, not value enums, on the three preference fields:
                      // both clients write this document, and pinning the
@@ -101,7 +101,16 @@ service cloud.firestore {
                      // Rules can't validate each array element's field lengths (no
                      // iteration over list-of-maps), so this bounds the catalog size;
                      // per-label name length is capped client-side (customLabels.ts).
-                     && request.resource.data.customLabels.size() <= 40;
+                     && request.resource.data.customLabels.size() <= 40
+                     // Same `is list` + size-bound treatment as customLabels above,
+                     // for the built-in-topic exclusion list (customLabels.ts's
+                     // sanitizeExcludedTopicKeys/MAX_EXCLUDED_TOPIC_KEYS) -- rules
+                     // can't check each entry is actually one of the six real
+                     // TopicKey strings (no iteration over a list's elements
+                     // against an enum here either), so that validation, like a
+                     // label's own field lengths, is client-side only.
+                     && request.resource.data.excludedTopicKeys is list
+                     && request.resource.data.excludedTopicKeys.size() <= 6;
         allow delete: if isOwner(uid);
       }
 

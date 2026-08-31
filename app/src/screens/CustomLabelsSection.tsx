@@ -1,16 +1,28 @@
 // CustomLabelsSection.tsx -- the "Custom labels" section of SettingsScreen,
 // split into its own file so SettingsScreen.tsx stays under this project's
 // 500-line file-size guideline. Custom labels coexist with the six built-in
-// topics (stats/topics.ts) -- this section only ever creates/renames/deletes
-// entries in useSettingsStore.customLabels, which syncs cross-device the
-// same last-write-wins way as the rest of SyncableSettings (see
+// topics (stats/topics.ts) -- this section creates/renames/deletes entries
+// in useSettingsStore.customLabels, which syncs cross-device the same
+// last-write-wins way as the rest of SyncableSettings (see
 // useSettingsStore.ts, sync/settingsSyncBridge.ts).
+//
+// Also owns the six built-in topics' own "counts toward totals" switches
+// (BuiltInTopicsSection below) -- deliberately rendered in this same file,
+// above the custom-label list, rather than as a separate SettingsScreen
+// section: it's the identical user-facing feature (stats/customLabels.ts's
+// sessionCountsTowardTotals treats a saved label's excludeFromTotals and a
+// built-in's membership in useSettingsStore's excludedTopicKeys exactly the
+// same way), just for the catalog that has no per-entry row of its own to
+// carry the flag on. A built-in topic can never be renamed or deleted the
+// way a custom label can (topics.ts's TOPIC_KEYS is a fixed table), so its
+// row is just the swatch/name/switch, none of CustomLabelRow's edit chrome.
 import React from 'react';
-import { View, Text, StyleSheet, TextInput, Alert } from 'react-native';
+import { View, Text, StyleSheet, TextInput, Switch, Alert } from 'react-native';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useStore } from '../store/useStore';
 import { useTheme } from '../theme/useTheme';
-import { LABEL_SWATCHES, MAX_LABEL_NAME_LENGTH } from '../stats/customLabels';
+import { LABEL_SWATCHES, MAX_LABEL_NAME_LENGTH, CustomLabel } from '../stats/customLabels';
+import { TOPIC_KEYS, TOPIC_LABELS, topicColor, TopicKey } from '../stats/topics';
 import { Section, Button } from './SettingsPrimitives';
 import { AnimatedPressable } from '../ui/AnimatedPressable';
 import { useReducedMotion, configureLayoutAnimation } from '../ui/useReducedMotion';
@@ -21,6 +33,10 @@ export function CustomLabelsSection({ color }: { color: ReturnType<typeof useThe
   const addCustomLabel = useSettingsStore((s) => s.addCustomLabel);
   const renameCustomLabel = useSettingsStore((s) => s.renameCustomLabel);
   const removeCustomLabel = useSettingsStore((s) => s.removeCustomLabel);
+  const setLabelExcluded = useSettingsStore((s) => s.setLabelExcluded);
+  const themeMode = useSettingsStore((s) => s.themeMode);
+  const excludedTopicKeys = useSettingsStore((s) => s.excludedTopicKeys);
+  const setTopicKeyExcluded = useSettingsStore((s) => s.setTopicKeyExcluded);
 
   const [newName, setNewName] = React.useState('');
   const [newColor, setNewColor] = React.useState<string | null>(null);
@@ -66,26 +82,107 @@ export function CustomLabelsSection({ color }: { color: ReturnType<typeof useThe
     ]);
   };
 
-  return (
-    <Section title="Custom labels" subtitle="Add your own focus categories, alongside the built-in ones" color={color}>
-      {customLabels.map((label) => (
-        <CustomLabelRow key={label.id} label={label} color={color} onRename={handleRename} onDelete={handleDelete} />
-      ))}
+  // No box push here (unlike create/rename/delete above) -- excludeFromTotals
+  // is purely an app-side aggregation flag (stats/customLabels.ts's
+  // sessionCountsTowardTotals). The box's own label catalog (cmdSetLabels)
+  // only ever needs id/name/color to render a chip on its own screen; it has
+  // no concept of "totals" to exclude anything from.
+  const handleToggleExcluded = (id: string, excluded: boolean) => setLabelExcluded(id, excluded);
 
-      <View style={{ gap: 8 }}>
-        <TextInput
-          value={newName}
-          onChangeText={setNewName}
-          placeholder="New label name"
-          placeholderTextColor={color.textDim}
-          maxLength={MAX_LABEL_NAME_LENGTH}
-          style={[styles.textInput, { color: color.text, borderColor: color.textDim }]}
-        />
-        <ColorSwatchRow selected={newColor} onSelect={setNewColor} color={color} />
-        {error ? <Text style={[styles.subtitle, { color: color.danger }]}>{error}</Text> : null}
-        <Button label="Add label" onPress={handleCreate} disabled={!newName.trim() || !newColor} color={color} />
+  // Same "no box push" reasoning as handleToggleExcluded above, extended to
+  // a built-in topic -- excludedTopicKeys is exactly as app-side-only as a
+  // label's excludeFromTotals.
+  const handleToggleTopicExcluded = (key: TopicKey, excluded: boolean) => setTopicKeyExcluded(key, excluded);
+
+  return (
+    <>
+      <Section title="Built-in topics" subtitle="Turn off totals/goals/streaks tracking for one of the six built-in topics" color={color}>
+        {TOPIC_KEYS.map((key) => (
+          <BuiltInTopicRow
+            key={key}
+            topicKey={key}
+            swatchColor={topicColor(key, themeMode)}
+            excluded={excludedTopicKeys.includes(key)}
+            color={color}
+            onToggleExcluded={handleToggleTopicExcluded}
+          />
+        ))}
+      </Section>
+
+      <Section title="Custom labels" subtitle="Add your own focus categories, alongside the built-in ones" color={color}>
+        {customLabels.map((label) => (
+          <CustomLabelRow
+            key={label.id}
+            label={label}
+            color={color}
+            onRename={handleRename}
+            onDelete={handleDelete}
+            onToggleExcluded={handleToggleExcluded}
+          />
+        ))}
+
+        <View style={{ gap: 8 }}>
+          <TextInput
+            value={newName}
+            onChangeText={setNewName}
+            placeholder="New label name"
+            placeholderTextColor={color.textDim}
+            maxLength={MAX_LABEL_NAME_LENGTH}
+            style={[styles.textInput, { color: color.text, borderColor: color.textDim }]}
+          />
+          <ColorSwatchRow selected={newColor} onSelect={setNewColor} color={color} />
+          {error ? <Text style={[styles.subtitle, { color: color.danger }]}>{error}</Text> : null}
+          <Button label="Add label" onPress={handleCreate} disabled={!newName.trim() || !newColor} color={color} />
+        </View>
+      </Section>
+    </>
+  );
+}
+
+function BuiltInTopicRow({
+  topicKey,
+  swatchColor,
+  excluded,
+  color,
+  onToggleExcluded,
+}: {
+  topicKey: TopicKey;
+  swatchColor: string;
+  excluded: boolean;
+  color: ReturnType<typeof useTheme>;
+  onToggleExcluded: (key: TopicKey, excluded: boolean) => void;
+}) {
+  const name = TOPIC_LABELS[topicKey];
+  return (
+    <View style={{ gap: 2 }}>
+      <View style={styles.labelRow}>
+        <View style={[styles.swatch, { backgroundColor: swatchColor }]} />
+        <Text style={[styles.label, { color: color.text, flex: 1 }]}>{name}</Text>
       </View>
-    </Section>
+      {/* Same phrasing/shape as CustomLabelRow's own exclude switch just
+          below in this file -- one feature, two catalogs, so the two rows
+          should read as identical apart from the edit chrome a built-in
+          topic has no use for. */}
+      <View style={[styles.labelRow, { paddingLeft: 38 }]}>
+        <Text
+          style={[styles.excludeLabel, { color: excluded ? color.textDim : color.text, flex: 1 }]}
+          numberOfLines={1}
+        >
+          Counts toward totals &amp; goals
+        </Text>
+        <Switch
+          value={!excluded}
+          onValueChange={(on) => onToggleExcluded(topicKey, !on)}
+          accessibilityLabel={`Whether ${name} counts toward totals and goals`}
+        />
+      </View>
+      {excluded ? (
+        <Text style={[styles.subtitle, { color: color.textDim, paddingLeft: 38 }]}>
+          Excluded -- logged and shown, but not counted in focus totals, goal progress, streaks, or the calendar
+          heat map.
+        </Text>
+      ) : null}
+    </View>
   );
 }
 
@@ -94,11 +191,13 @@ function CustomLabelRow({
   color,
   onRename,
   onDelete,
+  onToggleExcluded,
 }: {
-  label: { id: string; name: string; color: string };
+  label: CustomLabel;
   color: ReturnType<typeof useTheme>;
   onRename: (id: string, name: string) => void;
   onDelete: (id: string, name: string) => void;
+  onToggleExcluded: (id: string, excluded: boolean) => void;
 }) {
   const [editing, setEditing] = React.useState(false);
   const [draft, setDraft] = React.useState(label.name);
@@ -167,27 +266,59 @@ function CustomLabelRow({
     );
   }
 
+  const excluded = !!label.excludeFromTotals;
+
   return (
-    <View style={styles.labelRow}>
-      <View style={[styles.swatch, { backgroundColor: label.color }]} />
-      <Text style={[styles.label, { color: color.text, flex: 1 }]}>{label.name}</Text>
-      <AnimatedPressable
-        onPress={() => toggleEditing(true)}
-        accessibilityRole="button"
-        accessibilityLabel={`Rename ${label.name}`}
-        hitSlop={hitSlop.text}
-      >
-        <Text style={[styles.rowAction, { color: color.accent }]}>Rename</Text>
-      </AnimatedPressable>
-      <AnimatedPressable
-        onPress={() => onDelete(label.id, label.name)}
-        accessibilityRole="button"
-        accessibilityLabel={`Delete ${label.name}`}
-        accessibilityHint="Asks for confirmation before deleting this label"
-        hitSlop={hitSlop.text}
-      >
-        <Text style={[styles.rowAction, { color: color.danger }]}>Delete</Text>
-      </AnimatedPressable>
+    <View style={{ gap: 2 }}>
+      <View style={styles.labelRow}>
+        <View style={[styles.swatch, { backgroundColor: label.color }]} />
+        <Text style={[styles.label, { color: color.text, flex: 1 }]}>{label.name}</Text>
+        <AnimatedPressable
+          onPress={() => toggleEditing(true)}
+          accessibilityRole="button"
+          accessibilityLabel={`Rename ${label.name}`}
+          hitSlop={hitSlop.text}
+        >
+          <Text style={[styles.rowAction, { color: color.accent }]}>Rename</Text>
+        </AnimatedPressable>
+        <AnimatedPressable
+          onPress={() => onDelete(label.id, label.name)}
+          accessibilityRole="button"
+          accessibilityLabel={`Delete ${label.name}`}
+          accessibilityHint="Asks for confirmation before deleting this label"
+          hitSlop={hitSlop.text}
+        >
+          <Text style={[styles.rowAction, { color: color.danger }]}>Delete</Text>
+        </AnimatedPressable>
+      </View>
+      {/* "Counts toward totals" rather than "Exclude this label" -- phrased
+          as the ON-state a user wants to keep for every label they don't
+          think about, per this project's "the common case reads as the
+          affirmative, not a double negative" convention (see e.g.
+          AlertsSection.tsx's own toggle copy). Sessions tagged with this
+          label are still logged and still shown everywhere history renders
+          (SessionListSheet, DaySheet, the topic breakdown below) regardless
+          of this switch -- only the aggregates named here stop counting
+          them (customLabels.ts's sessionCountsTowardTotals). */}
+      <View style={[styles.labelRow, { paddingLeft: 38 }]}>
+        <Text
+          style={[styles.excludeLabel, { color: excluded ? color.textDim : color.text, flex: 1 }]}
+          numberOfLines={1}
+        >
+          Counts toward totals &amp; goals
+        </Text>
+        <Switch
+          value={!excluded}
+          onValueChange={(on) => onToggleExcluded(label.id, !on)}
+          accessibilityLabel={`Whether ${label.name} counts toward totals and goals`}
+        />
+      </View>
+      {excluded ? (
+        <Text style={[styles.subtitle, { color: color.textDim, paddingLeft: 38 }]}>
+          Excluded -- logged and shown, but not counted in focus totals, goal progress, streaks, or the calendar
+          heat map.
+        </Text>
+      ) : null}
     </View>
   );
 }
@@ -228,6 +359,7 @@ function ColorSwatchRow({
 const styles = StyleSheet.create({
   subtitle: { fontSize: 12, marginTop: 2, letterSpacing: typeScale.caption.letterSpacing, lineHeight: typeScale.caption.lineHeight },
   label: { fontSize: 15, flexShrink: 1, paddingRight: 12, letterSpacing: typeScale.sectionTitle.letterSpacing, lineHeight: 20 },
+  excludeLabel: { fontSize: 13, flexShrink: 1, paddingRight: 12, letterSpacing: typeScale.caption.letterSpacing, lineHeight: 18 },
   rowAction: { letterSpacing: typeScale.body.letterSpacing, lineHeight: typeScale.body.lineHeight },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   labelRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },

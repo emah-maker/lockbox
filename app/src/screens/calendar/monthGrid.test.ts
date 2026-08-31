@@ -8,6 +8,7 @@ import {
   computeStreakRuns,
   goalsMetOnDay,
   monthHeatLevels,
+  resolveCalendarStreakGoalIds,
   startOfMonth,
 } from './monthGrid';
 import { dayKey, groupByDay, LoggedSession } from '../../stats/sessionHistory';
@@ -225,5 +226,35 @@ describe('computeStreakRuns', () => {
     const byDay = groupByDay([session(july(30), 100), session(july(31), 100)]);
     const runs = computeStreakRuns(JULY_GRID, byDay);
     expect(runs).toEqual([{ startIndex: 30, endIndex: 31, length: 2 }]);
+  });
+});
+
+describe('resolveCalendarStreakGoalIds', () => {
+  const goalA = goal({ id: 'goal:a' });
+  const goalB = goal({ id: 'goal:b' });
+  const archivedGoal = goal({ id: 'goal:archived', archived: true });
+
+  it('resolves the null "never customized" sentinel to every active goal', () => {
+    expect(resolveCalendarStreakGoalIds([goalA, goalB, archivedGoal], null)).toEqual(['goal:a', 'goal:b']);
+  });
+
+  it('returns [] for null when there are no active goals', () => {
+    expect(resolveCalendarStreakGoalIds([archivedGoal], null)).toEqual([]);
+  });
+
+  it('returns a stored subset verbatim when every id is still a live active goal', () => {
+    expect(resolveCalendarStreakGoalIds([goalA, goalB], ['goal:b'])).toEqual(['goal:b']);
+  });
+
+  it('respects a deliberately empty stored array ("show none") rather than falling back to all', () => {
+    expect(resolveCalendarStreakGoalIds([goalA, goalB], [])).toEqual([]);
+  });
+
+  it('drops a stale id whose goal has since been deleted', () => {
+    expect(resolveCalendarStreakGoalIds([goalA], ['goal:a', 'goal:deleted'])).toEqual(['goal:a']);
+  });
+
+  it('drops a stale id whose goal has since been archived', () => {
+    expect(resolveCalendarStreakGoalIds([goalA, archivedGoal], ['goal:a', 'goal:archived'])).toEqual(['goal:a']);
   });
 });

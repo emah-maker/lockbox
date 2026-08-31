@@ -53,6 +53,11 @@ export function useHomeGoalRing(params: {
   todayFocusS: number;
   goals: Goal[];
   customLabels: ReturnType<typeof useSettingsStore.getState>['customLabels'];
+  /** Built-in topics excluded from totals/goals/streaks (settings/
+   * customLabels.ts's setTopicKeyExcluded) -- customLabels' own counterpart
+   * for the six built-ins, forwarded to every aggregate below the same way
+   * customLabels itself already is. */
+  excludedTopicKeys: string[];
   themeMode: ReturnType<typeof useSettingsStore.getState>['themeMode'];
   ringBaselineWindow: RingBaselineWindow;
   ringSourceKind: RingSourceKind;
@@ -67,6 +72,7 @@ export function useHomeGoalRing(params: {
     todayFocusS,
     goals,
     customLabels,
+    excludedTopicKeys,
     themeMode,
     ringBaselineWindow,
     ringSourceKind,
@@ -79,7 +85,14 @@ export function useHomeGoalRing(params: {
   // reused by goalHighlight (below), the idle ring's 'weeklyGoal' source, and
   // its 'chosenGoal' source, rather than each calling computeGoalProgress
   // (and its own fresh Date.now()) separately.
-  const goalProgressAll = useMemo(() => computeGoalProgress(goals, sessions, Date.now()), [goals, sessions]);
+  // customLabels so an excludeFromTotals-tagged session never advances a
+  // goal here either -- goalHighlight (TodaySummary's card) and the ring's
+  // 'weeklyGoal'/'monthlyGoal'/'chosenGoal' sources all read off this same
+  // array (stats/customLabels.ts).
+  const goalProgressAll = useMemo(
+    () => computeGoalProgress(goals, sessions, Date.now(), customLabels, excludedTopicKeys),
+    [goals, sessions, customLabels, excludedTopicKeys],
+  );
 
   // The single most-relevant goal for TodaySummary -- the nearest-to-
   // completion unmet goal wins, so this card always shows whichever goal is
@@ -150,7 +163,7 @@ export function useHomeGoalRing(params: {
         ringSource: ringSourceKind,
         todayFocusS,
         dailyGoalTargetS: dailyGoal ? dailyGoal.targetS : null,
-        baselineFocusS: bestDay(sessions, ringBaselineWindow)?.focusS ?? 0,
+        baselineFocusS: bestDay(sessions, ringBaselineWindow, Date.now(), customLabels, excludedTopicKeys)?.focusS ?? 0,
         weeklyGoalRatio: weeklyGoalResult ? weeklyGoalResult.ratio : null,
         monthlyGoalRatio: monthlyGoalResult ? monthlyGoalResult.ratio : null,
         chosenGoalRatio: chosenGoalResult ? chosenGoalResult.ratio : null,
@@ -167,10 +180,10 @@ export function useHomeGoalRing(params: {
           ? { focusS: chosenGoalResult.focusS, targetS: chosenGoalResult.targetS }
           : null,
         chosenGoalName: chosenGoal ? describeGoalTopic(chosenGoal.topic, customLabels, themeMode) : null,
-        rollingAverageS: computeRollingAverageS(sessions),
-        streakCurrent: computeDailyStreak(sessions),
-        streakLongest: computeLongestDailyStreak(sessions),
-        todaySessionCount: todaySessionCount(sessions, Date.now()),
+        rollingAverageS: computeRollingAverageS(sessions, Date.now(), customLabels, excludedTopicKeys),
+        streakCurrent: computeDailyStreak(sessions, Date.now(), customLabels, excludedTopicKeys),
+        streakLongest: computeLongestDailyStreak(sessions, customLabels, excludedTopicKeys),
+        todaySessionCount: todaySessionCount(sessions, Date.now(), customLabels, excludedTopicKeys),
         // The daily goal's own session target -- never invented when it has
         // none (see computeSessionCountRingProgress), which is what makes
         // the 'sessionCount' source read as empty rather than as a
@@ -190,6 +203,7 @@ export function useHomeGoalRing(params: {
       chosenGoalResult,
       chosenGoal,
       customLabels,
+      excludedTopicKeys,
       themeMode,
       segments,
     ],

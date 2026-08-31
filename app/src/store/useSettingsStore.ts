@@ -8,7 +8,17 @@ import { create } from 'zustand';
 import { getJSON, setJSON } from '../storage/storage';
 import { ThemeMode, AccentKey } from '../theme/theme';
 import type { Settings } from '../ble/protocol';
-import { CustomLabel, createCustomLabel, renameCustomLabel as renameCustomLabelIn, deleteCustomLabel as deleteCustomLabelIn, sanitizeCustomLabels } from '../stats/customLabels';
+import {
+  CustomLabel,
+  createCustomLabel,
+  renameCustomLabel as renameCustomLabelIn,
+  deleteCustomLabel as deleteCustomLabelIn,
+  setLabelExcluded as setLabelExcludedIn,
+  setTopicKeyExcluded as setTopicKeyExcludedIn,
+  sanitizeCustomLabels,
+  sanitizeExcludedTopicKeys,
+} from '../stats/customLabels';
+import type { TopicKey } from '../stats/topics';
 import type { RingBaselineWindow, RingSourceKind } from '../screens/home/idleRingState';
 
 // Mirrors the firmware's own defaults (Box-code/lib/lock_config.py /
@@ -16,7 +26,7 @@ import type { RingBaselineWindow, RingSourceKind } from '../screens/home/idleRin
 // first successful connection.
 const DEFAULT_BOX_SETTINGS: Settings = { ovr: 25, auto: 1, sleep: 20, bright: 50, unlk: 0, ucal: 0, thm: 0, acc: 0, flip: 0, langle: 45, uangle: 0, ovrt: 10 };
 
-// Defaults for the four account-syncable fields -- what a signed-out device
+// Defaults for the five account-syncable fields -- what a signed-out device
 // (or a brand-new account) should show, and what sync/localDataOwner.ts
 // resets local storage to on sign-out/account-switch so no prior account's
 // preferences linger on the device.
@@ -25,6 +35,7 @@ const SYNCABLE_SETTINGS_DEFAULTS: SyncableSettings = {
   accent: 'mint',
   callAlertsEnabled: true,
   customLabels: [],
+  excludedTopicKeys: [],
 };
 
 // The account-syncable fields, per
@@ -39,6 +50,17 @@ export interface SyncableSettings {
   accent: AccentKey;
   callAlertsEnabled: boolean;
   customLabels: CustomLabel[];
+  /** The built-in topics (stats/topics.ts's TopicKey) a user has switched off
+   * from counting toward totals/goals/streaks -- customLabels' own
+   * excludeFromTotals field extended to the six built-ins, which have no
+   * catalog entry of their own to carry a boolean flag on (see
+   * customLabels.ts's setTopicKeyExcluded for the full reasoning). Joined
+   * SyncableSettings alongside customLabels, not boxSettings/autoSyncEnabled,
+   * for the same reason customLabels itself did: this is the identical
+   * user-facing "doesn't count" switch, just for a built-in topic instead of
+   * a saved custom label, and a user would find it surprising if one kind of
+   * label's exclusion followed them to a new device while the other didn't. */
+  excludedTopicKeys: string[];
 }
 
 interface SettingsState {
@@ -47,6 +69,8 @@ interface SettingsState {
   accent: AccentKey;
   callAlertsEnabled: boolean;
   customLabels: CustomLabel[];
+  /** See SyncableSettings.excludedTopicKeys's own comment. */
+  excludedTopicKeys: string[];
   boxSettings: Settings;
   // Epoch ms of the last local change to any of the SyncableSettings
   // fields -- compared against Firestore's settings/app.updatedAt for the
@@ -128,6 +152,26 @@ interface SettingsState {
    * goalNotificationPlan.ts's isInQuietHours owns that arithmetic. */
   quietStart: string;
   quietEnd: string;
+  // Local-only per-device VIEW preference (Goal Streaks feature): which
+  // goals' streaks CalendarScreen.tsx's month grid draws a dot for. Same
+  // non-synced category as ringSourceKind/ringGoalId/ringBaselineWindow
+  // above, and the same reasoning: which goals' streaks THIS device's
+  // calendar happens to be showing is a display choice about this
+  // installation, not a fact about the user's account that should follow
+  // them to a tablet or a second phone -- localDataOwner.ts's own
+  // clearLocalAccountData comment already anticipates exactly this category
+  // ("view-only local prefs (time-window/best-streak selections)").
+  //
+  // `null` is the sentinel for "never customized" -- not the same as `[]`
+  // (an explicit, deliberate "show none"). Read through
+  // screens/calendar/monthGrid.ts's resolveCalendarStreakGoalIds, which
+  // treats `null` as "every active goal" and always re-filters a real array
+  // against useGoalsStore.goals live, so a goal that's since been deleted or
+  // archived can never linger in the effective set even though it can still
+  // linger in this raw preference array (deliberately not pruned here --
+  // pruning would need this store to depend on useGoalsStore, and a stale id
+  // sitting inertly in an array the resolver already filters costs nothing).
+  calendarStreakGoalIds: string[] | null;
 
   hydrate: () => Promise<void>;
   setThemeMode: (mode: ThemeMode) => void;
@@ -142,15 +186,29 @@ interface SettingsState {
   setNotificationsEnabled: (on: boolean) => void;
   setQuietHoursEnabled: (on: boolean) => void;
   setQuietHours: (start: string, end: string) => void;
+  setCalendarStreakGoalIds: (ids: string[] | null) => void;
   addCustomLabel: (name: string, color: string) => void;
   renameCustomLabel: (id: string, name: string) => void;
   removeCustomLabel: (id: string) => void;
+  /** Flips whether sessions tagged with this label count toward focus
+   * totals/goal progress/streaks/the calendar heat map (stats/
+   * customLabels.ts's sessionCountsTowardTotals) -- same
+   * mutate-then-persist-then-bump-clock shape as addCustomLabel/
+   * renameCustomLabel/removeCustomLabel above, since this rides along on the
+   * same synced `customLabels` array they do (see CustomLabel.excludeFromTotals's
+   * own comment). */
+  setLabelExcluded: (id: string, excluded: boolean) => void;
+  /** setLabelExcluded's counterpart for a built-in topic (stats/topics.ts's
+   * TopicKey) -- same mutate-then-persist-then-bump-clock shape, since this
+   * rides along on the same synced `excludedTopicKeys` array (see
+   * SyncableSettings.excludedTopicKeys's own comment). */
+  setTopicKeyExcluded: (key: TopicKey, excluded: boolean) => void;
   /** Applied when a remote Firestore settings/app doc is newer than the
    * local copy (LWW pull) -- does not itself trigger a remote push.
    * `updatedAt` is the remote doc's own timestamp, preserved as-is so a
    * later comparison against another device's copy stays correct. */
   applyRemoteSettings: (remote: SyncableSettings, updatedAt: number) => void;
-  /** Resets the four account-syncable fields to their defaults and zeroes
+  /** Resets the five account-syncable fields to their defaults and zeroes
    * settingsUpdatedAt, so a signed-out device carries no prior account's
    * preferences into whichever account (or none) signs in next -- see
    * sync/localDataOwner.ts. Leaves boxSettings, autoSyncEnabled, and
@@ -166,12 +224,29 @@ interface SettingsState {
  * caller. Nothing else should call this directly. */
 let hydrating: Promise<void> | null = null;
 
+/** `calendarStreakGoalIds`'s sanitize-on-the-way-out-of-storage step -- the
+ * same belt-and-suspenders treatment customLabels/excludedTopicKeys get from
+ * sanitizeCustomLabels/sanitizeExcludedTopicKeys below, needed here for a
+ * sharper reason: storage.ts's generic corrupt-value guard opts out entirely
+ * for a nullable-default caller like this one (no shape to compare a `string
+ * | null` against), but this field's non-null shape genuinely is a
+ * `string[]`, and screens/calendar/monthGrid.ts's resolveCalendarStreakGoalIds
+ * calls `.filter` on it unconditionally once it isn't `null`. An unsanitized
+ * garbage value here would reach that `.filter` and crash the Calendar tab
+ * instead of degrading to "no customization" like every other field does. */
+function sanitizeCalendarStreakGoalIds(value: unknown): string[] | null {
+  if (value === null) return null;
+  if (!Array.isArray(value)) return null;
+  return value.filter((v): v is string => typeof v === 'string');
+}
+
 async function hydrateOnce(set: (partial: Partial<SettingsState>) => void): Promise<void> {
   const [
     themeMode,
     accent,
     callAlertsEnabled,
     customLabels,
+    excludedTopicKeys,
     boxSettings,
     settingsUpdatedAt,
     autoSyncEnabled,
@@ -183,11 +258,13 @@ async function hydrateOnce(set: (partial: Partial<SettingsState>) => void): Prom
     quietHoursEnabled,
     quietStart,
     quietEnd,
+    calendarStreakGoalIds,
   ] = await Promise.all([
     getJSON<ThemeMode>('themeMode', SYNCABLE_SETTINGS_DEFAULTS.themeMode),
     getJSON<AccentKey>('accent', SYNCABLE_SETTINGS_DEFAULTS.accent),
     getJSON<boolean>('callAlertsEnabled', SYNCABLE_SETTINGS_DEFAULTS.callAlertsEnabled),
     getJSON<CustomLabel[]>('customLabels', SYNCABLE_SETTINGS_DEFAULTS.customLabels),
+    getJSON<string[]>('excludedTopicKeys', SYNCABLE_SETTINGS_DEFAULTS.excludedTopicKeys),
     getJSON<Settings>('boxSettings', DEFAULT_BOX_SETTINGS),
     getJSON<number>('settingsUpdatedAt', 0),
     getJSON<boolean>('autoSyncEnabled', true),
@@ -199,6 +276,7 @@ async function hydrateOnce(set: (partial: Partial<SettingsState>) => void): Prom
     getJSON<boolean>('quietHoursEnabled', false),
     getJSON<string>('quietStart', '22:00'),
     getJSON<string>('quietEnd', '07:00'),
+    getJSON<string[] | null>('calendarStreakGoalIds', null),
   ]);
   set({
     hydrated: true,
@@ -215,6 +293,12 @@ async function hydrateOnce(set: (partial: Partial<SettingsState>) => void): Prom
     // themeMode/accent need no equivalent -- resolveTheme normalizes both on
     // every render already.
     customLabels: sanitizeCustomLabels(customLabels),
+    // Same self-healing sanitize-on-the-way-out-of-storage treatment as
+    // customLabels just above, and for the identical reason -- a value
+    // written before sanitizeExcludedTopicKeys existed (or before a tightened
+    // version of it) is already sitting in local storage on existing
+    // installs.
+    excludedTopicKeys: sanitizeExcludedTopicKeys(excludedTopicKeys),
     boxSettings,
     settingsUpdatedAt,
     autoSyncEnabled,
@@ -226,6 +310,7 @@ async function hydrateOnce(set: (partial: Partial<SettingsState>) => void): Prom
     quietHoursEnabled,
     quietStart,
     quietEnd,
+    calendarStreakGoalIds: sanitizeCalendarStreakGoalIds(calendarStreakGoalIds),
   });
 }
 
@@ -243,6 +328,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   quietHoursEnabled: false,
   quietStart: '22:00',
   quietEnd: '07:00',
+  calendarStreakGoalIds: null,
 
   hydrate: async () => {
     if (get().hydrated) return;
@@ -359,6 +445,13 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     setJSON('quietEnd', end);
   },
 
+  setCalendarStreakGoalIds: (ids) => {
+    // Deliberately not part of settingsUpdatedAt/sync -- see this field's
+    // own interface comment.
+    set({ calendarStreakGoalIds: ids });
+    setJSON('calendarStreakGoalIds', ids);
+  },
+
   addCustomLabel: (name, color) => {
     const customLabels = createCustomLabel(get().customLabels, name, color);
     const settingsUpdatedAt = Date.now();
@@ -383,12 +476,29 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     setJSON('settingsUpdatedAt', settingsUpdatedAt);
   },
 
+  setLabelExcluded: (id, excluded) => {
+    const customLabels = setLabelExcludedIn(get().customLabels, id, excluded);
+    const settingsUpdatedAt = Date.now();
+    set({ customLabels, settingsUpdatedAt });
+    setJSON('customLabels', customLabels);
+    setJSON('settingsUpdatedAt', settingsUpdatedAt);
+  },
+
+  setTopicKeyExcluded: (key, excluded) => {
+    const excludedTopicKeys = setTopicKeyExcludedIn(get().excludedTopicKeys, key, excluded);
+    const settingsUpdatedAt = Date.now();
+    set({ excludedTopicKeys, settingsUpdatedAt });
+    setJSON('excludedTopicKeys', excludedTopicKeys);
+    setJSON('settingsUpdatedAt', settingsUpdatedAt);
+  },
+
   applyRemoteSettings: (remote, updatedAt) => {
     set({ ...remote, settingsUpdatedAt: updatedAt });
     setJSON('themeMode', remote.themeMode);
     setJSON('accent', remote.accent);
     setJSON('callAlertsEnabled', remote.callAlertsEnabled);
     setJSON('customLabels', remote.customLabels);
+    setJSON('excludedTopicKeys', remote.excludedTopicKeys);
     setJSON('settingsUpdatedAt', updatedAt);
   },
 
@@ -398,6 +508,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     setJSON('accent', SYNCABLE_SETTINGS_DEFAULTS.accent);
     setJSON('callAlertsEnabled', SYNCABLE_SETTINGS_DEFAULTS.callAlertsEnabled);
     setJSON('customLabels', SYNCABLE_SETTINGS_DEFAULTS.customLabels);
+    setJSON('excludedTopicKeys', SYNCABLE_SETTINGS_DEFAULTS.excludedTopicKeys);
     setJSON('settingsUpdatedAt', 0);
   },
 }));

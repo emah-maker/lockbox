@@ -119,6 +119,7 @@ export function SessionReminderForm({
 }) {
   const color = useTheme();
   const customLabels = useSettingsStore((s) => s.customLabels);
+  const excludedTopicKeys = useSettingsStore((s) => s.excludedTopicKeys);
   const themeMode = useSettingsStore((s) => s.themeMode);
   // Read here rather than threaded through: the quiet-hours warning below is
   // this form's own business and DaySheet has no reason to know about it --
@@ -167,7 +168,7 @@ export function SessionReminderForm({
   React.useEffect(() => clearWheelSafetyTimer, []);
 
   const { hour, minuteIndex } = parseTime(time);
-  const choices = allLabelChoices(customLabels, themeMode);
+  const choices = allLabelChoices(customLabels, themeMode, excludedTopicKeys);
   const resolvedTopic = topic ? resolveTopic(topic, customLabels, themeMode) : null;
   // An edit whose plan targets a since-deleted custom label: keep that id
   // selectable so re-saving doesn't silently retag the plan at whatever chip

@@ -3,10 +3,20 @@
 // Box-code/lib/lock_log.py -- a small RAM-only queue, not a stats store): the
 // app is the durable copy, so these aggregates are computed here, client-side,
 // from the local session log (sessionHistory.ts) instead of read over BLE.
+import { CustomLabel, filterCountedSessions } from './customLabels';
+
 export interface SessionRecord {
   plannedS: number;
   actualS: number;
   outcome: 'completed' | 'overridden';
+  /** Optional here (unlike LoggedSession, where it's already optional) only
+   * because aggregate's own pre-existing tests construct bare
+   * {plannedS,actualS,outcome} records with no topic at all -- adding it as
+   * required would break every one of those literals for no benefit, since
+   * an absent topic already means "untagged, always counts" either way. Every
+   * real caller passes a LoggedSession, which has a real (if often
+   * undefined) topic. */
+  topic?: string;
 }
 
 export interface Stats {
@@ -18,16 +28,32 @@ export interface Stats {
 }
 
 /** Aggregate raw session records the same way the firmware does. Newest-last
- * order; streak = trailing consecutive completed sessions. */
-export function aggregate(records: SessionRecord[]): Stats {
+ * order; streak = trailing consecutive completed sessions.
+ *
+ * `labels` (default `[]`, i.e. "nothing is excluded") is threaded through
+ * customLabels.ts's filterCountedSessions before any of the math below runs,
+ * so a session tagged with an `excludeFromTotals` label contributes to
+ * neither `foc`, `done`, `str`, nor `lng` -- while staying exactly as present
+ * in the caller's own session list/history views, which never call through
+ * this filter. Omitting `labels` entirely (every pre-existing caller and
+ * test) reproduces the old unfiltered behavior byte-for-byte, since an empty
+ * catalog excludes nothing.
+ *
+ * `excludedTopicKeys` (default `[]`) is filterCountedSessions' other
+ * exclusion list -- a session tagged with one of the six built-in topics
+ * (topics.ts's TopicKey) the user has excluded is dropped from this same
+ * math the identical way an excluded custom label's session is. Same
+ * backward-compatible default/rationale as `labels`. */
+export function aggregate(records: SessionRecord[], labels: CustomLabel[] = [], excludedTopicKeys: string[] = []): Stats {
+  const counted = filterCountedSessions(records, labels, excludedTopicKeys);
   let n = 0;
   let foc = 0;
   let done = 0;
   let lng = 0;
   let str = 0;
   let streakOpen = true;
-  for (let i = records.length - 1; i >= 0; i--) {
-    const r = records[i];
+  for (let i = counted.length - 1; i >= 0; i--) {
+    const r = counted[i];
     n += 1;
     foc += r.actualS;
     if (r.actualS > lng) lng = r.actualS;

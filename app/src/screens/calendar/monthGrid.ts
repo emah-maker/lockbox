@@ -7,6 +7,7 @@
 import { dayKey, LoggedSession } from '../../stats/sessionHistory';
 import { computeGoalProgress, GoalProgressResult, isGoalDueOn } from '../../goals/goalProgress';
 import type { Goal } from '../../goals/goals';
+import type { CustomLabel } from '../../stats/customLabels';
 import { heatmapLevel } from '../../stats/trend';
 import type { HeatLevel } from '../../theme/dayHeat';
 
@@ -111,11 +112,23 @@ export function computeMonthSummary(
  * weekly/monthly period) has isGoalDueOn always return true, so this filter
  * is a no-op for them -- existing callers/tests for those shapes are
  * unaffected.
+ *
+ * `labels`/`excludedTopicKeys` (both default `[]`) are forwarded straight to
+ * computeGoalProgress, same as every other computeGoalProgress call site in
+ * the app (stats/customLabels.ts) -- an excludeFromTotals-tagged session, or
+ * one tagged with an excluded built-in topic, doesn't count toward whether a
+ * goal was met on this day.
  */
-export function goalsMetOnDay(goals: Goal[], sessions: LoggedSession[], date: Date): GoalProgressResult[] {
+export function goalsMetOnDay(
+  goals: Goal[],
+  sessions: LoggedSession[],
+  date: Date,
+  labels: CustomLabel[] = [],
+  excludedTopicKeys: string[] = [],
+): GoalProgressResult[] {
   const nowMs = date.getTime();
   const goalsById = new Map(goals.map((g) => [g.id, g]));
-  return computeGoalProgress(goals, sessions, nowMs)
+  return computeGoalProgress(goals, sessions, nowMs, labels, excludedTopicKeys)
     .filter((r) => r.met)
     .filter((r) => {
       const goal = goalsById.get(r.goalId);
@@ -218,4 +231,37 @@ export function computeStreakRuns(
   flush(grid.length - 1);
 
   return runs;
+}
+
+/**
+ * The effective set of goal ids whose streaks CalendarScreen.tsx's month
+ * grid should draw a dot for, given the user's stored preference
+ * (useSettingsStore's `calendarStreakGoalIds`) and the CURRENT live goal
+ * list. Two jobs in one function, both load-bearing:
+ *
+ * 1. Resolves the `null` sentinel -- "never customized" -- to every active
+ *    goal's id. That is this feature's chosen default (see this feature's
+ *    own design notes): a brand-new install shows every active goal's
+ *    streak immediately, the same "on by default, no setup required"
+ *    posture the existing goal-met ring (goalsMetOnDay above) already has,
+ *    rather than shipping a calendar that silently shows nothing until the
+ *    user finds a settings sheet. A user who deliberately picks a SUBSET
+ *    (including the empty set, "show none") stores a real array instead,
+ *    which this function then returns verbatim-minus-stale-ids rather than
+ *    re-expanding back to "all".
+ * 2. Filters a stored (non-null) preference array against `goals` live,
+ *    every call -- never trusting the stored ids alone. A goal that has
+ *    since been deleted or archived must not linger in the effective set
+ *    just because its id is still sitting in an old preference array
+ *    (useSettingsStore.ts deliberately does not prune that array itself --
+ *    see its own field comment); this is the one place that filter actually
+ *    happens, on every render, the same "never cache a goal's own fields
+ *    elsewhere" discipline goalProgress.ts's own callers already follow for
+ *    ringGoalId.
+ */
+export function resolveCalendarStreakGoalIds(goals: Goal[], pref: string[] | null): string[] {
+  const activeIds = goals.filter((g) => !g.archived).map((g) => g.id);
+  if (pref === null) return activeIds;
+  const activeSet = new Set(activeIds);
+  return pref.filter((id) => activeSet.has(id));
 }

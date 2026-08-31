@@ -104,4 +104,24 @@ describe('todaySessionCount', () => {
     expect(todaySessionCount([], at(12))).toBe(0);
     expect(todaySessionCount([session(at(10, 0, -3))], at(12))).toBe(0);
   });
+
+  // The exclusion rule lives in this function rather than at its caller, so
+  // that a future second caller can't silently reintroduce the bug of
+  // counting a "Sleep"-style session toward a ring that is compared against
+  // an exclusion-filtered Goal.targetSessions.
+  it('skips a session tagged with an excludeFromTotals custom label', () => {
+    const sessions = [session(at(9)), { ...session(at(14)), topic: 'custom:sleep' }];
+    expect(todaySessionCount(sessions, at(12))).toBe(2); // no catalog -> everything counts
+    expect(
+      todaySessionCount(sessions, at(12), [
+        { id: 'custom:sleep', name: 'Sleep', color: '#78716c', excludeFromTotals: true },
+      ]),
+    ).toBe(1);
+  });
+
+  it('skips a session tagged with an excluded built-in topic', () => {
+    const sessions = [session(at(9)), { ...session(at(14)), topic: 'exercise' }];
+    expect(todaySessionCount(sessions, at(12), [], [])).toBe(2);
+    expect(todaySessionCount(sessions, at(12), [], ['exercise'])).toBe(1);
+  });
 });

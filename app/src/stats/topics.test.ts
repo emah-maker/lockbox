@@ -29,6 +29,18 @@ describe('topicBreakdown', () => {
     expect(topicBreakdown([s(undefined, 100)], 'dark')).toEqual([]);
   });
 
+  // TOPIC_LABELS is a plain object literal, so a naive `key in TOPIC_LABELS`
+  // check also matches anything inherited from Object.prototype
+  // ('toString', 'constructor', 'hasOwnProperty', ...). A session's topic
+  // can be exactly that string (a one-time free-text tag, or a foreign
+  // session synced in) -- it must still be treated as unknown/untagged, not
+  // as a corrupted "built-in" whose TOPIC_HEX lookup returns an inherited
+  // function instead of a color.
+  it('treats a topic matching an inherited Object.prototype property as unknown, not a built-in', () => {
+    const b = topicBreakdown([s('toString', 100), s('constructor', 200), s('other', 50)], 'dark');
+    expect(b).toEqual([{ key: 'other', label: 'Other', color: expect.any(String), focusS: 50, n: 1 }]);
+  });
+
   it('resolves distinct colors per mode', () => {
     const [light] = topicBreakdown([s('work', 1)], 'light');
     const [dark] = topicBreakdown([s('work', 1)], 'dark');

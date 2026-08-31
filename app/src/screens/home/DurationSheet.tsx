@@ -64,7 +64,11 @@ export function DurationSheet({
   // Read here rather than threaded through DashboardScreen -- the session
   // log only feeds TopicPicker's "Recent" ranking, which is that
   // component's own concern, and this sheet already self-supplies `theme`.
+  // excludedTopicKeys is read the identical way, for the identical reason --
+  // TopicPicker's own excluded-marker affordance is its concern, not
+  // DashboardScreen's.
   const sessions = useStore((s) => s.sessions);
+  const excludedTopicKeys = useSettingsStore((s) => s.excludedTopicKeys);
   const [sheetScrollEnabled, setSheetScrollEnabled] = useState(true);
   const safetyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -120,6 +124,7 @@ export function DurationSheet({
         heading="Tag this session before you lock it"
         currentTopic={currentTopic}
         customLabels={customLabels}
+        excludedTopicKeys={excludedTopicKeys}
         themeMode={themeMode}
         theme={theme}
         sessions={sessions}

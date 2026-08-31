@@ -7,6 +7,7 @@
 import { computeGoalProgress, goalDisplayPercent, goalWindow, isGoalDueOn } from './goalProgress';
 import { Goal } from './goals';
 import { LoggedSession } from '../stats/sessionHistory';
+import { CustomLabel } from '../stats/customLabels';
 
 const goal = (overrides: Partial<Goal>): Goal => ({
   id: 'goal:a',
@@ -157,6 +158,30 @@ describe('computeGoalProgress -- topic matching', () => {
     const sessions = [session(NOW, 100, undefined)];
     const [p] = computeGoalProgress([goal({ topic: 'work', targetS: 3600 })], sessions, NOW);
     expect(p.focusS).toBe(0);
+  });
+});
+
+describe('computeGoalProgress -- excludeFromTotals labels', () => {
+  const sleepLabel: CustomLabel[] = [{ id: 'custom:sleep', name: 'Sleep', color: '#123456', excludeFromTotals: true }];
+
+  it('an excluded label never advances an all-focus (topic: null) goal', () => {
+    const sessions = [session(NOW, 100, 'work'), session(NOW, 28800, 'custom:sleep')];
+    const [p] = computeGoalProgress([goal({ topic: null, targetS: 3600 })], sessions, NOW, sleepLabel);
+    expect(p.focusS).toBe(100);
+    expect(p.sessionCount).toBe(1);
+  });
+
+  it('an excluded label does not advance a goal explicitly aimed at that same label id', () => {
+    const sessions = [session(NOW, 28800, 'custom:sleep')];
+    const [p] = computeGoalProgress([goal({ topic: 'custom:sleep', targetS: 3600 })], sessions, NOW, sleepLabel);
+    expect(p.focusS).toBe(0);
+    expect(p.sessionCount).toBe(0);
+  });
+
+  it('omitting labels counts everything, same as before this parameter existed', () => {
+    const sessions = [session(NOW, 28800, 'custom:sleep')];
+    const [p] = computeGoalProgress([goal({ topic: null, targetS: 3600 })], sessions, NOW);
+    expect(p.focusS).toBe(28800);
   });
 });
 

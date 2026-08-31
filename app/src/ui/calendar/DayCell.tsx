@@ -24,6 +24,14 @@ const RING_STROKE = 2;
 // breakdown is always one tap away in the detail sheet, this is just a
 // glance-level hint of "how mixed was this day".
 const MAX_STACK_SEGMENTS = 4;
+// Same reasoning as MAX_STACK_SEGMENTS just above, applied to the streak dot
+// row below it -- a user can opt as many as MAX_GOALS (goals.ts, 20) goals
+// into the calendar's streak view, and a 20-dot row in a ~34px-wide cell
+// would be unreadable static, not information. The day sheet (one tap away)
+// already lists every goal's exact status; this row is a glance-level hint,
+// same job MAX_STACK_SEGMENTS does for the topic stack.
+const MAX_STREAK_DOTS = 4;
+const STREAK_DOT_SIZE = 5;
 
 export function DayCell({
   date,
@@ -38,6 +46,7 @@ export function DayCell({
   streakEdge,
   showFlame,
   hasPlan,
+  streakDots,
 }: {
   date: Date;
   focusS: number;
@@ -80,17 +89,33 @@ export function DayCell({
    * ring and the heat fill, both of which describe what already happened --
    * this is the one mark on the grid that points forward. */
   hasPlan?: boolean;
+  /** Per-goal streak dot row (Goal Streaks feature) -- one entry per
+   * VISIBLE goal (CalendarScreen.tsx has already filtered to the user's
+   * calendar-streak picker selection, see useSettingsStore's
+   * calendarStreakGoalIds) that is actually due this day. A goal that
+   * wasn't due this day (Goal.daysOfWeek off day) is simply absent from
+   * this array entirely -- never present with `met: false` -- so an off day
+   * never draws a dot that would misread as a miss (same "not due, never a
+   * miss" rule stats/goalStreakHistory.ts's goalDayStatuses documents for
+   * itself). `undefined`/`[]` both draw no row at all, same convention as
+   * `topicStats`/`stackSegments` below drawing nothing for an empty day. */
+  streakDots?: { key: string; color: string; met: boolean }[];
 }) {
+  const dueTrackedCount = streakDots?.length ?? 0;
+  const metTrackedCount = streakDots?.filter((d) => d.met).length ?? 0;
   const dayA11yLabel = `${date.toLocaleDateString(undefined, {
     weekday: 'long',
     month: 'long',
     day: 'numeric',
   })}${focusS > 0 ? `, ${formatDuration(focusS)} focused` : ', no focus time'}${goalMet ? ', goal met' : ''}${
     showFlame ? ', streak' : ''
-  }${hasPlan ? ', has a planned session' : ''}`;
+  }${hasPlan ? ', has a planned session' : ''}${
+    dueTrackedCount > 0 ? `, ${metTrackedCount} of ${dueTrackedCount} tracked goal streaks on track` : ''
+  }`;
 
   const stackTotal = topicStats.reduce((sum, t) => sum + t.focusS, 0);
   const stackSegments = topicStats.slice(0, MAX_STACK_SEGMENTS);
+  const dotSegments = (streakDots ?? []).slice(0, MAX_STREAK_DOTS);
 
   return (
     <AnimatedPressable
@@ -157,6 +182,30 @@ export function DayCell({
           ))}
         </View>
       )}
+      {dotSegments.length > 0 && (
+        <View style={styles.streakDotsRow}>
+          {dotSegments.map((d) => (
+            // Met: a solid dot in the goal's own swatch color. Missed: the
+            // SAME swatch drawn hollow (a ring, not a fill) rather than in a
+            // second "miss" color -- a red/grey dot next to a green goal-met
+            // ring would read as a second, competing status system on the
+            // same cell (this file's own header calls out not fighting the
+            // existing heat map, and a loud miss color is exactly the kind
+            // of visual competition that warns against). A dimmer, outlined
+            // version of the goal's own color reads as "this goal, not hit
+            // today" without shouting over everything else in the cell.
+            <View
+              key={d.key}
+              style={[
+                styles.streakDot,
+                d.met
+                  ? { backgroundColor: d.color }
+                  : { backgroundColor: 'transparent', borderWidth: 1, borderColor: withAlpha(d.color, 0.6) },
+              ]}
+            />
+          ))}
+        </View>
+      )}
     </AnimatedPressable>
   );
 }
@@ -214,4 +263,16 @@ const styles = StyleSheet.create({
     gap: 1,
   },
   stackSegment: { height: 3 },
+  // A second slim row below the topic stack, same CIRCLE_SIZE width so it
+  // stays visually aligned with the stack row above it and the circle above
+  // that. See CalendarScreen.tsx's MIN_CELL_SIZE comment for the fixed-px
+  // footprint this adds to every cell's own content height.
+  streakDotsRow: {
+    flexDirection: 'row',
+    width: CIRCLE_SIZE,
+    justifyContent: 'center',
+    marginTop: 3,
+    gap: 3,
+  },
+  streakDot: { width: STREAK_DOT_SIZE, height: STREAK_DOT_SIZE, borderRadius: STREAK_DOT_SIZE / 2 },
 });

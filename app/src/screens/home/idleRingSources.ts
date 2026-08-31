@@ -10,6 +10,7 @@
 // reads, no Date.now() of its own (every time-dependent input is a
 // parameter), so each source stays independently unit-testable.
 import { groupByDay, dayKey, type LoggedSession } from '../../stats/sessionHistory';
+import { filterCountedSessions, type CustomLabel } from '../../stats/customLabels';
 import type { IdleRingState } from './idleRingState';
 
 /**
@@ -99,7 +100,26 @@ export function computeSessionCountRingProgress(count: number, targetCount: numb
 /** How many sessions were logged on the calendar day containing `nowMs`.
  * Uses sessionHistory.ts's own groupByDay/dayKey rather than re-bucketing by
  * raw ms, so "today" means the same calendar day here as everywhere else in
- * the app (and stays correct across a DST transition). */
-export function todaySessionCount(sessions: LoggedSession[], nowMs: number): number {
-  return groupByDay(sessions).get(dayKey(nowMs))?.length ?? 0;
+ * the app (and stays correct across a DST transition).
+ *
+ * Takes the same optional `labels`/`excludedTopicKeys` trailing pair every
+ * other counting path in the app does (customLabels.ts's
+ * sessionCountsTowardTotals), so a session tagged with an excluded label
+ * doesn't inflate the count -- it would otherwise disagree with the very
+ * `dailySessionTarget` it gets compared against in
+ * computeSessionCountRingProgress above, which IS computed from filtered
+ * goal progress. This filter used to live at the single call site in
+ * useHomeGoalRing.ts instead; it belongs here, so the next caller of this
+ * function gets the rule for free rather than having to know to reapply it.
+ * Defaults to "everything counts", keeping existing callers and tests
+ * valid -- the same optional-trailing-param convention aggregate/bestDay/
+ * computeGoalProgress already follow. */
+export function todaySessionCount(
+  sessions: LoggedSession[],
+  nowMs: number,
+  labels: CustomLabel[] = [],
+  excludedTopicKeys: string[] = [],
+): number {
+  const counted = filterCountedSessions(sessions, labels, excludedTopicKeys);
+  return groupByDay(counted).get(dayKey(nowMs))?.length ?? 0;
 }

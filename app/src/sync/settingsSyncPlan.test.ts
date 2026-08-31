@@ -61,6 +61,7 @@ describe('sanitizeRemoteSettings', () => {
       accent: 'sky',
       callAlertsEnabled: true,
       customLabels: [],
+      excludedTopicKeys: [],
     });
   });
 
@@ -84,6 +85,19 @@ describe('sanitizeRemoteSettings', () => {
     expect(sanitizeRemoteSettings(remote({ customLabels: undefined })).customLabels).toEqual([]);
   });
 
+  // sanitizeExcludedTopicKeys's own counterpart to the customLabels coverage
+  // just above -- same boundary, same reasoning (firestore.rules' settings/
+  // app rule type-checks `is list` but cannot verify each entry is a real
+  // TopicKey).
+  it('answers with a clean excludedTopicKeys array, dropping garbage and duplicates', () => {
+    expect(sanitizeRemoteSettings(remote({ excludedTopicKeys: 'work' })).excludedTopicKeys).toEqual([]);
+    expect(sanitizeRemoteSettings(remote({ excludedTopicKeys: undefined })).excludedTopicKeys).toEqual([]);
+    expect(
+      sanitizeRemoteSettings(remote({ excludedTopicKeys: ['work', 'not-a-real-topic', 'work', 'study'] }))
+        .excludedTopicKeys,
+    ).toEqual(['work', 'study']);
+  });
+
   it('drops label entries it cannot trust, keeping the rest', () => {
     const labels = sanitizeRemoteSettings(
       remote({ customLabels: [{ id: 'custom:1', name: 'Deep Work', color: '#123456' }, null, { id: 'custom:2' }] }),
@@ -97,6 +111,7 @@ describe('sanitizeRemoteSettings', () => {
       accent: DEFAULT_ACCENT,
       callAlertsEnabled: false,
       customLabels: [],
+      excludedTopicKeys: [],
     });
   });
 });

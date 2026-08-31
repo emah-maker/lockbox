@@ -19,6 +19,7 @@ interface Snapshot {
   accent: string;
   callAlertsEnabled: boolean;
   customLabels: CustomLabel[];
+  excludedTopicKeys: string[];
 }
 
 function snapshot(state: ReturnType<typeof useSettingsStore.getState>): Snapshot {
@@ -27,6 +28,7 @@ function snapshot(state: ReturnType<typeof useSettingsStore.getState>): Snapshot
     accent: state.accent,
     callAlertsEnabled: state.callAlertsEnabled,
     customLabels: state.customLabels,
+    excludedTopicKeys: state.excludedTopicKeys,
   };
 }
 
@@ -39,7 +41,11 @@ function equal(a: Snapshot, b: Snapshot): boolean {
     // useSettingsStore's addCustomLabel/renameCustomLabel/removeCustomLabel),
     // so a reference check alone would miss nothing here -- JSON compare is
     // just belt-and-suspenders against a future caller that mutates in place.
-    JSON.stringify(a.customLabels) === JSON.stringify(b.customLabels)
+    JSON.stringify(a.customLabels) === JSON.stringify(b.customLabels) &&
+    // Same treatment as customLabels just above, for excludedTopicKeys --
+    // setTopicKeyExcluded also replaces the array on every toggle, so this
+    // is likewise belt-and-suspenders rather than load-bearing.
+    JSON.stringify(a.excludedTopicKeys) === JSON.stringify(b.excludedTopicKeys)
   );
 }
 

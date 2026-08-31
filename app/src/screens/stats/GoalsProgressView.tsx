@@ -12,13 +12,15 @@
 // Progress math is entirely delegated: computeGoalProgress/goalWindow from
 // goals/goalProgress.ts (including its now-final daysOfWeek/targetSessions/
 // dueToday/monthly-period fields -- see that file's own header, settled by
-// the goals agent), streak/on-pace from stats/goalStreak.ts (this screen's
-// own pure helper, itself built only on top of those same goalProgress
-// exports -- see that file's header for why it doesn't duplicate any of
-// goalProgress.ts's actual window/ratio logic).
+// the goals agent), current streak/on-pace/streak-state from
+// stats/goalStreak.ts and best streak from its sibling
+// stats/goalStreakHistory.ts (both built only on top of those same
+// goalProgress exports -- see either file's header for why neither
+// duplicates goalProgress.ts's actual window/ratio logic).
 import React, { useEffect, useRef } from 'react';
 import { Animated, View, Text, StyleSheet, ScrollView } from 'react-native';
 import * as Haptics from 'expo-haptics';
+import { Feather, Ionicons } from '@expo/vector-icons';
 import { useStore } from '../../store/useStore';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import { useGoalsStore } from '../../store/useGoalsStore';
@@ -28,7 +30,8 @@ import { formatDuration } from '../../stats/stats';
 import { resolveTopic } from '../../stats/customLabels';
 import { Goal } from '../../goals/goals';
 import { computeGoalProgress, goalWindow, goalDisplayPercent } from '../../goals/goalProgress';
-import { computeGoalStreak, isGoalOnPace } from '../../stats/goalStreak';
+import { computeGoalStreak, isGoalOnPace, goalStreakState, GoalStreakState } from '../../stats/goalStreak';
+import { computeBestGoalStreak } from '../../stats/goalStreakHistory';
 import { AnimatedPressable } from '../../ui/AnimatedPressable';
 import { useReducedMotion } from '../../ui/useReducedMotion';
 import { typeScale } from '../../theme/tokens';
@@ -74,12 +77,21 @@ export function GoalsProgressView({
   const c = useTheme();
   const sessions = useStore((s) => s.sessions);
   const customLabels = useSettingsStore((s) => s.customLabels);
+  const excludedTopicKeys = useSettingsStore((s) => s.excludedTopicKeys);
   const themeMode = useSettingsStore((s) => s.themeMode);
   const goals = useGoalsStore((s) => s.goals);
 
   const active = React.useMemo(() => goals.filter((g) => !g.archived), [goals]);
   const nowMs = Date.now();
-  const progress = React.useMemo(() => computeGoalProgress(goals, sessions, nowMs), [goals, sessions]);
+  // customLabels/excludedTopicKeys so an excludeFromTotals-tagged session, or
+  // one tagged with an excluded built-in topic, doesn't advance this ring
+  // any more than it does anywhere else that counts (stats/customLabels.ts) --
+  // previously omitted here, unlike every other computeGoalProgress call
+  // site in the app.
+  const progress = React.useMemo(
+    () => computeGoalProgress(goals, sessions, nowMs, customLabels, excludedTopicKeys),
+    [goals, sessions, customLabels, excludedTopicKeys],
+  );
   const progressById = React.useMemo(() => new Map(progress.map((p) => [p.goalId, p])), [progress]);
 
   if (active.length === 0) {
@@ -97,8 +109,15 @@ export function GoalsProgressView({
         const dueToday = result?.dueToday ?? true;
         const sessionCount = result?.sessionCount ?? 0;
         const window = goalWindow(goal.period, nowMs);
-        const streak = computeGoalStreak(goal, sessions, nowMs);
+        // customLabels is forwarded so a session tagged with an
+        // excludeFromTotals label (e.g. "Sleep") doesn't count toward this
+        // goal's streak any more than it counts toward its progress ring --
+        // see goalStreak.ts's own windowTotals comment for the cross-agent
+        // contract this satisfies.
+        const streak = computeGoalStreak(goal, sessions, nowMs, customLabels, excludedTopicKeys);
+        const bestStreak = computeBestGoalStreak(goal, sessions, nowMs, customLabels, excludedTopicKeys);
         const onPace = isGoalOnPace(ratio, met, window, nowMs);
+        const streakState = goalStreakState(streak, bestStreak, dueToday, met, onPace);
         const restriction = weekdayRestrictionLabel(goal);
         const resolved = goal.topic === null ? null : resolveTopic(goal.topic, customLabels, themeMode);
         const name = goal.topic === null ? 'All focus time' : resolved?.label ?? 'Deleted label';
@@ -125,6 +144,8 @@ export function GoalsProgressView({
             dueToday={dueToday}
             onPace={onPace}
             streak={streak}
+            bestStreak={bestStreak}
+            streakState={streakState}
             restriction={restriction}
             highlighted={highlightGoalId === goal.id}
             ringColor={ringColor}
@@ -170,6 +191,8 @@ function GoalCard({
   dueToday,
   onPace,
   streak,
+  bestStreak,
+  streakState,
   restriction,
   highlighted,
   ringColor,
@@ -188,6 +211,8 @@ function GoalCard({
   dueToday: boolean;
   onPace: boolean;
   streak: number;
+  bestStreak: number;
+  streakState: GoalStreakState;
   restriction: string | null;
   highlighted: boolean;
   ringColor: string;
@@ -234,7 +259,11 @@ function GoalCard({
         onPress();
       }}
       accessibilityRole="button"
-      accessibilityLabel={`${name}, ${period} goal, ${formatDuration(focusS)} of ${formatDuration(targetS)}, ${percent} percent. Open in Settings.`}
+      accessibilityLabel={`${name}, ${period} goal, ${formatDuration(focusS)} of ${formatDuration(targetS)}, ${percent} percent${
+        streak > 0 ? `, ${streak} ${PERIOD_LABELS[period].toLowerCase()} streak` : ''
+      }${streakState === 'atRisk' ? ', streak at risk' : ''}${
+        streakState === 'broken' ? `, streak broken, best was ${bestStreak}` : ''
+      }. Open in Settings.`}
     >
       <Animated.View
         pointerEvents="none"
@@ -258,9 +287,49 @@ function GoalCard({
         </View>
         <Text style={[styles.cardSub, { color: color.textDim }]} numberOfLines={1}>{subtitle}</Text>
         <View style={styles.badgeRow}>
+          {/* The streak's own badge -- color/copy keyed off `streakState`
+              rather than `streak > 0` alone, so a live-but-at-risk streak
+              reads as urgent (warn) instead of the same steady accent every
+              other live streak gets. Ionicons "flame" matches the icon
+              language DayCell.tsx's calendar flame badge already uses for
+              "streak" elsewhere in this app, rather than inventing a second
+              glyph for the same concept. */}
           {streak > 0 ? (
-            <View style={[styles.badge, { backgroundColor: withAlpha(color.accent, 0.16) }]}>
-              <Text style={[styles.badgeText, { color: color.accent }]}>{streak}x streak</Text>
+            <View
+              style={[
+                styles.badge,
+                { backgroundColor: withAlpha(streakState === 'atRisk' ? color.warn : color.accent, 0.16) },
+              ]}
+            >
+              <Ionicons
+                name="flame"
+                size={11}
+                color={streakState === 'atRisk' ? color.warn : color.accent}
+                style={styles.badgeIcon}
+              />
+              <Text style={[styles.badgeText, { color: streakState === 'atRisk' ? color.warn : color.accent }]}>
+                {streak}x streak{streakState === 'atRisk' ? ' · at risk' : ''}
+              </Text>
+            </View>
+          ) : null}
+          {/* "Streak broken" only shows in place of the live-streak badge
+              above (streak === 0 here) -- so a goal that once had a run
+              still gets an explanatory badge instead of just silently
+              showing nothing, distinct from a goal that has never built one
+              at all (streakState 'none', no badge). */}
+          {streakState === 'broken' ? (
+            <View style={[styles.badge, { backgroundColor: withAlpha(color.textDim, 0.16) }]}>
+              <Text style={[styles.badgeText, { color: color.textDim }]}>Streak broken</Text>
+            </View>
+          ) : null}
+          {/* Best-streak badge -- shown whenever there IS a best to show,
+              even alongside a live streak of the same length (confirms
+              "you're at your personal best right now" rather than hiding
+              that fact just because it duplicates the live-streak number). */}
+          {bestStreak > 0 ? (
+            <View style={[styles.badge, { backgroundColor: withAlpha(color.textDim, 0.16) }]}>
+              <Feather name="award" size={11} color={color.textDim} style={styles.badgeIcon} />
+              <Text style={[styles.badgeText, { color: color.textDim }]}>Best {bestStreak}</Text>
             </View>
           ) : null}
           {!dueToday ? (
@@ -268,11 +337,17 @@ function GoalCard({
               <Text style={[styles.badgeText, { color: color.textDim }]}>Not due today</Text>
             </View>
           ) : !met ? (
-            <View style={[styles.badge, { backgroundColor: withAlpha(onPace ? color.accent : color.warn, 0.16) }]}>
-              <Text style={[styles.badgeText, { color: onPace ? color.accent : color.warn }]}>
-                {onPace ? 'On pace' : 'Behind pace'}
-              </Text>
-            </View>
+            // Suppressed when the streak badge above already reads "at
+            // risk" -- that badge already says exactly this, more
+            // specifically (naming the streak that's on the line), so
+            // showing both would just repeat the same warning twice.
+            streakState !== 'atRisk' ? (
+              <View style={[styles.badge, { backgroundColor: withAlpha(onPace ? color.accent : color.warn, 0.16) }]}>
+                <Text style={[styles.badgeText, { color: onPace ? color.accent : color.warn }]}>
+                  {onPace ? 'On pace' : 'Behind pace'}
+                </Text>
+              </View>
+            ) : null
           ) : null}
           {restriction ? (
             <View style={[styles.badge, { backgroundColor: withAlpha(color.textDim, 0.14) }]}>
@@ -296,6 +371,7 @@ const styles = StyleSheet.create({
   cardName: { fontSize: 15, fontWeight: '600', flex: 1, letterSpacing: typeScale.sectionTitle.letterSpacing, lineHeight: 20 },
   cardSub: { ...typeScale.caption },
   badgeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 2 },
-  badge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
+  badge: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
+  badgeIcon: { marginRight: 3 },
   badgeText: { ...typeScale.caption, fontWeight: '700' },
 });

@@ -112,6 +112,7 @@ export default function DashboardScreen() {
   const remoteUnlockOn = useSettingsStore((st) => !!st.boxSettings.unlk);
   const themeMode = useSettingsStore((st) => st.themeMode);
   const customLabels = useSettingsStore((st) => st.customLabels);
+  const excludedTopicKeys = useSettingsStore((st) => st.excludedTopicKeys);
   const ringBaselineWindow = useSettingsStore((st) => st.ringBaselineWindow);
   const ringSourceKind = useSettingsStore((st) => st.ringSourceKind);
   const ringGoalId = useSettingsStore((st) => st.ringGoalId);
@@ -200,7 +201,14 @@ export default function DashboardScreen() {
   // the new TopicBreakdownStrip filler block (task 5) also needs the raw,
   // untotaled session list, not just its aggregate.
   const todaySessions = useMemo(() => filterByWindow(sessions, 'day'), [sessions]);
-  const todayStats = useMemo(() => aggregate(todaySessions), [todaySessions]);
+  // customLabels so a session tagged with an excludeFromTotals label
+  // (stats/customLabels.ts) doesn't inflate "focus time today" -- todayStats.foc
+  // feeds useHomeGoalRing's todayFocusS below, which the idle ring and
+  // TodaySummary both read as the day's real total.
+  const todayStats = useMemo(
+    () => aggregate(todaySessions, customLabels, excludedTopicKeys),
+    [todaySessions, customLabels, excludedTopicKeys],
+  );
 
   // Goal-highlight (TodaySummary) + idle-ring (FocusHero) computations --
   // both depend on the same goals/sessions/settings state, so they're
@@ -212,6 +220,7 @@ export default function DashboardScreen() {
     todayFocusS: todayStats.foc,
     goals,
     customLabels,
+    excludedTopicKeys,
     themeMode,
     ringBaselineWindow,
     ringSourceKind,

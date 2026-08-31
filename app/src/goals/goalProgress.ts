@@ -5,7 +5,10 @@
 // this module never pulls in that file's AsyncStorage-backed
 // loadSessions/appendSessions machinery, and so it can't accidentally reuse
 // (and thus depend on keeping in sync with) a helper that file changes for
-// its own reasons.
+// its own reasons. The one VALUE import below, stats/customLabels.ts's
+// sessionCountsTowardTotals, doesn't reintroduce that risk -- that module
+// itself only type-imports sessionHistory.ts (see its own header), so this
+// file still never drags in the AsyncStorage-backed machinery either.
 //
 // `nowMs` is always a parameter, never read from Date.now() internally --
 // same convention as stats/trend.ts's lastNDays/lastNDaysHeatmap and
@@ -24,6 +27,7 @@
 // the one place drift between the two would actually get caught.
 import type { Goal, GoalPeriod } from './goals';
 import type { LoggedSession } from '../stats/sessionHistory';
+import { CustomLabel, sessionCountsTowardTotals } from '../stats/customLabels';
 
 export interface GoalWindow {
   /** Inclusive start of the window, epoch ms, local time. */
@@ -240,8 +244,31 @@ export function goalDisplayPercent(ratio: number): number {
  * Order of the result follows the order of `goals` (minus archived ones) --
  * this function doesn't re-sort, so a caller that wants a particular
  * display order controls it by the order it passes in.
+ *
+ * `labels` (default `[]`, i.e. nothing excluded) additionally requires
+ * stats/customLabels.ts's sessionCountsTowardTotals to allow each session
+ * before it contributes to `focusS`/`sessionCount` -- a session tagged with
+ * an `excludeFromTotals` label never advances a goal's progress, even a goal
+ * explicitly aimed at that exact label id (matchesGoalTopic can still say
+ * "yes this matches", but the session still doesn't count -- the same
+ * "excluded from every counting path" rule this field's own comment
+ * documents, not a special case here). Omitting `labels` reproduces the
+ * exact pre-exclusion behavior, which is what goalProgress.golden.test.ts's
+ * fixture-parity check (and every other existing caller/test) depends on.
+ *
+ * `excludedTopicKeys` (default `[]`) is sessionCountsTowardTotals' other
+ * exclusion list -- a goal aimed at (or merely matching) one of the six
+ * built-in topics doesn't advance from a session tagged with a topic the
+ * user has excluded, same rule as `labels` and same backward-compatible
+ * default.
  */
-export function computeGoalProgress(goals: Goal[], sessions: LoggedSession[], nowMs: number): GoalProgressResult[] {
+export function computeGoalProgress(
+  goals: Goal[],
+  sessions: LoggedSession[],
+  nowMs: number,
+  labels: CustomLabel[] = [],
+  excludedTopicKeys: string[] = [],
+): GoalProgressResult[] {
   return goals
     .filter((g) => !g.archived)
     .map((goal) => {
@@ -251,6 +278,7 @@ export function computeGoalProgress(goals: Goal[], sessions: LoggedSession[], no
       for (const s of sessions) {
         if (s.startedAt < startMs || s.startedAt >= endMs) continue;
         if (!matchesGoalTopic(goal, s)) continue;
+        if (!sessionCountsTowardTotals(s.topic, labels, excludedTopicKeys)) continue;
         focusS += s.actualS;
         sessionCount += 1;
       }

@@ -1,9 +1,10 @@
 // Unit tests for goalStreak.ts's pure streak/on-pace helpers. Run with
 // `npm test` (jest-expo), same convention as goalProgress.test.ts.
-import { computeGoalStreak, isGoalOnPace } from './goalStreak';
+import { computeGoalStreak, isGoalOnPace, goalStreakState } from './goalStreak';
 import { Goal } from '../goals/goals';
 import { goalWindow } from '../goals/goalProgress';
 import { LoggedSession } from './sessionHistory';
+import type { CustomLabel } from './customLabels';
 
 const goal = (overrides: Partial<Goal>): Goal => ({
   id: 'goal:a',
@@ -121,6 +122,22 @@ describe('computeGoalStreak', () => {
       ];
       expect(computeGoalStreak(g, sessions, NOW)).toBe(1);
     });
+
+    // MAX_STREAK_WINDOWS (60) is a cap on DUE windows, not on raw calendar
+    // steps -- a goal due only one day a week can need up to ~7x as many
+    // calendar days as an unrestricted daily goal to reach that same 60
+    // count. The walk used to count every calendar step (off days included)
+    // against the 60 cap, so this once-a-week goal's real 10-Wednesday streak
+    // (63 days back) got silently cut short at 9 -- the loop ran out of
+    // steps at i=59 (fewer than 9 weeks), one Wednesday shy of the truth.
+    it('does not truncate a once-a-week goal streak that spans more than MAX_STREAK_WINDOWS calendar days', () => {
+      const g = goal({ targetS: 100, period: 'daily', daysOfWeek: [3] }); // Wednesdays only
+      const sessions: LoggedSession[] = [];
+      for (let week = 0; week < 10; week++) {
+        sessions.push(session(NOW - week * WEEK_MS, 200)); // 10 consecutive Wednesdays, all met
+      }
+      expect(computeGoalStreak(g, sessions, NOW)).toBe(10);
+    });
   });
 });
 
@@ -184,5 +201,55 @@ describe('computeGoalStreak on an off day after a missed scheduled day', () => {
 
   it('counts the in-progress scheduled day as soon as it is met', () => {
     expect(computeGoalStreak(mondaysOnly, [met(2026, 7, 10), met(2026, 7, 17)], LAST_MONDAY)).toBe(2);
+  });
+});
+
+// `labels` is the "which labels count toward totals" cross-feature hook --
+// see this file's own header comment for why sessionCountsTowardTotals is
+// imported from customLabels.ts even though (at the time this was written) a
+// second agent is still landing that export in parallel.
+describe('computeGoalStreak with excludeFromTotals labels', () => {
+  const sleepLabel: CustomLabel = { id: 'custom:sleep', name: 'Sleep', color: '#334155', excludeFromTotals: true };
+
+  it('does not let an excluded-label session count toward a met window', () => {
+    const g = goal({ targetS: 100 });
+    // Without labels this session alone would meet the window (200 >= 100).
+    expect(computeGoalStreak(g, [session(NOW, 200, 'custom:sleep')], NOW, [sleepLabel])).toBe(0);
+  });
+
+  it('still counts an untagged session even when an excluded label exists in the catalog', () => {
+    const g = goal({ targetS: 100 });
+    expect(computeGoalStreak(g, [session(NOW, 200)], NOW, [sleepLabel])).toBe(1);
+  });
+
+  it('defaults to counting every session when no labels are passed at all', () => {
+    const g = goal({ targetS: 100 });
+    expect(computeGoalStreak(g, [session(NOW, 200, 'custom:sleep')], NOW)).toBe(1);
+  });
+});
+
+describe('goalStreakState', () => {
+  it('is "active" for a live streak that is already met today', () => {
+    expect(goalStreakState(3, 3, true, true, false)).toBe('active');
+  });
+
+  it('is "active" for a live streak on an off day (not due)', () => {
+    expect(goalStreakState(3, 5, false, false, false)).toBe('active');
+  });
+
+  it('is "active" for a live streak still on pace mid-window', () => {
+    expect(goalStreakState(3, 3, true, false, true)).toBe('active');
+  });
+
+  it('is "atRisk" for a live streak that is due, unmet, and behind pace', () => {
+    expect(goalStreakState(3, 5, true, false, false)).toBe('atRisk');
+  });
+
+  it('is "broken" once the live streak drops to 0 but a best streak remains', () => {
+    expect(goalStreakState(0, 5, true, false, false)).toBe('broken');
+  });
+
+  it('is "none" when neither a live nor a best streak exists', () => {
+    expect(goalStreakState(0, 0, true, false, false)).toBe('none');
   });
 });

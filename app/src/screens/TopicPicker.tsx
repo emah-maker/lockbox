@@ -38,10 +38,18 @@ import { typeScale } from '../theme/tokens';
 // catalog.
 const MAX_RECENT = 4;
 
+// Appended to a chip's own label text for a label with excludeFromTotals set
+// (stats/customLabels.ts) -- a thin space + asterisk rather than a second
+// line or an icon, so every chip keeps its existing single-line height and
+// the flex-wrap row layout above doesn't need to change at all. The
+// TOPIC_LEGEND caption below is what tells a user what the asterisk means.
+const EXCLUDED_MARKER = ' *';
+
 export function TopicPicker({
   heading,
   currentTopic,
   customLabels,
+  excludedTopicKeys,
   themeMode,
   theme,
   onSelect,
@@ -50,6 +58,12 @@ export function TopicPicker({
   heading: string;
   currentTopic: string | null;
   customLabels: ReturnType<typeof useSettingsStore.getState>['customLabels'];
+  /** Built-in topics excluded from totals/goals/streaks (stats/
+   * customLabels.ts's setTopicKeyExcluded) -- customLabels' own
+   * excludeFromTotals extended to the six built-ins. Defaults to `[]` so an
+   * existing caller with nothing wired up yet renders exactly as before
+   * (every chip pickable, none marked excluded). */
+  excludedTopicKeys?: string[];
   themeMode: ReturnType<typeof useSettingsStore.getState>['themeMode'];
   theme: ReturnType<typeof useTheme>;
   onSelect: (topic: string) => void;
@@ -70,7 +84,7 @@ export function TopicPicker({
   const [savingColor, setSavingColor] = React.useState<string | null>(null);
   const [saveError, setSaveError] = React.useState<string | null>(null);
 
-  const choices = allLabelChoices(customLabels, themeMode);
+  const choices = allLabelChoices(customLabels, themeMode, excludedTopicKeys);
 
   // Ranked over the full catalog, then resolved for display. `isRenderable`
   // is what drops a since-deleted custom label's id -- recentTopics.ts
@@ -79,11 +93,16 @@ export function TopicPicker({
     if (!sessions || sessions.length === 0) return [];
     const ids = topRecentTopics(sessions, MAX_RECENT, (t) => !!resolveTopic(t, customLabels, themeMode));
     return ids
-      .map((id) => ({ id, resolved: resolveTopic(id, customLabels, themeMode)! }))
+      .map((id) => ({ id, resolved: resolveTopic(id, customLabels, themeMode, excludedTopicKeys)! }))
       .filter((r) => !!r.resolved);
-  }, [sessions, customLabels, themeMode]);
+  }, [sessions, customLabels, themeMode, excludedTopicKeys]);
 
   const recentIds = React.useMemo(() => new Set(recent.map((r) => r.id)), [recent]);
+
+  // Whether the legend line below the chip rows is worth showing at all --
+  // most users have no excluded label, and a caption explaining a marker
+  // that appears nowhere on screen would just be confusing clutter.
+  const anyExcluded = choices.some((c) => c.excludedFromTotals) || recent.some((r) => r.resolved.excludedFromTotals);
 
   const trimmed = draft.trim();
 
@@ -139,10 +158,15 @@ export function TopicPicker({
                   onPress={() => onSelect(id)}
                   accessibilityRole="button"
                   accessibilityState={{ selected: active }}
-                  accessibilityLabel={`${resolved.label}, recently used`}
+                  accessibilityLabel={
+                    resolved.excludedFromTotals
+                      ? `${resolved.label}, recently used, doesn't count toward totals`
+                      : `${resolved.label}, recently used`
+                  }
                 >
                   <Text style={[styles.topicChipText, { color: active ? resolved.textColor : theme.text }]}>
                     {resolved.label}
+                    {resolved.excludedFromTotals ? EXCLUDED_MARKER : ''}
                   </Text>
                 </AnimatedPressable>
               );
@@ -171,14 +195,22 @@ export function TopicPicker({
                 onPress={() => onSelect(choice.id)}
                 accessibilityRole="button"
                 accessibilityState={{ selected: active }}
+                accessibilityLabel={choice.excludedFromTotals ? `${choice.label}, doesn't count toward totals` : undefined}
               >
                 <Text style={[styles.topicChipText, { color: active ? choice.textColor : theme.text }]}>
                   {choice.label}
+                  {choice.excludedFromTotals ? EXCLUDED_MARKER : ''}
                 </Text>
               </AnimatedPressable>
             );
           })}
       </View>
+
+      {anyExcluded ? (
+        <Text style={[styles.sectionLabel, { color: theme.textDim, marginTop: 4 }]}>
+          * doesn't count toward totals, goals, streaks, or the calendar heat map
+        </Text>
+      ) : null}
 
       <View style={styles.tagOnceRow}>
         <TextInput

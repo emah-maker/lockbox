@@ -1,6 +1,16 @@
 // comparisons.ts -- turns a total focused-seconds count into lighthearted
 // real-world comparisons ("that's like 3.2 movies") for the Stats screen.
 // Pure/no deps, unit-testable the same way as stats.ts.
+//
+// Deliberately NOT given a `labels: CustomLabel[]` parameter of its own,
+// unlike stats.ts's aggregate or trend.ts's bestDay/lastNDays/
+// lastNDaysHeatmap: every function here takes an already-computed `totalS`,
+// not a session list, so there is nothing for this module to filter --
+// exclusion happens once, upstream, wherever that totalS was produced (in
+// practice, StatsScreen.tsx's `stats.foc`, which comes from stats.ts's own
+// aggregate(sessions, customLabels)). Adding a no-op labels param here would
+// only invite a caller to pass customLabels a second time and wonder why a
+// number already excluded needed excluding again.
 
 export interface RealWorldRef {
   key: string;

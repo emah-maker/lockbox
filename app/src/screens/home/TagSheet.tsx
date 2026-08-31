@@ -31,14 +31,18 @@ export function TagSheet({
   // Read here rather than threaded through DashboardScreen: the session log
   // is only used to rank TopicPicker's "Recent" row, which is that
   // component's own concern, and this sheet already self-supplies `theme`
-  // the same way.
+  // the same way. excludedTopicKeys is read the identical way, for the
+  // identical reason -- TopicPicker's own excluded-marker affordance is its
+  // concern, not DashboardScreen's.
   const sessions = useStore((s) => s.sessions);
+  const excludedTopicKeys = useSettingsStore((s) => s.excludedTopicKeys);
   return (
     <Sheet visible={visible} onClose={onClose} title="Session topic" size="auto">
       <TopicPicker
         heading="What are you focusing on?"
         currentTopic={currentTopic}
         customLabels={customLabels}
+        excludedTopicKeys={excludedTopicKeys}
         themeMode={themeMode}
         theme={theme}
         sessions={sessions}

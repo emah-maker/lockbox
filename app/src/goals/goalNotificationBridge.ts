@@ -65,7 +65,14 @@ function readPrefs(): NotificationPrefs {
  * math -- never reimplemented here, same restriction useHomeGoalRing.ts
  * operates under. */
 function readProgress(goals: Goal[]): Map<string, GoalProgressSnapshot> {
-  const results = computeGoalProgress(goals, latestSessions, Date.now());
+  // customLabels/excludedTopicKeys so an excludeFromTotals-tagged session (or
+  // one tagged with an excluded built-in topic -- stats/customLabels.ts)
+  // never counts as progress here either -- otherwise a notifyOnlyIfBehind
+  // reminder for a goal could get silently withdrawn (or never fire) because
+  // of time logged under a label/topic the user explicitly asked not to
+  // count.
+  const settings = useSettingsStore.getState();
+  const results = computeGoalProgress(goals, latestSessions, Date.now(), settings.customLabels, settings.excludedTopicKeys);
   return new Map(results.map((r) => [r.goalId, { met: r.met, remainingS: r.remainingS }]));
 }
 
@@ -123,8 +130,19 @@ function scheduleResync(): void {
  * The listener does its own change detection against a cached snapshot
  * (zustand v5's `subscribe` takes a whole-state listener, so this is the
  * same idiom sync/settingsSyncBridge.ts and battery/batterySamplingBridge.ts
- * already use) -- unrelated store emissions (theme, custom labels, box
- * settings) cost one string compare and nothing more.
+ * already use) -- unrelated store emissions (theme, box settings) cost one
+ * string compare and nothing more.
+ *
+ * Also watches customLabels/excludedTopicKeys, not just the four notify
+ * prefs the function's own name refers to -- readProgress above folds both
+ * into every goal's `met` snapshot, specifically so a notifyOnlyIfBehind
+ * reminder reacts to a label/topic exclusion. That only works if toggling
+ * CustomLabelsSection.tsx's "Counts toward totals" switch actually triggers
+ * a resync: before this, flipping it changed nothing this watch compared,
+ * so a reminder already scheduled off the OLD (pre-exclusion) progress kept
+ * running -- or a goal that just became newly-behind because its counted
+ * time dropped stayed silent -- until some unrelated trigger (a new
+ * session, a goal edit, or an actual prefs change) happened to resync next.
  *
  * Idempotent: a second call while already started returns the existing
  * teardown rather than double-subscribing.
@@ -132,11 +150,11 @@ function scheduleResync(): void {
 export function startGoalNotificationPrefsWatch(): () => void {
   if (teardown) return teardown;
 
-  let prevPrefs = prefsKey();
+  let prevKey = watchedKey();
   const unsubPrefs = useSettingsStore.subscribe(() => {
-    const next = prefsKey();
-    if (next === prevPrefs) return; // some other settings field changed
-    prevPrefs = next;
+    const next = watchedKey();
+    if (next === prevKey) return; // some other settings field changed
+    prevKey = next;
     scheduleResync();
   });
 
@@ -151,12 +169,19 @@ export function startGoalNotificationPrefsWatch(): () => void {
   return teardown;
 }
 
-/** The four notification prefs flattened into one comparable string -- the
- * same "snapshot then compare" shape settingsSyncBridge.ts uses, small
- * enough that a string beats a structural compare. */
-function prefsKey(): string {
+/** The four notification prefs, plus everything readProgress reads to
+ * decide `met` (customLabels/excludedTopicKeys), flattened into one
+ * comparable string -- the same "snapshot then compare" shape
+ * settingsSyncBridge.ts uses, small enough that a string beats a structural
+ * compare. customLabels is JSON.stringify'd rather than pulled apart into
+ * just the ids/excludeFromTotals bits that actually matter to progress --
+ * same "compare the whole synced array" convention settingsSyncBridge.ts's
+ * own change-detection already uses for this exact field, and a false
+ * positive here (a rename/color edit that doesn't change any exclusion)
+ * costs one extra harmless resync, not a wrong schedule. */
+function watchedKey(): string {
   const s = useSettingsStore.getState();
-  return `${s.notificationsEnabled}|${s.quietHoursEnabled}|${s.quietStart}|${s.quietEnd}`;
+  return `${s.notificationsEnabled}|${s.quietHoursEnabled}|${s.quietStart}|${s.quietEnd}|${JSON.stringify(s.customLabels)}|${JSON.stringify(s.excludedTopicKeys)}`;
 }
 
 let teardown: (() => void) | null = null;

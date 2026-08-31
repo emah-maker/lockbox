@@ -1,7 +1,10 @@
 // CalendarScreen.tsx -- month grid over the local session log (sessionHistory
 // via useStore.sessions). Each day gets a heat-tinted circle (focus minutes),
 // a small topic stack (stats/customLabels.ts's topicBreakdownWithCustom),
-// and a goal-met ring (goalProgress.ts, via monthGrid.ts's goalsMetOnDay).
+// a goal-met ring (goalProgress.ts, via monthGrid.ts's goalsMetOnDay), and
+// now a per-goal streak dot row underneath the topic stack (Goal Streaks
+// feature, see useCalendarStreaks.ts's own header for the "which goals" view
+// preference and streakDotsForDay's per-day math).
 // Tapping a day no longer grows an inline panel below the grid (manager
 // brief: this app's screens should not "expand up and down") -- it opens
 // DaySheet.tsx in a `Sheet` instead, so the grid itself stays a stable,
@@ -64,31 +67,27 @@ import { DayCell } from '../ui/calendar/DayCell';
 import { MonthSummaryStrip } from '../ui/calendar/MonthSummaryStrip';
 import { HeatLegend } from '../ui/calendar/HeatLegend';
 import { RecentSessionsRow } from '../ui/calendar/RecentSessionsRow';
+import { CalendarStreaksSheet } from '../ui/calendar/CalendarStreaksSheet';
 import { DaySheet } from './calendar/DaySheet';
-import {
-  buildGrid,
-  computeMonthSummary,
-  computeStreakRuns,
-  goalsMetOnDay,
-  monthHeatLevels,
-  startOfMonth,
-} from './calendar/monthGrid';
+import { buildGrid, computeMonthSummary, computeStreakRuns, goalsMetOnDay, monthHeatLevels, startOfMonth } from './calendar/monthGrid';
+import { useCalendarStreaks } from './calendar/useCalendarStreaks';
 import { useReducedMotion, configureLayoutAnimation } from '../ui/useReducedMotion';
 import { typeScale } from '../theme/tokens';
 import { useNav } from '../nav/useNav';
 
-// DayCell.tsx's own tallest content stack is its RING_SIZE (CIRCLE_SIZE 34 +
-// 6 = 40) ring PLUS its topic stack-row underneath (3px bar + 3px margin =
-// 6), centered vertically in the cell -- 46px total, fixed regardless of
-// this cell's own computed size. A few px of breathing room above that
-// (not exactly 46) so the ring doesn't visually touch the cell's edge. See
-// this file's header for why this floor exists at all.
-const MIN_CELL_SIZE = 52;
+// DayCell.tsx's own tallest content stack is its RING_SIZE (40) ring, PLUS
+// its topic stack-row (3px bar + 3px margin = 6), PLUS its streak-dot row
+// (5px dot + 3px margin = 8, Goal Streaks feature) -- 54px total, fixed
+// regardless of this cell's own computed size. A few px of breathing room
+// above that so nothing touches the cell's edge. See this file's header for
+// why this floor exists at all. (Bumped from 52 -> 60 when the streak-dot
+// row was added, else it would clip on every device, not just tiny ones.)
+const MIN_CELL_SIZE = 60;
 // Above the original ungoverned (deviceWidth-40)/7 (~47-55px on most phones)
-// there's nothing left in a 7-wide row worth spending on a single day cell --
-// capped so a short, wide month grid on a tall/narrow phone doesn't blow up
-// into oversized cells just because the vertical budget technically allows it.
-const MAX_CELL_SIZE = 60;
+// there's nothing left in a 7-wide row worth spending on a single day cell.
+// Bumped from 60 -> 66 alongside MIN_CELL_SIZE's own bump above, keeping
+// roughly the same adaptive range it had before that row ate into it.
+const MAX_CELL_SIZE = 66;
 const HORIZONTAL_PADDING = 20; // this screen's own container paddingHorizontal -- PER SIDE (RN semantics)
 // This screen's own root flex column `gap` (styles.container below) --
 // shared as a constant, not just duplicated into that StyleSheet entry,
@@ -114,6 +113,7 @@ export default function CalendarScreen() {
   const c = useTheme();
   const themeMode = useSettingsStore((s) => s.themeMode);
   const customLabels = useSettingsStore((s) => s.customLabels);
+  const excludedTopicKeys = useSettingsStore((s) => s.excludedTopicKeys);
   const sessions = useStore((s) => s.sessions);
   const retagSessionAction = useStore((s) => s.retagSession);
   const goals = useGoalsStore((s) => s.goals);
@@ -121,7 +121,20 @@ export default function CalendarScreen() {
   const [cursor, setCursor] = useState(startOfMonth(new Date()));
   const [selectedKey, setSelectedKey] = useState<string>(dayKey(Date.now()));
   const [daySheetVisible, setDaySheetVisible] = useState(false);
+  const [streaksSheetVisible, setStreaksSheetVisible] = useState(false);
   const reducedMotion = useReducedMotion();
+
+  // Goal Streaks feature's own state slice (active goals, the resolved
+  // "which goals show" set, the toggle action, and the per-day dot builder)
+  // -- split into its own hook, see useCalendarStreaks.ts's header for why.
+  const { activeGoals, visibleStreakGoalIdSet, toggleStreakGoal, streakDotsForDay } = useCalendarStreaks(
+    sessions,
+    customLabels,
+    excludedTopicKeys,
+    themeMode,
+    c.accent,
+    c.textDim,
+  );
 
   // Inbound link from another tab: DashboardScreen/StatsScreen/etc. can
   // navigate('calendar', { calendarDate }) to land straight on a specific
@@ -246,7 +259,7 @@ export default function CalendarScreen() {
         const daySessions = byDay.get(key) ?? [];
         const focusS = daySessions.reduce((sum, s) => sum + s.actualS, 0);
         const topicStats = topicBreakdownWithCustom(daySessions, customLabels, themeMode);
-        const goalMet = goalsMetOnDay(goals, sessions, date).length > 0;
+        const goalMet = goalsMetOnDay(goals, sessions, date, customLabels, excludedTopicKeys).length > 0;
         const level = heatLevels.get(key) ?? 0;
         // A cell's left/right connector lights up when the *adjacent grid
         // index* (not adjacent calendar date -- see computeStreakRuns's own
@@ -261,15 +274,17 @@ export default function CalendarScreen() {
           : { left: false, right: false };
         const showFlame = !!run && run.length >= 3 && i === run.endIndex;
         const hasPlan = plannedDays.has(key);
-        return { date, key, daySessions, focusS, topicStats, goalMet, level, streakEdge, showFlame, hasPlan };
+        // Per-goal streak dots -- see useCalendarStreaks.ts's streakDotsForDay.
+        const streakDots = streakDotsForDay(date);
+        return { date, key, daySessions, focusS, topicStats, goalMet, level, streakEdge, showFlame, hasPlan, streakDots };
       }),
-    [grid, byDay, customLabels, themeMode, goals, sessions, heatLevels, streakRuns, plannedDays],
+    [grid, byDay, customLabels, excludedTopicKeys, themeMode, goals, sessions, heatLevels, streakRuns, plannedDays, streakDotsForDay],
   );
 
   const selectedSessions: LoggedSession[] = byDay.get(selectedKey) ?? [];
   const selectedGoalsMet = useMemo(
-    () => goalsMetOnDay(goals, sessions, dayKeyToDate(selectedKey)),
-    [goals, sessions, selectedKey],
+    () => goalsMetOnDay(goals, sessions, dayKeyToDate(selectedKey), customLabels, excludedTopicKeys),
+    [goals, sessions, selectedKey, customLabels, excludedTopicKeys],
   );
 
   // Newest-last in storage (see stats.ts's aggregate doc comment) -- reverse
@@ -403,13 +418,31 @@ export default function CalendarScreen() {
               streakEdge={cell.streakEdge}
               showFlame={cell.showFlame}
               hasPlan={cell.hasPlan}
+              streakDots={cell.streakDots}
             />
           );
         })}
       </Animated.View>
 
       <View onLayout={(e) => setBelowGridHeight(e.nativeEvent.layout.height)} style={styles.belowGrid}>
-        <HeatLegend theme={c} />
+        <View style={styles.legendRow}>
+          <View style={{ flex: 1 }}>
+            <HeatLegend theme={c} />
+          </View>
+          {/* Reaches CalendarStreaksSheet -- placed beside the heat legend,
+              not as its own row, so it costs nothing extra out of this
+              screen's fit-to-viewport vertical budget (onLayout-measured,
+              see this file's header). */}
+          <AnimatedPressable
+            style={styles.streaksBtn}
+            onPress={() => setStreaksSheetVisible(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Choose which goals' streaks show on the calendar"
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Feather name="target" size={14} color={c.textDim} />
+          </AnimatedPressable>
+        </View>
         <MonthSummaryStrip summary={monthSummary} theme={c} />
       </View>
 
@@ -422,8 +455,20 @@ export default function CalendarScreen() {
         goals={goals}
         theme={c}
         customLabels={customLabels}
+        excludedTopicKeys={excludedTopicKeys}
         themeMode={themeMode}
         onRetag={(target, topic) => retagSessionAction(target, topic)}
+      />
+
+      <CalendarStreaksSheet
+        visible={streaksSheetVisible}
+        goals={activeGoals}
+        visibleIds={visibleStreakGoalIdSet}
+        customLabels={customLabels}
+        themeMode={themeMode}
+        theme={c}
+        onClose={() => setStreaksSheetVisible(false)}
+        onToggle={toggleStreakGoal}
       />
     </View>
   );
@@ -433,6 +478,8 @@ const styles = StyleSheet.create({
   container: { flex: 1, paddingHorizontal: HORIZONTAL_PADDING, paddingTop: 8, paddingBottom: 8, gap: CONTAINER_GAP },
   aboveGrid: { gap: 6 },
   belowGrid: { gap: 8 },
+  legendRow: { flexDirection: 'row', alignItems: 'center' },
+  streaksBtn: { paddingHorizontal: 4, paddingVertical: 2 },
   monthHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   monthLabel: {
     fontSize: 17,

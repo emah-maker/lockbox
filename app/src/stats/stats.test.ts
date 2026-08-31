@@ -1,6 +1,7 @@
 // Unit tests for the pure stats helpers. Run with `npm test` (jest-expo).
 import { aggregate, formatDuration, completionRate, clampLockSeconds, splitLockSeconds, MAX_LOCK_HOURS, MAX_LOCK_SECONDS, MIN_LOCK_SECONDS, SessionRecord } from './stats';
 import { parseStatus, parseHistoryEntries } from '../ble/protocol';
+import { CustomLabel } from './customLabels';
 
 describe('aggregate', () => {
   const recs: SessionRecord[] = [
@@ -32,6 +33,29 @@ describe('aggregate', () => {
 
   it('empty history is all zeros', () => {
     expect(aggregate([])).toEqual({ n: 0, foc: 0, done: 0, str: 0, lng: 0 });
+  });
+
+  it('omitting labels counts every session, same as before this field existed', () => {
+    expect(aggregate(recs)).toEqual(aggregate(recs, []));
+  });
+
+  it('excludes sessions tagged with an excludeFromTotals label from every field', () => {
+    const labels: CustomLabel[] = [{ id: 'custom:sleep', name: 'Sleep', color: '#123456', excludeFromTotals: true }];
+    const r: SessionRecord[] = [
+      { plannedS: 300, actualS: 300, outcome: 'completed', topic: 'work' },
+      { plannedS: 28800, actualS: 28800, outcome: 'completed', topic: 'custom:sleep' },
+    ];
+    const s = aggregate(r, labels);
+    expect(s).toEqual({ n: 1, foc: 300, done: 1, str: 1, lng: 300 });
+  });
+
+  it('still counts an untagged session, and a session tagged with a non-excluded label', () => {
+    const labels: CustomLabel[] = [{ id: 'custom:sleep', name: 'Sleep', color: '#123456', excludeFromTotals: true }];
+    const r: SessionRecord[] = [
+      { plannedS: 300, actualS: 300, outcome: 'completed' },
+      { plannedS: 600, actualS: 600, outcome: 'completed', topic: 'custom:focus' },
+    ];
+    expect(aggregate(r, labels).n).toBe(2);
   });
 });
 

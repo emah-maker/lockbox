@@ -16,7 +16,7 @@ import { useScheduleStore } from '../store/useScheduleStore';
 export const LOCAL_DATA_OWNER_KEY = 'localDataOwnerUid';
 
 /**
- * Clears the local session history, resets the four SyncableSettings fields
+ * Clears the local session history, resets the five SyncableSettings fields
  * to their defaults, clears focus goals and scheduled sessions, and un-tags
  * local storage's owner.
  * Call on sign-out/account-deletion (so no account's data lingers on a
@@ -27,7 +27,7 @@ export const LOCAL_DATA_OWNER_KEY = 'localDataOwnerUid';
  * selections). resetGoals mirrors resetSyncableSettings exactly -- focus
  * goals are account state (settable from the dashboard too), so they get
  * the same sign-out/account-switch treatment as themeMode/accent/
- * callAlertsEnabled/customLabels. resetScheduledSessions is here for the
+ * callAlertsEnabled/customLabels/excludedTopicKeys. resetScheduledSessions is here for the
  * same reason and one more: a plan names what someone intends to work on and
  * carries a pending OS notification, so leaving it behind would fire a
  * stranger's reminder on a shared or resold device.
