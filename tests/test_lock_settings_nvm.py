@@ -181,6 +181,45 @@ check("(4) a missing magic byte falls back to defaults, not stored bytes",
       d.override_presses == lock_settings.OVERRIDE_PRESSES,
       repr(d.override_presses))
 
+# --- 4b. A stored override target the box cannot honour -------------------
+# The magic byte guards a whole layout, not a single field, so it only helps
+# when the layout actually changed. The high byte of override_presses sits at
+# _BASE+9, and a stray 0xFF there reconstructs a target in the tens of
+# thousands. That failure is silent in the worst way: the override overlay
+# still appears and still counts up on every press, it simply counts toward a
+# limit no hand will ever reach -- an emergency unlock that looks alive and is
+# not. Out of range must fall back to the compiled-in default.
+s = fresh()
+s.override_presses = 25
+s.save()
+_nvm._buf[BASE + 9] = 0xFF        # stray high byte under a valid magic
+g = lock_settings.Settings()
+check("(4b) a garbage high byte falls back to the default target",
+      g.override_presses == lock_settings.OVERRIDE_PRESSES,
+      repr(g.override_presses))
+check("(4b) and the fallback is a target a person can actually press to",
+      lock_config.OVR_MIN <= g.override_presses <= lock_config.OVR_MAX,
+      repr(g.override_presses))
+
+s = fresh()
+s.override_presses = 25
+s.save()
+_nvm._buf[BASE + 1] = 0x00        # low byte zeroed -> target 0
+_nvm._buf[BASE + 9] = 0x00
+z = lock_settings.Settings()
+check("(4b) a zero target falls back rather than unlocking on one press",
+      z.override_presses == lock_settings.OVERRIDE_PRESSES,
+      repr(z.override_presses))
+
+# A legitimately stored value must still survive -- the clamp is a guard on
+# corruption, not a cap that quietly discards the user's own setting.
+s = fresh()
+s.override_presses = 300          # in range, needs both bytes
+s.save()
+ok = lock_settings.Settings()
+check("(4b) an in-range 2-byte target still round-trips untouched",
+      ok.override_presses == 300, repr(ok.override_presses))
+
 # --- 5. The region stays inside its NVM budget ----------------------------
 # lock_log.py owns everything from NVM_LOG_BASE up. If the packed region ever
 # reached into it, the two would silently corrupt each other -- the region

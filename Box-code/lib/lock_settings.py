@@ -117,7 +117,21 @@ class Settings:
             if nvm is not None and nvm[_BASE] == _MAGIC:
                 # override_presses is 2 bytes (low, high) since OVR_MAX=500
                 # no longer fits one byte -- see save() below.
-                self.override_presses = nvm[_BASE + 1] | (nvm[_BASE + 9] << 8)
+                #
+                # Clamped on the way in, like override_timeout below. save()
+                # clamps on the way out, so a value written by THIS build is
+                # always in range -- but the high byte at _BASE+9 is exactly
+                # the kind of never-before-written offset the magic bumps
+                # above exist to guard, and the guard is only as good as the
+                # magic. Unclamped, one stray 0xFF there reconstructs a target
+                # in the tens of thousands, which doesn't fail loudly: the
+                # override overlay still appears and still counts, it just
+                # can never reach a limit no hand will ever press to. Reading
+                # a target the box cannot honour is worse than reading the
+                # default, so out-of-range means fall back to the default.
+                ovr = nvm[_BASE + 1] | (nvm[_BASE + 9] << 8)
+                self.override_presses = (
+                    ovr if OVR_MIN <= ovr <= OVR_MAX else OVERRIDE_PRESSES)
                 self.auto_open = bool(nvm[_BASE + 2])
                 self.sleep_s = nvm[_BASE + 3]
                 self.bright_pct = nvm[_BASE + 4]
