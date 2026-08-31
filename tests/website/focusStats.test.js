@@ -33,6 +33,8 @@ import {
   createCustomLabel,
   renameCustomLabel,
   recolorCustomLabel,
+  isHexColor,
+  expandHex,
   deleteCustomLabel,
   MAX_CUSTOM_LABELS,
   MAX_LABEL_NAME_LENGTH,
@@ -340,14 +342,17 @@ describe('createCustomLabel / renameCustomLabel / recolorCustomLabel / deleteCus
   });
 
   it('renameCustomLabel only touches the matching id, recolorCustomLabel likewise', () => {
+    // The shorthand colours here are just three distinguishable values; both
+    // writers now store them expanded (see the colour-validation suite
+    // below), so the expectations are the six-digit forms.
     const labels = createCustomLabel(createCustomLabel([], 'A', '#111'), 'B', '#222');
     const renamed = renameCustomLabel(labels, labels[0].id, 'A2');
     assert.equal(renamed[0].name, 'A2');
     assert.equal(renamed[1].name, 'B'); // untouched
 
     const recolored = recolorCustomLabel(labels, labels[1].id, '#333');
-    assert.equal(recolored[1].color, '#333');
-    assert.equal(recolored[0].color, '#111'); // untouched
+    assert.equal(recolored[1].color, '#333333');
+    assert.equal(recolored[0].color, '#111111'); // untouched
   });
 
   it('deleteCustomLabel removes only the matching id', () => {
@@ -436,5 +441,55 @@ describe('sanitizeCustomLabels', () => {
   it('stops at the catalog cap', () => {
     const many = Array.from({ length: MAX_CUSTOM_LABELS + 5 }, (_, i) => label({ id: `custom:${i}` }));
     assert.equal(sanitizeCustomLabels(many).length, MAX_CUSTOM_LABELS);
+  });
+});
+
+// Colour validation, kept in step with app/src/stats/customLabels.ts and
+// app/src/theme/color.ts. The two sides sanitize the SAME account document,
+// so a catalog they disagree about is one each client keeps re-pushing over
+// the other -- which is why these are twins and why this suite exists.
+describe('label colour validation (twin of the app side)', () => {
+  const label = (over = {}) => ({ id: 'custom:1', name: 'Deep Work', color: '#123456', ...over });
+
+  it('accepts only the two notations the colour maths can work on', () => {
+    assert.equal(isHexColor('#abc'), true);
+    assert.equal(isHexColor('#AABBCC'), true);
+    for (const v of ['red', 'rgb(1,2,3)', '#ab', '#aabbccdd', 'aabbcc', '', null, 42]) {
+      assert.equal(isHexColor(v), false, `expected ${JSON.stringify(v)} to be rejected`);
+    }
+  });
+
+  it('expands the shorthand form', () => {
+    assert.equal(expandHex('#abc'), '#aabbcc');
+    assert.equal(expandHex('#aabbcc'), '#aabbcc');
+  });
+
+  it('drops a remote label whose colour is not hex', () => {
+    for (const color of ['red', 'rgb(1,2,3)', '#ab', '', 7, null]) {
+      assert.deepEqual(sanitizeCustomLabels([label({ color })]), []);
+    }
+  });
+
+  it('keeps a shorthand colour, stored expanded', () => {
+    assert.equal(sanitizeCustomLabels([label({ color: '#abc' })])[0].color, '#aabbcc');
+  });
+
+  it('rejects a non-hex colour in both authoring paths', () => {
+    assert.throws(() => createCustomLabel([], 'Reading', 'red'), /hex color/);
+    const made = createCustomLabel([], 'Reading', '#2563eb');
+    assert.throws(() => recolorCustomLabel(made, made[0].id, 'red'), /hex color/);
+  });
+
+  it('never lets a non-hex colour produce a NaN contrast decision', () => {
+    // NaN does not throw -- it makes both comparisons false, so the ink stops
+    // being measured and silently becomes whichever branch loses the tie.
+    for (const bad of ['red', 'not-a-colour', '']) {
+      assert.ok(['#ffffff', '#0b0b0b'].includes(readableTextColor(bad)));
+    }
+  });
+
+  it('measures shorthand colours properly instead of returning NaN', () => {
+    assert.equal(readableTextColor('#fff'), '#0b0b0b');
+    assert.equal(readableTextColor('#000'), '#ffffff');
   });
 });

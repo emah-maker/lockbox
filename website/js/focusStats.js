@@ -31,17 +31,41 @@ const TOPIC_HEX = {
   other: { light: '#008300', dark: '#008300' },
 };
 
+/** True for the one colour notation the maths below can work on: `#RGB` or
+ * `#RRGGBB`. Twin of app/src/theme/color.ts's isHexColor -- keep in step. */
+export function isHexColor(value) {
+  return typeof value === 'string' && /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(value);
+}
+
+/** `#RGB` -> `#RRGGBB`, leaving a six-digit value alone. Twin of
+ * app/src/theme/color.ts's expandHex. relativeLuminance below slices the
+ * string two characters at a time, so the shorthand form -- which browsers
+ * render perfectly well, and which an `<input type="color">` sibling can
+ * emit -- read channel 1 as a single digit and channel 2 as the empty
+ * string, i.e. NaN. */
+export function expandHex(hex) {
+  const h = hex.replace('#', '');
+  return h.length === 3 ? `#${h[0]}${h[0]}${h[1]}${h[1]}${h[2]}${h[2]}` : `#${h}`;
+}
+
 /** WCAG relative luminance (sRGB, gamma-corrected) -- unlike a perceptual
  * luma weighting, this is what the 4.5:1 contrast-ratio formula is actually
- * defined against. */
+ * defined against.
+ *
+ * Non-hex input resolves to mid-grey's luminance rather than NaN: a NaN here
+ * does not throw, it makes both comparisons in readableTextColor false, so
+ * the ink stops being measured and silently becomes whichever branch loses
+ * the tie. Same guard as the app twin. */
 function relativeLuminance(hex) {
+  if (!isHexColor(hex)) return 0.2159; // luminance of #808080, mid-grey
+  const full = expandHex(hex);
   const chan = (c) => {
     const v = c / 255;
     return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
   };
-  const r = chan(parseInt(hex.slice(1, 3), 16));
-  const g = chan(parseInt(hex.slice(3, 5), 16));
-  const b = chan(parseInt(hex.slice(5, 7), 16));
+  const r = chan(parseInt(full.slice(1, 3), 16));
+  const g = chan(parseInt(full.slice(3, 5), 16));
+  const b = chan(parseInt(full.slice(5, 7), 16));
   return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 }
 
@@ -92,8 +116,14 @@ export function createCustomLabel(labels, name, color) {
   if (!trimmed) throw new Error('Label name is required.');
   if (trimmed.length > MAX_LABEL_NAME_LENGTH) throw new Error(`Label name must be ${MAX_LABEL_NAME_LENGTH} characters or fewer.`);
   if (!color) throw new Error('Label color is required.');
+  // Hex specifically, matching the app twin: the app builds an 8-digit hex
+  // from this value by string concatenation (withAlpha) and does contrast
+  // maths on it, neither of which means anything for `rgb(...)` or a CSS
+  // colour name. Both clients pick from LABEL_SWATCHES, so this rejects
+  // nothing either legitimately produces.
+  if (!isHexColor(color)) throw new Error('Label color must be a hex color.');
   if (labels.length >= MAX_CUSTOM_LABELS) throw new Error(`You can have at most ${MAX_CUSTOM_LABELS} custom labels.`);
-  return [...labels, { id: makeCustomLabelId(), name: trimmed, color }];
+  return [...labels, { id: makeCustomLabelId(), name: trimmed, color: expandHex(color) }];
 }
 
 export function renameCustomLabel(labels, id, name) {
@@ -105,7 +135,8 @@ export function renameCustomLabel(labels, id, name) {
 
 export function recolorCustomLabel(labels, id, color) {
   if (!color) throw new Error('Label color is required.');
-  return labels.map((l) => (l.id === id ? { ...l, color } : l));
+  if (!isHexColor(color)) throw new Error('Label color must be a hex color.');
+  return labels.map((l) => (l.id === id ? { ...l, color: expandHex(color) } : l));
 }
 
 export function deleteCustomLabel(labels, id) {
@@ -138,9 +169,15 @@ export function sanitizeCustomLabels(value) {
     const { id, name, color } = entry;
     if (typeof id !== 'string' || !id || seen.has(id)) continue;
     if (typeof name !== 'string' || !name.trim()) continue;
-    if (typeof color !== 'string' || !color) continue;
+    // Hex, not merely a non-empty string -- see createCustomLabel above, and
+    // the app twin, which this must stay in step with: a catalog the two
+    // clients disagree about is one each of them keeps re-pushing over the
+    // other. Dropped rather than recoloured, the same discipline as the
+    // fields above.
+    if (!isHexColor(color)) continue;
     seen.add(id);
-    out.push({ id, name: name.trim().slice(0, MAX_LABEL_NAME_LENGTH), color });
+    // Stored six-digit so no render site has to know about the shorthand.
+    out.push({ id, name: name.trim().slice(0, MAX_LABEL_NAME_LENGTH), color: expandHex(color) });
     if (out.length === MAX_CUSTOM_LABELS) break;
   }
   return out;
