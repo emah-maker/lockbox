@@ -83,22 +83,32 @@ export function computeGoalStreak(goal: Goal, sessions: LoggedSession[], nowMs: 
   if (goal.archived) return 0;
   let streak = 0;
   let cursorMs = nowMs;
-  let isCurrentWindow = true;
   for (let i = 0; i < MAX_STREAK_WINDOWS; i++) {
     const window = goalWindow(goal.period, cursorMs);
+    // `i === 0` is exactly "the window containing nowMs", which is the only
+    // window that can still be in progress -- every later iteration has
+    // stepped strictly backwards past it. This used to be a mutable flag
+    // cleared at the BOTTOM of the loop, which the off-day `continue` below
+    // jumps over: on a Mon/Wed/Fri goal checked on a Tuesday, the flag was
+    // still set when the walk reached Monday, so Monday got the leniency
+    // meant for an unfinished window even though its window had closed
+    // hours earlier. A missed Monday was silently forgiven and the streak
+    // kept counting from the Monday before it -- the Stats screen showed a
+    // live streak to someone who had just broken it, and only on the days
+    // they weren't scheduled, which is why it reads as intermittent.
+    const isCurrentWindow = i === 0;
     if (!isGoalDueOn(goal, window.startMs)) {
       cursorMs = window.startMs - 1;
       continue; // off day -- neither a hit nor a miss, doesn't count or break
     }
     const met = isWindowMet(goal, windowTotals(goal, sessions, window));
-    if (isCurrentWindow) {
-      if (met) streak += 1;
-    } else if (met) {
+    if (met) {
       streak += 1;
-    } else {
-      break;
+    } else if (!isCurrentWindow) {
+      break; // a closed window that was missed ends the streak
     }
-    isCurrentWindow = false;
+    // An unmet CURRENT window falls through without counting and without
+    // breaking -- an unfinished window is not a miss (see the doc comment).
     cursorMs = window.startMs - 1; // step into the previous window
   }
   return streak;

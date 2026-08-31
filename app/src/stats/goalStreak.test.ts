@@ -147,3 +147,42 @@ describe('isGoalOnPace', () => {
     expect(isGoalOnPace(0.1, false, window, threeQuartersIn)).toBe(false);
   });
 });
+
+// The existing day-of-week block above only ever checks the streak ON a due
+// day. The gap was the opposite case: checking on an OFF day, just after a
+// scheduled day was missed. The off-day `continue` used to jump over the
+// bottom-of-loop reset that ends the in-progress window's leniency, so the
+// already-closed missed day was forgiven and the streak kept counting past
+// it -- visible to the user only on the days their goal wasn't scheduled.
+describe('computeGoalStreak on an off day after a missed scheduled day', () => {
+  // 2026-08-10 and 2026-08-17 are Mondays; 2026-08-18 is a Tuesday.
+  const mondaysOnly: Goal = {
+    id: 'g', topic: null, period: 'daily', targetS: 3600,
+    daysOfWeek: [1], createdAt: 0, updatedAt: 0, archived: false,
+  };
+  const met = (y: number, m: number, d: number): LoggedSession => ({
+    startedAt: new Date(y, m, d, 10, 0, 0).getTime(),
+    plannedS: 3600, actualS: 3600, outcome: 'completed',
+  });
+  const TUESDAY = new Date(2026, 7, 18, 10, 0, 0).getTime();
+  const LAST_MONDAY = new Date(2026, 7, 17, 10, 0, 0).getTime();
+
+  it('breaks the streak when the last scheduled day was missed and its window has closed', () => {
+    // Met two Mondays ago, missed last Monday, now it is Tuesday.
+    expect(computeGoalStreak(mondaysOnly, [met(2026, 7, 10)], TUESDAY)).toBe(0);
+  });
+
+  it('still counts a streak whose most recent scheduled day WAS met', () => {
+    expect(computeGoalStreak(mondaysOnly, [met(2026, 7, 10), met(2026, 7, 17)], TUESDAY)).toBe(2);
+  });
+
+  it('does not break on the scheduled day itself while that window is still in progress', () => {
+    // Checked on last Monday before anything was logged that day: an
+    // unfinished window is not a miss, so the previous Monday still counts.
+    expect(computeGoalStreak(mondaysOnly, [met(2026, 7, 10)], LAST_MONDAY)).toBe(1);
+  });
+
+  it('counts the in-progress scheduled day as soon as it is met', () => {
+    expect(computeGoalStreak(mondaysOnly, [met(2026, 7, 10), met(2026, 7, 17)], LAST_MONDAY)).toBe(2);
+  });
+});
