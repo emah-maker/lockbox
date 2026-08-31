@@ -33,11 +33,22 @@ import { friendlyErrorMessage, isIgnorableAuthError, logAuthError } from './auth
 
 const DELETE_CONFIRM_WORD = 'DELETE';
 const BATCH_LIMIT = 500; // Firestore's per-batch write cap -- mirrors firestoreSync.ts's deleteAllUserData
-// Same three subcollections deleteAllUserData wipes, in the same order --
-// see firestore.rules: settings/devices/goals all `allow delete: if isOwner`,
-// while sessions is `allow delete: if false` and is deliberately excluded
+// The same subcollections deleteAllUserData wipes, in the same order -- see
+// firestore.rules: each of these is `allow delete: if isOwner`, while
+// sessions is `allow delete: if false` and is deliberately excluded
 // (retained-but-orphaned by design; the confirm copy below says so).
-const DELETABLE_SUBCOLLECTIONS = ['settings', 'devices', 'goals'];
+//
+// pushTokens and scheduledSessions were added to the app's list when
+// server-pushed reminders landed, and this copy was missed -- its comment
+// still said "the same three". That gap is not cosmetic, because these two
+// are the only user data an automated backend job reads: functions/ queries
+// scheduledSessions with the Admin SDK, which bypasses these rules and never
+// checks whether the account still exists. So a user who scheduled a session
+// or enabled browser push from THIS page, then deleted their account from
+// THIS page, kept receiving push notifications for an account that no longer
+// exists. tests/contracts/deleteCascade.test.js now asserts the two lists
+// agree, since nothing else does.
+const DELETABLE_SUBCOLLECTIONS = ['settings', 'devices', 'goals', 'pushTokens', 'scheduledSessions'];
 
 /** Cascade-deletes everything firestore.rules permits, chunked to Firestore's
  * per-batch write limit (defensive -- one account's data is expected to stay
