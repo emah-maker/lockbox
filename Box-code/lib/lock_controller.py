@@ -391,8 +391,19 @@ class LockController(StateMixin, BleMixin, GestureMixin):
         self._call_event = False
         return v
 
+    @property
     def call_alert_active(self):
         """True while the incoming-call overlay is showing -- code.py checks
         this to hold the backlight on for the full alert, not just the initial
-        wake, so an important call can't go dark mid-notification."""
+        wake, so an important call can't go dark mid-notification.
+
+        A property, not a method, and that is load-bearing: code.py's sleep
+        predicate reads it as a bare attribute. Written as a method it handed
+        that predicate a bound-method object, which is always truthy, so
+        `not ctrl.call_alert_active` was permanently False and the screen
+        never slept on battery -- taking CPU scaling and the awake-gated BLE
+        advertising policy down with it, since all three key off
+        backlight.is_on. Matches Backlight.is_on and PhoneBoxBLE.connected,
+        the two other flags that same loop tests. See
+        tests/test_screen_sleep.py."""
         return self._call_alert_until is not None
