@@ -197,14 +197,17 @@ describe('sanitizeCustomLabels', () => {
     expect(sanitizeCustomLabels({ 0: label() })).toEqual([]);
   });
 
-  it('drops entries that are missing a field, or hold the wrong type in one', () => {
+  it('drops entries whose IDENTITY is missing or wrong-typed', () => {
+    // id and name only. A bad `color` is repaired rather than dropped -- it
+    // is presentational, not identity, and there is a safe default for it;
+    // see the colour-validation suite below for why dropping over it is the
+    // more destructive choice.
     const kept = sanitizeCustomLabels([
       null,
       'not-a-label',
       label({ id: undefined }),
       label({ id: 42 }),
       label({ name: '   ' }),
-      label({ color: '' }),
       label({ id: 'custom:keep' }),
     ]);
     expect(kept).toEqual([label({ id: 'custom:keep' })]);
@@ -233,10 +236,28 @@ describe('sanitizeCustomLabels', () => {
 describe('color validation at both boundaries', () => {
   const label = (over = {}) => ({ id: 'custom:1', name: 'Deep Work', color: '#123456', ...over });
 
-  it('drops a remote label whose color is not a hex color', () => {
+  it('recolors a remote label whose color is not hex, rather than dropping it', () => {
+    // Dropping is the more destructive option, not the safer one: the label's
+    // name is lost, and every session tagged with it silently leaves the
+    // breakdown (see the next test). A neutral swatch is a far smaller wrong.
     for (const color of ['red', 'rgb(1,2,3)', '#ab', '#aabbccdd', '', 7, null]) {
-      expect(sanitizeCustomLabels([label({ color })])).toEqual([]);
+      const [kept] = sanitizeCustomLabels([label({ color })]);
+      expect(kept).toBeDefined();
+      expect(kept.name).toBe('Deep Work');
+      expect(kept.color).toMatch(/^#[0-9a-f]{6}$/i);
     }
+  });
+
+  it('keeps every tagged session counted when a color has to be repaired', () => {
+    // The measured harm of the alternative: resolveTopic returns null for a
+    // label the catalog no longer has, so topicBreakdownWithCustom excludes
+    // every session carrying it -- an hour of real logged focus time gone
+    // from the number this app exists to show.
+    const labels = sanitizeCustomLabels([{ id: 'custom:x', name: 'Thesis', color: 'rgb(1,2,3)' }]);
+    const sessions = [s('custom:x', 3600), s('work', 1800)];
+    const shown = topicBreakdownWithCustom(sessions, labels, 'dark').reduce((a, b) => a + b.focusS, 0);
+    expect(shown).toBe(5400);
+    expect(resolveTopic('custom:x', labels, 'dark')?.label).toBe('Thesis');
   });
 
   it('keeps a remote label written in the shorthand form, stored expanded', () => {

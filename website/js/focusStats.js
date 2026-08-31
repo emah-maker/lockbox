@@ -88,6 +88,13 @@ export function readableTextColor(hex) {
   return whiteContrast >= blackContrast ? '#ffffff' : '#0b0b0b';
 }
 
+/** This app's "no strong colour" choice -- the warm-grey already in
+ * LABEL_SWATCHES, reused rather than inventing a new hex. Used when a label
+ * has to be drawn without a usable user-picked colour; see
+ * sanitizeCustomLabels. Twin of app/src/stats/customLabels.ts's
+ * NEUTRAL_LABEL_COLOR. */
+const NEUTRAL_LABEL_COLOR = '#78716c';
+
 const CUSTOM_ID_PREFIX = 'custom:';
 
 // Mirrors app/src/stats/customLabels.ts's own constants -- kept in sync so a
@@ -169,15 +176,21 @@ export function sanitizeCustomLabels(value) {
     const { id, name, color } = entry;
     if (typeof id !== 'string' || !id || seen.has(id)) continue;
     if (typeof name !== 'string' || !name.trim()) continue;
+    seen.add(id);
     // Hex, not merely a non-empty string -- see createCustomLabel above, and
     // the app twin, which this must stay in step with: a catalog the two
     // clients disagree about is one each of them keeps re-pushing over the
-    // other. Dropped rather than recoloured, the same discipline as the
-    // fields above.
-    if (!isHexColor(color)) continue;
-    seen.add(id);
+    // other.
+    //
+    // RECOLOURED, not dropped, and deliberately unlike the identity fields
+    // above. Dropping is the more destructive option: resolveTopic returns
+    // null for a label the catalog no longer has, so every session tagged
+    // with it silently leaves the breakdown, and the pruned catalog is then
+    // written back to the account, losing the user's own label name. A
+    // neutral swatch they can change in two clicks is a far smaller wrong.
     // Stored six-digit so no render site has to know about the shorthand.
-    out.push({ id, name: name.trim().slice(0, MAX_LABEL_NAME_LENGTH), color: expandHex(color) });
+    const safeColor = isHexColor(color) ? expandHex(color) : NEUTRAL_LABEL_COLOR;
+    out.push({ id, name: name.trim().slice(0, MAX_LABEL_NAME_LENGTH), color: safeColor });
     if (out.length === MAX_CUSTOM_LABELS) break;
   }
   return out;

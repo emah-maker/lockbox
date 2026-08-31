@@ -46,13 +46,13 @@ export const LABEL_SWATCHES: string[] = [
   '#2563eb', '#7c3aed', '#c026d3', '#db2777', '#78716c', '#334155',
 ];
 
-/** Neutral color for a one-time free-text tag typed via DashboardScreen's
- * TopicPicker "Type a label for this session..." field (see resolveTopic
- * below) -- these are never added to customLabels, so there's no user-picked
- * color to look up. Reuses LABEL_SWATCHES's own warm-gray swatch rather than
- * inventing a new hex, since it's already this app's "no strong color"
- * choice. */
-const ONE_TIME_TAG_COLOR = '#78716c';
+/** This app's "no strong color" choice, used wherever a label has to be
+ * drawn without a user-picked color to draw it in. Two callers: a one-time
+ * free-text tag typed via DashboardScreen's TopicPicker (never added to
+ * customLabels, so there is no color to look up), and sanitizeCustomLabels
+ * repairing an entry whose stored color cannot be rendered. Reuses
+ * LABEL_SWATCHES's own warm-gray swatch rather than inventing a new hex. */
+const NEUTRAL_LABEL_COLOR = '#78716c';
 
 export function makeCustomLabelId(): string {
   return `${CUSTOM_ID_PREFIX}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
@@ -117,6 +117,7 @@ export function sanitizeCustomLabels(value: unknown): CustomLabel[] {
     const { id, name, color } = entry as Partial<CustomLabel>;
     if (typeof id !== 'string' || !id || seen.has(id)) continue;
     if (typeof name !== 'string' || !name.trim()) continue;
+    seen.add(id);
     // Hex specifically, not merely "a non-empty string". Two things in this
     // app do arithmetic on a label's color rather than just handing it to a
     // style: theme/color.ts's contrast math (via readableTextColor, which
@@ -125,19 +126,27 @@ export function sanitizeCustomLabels(value: unknown): CustomLabel[] {
     // FocusHero's topic pill and the stats donut both call it on exactly this
     // value. Neither has any meaning for `rgb(...)`, a CSS color name, or a
     // typo, and the second produces a string React Native cannot render at
-    // all, so the chip loses its fill. Both clients that write this document
-    // pick from a hex swatch list (LABEL_SWATCHES here, the same set in
-    // website/js/labelsPanel.js), so requiring hex rejects nothing either one
-    // legitimately produces.
+    // all, so the chip loses its fill.
     //
-    // Dropped rather than recolored, the same discipline as the fields above:
-    // a color invented here is one the user never chose, and the next sync
-    // would push it back to the account as though they had.
-    if (!isHexColor(color)) continue;
-    seen.add(id);
-    // Stored in the 6-digit form, so `#abc` -- legal, and what a website
-    // color input can emit -- doesn't have to be re-expanded at every render.
-    out.push({ id, name: name.trim().slice(0, MAX_LABEL_NAME_LENGTH), color: expandHex(color) });
+    // RECOLORED, not dropped -- deliberately unlike the fields above, and the
+    // one place this module's "drop what you cannot repair" rule does not
+    // apply. That rule exists because an invented label is one the user never
+    // created; it is about identity. A color is not identity, and there IS a
+    // safe default for it, so the rule's premise does not hold here. Dropping
+    // is also the more destructive option, not the more conservative one:
+    // resolveTopic returns null for a label the catalog no longer has, so
+    // topicBreakdownWithCustom silently excludes every session tagged with it
+    // -- measured, an hour of real logged focus time vanishing from the
+    // breakdown -- and the pruned catalog is then pushed back to the account,
+    // losing the user's own label name for good. A neutral swatch they can
+    // change in two taps is a far smaller wrong than either.
+    //
+    // The authoring path still THROWS on a bad color (createCustomLabel), the
+    // same split goalSanitize.ts documents: a user-initiated edit has a form
+    // to render the message in, while untrusted remote data has nobody to
+    // tell and must simply be made safe.
+    const safeColor = isHexColor(color) ? expandHex(color) : NEUTRAL_LABEL_COLOR;
+    out.push({ id, name: name.trim().slice(0, MAX_LABEL_NAME_LENGTH), color: safeColor });
     if (out.length === MAX_CUSTOM_LABELS) break;
   }
   return out;
@@ -208,7 +217,7 @@ export function resolveTopic(
   if (isCustomLabelId(topic)) return null; // saved custom label, since deleted -- nothing left to render
   // A one-time free-text tag: not a built-in key, not a saved custom label
   // (or its id), so the raw string itself is the only thing to show.
-  return { id: topic, label: topic, color: ONE_TIME_TAG_COLOR, textColor: readableTextColor(ONE_TIME_TAG_COLOR), isCustom: false, isOneTime: true };
+  return { id: topic, label: topic, color: NEUTRAL_LABEL_COLOR, textColor: readableTextColor(NEUTRAL_LABEL_COLOR), isCustom: false, isOneTime: true };
 }
 
 /** Every selectable label for (re)tagging a session: built-ins in their

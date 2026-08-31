@@ -415,13 +415,15 @@ describe('sanitizeCustomLabels', () => {
     assert.deepEqual(sanitizeCustomLabels(null), []);
   });
 
-  it('drops entries missing a field or holding the wrong type in one', () => {
+  it('drops entries whose IDENTITY is missing or wrong-typed', () => {
+    // id and name only. A bad colour is repaired rather than dropped -- it is
+    // presentational, not identity, and there is a safe default for it; see
+    // the colour-validation suite below.
     const kept = sanitizeCustomLabels([
       null,
       'not-a-label',
       label({ id: 42 }),
       label({ name: '   ' }),
-      label({ color: '' }),
       label({ id: 'custom:keep' }),
     ]);
     assert.deepEqual(kept, [label({ id: 'custom:keep' })]);
@@ -464,9 +466,15 @@ describe('label colour validation (twin of the app side)', () => {
     assert.equal(expandHex('#aabbcc'), '#aabbcc');
   });
 
-  it('drops a remote label whose colour is not hex', () => {
+  it('recolours a remote label whose colour is not hex, rather than dropping it', () => {
+    // Dropping loses the user's label name and silently removes every
+    // session tagged with it from the breakdown -- the more destructive
+    // choice, not the safer one. Matches the app twin.
     for (const color of ['red', 'rgb(1,2,3)', '#ab', '', 7, null]) {
-      assert.deepEqual(sanitizeCustomLabels([label({ color })]), []);
+      const [kept] = sanitizeCustomLabels([label({ color })]);
+      assert.ok(kept, `expected the label to survive a ${JSON.stringify(color)} colour`);
+      assert.equal(kept.name, 'Deep Work');
+      assert.match(kept.color, /^#[0-9a-f]{6}$/i);
     }
   });
 
