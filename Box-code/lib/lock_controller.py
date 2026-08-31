@@ -1,7 +1,7 @@
 # lock_controller.py -- the timer state machine and gesture handling.
 from lock_config import (
     MAX_SECONDS, MAX_HOURS, MIN_SECONDS, DEFAULT_SECONDS, SWAP_XY, INVERT_X, INVERT_Y,
-    CLOCK_FPS, SERVO_HOLD_S, OVERRIDE_TIMEOUT, DONE_ANIM_S, MIN_STEP, fmt_hm, clamp,
+    CLOCK_FPS, SERVO_HOLD_S, DONE_ANIM_S, MIN_STEP, fmt_hm, clamp,
     BLE_CALL_ALERT_S, CALL_ALERT_BLINK_HZ, STATUS_TAP_COOLDOWN_S,
 )
 from lock_battery import Battery
@@ -283,11 +283,15 @@ class LockController(StateMixin, BleMixin, GestureMixin):
         self._refresh_battery(now)
 
         if self._override:
-            remaining = OVERRIDE_TIMEOUT - (now - self._override_at)
+            # Read from settings, not the OVERRIDE_TIMEOUT constant: the
+            # window is app-adjustable, and a live BLE push must take effect
+            # on the sequence already in progress rather than the next one.
+            total = self.settings.override_timeout
+            remaining = total - (now - self._override_at)
             if remaining <= 0:
                 self._clear_override()
             else:
-                self.ui.update_override_timeout(remaining, OVERRIDE_TIMEOUT)
+                self.ui.update_override_timeout(remaining, total)
 
         if self._servo_relax_at is not None:
             self.servo.reassert()          # keep a clean 50Hz through the move

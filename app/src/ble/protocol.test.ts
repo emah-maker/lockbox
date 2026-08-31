@@ -11,7 +11,7 @@ import {
   cmdSetPendingTopic,
 } from './protocol';
 
-const FULL: Settings = { ovr: 25, auto: 1, sleep: 20, bright: 50, unlk: 0, ucal: 1, thm: 1, acc: 3, flip: 1, langle: 45, uangle: 0 };
+const FULL: Settings = { ovr: 25, auto: 1, sleep: 20, bright: 50, unlk: 0, ucal: 1, thm: 1, acc: 3, flip: 1, langle: 45, uangle: 0, ovrt: 10 };
 
 describe('encodeSettings / parseSettings round-trip', () => {
   it('round-trips every field, including ucal, thm, acc, and flip', () => {
@@ -31,6 +31,27 @@ describe('encodeSettings / parseSettings round-trip', () => {
     const parsed = parseSettings('{"ovr":25,"auto":1,"sleep":20,"bright":50,"unlk":0}');
     expect(parsed?.langle).toBe(45);
     expect(parsed?.uangle).toBe(0);
+  });
+
+  // `ovrt` is in tenths, and a box on firmware older than the field sends
+  // none at all. Falling back to 0 would render as "0.0s" and, echoed back,
+  // be clamped by the box to a floor the user never chose.
+  it("defaults ovrt to the box's own pre-upgrade constant (1.0s = 10 tenths) when the payload omits it", () => {
+    const parsed = parseSettings('{"ovr":25,"auto":1,"sleep":20,"bright":50,"unlk":0}');
+    expect(parsed?.ovrt).toBe(10);
+  });
+
+  it('clamps ovrt into [3, 100] tenths at both parse and encode time', () => {
+    expect(parseSettings('{"ovrt":0}')?.ovrt).toBe(3);
+    expect(parseSettings('{"ovrt":9999}')?.ovrt).toBe(100);
+    expect(parseSettings(encodeSettings({ ...FULL, ovrt: 0 }))?.ovrt).toBe(3);
+    expect(parseSettings(encodeSettings({ ...FULL, ovrt: 9999 }))?.ovrt).toBe(100);
+  });
+
+  it('keeps ovrt an integer in tenths on the wire -- never seconds, never a float', () => {
+    const encoded = encodeSettings({ ...FULL, ovrt: 15 });
+    expect(JSON.parse(encoded).ovrt).toBe(15);
+    expect(encoded).toContain('"ovrt":15');
   });
 
   it('preserves a legitimate 0 langle instead of falling back to the 45 default', () => {

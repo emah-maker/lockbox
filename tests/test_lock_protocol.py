@@ -15,7 +15,7 @@ import lock_protocol
 from lock_config import (
     MIN_SECONDS, MAX_SECONDS, OVR_MIN, OVR_MAX, SLEEP_OPTIONS, BRIGHT_OPTIONS,
     SERVO_ANGLE_MIN, SERVO_ANGLE_MAX, ACCENT_COLORS, BUILTIN_TOPICS,
-    BLE_LABEL_MAX_COUNT,
+    BLE_LABEL_MAX_COUNT, OVR_TIMEOUT_MIN_TENTHS, OVR_TIMEOUT_MAX_TENTHS,
 )
 
 _passed = 0
@@ -47,6 +47,8 @@ class FakeSettings:
         self.screen_flipped = False
         self.lock_angle = 45
         self.unlock_angle = 0
+        # Seconds here; encode_settings puts it on the wire in tenths.
+        self.override_timeout = 1.5
 
 
 # ----- encode_status -----
@@ -59,7 +61,11 @@ check("encode_status idle/no-topic/no-battery", s_idle == '{"st":"idle","rem":0,
 enc = lock_protocol.encode_settings(FakeSettings())
 check("encode_settings shape", enc == (
     '{"ovr":25,"auto":1,"sleep":30,"bright":70,"unlk":0,"ucal":0,'
-    '"thm":0,"acc":2,"flip":0,"langle":45,"uangle":0}'))
+    '"thm":0,"acc":2,"flip":0,"langle":45,"uangle":0,"ovrt":15}'))
+# The one field whose wire unit differs from its Settings attribute, so it is
+# the one a future edit is most likely to get wrong in only one direction.
+check("encode_settings puts override_timeout on the wire in tenths",
+      '"ovrt":15' in enc and '"ovrt":1.5' not in enc)
 
 # ----- decode_command: start -----
 c = lock_protocol.decode_command("start:120")
@@ -92,7 +98,7 @@ check("unknown opcode -> None", lock_protocol.decode_command("frobnicate") is No
 
 # ----- decode_settings -----
 full = ('{"ovr":50,"auto":1,"sleep":25,"bright":42,"unlk":1,"ucal":1,'
-        '"thm":1,"acc":3,"flip":1,"langle":10,"uangle":-10}')
+        '"thm":1,"acc":3,"flip":1,"langle":10,"uangle":-10,"ovrt":20}')
 d = lock_protocol.decode_settings(full)
 check("decode_settings ovr", d["ovr"] == 50)
 check("decode_settings auto bool", d["auto"] is True)
@@ -105,6 +111,7 @@ check("decode_settings acc", d["acc"] == 3)
 check("decode_settings flip bool", d["flip"] is True)
 check("decode_settings langle", d["langle"] == 10)
 check("decode_settings uangle", d["uangle"] == -10)
+check("decode_settings ovrt", d["ovrt"] == 20)
 
 check("decode_settings missing key omitted",
       "ovr" not in lock_protocol.decode_settings('{"auto":1}'))
@@ -122,6 +129,17 @@ check("decode_settings langle clamps to SERVO_ANGLE_MAX",
       lock_protocol.decode_settings('{{"langle":{}}}'.format(SERVO_ANGLE_MAX + 50))["langle"] == SERVO_ANGLE_MAX)
 check("decode_settings uangle clamps to SERVO_ANGLE_MIN",
       lock_protocol.decode_settings('{{"uangle":{}}}'.format(SERVO_ANGLE_MIN - 50))["uangle"] == SERVO_ANGLE_MIN)
+check("decode_settings ovrt stays in tenths (no unit conversion here)",
+      lock_protocol.decode_settings('{"ovrt":25}')["ovrt"] == 25)
+check("decode_settings ovrt clamps to OVR_TIMEOUT_MAX_TENTHS",
+      lock_protocol.decode_settings('{{"ovrt":{}}}'.format(OVR_TIMEOUT_MAX_TENTHS + 500))["ovrt"] == OVR_TIMEOUT_MAX_TENTHS)
+# The floor matters more than the ceiling: a timeout under a human press
+# interval makes the counter unable to build, and override is the emergency
+# path. 0 must not be honoured as "no window at all".
+check("decode_settings ovrt clamps to OVR_TIMEOUT_MIN_TENTHS",
+      lock_protocol.decode_settings('{"ovrt":0}')["ovrt"] == OVR_TIMEOUT_MIN_TENTHS)
+check("decode_settings ovrt wrong type omitted, not defaulted",
+      "ovrt" not in lock_protocol.decode_settings('{"ovrt":"soon"}'))
 
 check("decode_settings malformed JSON -> None (not {})",
       lock_protocol.decode_settings("not json") is None)

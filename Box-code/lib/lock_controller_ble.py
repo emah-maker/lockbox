@@ -170,6 +170,11 @@ class BleMixin:
             st.lock_angle = updates["langle"]
         if "uangle" in updates:
             st.unlock_angle = updates["uangle"]
+        if "ovrt" in updates:
+            # decode_settings returns this in TENTHS (the unit it travels and
+            # is stored in); Settings.override_timeout is in seconds, so the
+            # one conversion in the inbound direction happens here.
+            st.override_timeout = updates["ovrt"] / 10.0
         if "thm" in updates or "acc" in updates:
             self.ui.set_theme(st.theme_mode, st.accent_idx)
             # set_theme only repaints registered widgets -- the clock view's

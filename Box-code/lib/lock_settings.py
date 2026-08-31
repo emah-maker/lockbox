@@ -10,11 +10,17 @@ from lock_config import (
     BRIGHT_OPTIONS, DEFAULT_MODE_IDX, DEFAULT_ACCENT_IDX, ACCENT_COLORS,
     SCREEN_FLIPPED_DEFAULT, SERVO_LOCK_ANGLE, SERVO_UNLOCK_ANGLE,
     SERVO_ANGLE_MIN, SERVO_ANGLE_MAX, NVM_SETTINGS_BASE, NVM_SETTINGS_LEN,
+    OVERRIDE_TIMEOUT, OVR_TIMEOUT_MIN_TENTHS, OVR_TIMEOUT_MAX_TENTHS,
     clamp,
 )
 
-_MAGIC = 0x63        # bump when the NVM layout changes (forces defaults once);
-                     # bumped from 0x62 to 0x63 to add lock_angle/unlock_angle
+_MAGIC = 0x64        # bump when the NVM layout changes (forces defaults once);
+                     # bumped from 0x63 to 0x64 to add override_timeout at
+                     # _BASE+13 -- same reasoning as every bump below: a box
+                     # flashed before this change would read whatever stray
+                     # byte happens to sit at that never-before-written offset
+                     # as a bogus timeout.
+                     # 0x62->0x63 added lock_angle/unlock_angle
                      # at new offsets (_BASE+11/_BASE+12) -- same reasoning as
                      # the 0x61->0x62 bump below: a box flashed before this
                      # change would otherwise read whatever stray byte happens
@@ -33,10 +39,14 @@ _BASE = NVM_SETTINGS_BASE   # see lock_config.py's NVM region map
 # it would reach NVM_SETTINGS_LEN, raise that (and lock_log's _MAGIC) too --
 # tests/test_lock_log_queue.py fails on the host if this region grows into
 # lock_log's.
-_MAX_FIELD_OFF = 12
+_MAX_FIELD_OFF = 13
 # lock_angle/unlock_angle are stored as (angle + 90) so the -90..90 range
 # fits an unsigned NVM byte (0..180) without needing signed-byte handling.
 _ANGLE_BYTE_OFFSET = 90
+# override_timeout is stored (and transmitted) in TENTHS of a second so one
+# unsigned NVM byte covers the whole 0.3-10.0s range exactly -- see
+# OVR_TIMEOUT_MIN_TENTHS in lock_config.py for why tenths and not seconds.
+_TENTHS = 10.0
 
 
 def _step_in(options, value, direction):
@@ -89,6 +99,15 @@ class Settings:
         # exact key contract is shared with the phone app, do not rename.
         self.lock_angle = SERVO_LOCK_ANGLE
         self.unlock_angle = SERVO_UNLOCK_ANGLE
+        # How long the override press counter survives without a press before
+        # resetting to zero (seconds, float). App-adjustable from the phone's
+        # Settings screen like the servo angles above, and app-only for the
+        # same reason: the box's own settings list is a fixed six rows whose
+        # layout can't be checked off-device. Pushed/pulled over BLE as
+        # "ovrt" IN TENTHS (see LockController.ble_settings_json /
+        # apply_ble_settings_json) -- that exact key and unit are shared with
+        # the phone app, do not rename or rescale.
+        self.override_timeout = OVERRIDE_TIMEOUT
         self._load()
 
     def _load(self):
@@ -108,6 +127,12 @@ class Settings:
                 self.screen_flipped = bool(nvm[_BASE + 10])
                 self.lock_angle = nvm[_BASE + 11] - _ANGLE_BYTE_OFFSET
                 self.unlock_angle = nvm[_BASE + 12] - _ANGLE_BYTE_OFFSET
+                # Clamped on the way OUT as well as in: this byte is the
+                # newest field, so it is the one most likely to be read from
+                # a box whose NVM was written by a build that never set it.
+                self.override_timeout = clamp(
+                    nvm[_BASE + 13], OVR_TIMEOUT_MIN_TENTHS, OVR_TIMEOUT_MAX_TENTHS
+                ) / _TENTHS
         except Exception:
             pass
 
@@ -137,6 +162,8 @@ class Settings:
             unlock_angle = clamp(int(self.unlock_angle), SERVO_ANGLE_MIN, SERVO_ANGLE_MAX)
             nvm[_BASE + 11] = lock_angle + _ANGLE_BYTE_OFFSET
             nvm[_BASE + 12] = unlock_angle + _ANGLE_BYTE_OFFSET
+            nvm[_BASE + 13] = clamp(int(round(self.override_timeout * _TENTHS)),
+                                    OVR_TIMEOUT_MIN_TENTHS, OVR_TIMEOUT_MAX_TENTHS)
         except Exception:
             pass
 

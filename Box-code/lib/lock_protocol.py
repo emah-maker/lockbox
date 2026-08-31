@@ -9,6 +9,7 @@
 from lock_config import (
     MIN_SECONDS, MAX_SECONDS, OVR_MIN, OVR_MAX, SLEEP_OPTIONS, BRIGHT_OPTIONS,
     snap_to_option, SERVO_ANGLE_MIN, SERVO_ANGLE_MAX, ACCENT_COLORS, C_GREY,
+    OVR_TIMEOUT_MIN_TENTHS, OVR_TIMEOUT_MAX_TENTHS,
     fix, BLE_LABEL_MAX_COUNT, BLE_LABEL_NAME_MAX_LEN, BUILTIN_TOPICS, clamp,
 )
 
@@ -42,12 +43,18 @@ def encode_status(state, rem, set_seconds, battery_pct, topic):
 
 def encode_settings(settings):
     st = settings
+    # "ovrt" is in TENTHS of a second, not seconds -- the only field on this
+    # wire whose unit differs from the Settings attribute it carries. Kept an
+    # integer so every number here stays one (a float would be the first, and
+    # MicroPython's str.format and JS's JSON.stringify do not agree on how to
+    # render one). See OVR_TIMEOUT_MIN_TENTHS in lock_config.py.
     return ('{{"ovr":{},"auto":{},"sleep":{},"bright":{},"unlk":{},"ucal":{},'
-             '"thm":{},"acc":{},"flip":{},"langle":{},"uangle":{}}}').format(
+             '"thm":{},"acc":{},"flip":{},"langle":{},"uangle":{},"ovrt":{}}}').format(
         st.override_presses, 1 if st.auto_open else 0, st.sleep_s,
         st.bright_pct, 1 if st.allow_remote_unlock else 0,
         1 if st.unlock_on_call else 0, st.theme_mode, st.accent_idx,
-        1 if st.screen_flipped else 0, st.lock_angle, st.unlock_angle)
+        1 if st.screen_flipped else 0, st.lock_angle, st.unlock_angle,
+        int(round(st.override_timeout * 10)))
 
 
 class Command:
@@ -177,6 +184,17 @@ def decode_settings(text):
     if "uangle" in d:
         try:
             updates["uangle"] = clamp(int(d["uangle"]), SERVO_ANGLE_MIN, SERVO_ANGLE_MAX)
+        except (ValueError, TypeError):
+            pass
+    if "ovrt" in d:
+        # Arrives in TENTHS of a second (see encode_settings) and is returned
+        # in tenths -- the caller converts once, so the clamp and the stored
+        # NVM byte stay in the same unit. Clamped rather than snapped: unlike
+        # "sleep"/"bright" there is no on-box stepper reading this back with
+        # options.index(), so any value in range is legal.
+        try:
+            updates["ovrt"] = clamp(int(d["ovrt"]),
+                                    OVR_TIMEOUT_MIN_TENTHS, OVR_TIMEOUT_MAX_TENTHS)
         except (ValueError, TypeError):
             pass
     return updates

@@ -14,7 +14,7 @@ import type { RingBaselineWindow, RingSourceKind } from '../screens/home/idleRin
 // Mirrors the firmware's own defaults (Box-code/lib/lock_config.py /
 // lock_settings.py) so the Settings screen shows sane values before the
 // first successful connection.
-const DEFAULT_BOX_SETTINGS: Settings = { ovr: 25, auto: 1, sleep: 20, bright: 50, unlk: 0, ucal: 0, thm: 0, acc: 0, flip: 0, langle: 45, uangle: 0 };
+const DEFAULT_BOX_SETTINGS: Settings = { ovr: 25, auto: 1, sleep: 20, bright: 50, unlk: 0, ucal: 0, thm: 0, acc: 0, flip: 0, langle: 45, uangle: 0, ovrt: 10 };
 
 // Defaults for the four account-syncable fields -- what a signed-out device
 // (or a brand-new account) should show, and what sync/localDataOwner.ts

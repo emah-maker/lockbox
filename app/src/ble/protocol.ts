@@ -135,6 +135,14 @@ export interface Settings {
   uangle: number; // servo angle (degrees) the box drives to when unlocking.
   // Was a fixed lock_servo.py constant (0°); now phone-adjustable. Same
   // [-90, 90] range/clamp as langle above.
+  ovrt: number; // override auto-reset window, in TENTHS OF A SECOND.
+  // The only field on this wire whose unit is not the one a user sees: the
+  // box stores it in a single NVM byte and every other number here is an
+  // integer, so it travels in tenths and is divided by 10 exactly once, at
+  // the UI boundary (see screens/overrideTimeout.ts). Was a fixed
+  // lock_config.py constant (OVERRIDE_TIMEOUT); now phone-adjustable.
+  // Range [3, 100] = 0.3s-10.0s -- mirrors OVR_TIMEOUT_MIN_TENTHS/
+  // OVR_TIMEOUT_MAX_TENTHS in lock_config.py; keep both in lockstep.
 }
 
 // ----- parsers (defensive: the radio can hand us partial/garbled JSON) -----
@@ -208,6 +216,14 @@ export function parseSettings(json: string): Settings | null {
     // an actually missing/non-finite value should fall back at all.
     const langleRaw = Number(d.langle);
     const uangleRaw = Number(d.uangle);
+    // Same "0 is not a usable fallback" reasoning as langle/uangle, for a
+    // different reason: 0 is not a legitimate value here at all, it is a
+    // window in which the counter can never advance. A box running firmware
+    // older than this field sends no `ovrt`, so fall back to the constant
+    // that firmware actually uses (1.0s = 10 tenths) rather than to 0, which
+    // would render as "0.0s" in the UI and, if echoed back, be clamped to
+    // the floor by the box -- a setting the user never chose.
+    const ovrtRaw = Number(d.ovrt);
     return {
       ovr: Number(d.ovr) || 0,
       auto: d.auto ? 1 : 0,
@@ -229,6 +245,9 @@ export function parseSettings(json: string): Settings | null {
       // acc bound above -- keep in lockstep with SERVO_ANGLE_MIN/MAX there.
       langle: Math.max(-90, Math.min(90, Number.isFinite(langleRaw) ? Math.round(langleRaw) : 45)),
       uangle: Math.max(-90, Math.min(90, Number.isFinite(uangleRaw) ? Math.round(uangleRaw) : 0)),
+      // 3/100 hardcoded for the same UI-independence reason as the bounds
+      // above -- keep in lockstep with lock_config.py's OVR_TIMEOUT_*_TENTHS.
+      ovrt: Math.max(3, Math.min(100, Number.isFinite(ovrtRaw) ? Math.round(ovrtRaw) : 10)),
     };
   } catch {
     return null;
@@ -270,6 +289,9 @@ export const encodeSettings = (s: Settings) =>
     // for both -- see parseSettings's comment on the same asymmetry.
     langle: Number.isFinite(s.langle) ? Math.max(-90, Math.min(90, Math.floor(s.langle))) : 45,
     uangle: Number.isFinite(s.uangle) ? Math.max(-90, Math.min(90, Math.floor(s.uangle))) : 0,
+    // Tenths of a second, integer -- see the Settings interface. Fallback is
+    // the box's own pre-upgrade fixed constant (1.0s), not 0.
+    ovrt: Number.isFinite(s.ovrt) ? Math.max(3, Math.min(100, Math.floor(s.ovrt))) : 10,
   });
 export const encodeTime = (epochSeconds: number) => String(Math.floor(epochSeconds));
 

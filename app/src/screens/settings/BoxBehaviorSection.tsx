@@ -17,6 +17,7 @@ import { Section, Row } from '../SettingsPrimitives';
 import { OverridePressPicker, OverrideCustomEntry } from '../OverridePressSection';
 import { AngleCustomEntry } from '../ServoAngleSection';
 import { OVR_MIN, OVR_MAX } from '../overridePresses';
+import { OVR_TIMEOUT_OPTIONS_TENTHS, formatOverrideTimeout } from '../overrideTimeout';
 import { PickerGroup } from './ChipPicker';
 import type { Settings } from '../../ble/protocol';
 
@@ -59,6 +60,18 @@ export function BoxBehaviorSection({
         min={OVR_MIN}
         max={OVR_MAX}
         onChange={(v) => pushBoxSettings({ ovr: v })}
+        color={color}
+      />
+      {/* Sits directly under the press count because the two only mean
+          anything together: N presses within this window of each other.
+          Values are in tenths of a second on the wire (protocol.ts's `ovrt`)
+          and only ever rendered as seconds -- see overrideTimeout.ts. */}
+      <PickerGroup
+        label="Override window"
+        options={OVR_TIMEOUT_OPTIONS_TENTHS}
+        value={boxSettings.ovrt}
+        format={formatOverrideTimeout}
+        onSelect={(v) => pushBoxSettings({ ovrt: v })}
         color={color}
       />
       <PickerGroup

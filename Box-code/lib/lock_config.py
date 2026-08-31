@@ -183,7 +183,33 @@ SERVO_HOLD_S = 1.0           # keep PWM on this long after a move, then relax
 BTN_LOCK_PIN = "GPIO1"       # sensor/lock button
 BTN_OVERRIDE_PIN = "GPIO10"  # override button (press OVERRIDE_PRESSES times to unlock)
 OVERRIDE_PRESSES = 25        # default; adjustable on the settings screen
-OVERRIDE_TIMEOUT = 3.0       # seconds; no override press within this resets the counter
+# Seconds; no override press within this resets the counter to zero. Seed
+# default for Settings.override_timeout -- no longer read directly by
+# LockController, which uses the (app-adjustable) setting. Same arrangement
+# as SERVO_LOCK_ANGLE/SERVO_UNLOCK_ANGLE below.
+#
+# Narrowed from 3.0 to 1.0: at 3s the press sequence could be walked away
+# from and resumed, which made a count of OVERRIDE_PRESSES a tally rather
+# than the sustained effort it is meant to be. At 1s it has to be one
+# continuous burst. The depleting bar (LockUI.update_override_timeout) is
+# proportional to this, so it simply empties faster -- still ~50 frames of
+# animation at the run loop's ~50Hz, and it is the only warning the user gets
+# before a silent reset, so it stays worth drawing.
+OVERRIDE_TIMEOUT = 1.0
+# Bounds for that setting, in TENTHS of a second -- the unit it is stored and
+# transmitted in. Tenths, not seconds, for the same reason the servo angles
+# are stored with an offset: this is the granularity a user would actually
+# reach for, one NVM byte holds it exactly, and it keeps every number on the
+# BLE settings wire an integer (see lock_protocol.encode_settings). The app
+# divides by 10 once, at the display boundary.
+#
+# Floor of 0.3s rather than 0: at OVR_TIMEOUT_MIN the counter must still
+# survive the gap between two presses of a real human hand, or override
+# becomes unreachable -- the one path that exists for when everything else
+# has failed. Ceiling of 10s is where "sustained effort" has stopped meaning
+# anything.
+OVR_TIMEOUT_MIN_TENTHS = 3
+OVR_TIMEOUT_MAX_TENTHS = 100
 
 # Minimum time between status-bar tap-to-toggle actions (see
 # LockController._handle_release's status-bar branch). If the AXS5106L
@@ -316,7 +342,7 @@ LOG_MAX_PENDING = 200
 #
 #   byte 0        brownout retry counter (safemode.py, cleared by code.py)
 #   bytes 1-7     unused
-#   bytes 8-23    lock_settings.py: 13 bytes used, 3 reserved for growth
+#   bytes 8-23    lock_settings.py: 14 bytes used, 2 reserved for growth
 #   bytes 24+     lock_log.py: the pending-session queue, grows with it
 #
 # lock_settings.py has already added a field three times (see its _MAGIC bump

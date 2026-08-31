@@ -8,7 +8,7 @@
 import gc
 from lock_config import (
     TOUCH_DEBUG,
-    SWIPE_MIN_PX, OVERRIDE_TIMEOUT, RELEASE_FRAMES, HOLD_REPEAT_DELAY, HOLD_REPEAT_START,
+    SWIPE_MIN_PX, RELEASE_FRAMES, HOLD_REPEAT_DELAY, HOLD_REPEAT_START,
     HOLD_REPEAT_MIN, HOLD_REPEAT_RAMP, STATUS_TAP_COOLDOWN_S,
 )
 from lock_tag_picker import Select
@@ -69,7 +69,8 @@ class GestureMixin:
         else:
             self.ui.show_override(self._override, target)
             # each press resets the timeout, so the countdown bar restarts full
-            self.ui.update_override_timeout(OVERRIDE_TIMEOUT, OVERRIDE_TIMEOUT)
+            _ovr_total = self.settings.override_timeout
+            self.ui.update_override_timeout(_ovr_total, _ovr_total)
             # Defensive: override_presses can be configured as high as
             # OVR_MAX (255), so a real "keep pressing to unlock" sequence is
             # a long, uninterrupted burst of small allocations (the count
