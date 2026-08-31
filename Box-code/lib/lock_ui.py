@@ -93,6 +93,17 @@ class LockUI(ThemeMixin, ControlMixin, StateViewMixin, ClockMixin, PanelsMixin, 
         # width IS the literal remaining value; easing those would show a
         # number of seconds/percent that isn't the true one.
         self._color_transitions = []   # [obj, attr, from_color, to_color, start_time]
+        # ----- position-tween engine (see lock_ui_settings.SettingsMixin's
+        # _start_pos_tween/step_pos_tweens) -- the position counterpart of
+        # the color-transition engine just above: same drop-and-restart-
+        # cleanly retrigger behaviour and ease-out-cubic curve, but this one
+        # moves an int-valued position attribute (e.g. the settings switch
+        # knob's `.x0`) and NEVER a `.fill`/`.color`. Kept as a second list
+        # rather than folded into _color_transitions specifically so the two
+        # can never race on one attribute of one widget -- a single engine
+        # would need a branch on value type (RGB triple vs int) to tell them
+        # apart, and get it wrong exactly once to reintroduce that race.
+        self._pos_tweens = []          # [obj, attr, from_v, to_v, start_time, duration]
         self._an_active_target = None
         self._dig_active_target = None
         self._rg_active_target = None

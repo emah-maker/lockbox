@@ -10,6 +10,7 @@ from lock_settings import Settings
 from lock_log import SessionLog
 from lock_tag_picker import TagPicker
 from lock_topic_confirm import TopicConfirm
+from lock_settings_nav import SettingsNav
 from lock_controller_const import COMPLETED, OVERRIDDEN, VIEWS, LOCKED_VIEWS
 from lock_controller_states import StateMixin
 from lock_controller_ble import BleMixin
@@ -116,6 +117,14 @@ class LockController(StateMixin, BleMixin, GestureMixin):
         # lock_topic_confirm.TopicConfirm.on_touch, mirroring how
         # self.tag_picker above owns the picker's.
         self.topic_confirm = TopicConfirm(self.ui)
+        # Owns the settings LIST screen's own touch/press/hold state -- see
+        # lock_settings_nav.SettingsNav.on_touch, mirroring how self.
+        # tag_picker/self.topic_confirm above own theirs. settings_fn is a
+        # lambda, not self.settings directly, so a settings object swapped
+        # out from under it (there isn't one today, but see topics_fn/
+        # _all_topics for why this indirection is worth keeping anyway)
+        # would still be read live rather than captured stale.
+        self.settings_nav = SettingsNav(self.ui, lambda: self.settings)
         self._pending_app_topic = None  # topic id most recently pushed over
                                          # BLE_UUID_PENDING_TOPIC and still
                                          # validated against self._all_topics()
@@ -162,6 +171,13 @@ class LockController(StateMixin, BleMixin, GestureMixin):
             self._refresh_battery(self._now)
         elif view == "settings":
             self.ui.update_settings(self.settings)
+            # Reset the list's own press/hold state on every entry (not
+            # just the first) -- so a view switch mid-press or mid-hold
+            # (e.g. a BLE "lock"/"start" command forcing this switch, same
+            # as the self._editing save() a few lines above) can never
+            # leave a stale row highlight or amber fill armed against a
+            # touch that no longer exists.
+            self.settings_nav.show()
 
     # ----- lock hardware hooks (wire a relay/solenoid here later) -----
     def engage_lock(self):

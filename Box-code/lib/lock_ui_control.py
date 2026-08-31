@@ -331,6 +331,13 @@ class ControlMixin:
             self._finish_press()
 
     def _step_motion(self, dt):
+        # Position-tween engine (lock_ui_settings.SettingsMixin.
+        # step_pos_tweens, lock_ui.py's _pos_tweens comment) -- driven from
+        # here rather than a new call in LockController.update() so it
+        # inherits step_motion's try/except backstop above for free, same
+        # reasoning as every other per-frame motion block in this method.
+        self.step_pos_tweens()
+
         if self._press_targets:
             offset = _clamp_offset(self._press_spring.step(dt))
             for obj, kind, base in self._press_targets:

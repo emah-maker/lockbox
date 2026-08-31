@@ -420,6 +420,33 @@ HOLD_REPEAT_RAMP = 0.85       # interval *= this factor after each repeat
 # there's no separate animation length to tune here.
 TAG_HOLD_S = 1.0
 
+# ----- Settings list: hold-to-enable on the two security-weakening toggles ---
+# "Remote" (Settings.allow_remote_unlock) and "On call"
+# (Settings.unlock_on_call) are the box's only standing escape hatches from its
+# own purpose -- see BLE_ALLOW_REMOTE_UNLOCK / BLE_UNLOCK_ON_CALL above for why
+# both default OFF. An accidental tap that flips either ON silently converts the
+# box into a one-tap-openable box, so turning one ON has to be held (an amber
+# fill sweeps the row, see LockUI.step_settings_hold). Turning one OFF is the
+# safe direction and stays a single instant tap: friction belongs only on the
+# dangerous edge, and every other row -- including the "Auto" toggle, which is a
+# convenience setting and not a security one -- is a plain tap both ways.
+#
+# Same 1.0s as TAG_HOLD_S, and deliberately so: one hold duration across the
+# whole box is easier to learn than two. Its own constant rather than an import
+# of TAG_HOLD_S so the two CAN diverge if one of them is ever retuned alone.
+#
+# 1.0 rather than the ~0.5-0.6s a general long-press guideline would suggest,
+# because this repo already ran that experiment on this hardware with this
+# gesture: TAG_HOLD_S was 0.6s and was raised to 1.0s after on-device testing
+# because accidental taps were completing it. A measurement from the box beats a
+# cross-platform default.
+SETTINGS_HOLD_S = 1.0
+# How long the settings switch knob takes to slide its 14px of travel. 150ms is
+# the motion-and-animation skill's "small control state change" tier -- shorter
+# than STATUS_TRANSITION_S's 200ms card band, because a toggle must feel like it
+# answered the tap rather than eased into agreeing with it.
+SET_KNOB_SLIDE_S = 0.15
+
 # ----- Custom label sync (app -> box), best-effort -----
 # The box has no independent concept of a "label" -- it just holds whatever
 # compact (id, name) pairs the app most recently pushed over BLE_UUID_LABELS,

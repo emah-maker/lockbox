@@ -16,6 +16,7 @@ from lock_tag_picker import Cancel
 from lock_topic_confirm import Confirm
 from lock_topic_confirm import Change
 from lock_topic_confirm import find_topic
+from lock_settings_nav import Open, Changed
 from lock_controller_const import LOCKED_VIEWS, OVERRIDDEN, VIEWS
 
 
@@ -127,6 +128,17 @@ class GestureMixin:
                 # branch above -- see lock_topic_confirm.TopicConfirm.on_touch.
                 result = self.topic_confirm.on_touch(pt, now, released=False)
                 self._apply_topic_confirm_result(result, now)
+            elif self.view == "settings" and not self._editing:
+                # Same same-call-arms-and-ticks contract as "picking"/
+                # "confirming" above, but keyed off self.view rather than
+                # self.state -- "settings" is a VIEW, so self.state stays
+                # idle/closed/running/done underneath it. `not self._editing`
+                # is redundant with the first branch above, spelled out so
+                # this condition reads correctly on its own. Also the only
+                # branch that can hand back a result LIVE, mid-touch (a
+                # completed hold-to-enable).
+                result = self.settings_nav.on_touch(pt, now, released=False)
+                self._apply_settings_nav_result(result)
         elif self._was_down:
             # The AXS5106L occasionally drops a frame mid-touch; require a few
             # consecutive empty reads before treating it as a real release so
@@ -173,13 +185,31 @@ class GestureMixin:
             return 1 if dy < 0 else -1
         return 0
 
+    def _stepper_which(self):
+        """Which stepper button (if either) the finger is over -- press
+        highlight only. Deliberately NOT "is direction nonzero": a held
+        vertical swipe also produces a nonzero _drag_direction while nowhere
+        near either button, and must not light one it isn't touching."""
+        x, y = self._last
+        if self.ui.in_setting_plus(x, y):
+            return 'plus'
+        if self.ui.in_setting_minus(x, y):
+            return 'minus'
+        return None
+
     def _update_hold(self, now):
         """Detail page [-]/[+] and swipe hold-to-repeat: a tap (or the instant
         a swipe crosses its threshold) applies one step immediately; holding
         past HOLD_REPEAT_DELAY starts auto-repeat, ramping faster over time.
         Moving off the button / back under the swipe threshold cancels the
         repeat -- release-time handling in _handle_release only needs to deal
-        with the horizontal "swipe left/right = back" exit gesture."""
+        with the horizontal "swipe left/right = back" exit gesture.
+
+        Stepper press-highlight (ui.press_setting_stepper) is driven from here
+        too, every frame, same "instant, no lag" treatment as the settings
+        row highlight -- it does NOT touch HOLD_REPEAT_*, it only decides what
+        the button LOOKS like while the direction logic decides what it DOES."""
+        self.ui.press_setting_stepper(self._stepper_which())
         direction = self._drag_direction()
         if direction != self._hold_dir:
             self._hold_dir = direction
@@ -235,6 +265,27 @@ class GestureMixin:
             self.state = self._picking_from
             self.go_picking(now)
 
+    # ----- settings list: apply a SettingsNav.on_touch result -----
+    def _apply_settings_nav_result(self, result):
+        """Reacts to whatever lock_settings_nav.SettingsNav.on_touch just
+        returned -- called after every on_touch call, from both process()
+        (mid-touch, only ever for a completed hold-to-enable) and
+        _handle_release, mirroring _apply_tag_picker_result /
+        _apply_topic_confirm_result above. None means nothing to do (the nav
+        already handled its own live press/hold feedback). Needs no `now`,
+        unlike those two: neither outcome is a timestamped state change."""
+        if isinstance(result, Open):
+            self._edit_idx = result.row
+            self._editing = True
+            self.ui.show_setting_detail(result.row, self.settings)
+        elif isinstance(result, Changed):
+            # The nav mutates self.settings in-RAM but deliberately never
+            # saves (same debounce-to-release/commit division of labour as
+            # Settings.adjust/_update_hold below) -- one save() call here
+            # covers a plain-tap toggle AND a completed hold alike.
+            self.settings.save()
+            self.ui.update_settings(self.settings)
+
     def _handle_release(self):
         dx = self._last[0] - self._start[0]
         dy = self._last[1] - self._start[1]
@@ -264,8 +315,22 @@ class GestureMixin:
         # exit gesture.
         if self._editing:
             self._hold_dir = 0
+            self.ui.press_setting_stepper(None)   # finger is up; never leave a button lit
             self.settings.save()
             if abs(dx) >= SWIPE_MIN_PX and abs(dx) > abs(dy):
+                self._editing = False
+                self.ui.show_view("settings")
+                self.ui.update_settings(self.settings)
+                return
+            # Tap on the back chevron/label -- the discoverable alternative
+            # to the swipe above, added alongside it (the swipe keeps
+            # working unchanged), not replacing it. Checked at both start
+            # and end, same double-check pattern in_status/in_button use
+            # below, so a drag that started on the chevron and ended off it
+            # is not misread as a tap on it.
+            if (abs(dx) < SWIPE_MIN_PX and abs(dy) < SWIPE_MIN_PX and
+                    self.ui.in_settings_back(*self._start) and
+                    self.ui.in_settings_back(*self._last)):
                 self._editing = False
                 self.ui.show_view("settings")
                 self.ui.update_settings(self.settings)
@@ -314,6 +379,21 @@ class GestureMixin:
         # them), so this swipes within LOCKED_VIEWS's own order instead of
         # VIEWS's while running.
         if abs(dx) >= SWIPE_MIN_PX and abs(dx) > abs(dy):
+            # Hand this release to the settings nav BEFORE switching views.
+            # This is the one branch above the settings block below that can
+            # `return` while the nav is still mid-touch, and SettingsNav
+            # infers "a fresh touch-down" from its own _active flag -- a
+            # release it never sees leaves that flag stuck True, so it reads
+            # the NEXT touch-down as a continuation of this dead one and
+            # silently swallows the tap. Worst on the forward swipe from
+            # "settings" (last in VIEWS): it switches to nothing, so it does
+            # not even get the set_view() -> settings_nav.show() reset that
+            # recovers the other directions. Safe unconditionally -- a drag
+            # this far can only resolve to None in SettingsNav._release (same
+            # |dx| check), so it clears leftover visuals and commits nothing.
+            if self.view == "settings":
+                self._apply_settings_nav_result(
+                    self.settings_nav.on_touch(self._last, self._now, released=True))
             # Drag LEFT advances. The carousel convention: the content follows
             # your finger, so dragging left slides the current view off to the
             # left and brings the next one in from the right -- the same way
@@ -351,21 +431,16 @@ class GestureMixin:
                 self._refresh_clock_view(self._now)
             return
 
-        # Settings list: tap a row to open its detail page. Auto-open is the
-        # one row that toggles in place on the list itself (no detail page
-        # needed for a single boolean); R Unlock / C Unlock are also booleans
-        # but go through the detail page like the numeric rows, adjusted via
-        # Settings.adjust(idx, direction>0/<0) same as a swipe up/down.
+        # Settings list: all six rows' tap/hold arbitration now lives in
+        # lock_settings_nav.SettingsNav (see its module docstring) -- numeric
+        # rows open the detail page (Open), boolean rows toggle in place
+        # (Changed), with Remote/On call requiring a completed hold to turn
+        # ON. Replaces the old two-case `if row == 1: toggle elif row >= 0:
+        # open detail`, which had no room for hold-to-enable or per-row
+        # press/hold visuals.
         if self.view == "settings":
-            if abs(dx) < SWIPE_MIN_PX and abs(dy) < SWIPE_MIN_PX:
-                row = self.ui.settings_row_at(self._start[1])
-                if row == 1:                       # Auto-open: toggle in place
-                    self.settings.toggle_auto()
-                    self.ui.update_settings(self.settings)
-                elif row >= 0:
-                    self._edit_idx = row
-                    self._editing = True
-                    self.ui.show_setting_detail(row, self.settings)
+            result = self.settings_nav.on_touch(self._last, self._now, released=True)
+            self._apply_settings_nav_result(result)
             return
 
         # Everything below only applies on the control view.
