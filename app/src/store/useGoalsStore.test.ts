@@ -270,7 +270,7 @@ describe('syncGoalNotifications integration', () => {
 
     await useGoalsStore.getState().hydrate();
 
-    expect(mockSyncGoalNotifications).toHaveBeenCalledWith(stored, expect.any(Object), expect.any(Map));
+    expect(mockSyncGoalNotifications).toHaveBeenCalledWith(stored, expect.any(Object), expect.any(Map), expect.any(Array));
   });
 
   it('is called after addGoal, with the post-mutation (pruned) goals array', () => {
@@ -279,6 +279,9 @@ describe('syncGoalNotifications integration', () => {
       useGoalsStore.getState().goals,
       expect.any(Object),
       expect.any(Map),
+      // The custom-label catalog. Passing it is what stops a reminder for a
+      // custom-label goal naming that label by its internal id.
+      expect.any(Array),
     );
   });
 
@@ -293,6 +296,9 @@ describe('syncGoalNotifications integration', () => {
       useGoalsStore.getState().goals,
       expect.any(Object),
       expect.any(Map),
+      // The custom-label catalog. Passing it is what stops a reminder for a
+      // custom-label goal naming that label by its internal id.
+      expect.any(Array),
     );
   });
 
@@ -307,6 +313,9 @@ describe('syncGoalNotifications integration', () => {
       useGoalsStore.getState().goals,
       expect.any(Object),
       expect.any(Map),
+      // The custom-label catalog. Passing it is what stops a reminder for a
+      // custom-label goal naming that label by its internal id.
+      expect.any(Array),
     );
   });
 
@@ -316,11 +325,14 @@ describe('syncGoalNotifications integration', () => {
       useGoalsStore.getState().goals,
       expect.any(Object),
       expect.any(Map),
+      // The custom-label catalog. Passing it is what stops a reminder for a
+      // custom-label goal naming that label by its internal id.
+      expect.any(Array),
     );
 
     mockSyncGoalNotifications.mockClear();
     useGoalsStore.getState().resetGoals();
-    expect(mockSyncGoalNotifications).toHaveBeenCalledWith([], expect.any(Object), expect.any(Map));
+    expect(mockSyncGoalNotifications).toHaveBeenCalledWith([], expect.any(Object), expect.any(Map), expect.any(Array));
   });
 
   it('is never called when addGoal throws (validation failure never triggers a reschedule)', () => {

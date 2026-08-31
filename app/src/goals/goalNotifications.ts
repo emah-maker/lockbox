@@ -24,6 +24,7 @@ import * as Notifications from 'expo-notifications';
 import { serializeLatest } from '../push/reconcileQueue';
 import { Platform } from 'react-native';
 import type { Goal } from './goals';
+import type { CustomLabel } from '../stats/customLabels';
 import {
   planGoalNotifications,
   NOTIF_ID_PREFIX,
@@ -234,10 +235,11 @@ export const syncGoalNotifications = serializeLatest(async function syncGoalNoti
   goals: Goal[],
   prefs: NotificationPrefs = DEFAULT_PREFS,
   progressById: Map<string, GoalProgressSnapshot> = new Map(),
+  customLabels: CustomLabel[] = [],
 ): Promise<void> {
   await cancelAllGoalNotifications();
 
-  const requests = planGoalNotifications(goals, prefs, progressById);
+  const requests = planGoalNotifications(goals, prefs, progressById, customLabels);
   if (requests.length === 0) return;
 
   // Ordered before the permission prompt so the handler/channel are in place

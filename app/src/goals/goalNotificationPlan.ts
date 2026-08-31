@@ -20,6 +20,11 @@
 //      window is already met is skipped entirely.
 import type { Goal, GoalPeriod } from './goals';
 import { goalNotifyTimes, goalNotifyDays, notifyTimeToMinutes } from './goalReminders';
+// Name-only, so this leaf still needs no ThemeMode and does no color math
+// -- see topicDisplayName's own comment. The chain it pulls in
+// (topics.ts -> theme/color.ts) is pure TypeScript with no react-native
+// import anywhere in it, so this stays as unit-testable as it was.
+import { topicDisplayName, type CustomLabel } from '../stats/customLabels';
 
 // Every identifier this feature ever schedules starts with this prefix, and
 // ONLY this feature schedules anything with it -- syncGoalNotifications uses
@@ -117,8 +122,20 @@ function shortDuration(totalS: number): string {
  * same number the goal's own row shows ("40m to go"), never a second
  * computation of it. Without a snapshot it falls back to the original
  * generic line. */
-function contentFor(goal: Goal, progress: GoalProgressSnapshot | undefined): { title: string; body: string } {
-  const target = goal.topic === null ? 'your focus time' : `"${goal.topic}"`;
+function contentFor(
+  goal: Goal,
+  progress: GoalProgressSnapshot | undefined,
+  customLabels: CustomLabel[],
+): { title: string; body: string } {
+  // `goal.topic` is an ID, not a name. Interpolating it raw put
+  // `custom:mf3k2xa9b1` in the body of every reminder for a custom label --
+  // the user's own label, rendered as the internal string it is keyed by.
+  // Built-in topics merely read lowercase ("work"); a custom label read as
+  // garbage. A goal whose label was since deleted has no name left to show,
+  // so it falls back to the same generic wording an untagged goal uses
+  // rather than naming something the user removed.
+  const name = topicDisplayName(goal.topic, customLabels);
+  const target = name === null ? 'your focus time' : `"${name}"`;
   if (progress && !progress.met && progress.remainingS > 0) {
     return {
       title: 'Focus goal reminder',
@@ -196,6 +213,7 @@ export function goalNotificationRequests(
   goal: Goal,
   prefs: NotificationPrefs = DEFAULT_PREFS,
   progress?: GoalProgressSnapshot,
+  customLabels: CustomLabel[] = [],
 ): GoalNotificationRequest[] {
   if (!prefs.enabled) return [];
   if (!goal.notify) return [];
@@ -209,7 +227,7 @@ export function goalNotificationRequests(
   const times = allowedNotifyTimes(goal, prefs);
   if (times.length === 0) return [];
 
-  const { title, body } = contentFor(goal, progress);
+  const { title, body } = contentFor(goal, progress, customLabels);
   const weekdays = goalNotifyDays(goal);
   const requests: GoalNotificationRequest[] = [];
 
@@ -269,8 +287,9 @@ export function planGoalNotifications(
   goals: Goal[],
   prefs: NotificationPrefs,
   progressById: Map<string, GoalProgressSnapshot>,
+  customLabels: CustomLabel[] = [],
 ): GoalNotificationRequest[] {
   return goals
     .filter((g) => !g.archived)
-    .flatMap((g) => goalNotificationRequests(g, prefs, progressById.get(g.id)));
+    .flatMap((g) => goalNotificationRequests(g, prefs, progressById.get(g.id), customLabels));
 }

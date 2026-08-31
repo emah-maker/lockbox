@@ -260,3 +260,45 @@ describe('planGoalNotifications', () => {
     expect(requests.map((r) => r.identifier)).toEqual(['goal-notif:goal:b:daily:1000']);
   });
 });
+
+// `goal.topic` is an ID, not a name. The body used to interpolate it raw, so
+// a reminder for a custom label read `... goal for "custom:mf3k2xa9b1"` --
+// the user's own label rendered as the internal key it is stored under.
+describe('reminder copy names the topic the way the user does', () => {
+  const labels = [{ id: 'custom:mf3k2xa9b1', name: 'Thesis', color: '#2563eb' }];
+  const on = { notify: true, notifyTimes: ['09:00'] };
+  const bodyOf = (g: Goal, ls = labels) => goalNotificationRequests(g, prefs(), undefined, ls)[0].body;
+
+  it('uses the name of a custom label, never its id', () => {
+    const body = bodyOf(goal({ ...on, topic: 'custom:mf3k2xa9b1' }));
+    expect(body).toContain('"Thesis"');
+    expect(body).not.toContain('custom:');
+  });
+
+  it('never leaks a custom-label id in the progress-aware body either', () => {
+    const g = goal({ ...on, topic: 'custom:mf3k2xa9b1' });
+    const body = goalNotificationRequests(g, prefs(), { met: false, remainingS: 2400 }, labels)[0].body;
+    expect(body).toContain('"Thesis"');
+    expect(body).not.toContain('custom:');
+  });
+
+  it('uses the display name of a built-in topic, not its lowercase key', () => {
+    expect(bodyOf(goal({ ...on, topic: 'work' }))).toContain('"Work"');
+  });
+
+  it('shows a one-time free-text tag exactly as the user typed it', () => {
+    expect(bodyOf(goal({ ...on, topic: 'Reading Kant' }))).toContain('"Reading Kant"');
+  });
+
+  it('falls back to the generic wording when the label was deleted', () => {
+    // The catalog no longer holds this id, so there is no name to show --
+    // naming a label the user removed would be worse than being generic.
+    const body = bodyOf(goal({ ...on, topic: 'custom:gone' }), []);
+    expect(body).toContain('your focus time');
+    expect(body).not.toContain('custom:');
+  });
+
+  it('still says your focus time for an untagged goal', () => {
+    expect(bodyOf(goal({ ...on, topic: null }))).toContain('your focus time');
+  });
+});

@@ -143,6 +143,33 @@ export function sanitizeCustomLabels(value: unknown): CustomLabel[] {
   return out;
 }
 
+/** A topic id -> the name a human should read, and nothing else.
+ *
+ * resolveTopic below answers the same question but also computes a color and
+ * a measured ink for it, which needs a ThemeMode. Callers that are only
+ * writing a sentence -- a notification body, say -- have no theme and no use
+ * for either. Having to invent a ThemeMode just to get at `.label` is what
+ * pushed goals/goalNotificationPlan.ts into interpolating `goal.topic` raw
+ * instead, so a reminder for a custom label read
+ * `40m left on your daily goal for "custom:mf3k2xa9b1"`.
+ *
+ * Returns null where there is no name to show: untagged, or a saved custom
+ * label that has since been deleted. Callers phrase that case themselves --
+ * a notification says "your focus time" rather than naming a label the user
+ * removed. A one-time free-text tag resolves to itself, since the string the
+ * user typed IS its name. */
+export function topicDisplayName(
+  topic: string | null | undefined,
+  customLabels: CustomLabel[],
+): string | null {
+  if (!topic) return null;
+  if (topic in TOPIC_LABELS) return TOPIC_LABELS[topic as TopicKey];
+  const custom = customLabels.find((l) => l.id === topic);
+  if (custom) return custom.name;
+  if (isCustomLabelId(topic)) return null; // saved label, since deleted
+  return topic; // a one-time free-text tag is its own name
+}
+
 export interface ResolvedTopic {
   id: string;
   label: string;

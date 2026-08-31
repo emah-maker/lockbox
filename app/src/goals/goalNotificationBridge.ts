@@ -91,7 +91,16 @@ export function noteSessionsChanged(sessions: LoggedSession[]): void {
 export function resyncGoalNotifications(goals?: Goal[]): void {
   if (goals) latestGoals = goals;
   const planned = latestGoals;
-  void syncGoalNotifications(planned, readPrefs(), readProgress(planned));
+  // The label catalog is read here, alongside prefs, rather than cached like
+  // goals/sessions: it lives in useSettingsStore, which this module already
+  // reads for prefs, so there is nothing to push in. Without it every
+  // reminder for a custom-label goal named that label by its internal id.
+  void syncGoalNotifications(
+    planned,
+    readPrefs(),
+    readProgress(planned),
+    useSettingsStore.getState().customLabels,
+  );
 }
 
 /** Debounced variant for the subscription paths, where several changes can
