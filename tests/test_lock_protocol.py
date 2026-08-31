@@ -103,6 +103,14 @@ d = lock_protocol.decode_settings(full)
 check("decode_settings ovr", d["ovr"] == 50)
 check("decode_settings auto bool", d["auto"] is True)
 check("decode_settings sleep snaps to nearest option", d["sleep"] == min(SLEEP_OPTIONS, key=lambda o: abs(o - 25)))
+# 0 is the "never sleep" option, so unlike every other numeric field on this
+# wire it must survive as 0 rather than being treated as absent/invalid and
+# snapped up to the shortest timeout -- which would turn the feature back ON
+# for someone who had just switched it off.
+check("decode_settings sleep keeps 0 (the Off option) as 0",
+      lock_protocol.decode_settings('{"sleep":0}')["sleep"] == 0)
+check("decode_settings sleep still snaps a huge value down to the longest option",
+      lock_protocol.decode_settings('{"sleep":99999}')["sleep"] == max(SLEEP_OPTIONS))
 check("decode_settings bright snaps to nearest option", d["bright"] == min(BRIGHT_OPTIONS, key=lambda o: abs(o - 42)))
 check("decode_settings unlk bool", d["unlk"] is True)
 check("decode_settings ucal bool", d["ucal"] is True)

@@ -119,7 +119,11 @@ while True:
         # sleep the screen after inactivity -- but never while USB-powered,
         # and never mid-alert (an incoming-call flash cut short by the sleep
         # timeout would defeat the point of making it hard to miss).
-        if (not usb and not ctrl.call_alert_active
+        # sleep_s == 0 is the user's "never sleep" choice (SLEEP_OPTIONS's
+        # Off), NOT a zero-second timeout -- guarded explicitly here, since
+        # `now - last_activity > 0` is true on essentially every frame and
+        # would blank the screen instantly instead.
+        if (not usb and ctrl.settings.sleep_s > 0 and not ctrl.call_alert_active
                 and now - last_activity > ctrl.settings.sleep_s):
             backlight.off()
             ctrl.reset_gesture()

@@ -13,6 +13,20 @@ from lock_config import C_BG, C_WHITE, C_GREY, C_GREEN, C_RED, C_AMBER, RADIUS_B
 from lock_ui_common import _bg_tile
 
 
+def _fmt_sleep(sleep_s):
+    """The Sleep row's value text. 0 is SLEEP_OPTIONS's "never sleep" choice,
+    not a zero-second timeout (see lock_config.SLEEP_OPTIONS and code.py's
+    sleep predicate), so it has to read as OFF rather than "0s" -- which
+    would describe the opposite behaviour to the one the box is in.
+
+    A module function, not a method: both the six-row list and the detail
+    page render this same value, and the two sites drifting apart is exactly
+    how one screen ends up claiming the feature is on while the other says
+    it is off. Matches the ON/OFF wording the boolean rows beside it already
+    use, so Off does not read as a new kind of value."""
+    return "OFF" if sleep_s <= 0 else "{}s".format(sleep_s)
+
+
 class SettingsMixin:
     # =================== settings view ===================
     def _build_settings(self, W, H):
@@ -54,7 +68,7 @@ class SettingsMixin:
     def update_settings(self, s):
         self.set_vals[0].text = str(s.override_presses)
         self.set_vals[1].text = "ON" if s.auto_open else "OFF"
-        self.set_vals[2].text = "{}s".format(s.sleep_s)
+        self.set_vals[2].text = _fmt_sleep(s.sleep_s)
         self.set_vals[3].text = "{}%".format(s.bright_pct)
         self.set_vals[4].text = "ON" if s.allow_remote_unlock else "OFF"
         self.set_vals[5].text = "ON" if s.unlock_on_call else "OFF"
@@ -80,7 +94,7 @@ class SettingsMixin:
     _SET_DESCRIPTIONS = (
         "presses to force-unlock",
         "auto-open when timer ends",
-        "screen sleep timeout (sec)",
+        "screen sleep timeout",
         "screen brightness (%)",
         "app can unlock box early",
         "unlock box on incoming call",
@@ -92,7 +106,7 @@ class SettingsMixin:
         if idx == 1:
             return "ON" if s.auto_open else "OFF"
         if idx == 2:
-            return "{}s".format(s.sleep_s)
+            return _fmt_sleep(s.sleep_s)
         if idx == 3:
             return "{}%".format(s.bright_pct)
         if idx == 4:

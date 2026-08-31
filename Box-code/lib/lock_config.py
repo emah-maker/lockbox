@@ -373,7 +373,22 @@ NVM_LOG_BASE = NVM_SETTINGS_BASE + NVM_SETTINGS_LEN
 OVR_MIN = 5
 OVR_MAX = 500
 OVR_STEP = 5
-SLEEP_OPTIONS = (10, 20, 30, 60)      # screen-sleep seconds (on battery)
+# Screen-sleep seconds on battery. 0 means NEVER SLEEP -- the option that
+# turns the feature off, not a zero-second timeout (code.py's sleep predicate
+# guards on sleep_s > 0 before comparing against it; without that guard 0
+# would blank the screen almost immediately, the exact opposite).
+#
+# Worth knowing what Off costs, because it is more than the backlight:
+# backlight.is_on is the single input to three other policies in the same run
+# loop, so choosing Off also pins the CPU at CPU_FAST instead of CPU_SLOW,
+# holds the loop at its 20ms poll instead of 100ms, and leaves BLE
+# advertising continuously instead of only while awake-or-locked.
+#
+# 0 first also means snap_to_option ties round to it: a stray `sleep` of 5
+# from the app now lands on Off rather than 10s (see lock_util.snap_to_option
+# -- ties go to the lower option). Only reachable from a malformed payload;
+# the app sends exact members.
+SLEEP_OPTIONS = (0, 10, 20, 30, 60)
 BRIGHT_OPTIONS = (10, 30, 50, 70, 100)    # backlight percent (min 10)
 
 

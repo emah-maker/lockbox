@@ -27,7 +27,12 @@ import type { Settings } from '../../ble/protocol';
 // duplicating the literal union here.
 type Conn = ReturnType<typeof useStore.getState>['conn'];
 
-const SLEEP_OPTIONS = [10, 20, 30, 60];
+// 0 is the box's "never sleep" option, not a zero-second timeout -- see
+// lock_config.py's SLEEP_OPTIONS and code.py's sleep predicate, which guards
+// on sleep_s > 0. Rendered as "Off" for the same reason the box's own row
+// does: "0s" would describe the opposite of the behaviour it selects.
+const SLEEP_OPTIONS = [0, 10, 20, 30, 60];
+const formatSleep = (v: number) => (v <= 0 ? 'Off' : `${v}s`);
 const BRIGHT_OPTIONS = [10, 30, 50, 70, 100];
 
 export function BoxBehaviorSection({
@@ -78,7 +83,7 @@ export function BoxBehaviorSection({
         label="Screen sleep"
         options={SLEEP_OPTIONS}
         value={boxSettings.sleep}
-        format={(v) => `${v}s`}
+        format={formatSleep}
         onSelect={(v) => pushBoxSettings({ sleep: v })}
         color={color}
       />

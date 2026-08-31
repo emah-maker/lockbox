@@ -38,7 +38,7 @@ for _name in ("board", "pwmio", "supervisor", "microcontroller"):
         sys.modules[_name] = types.ModuleType(_name)
 
 from lock_controller import LockController  # noqa: E402 -- after the stubs
-from lock_config import BLE_CALL_ALERT_S  # noqa: E402
+from lock_config import BLE_CALL_ALERT_S, SLEEP_OPTIONS  # noqa: E402
 
 _passed = 0
 _failed = 0
@@ -159,10 +159,37 @@ check("on USB power, however idle -> never sleeps",
 
 # sleep_s comes from NVM and is app-adjustable (SLEEP_OPTIONS), so the
 # threshold has to track the live setting rather than INACTIVITY_S.
-for _s in (10, 20, 30, 60):
+for _s in [o for o in SLEEP_OPTIONS if o > 0]:
     _c = FakeController(sleep_s=_s)
     check("sleep_s={} is the threshold actually used".format(_s),
           would_sleep(False, _c, _s + 1.0) and not would_sleep(False, _c, _s - 1.0))
+
+# --- 1b. Off means never, not immediately ------------------------------
+#
+# sleep_s == 0 is SLEEP_OPTIONS's "never sleep" choice. The trap is that it
+# reads as a threshold: `now - last_activity > 0` is true on essentially
+# every frame, so a predicate that only compares would blank the screen
+# INSTANTLY for the user who just asked it never to -- the most complete
+# possible inversion of the setting, and one that looks like a broken
+# backlight rather than a misread option.
+check("0 is a real member of SLEEP_OPTIONS, so the box and app can offer Off",
+      0 in SLEEP_OPTIONS, repr(SLEEP_OPTIONS))
+_off = FakeController(sleep_s=0)
+check("Off: an idle box does not sleep after a long idle",
+      not would_sleep(usb=False, ctrl=_off, idle_for=10_000.0))
+check("Off: nor after one frame, which is what a bare `> 0` compare would do",
+      not would_sleep(usb=False, ctrl=_off, idle_for=0.02))
+check("Off: nor at exactly zero idle time",
+      not would_sleep(usb=False, ctrl=_off, idle_for=0.0))
+# A negative can only arrive from a corrupt NVM byte, but it must fail the
+# same way Off does rather than the same way a threshold does.
+check("a negative sleep_s is treated as Off, not as an instant timeout",
+      not would_sleep(usb=False, ctrl=FakeController(sleep_s=-5), idle_for=10_000.0))
+# ...and switching back to a real timeout still works on the same controller.
+_off.settings.sleep_s = 20
+check("switching Off back to 20s restores the timeout",
+      would_sleep(usb=False, ctrl=_off, idle_for=21.0)
+      and not would_sleep(usb=False, ctrl=_off, idle_for=19.0))
 
 # --- 2. An incoming call holds the screen on -------------------------------
 #
