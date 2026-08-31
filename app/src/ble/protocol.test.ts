@@ -207,3 +207,46 @@ describe('parseHistoryEntries hardening', () => {
     expect(entry.t).toBe(1700000000);
   });
 });
+
+// firestore.rules' sessions `create` rule type-checks every field
+// (startedAt/plannedS/actualS `is int` and `>= 0`, topic.size() <= 200). A
+// value that fails any of those isn't a slightly-wrong session -- the doc is
+// refused, which fails the whole writeBatch, which fails syncSessions, the
+// FIRST step of runMigrationAndSync. Settings, goals and scheduled sessions
+// never reconcile either, and since the record stays in local storage every
+// later sync retries it and fails identically. One malformed frame otherwise
+// ends the account's sync for good, so the bound belongs here at the parser.
+describe('parser output stays inside what firestore.rules will accept', () => {
+  it('floors fractional durations and timestamps to whole seconds', () => {
+    const [e] = parseHistoryEntries(JSON.stringify([{ p: 1500.5, a: 1500.25, c: 1, t: 1700000000.9 }]));
+    expect(Number.isInteger(e.p)).toBe(true);
+    expect(Number.isInteger(e.a)).toBe(true);
+    expect(Number.isInteger(e.t)).toBe(true);
+    expect(e).toEqual({ p: 1500, a: 1500, c: 1, t: 1700000000 });
+  });
+
+  it('still floors toward the -1 sentinel rather than away from it', () => {
+    const [e] = parseHistoryEntries(JSON.stringify([{ p: 60, a: 60, c: 0, t: 'x' }]));
+    expect(e.t).toBe(-1);
+  });
+
+  it('caps an over-length topic echo, which is not display-only', () => {
+    // tp becomes this device's pending tag, which becomes a logged session's
+    // topic, which is uploaded -- so an unbounded string here reaches a rule
+    // that bounds it at 200.
+    const frame = JSON.stringify({ st: 'running', rem: 1, set: 1, bat: 1, tp: 'x'.repeat(500), fw: '1.0' });
+    expect(parseStatus(frame)!.tp).toHaveLength(200);
+  });
+
+  it('caps an over-length firmware string', () => {
+    const frame = JSON.stringify({ st: 'idle', rem: 0, set: 0, bat: 1, tp: '', fw: 'v'.repeat(500) });
+    expect(parseStatus(frame)!.fw.length).toBeLessThanOrEqual(32);
+  });
+
+  it('leaves an ordinary topic id and version untouched', () => {
+    const frame = JSON.stringify({ st: 'running', rem: 1, set: 1, bat: 1, tp: 'custom:abc123', fw: '1.2.0' });
+    const parsed = parseStatus(frame)!;
+    expect(parsed.tp).toBe('custom:abc123');
+    expect(parsed.fw).toBe('1.2.0');
+  });
+});

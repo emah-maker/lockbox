@@ -88,19 +88,27 @@ const HOUR_LABELS = HOUR_VALUES.map((h) => `${h}h`);
 const MINUTE_LABELS = MINUTE_VALUES.map((m) => `${String(m).padStart(2, '0')}m`);
 
 export default function DashboardScreen() {
-  const {
-    conn,
-    status,
-    sessions,
-    currentTopic,
-    connect,
-    disconnect,
-    setDuration,
-    closeBox,
-    openBox,
-    tagCurrentSession,
-    setPendingBoxTopic,
-  } = useStore();
+  // Field-by-field, not `useStore()`. Subscribing to the whole store makes
+  // this screen re-render on every field it doesn't read -- `error`,
+  // `autoConnect`, `lastAlert`, `initialized`, `pendingBoxTopic` -- and the
+  // store this screen watches is the one BLE writes to, so those arrive
+  // unprompted rather than in response to anything the user did. It was also
+  // the only whole-store subscription left in the app; every other read here
+  // (and on every other screen) is already a selector.
+  const conn = useStore((st) => st.conn);
+  const status = useStore((st) => st.status);
+  const sessions = useStore((st) => st.sessions);
+  const currentTopic = useStore((st) => st.currentTopic);
+  // The actions are stable identities for the life of the store (zustand
+  // never re-creates them), so selecting each one can't itself cause a
+  // render -- these are just reads, not subscriptions that ever fire.
+  const connect = useStore((st) => st.connect);
+  const disconnect = useStore((st) => st.disconnect);
+  const setDuration = useStore((st) => st.setDuration);
+  const closeBox = useStore((st) => st.closeBox);
+  const openBox = useStore((st) => st.openBox);
+  const tagCurrentSession = useStore((st) => st.tagCurrentSession);
+  const setPendingBoxTopic = useStore((st) => st.setPendingBoxTopic);
   const remoteUnlockOn = useSettingsStore((st) => !!st.boxSettings.unlk);
   const themeMode = useSettingsStore((st) => st.themeMode);
   const customLabels = useSettingsStore((st) => st.customLabels);
@@ -116,7 +124,10 @@ export default function DashboardScreen() {
   const goals = useGoalsStore((st) => st.goals);
   const theme = useTheme();
   const s = styles(theme);
-  const { navigate } = useNav();
+  // Selector, same reason as the useStore reads above: `useNav()` whole
+  // would also re-render this screen whenever a *pending intent* changes,
+  // which is a value only the destination screen ever consumes.
+  const navigate = useNav((st) => st.navigate);
 
   // Duration picker -- local to this screen, not persisted. Preview-only: it
   // can't start a lock from the phone (that has to happen at the box, with

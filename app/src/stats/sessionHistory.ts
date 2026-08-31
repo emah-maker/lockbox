@@ -216,7 +216,22 @@ export function buildLoggedSessions(
       // e.t is a wall-clock epoch second, or -1 if the box's clock was never
       // synced (no phone had connected yet); fall back to "now" so the
       // session still shows up somewhere on the calendar.
-      const approxStart = e.t < 0;
+      //
+      // A `t` that is set but too small to place this session after the epoch
+      // is treated as the same "no usable clock" case, not as a real reading.
+      // The box's RTC is volatile -- it is set from the phone on connect (see
+      // PhoneBoxClient.syncTime) and starts from a low value after a power
+      // loss -- so a long session finishing shortly after a reset genuinely
+      // computes a pre-epoch start. That is not a cosmetic wrong date:
+      // firestore.rules' sessions `create` rule requires `startedAt >= 0`, so
+      // the doc is refused, which fails the whole writeBatch, which fails
+      // syncSessions -- the FIRST step of runMigrationAndSync, so settings,
+      // goals and scheduled sessions never reconcile either. And since the
+      // record stays in local storage, every later sync retries it and fails
+      // the same way, permanently. Routing it through approxStart instead
+      // dates it from arrival, which is exactly what that flag already means
+      // and already handles (including its own resend dedupe).
+      const approxStart = e.t < 0 || e.t * 1000 - e.a * 1000 < 0;
       const startedAt = (approxStart ? nowMs : e.t * 1000) - e.a * 1000;
       const endedAt = startedAt + e.a * 1000;
       let topic: string | undefined;

@@ -26,6 +26,25 @@ export type BoxState = 'idle' | 'closed' | 'running' | 'done';
 // Box-code/lib/lock_controller.py's own state names.
 const BOX_STATES: readonly string[] = ['idle', 'closed', 'running', 'done'];
 
+// Hard cap on the topic id echoed back in Status.tp, and on the version
+// string. 200 mirrors stats/customLabels.ts's MAX_TOPIC_LENGTH (itself
+// mirroring firestore.rules' sessions `create` rule, topic.size() <= 200) --
+// hardcoded rather than imported for the same "this wire-parsing module stays
+// UI-independent" reason the `acc` and langle/uangle bounds above are; keep
+// them in lockstep.
+//
+// The cap matters because tp is not display-only. useStore's handleStatus
+// parks it as this device's pending topic tag, which sessionHistory then
+// attaches to the finished session, which sessionsSync uploads -- and an
+// over-length topic is a document the rules refuse, failing the whole
+// writeBatch and with it syncSessions, the first step of the entire account
+// sync. See buildLoggedSessions' own comment on the pre-epoch startedAt case
+// for why that failure is permanent rather than transient.
+const MAX_TOPIC_CHARS = 200;
+// Version strings are display-only (SettingsScreen's box section), so this is
+// just a sanity bound on an unbounded string arriving off the radio.
+const MAX_FW_CHARS = 32;
+
 /** `Number(v)`, but a value that isn't a real finite number comes back as
  * `fallback` instead of NaN.
  *
@@ -39,6 +58,24 @@ function numOr(value: unknown, fallback: number): number {
   if (value == null) return fallback;
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
+}
+
+/** `numOr`, floored. Every number on this wire is a whole count -- seconds,
+ * percent, epoch seconds, degrees -- and the firmware only ever sends whole
+ * ones, so a fraction arriving here is already a malformed frame.
+ *
+ * Flooring it is not cosmetic tidying. A session's numbers are copied
+ * verbatim into a Firestore document, and firestore.rules' sessions `create`
+ * rule requires `plannedS is int` and `actualS is int`. A fractional value
+ * therefore doesn't produce a slightly-off session -- it produces a document
+ * the rules refuse, which fails the whole writeBatch, which fails
+ * syncSessions, which is the FIRST step of runMigrationAndSync. Settings,
+ * goals and scheduled sessions never reconcile either, and because the record
+ * stays in local storage it is retried on every subsequent sync forever. One
+ * malformed frame, and the account never syncs again. */
+function intOr(value: unknown, fallback: number): number {
+  const n = numOr(value, fallback);
+  return Math.floor(n);
 }
 
 export interface Status {
@@ -125,8 +162,8 @@ export function parseStatus(json: string): Status | null {
       // a fresh NaN sample and rewrote AsyncStorage, until the 500-sample log
       // held nothing else and the runtime estimate could never recover.
       bat: numOr(d.bat, -1),
-      tp: String(d.tp ?? ''),
-      fw: String(d.fw ?? ''),
+      tp: String(d.tp ?? '').slice(0, MAX_TOPIC_CHARS),
+      fw: String(d.fw ?? '').slice(0, MAX_FW_CHARS),
     };
   } catch {
     return null;
@@ -140,8 +177,8 @@ export function parseHistoryEntries(json: string): HistoryEntry[] {
     return d
       .filter((e) => e && typeof e === 'object')
       .map((e) => ({
-        p: Number(e.p) || 0,
-        a: Number(e.a) || 0,
+        p: intOr(e.p, 0),
+        a: intOr(e.a, 0),
         c: e.c ? 1 : 0,
         // -1 ("never time-synced") for a non-finite value, same as `bat`
         // above and for a sharper reason: sessionHistory's
@@ -154,7 +191,7 @@ export function parseHistoryEntries(json: string): HistoryEntry[] {
         // `<device>_NaN_<actualS>`, permanently. -1 instead routes it down
         // the approxStart path this field already has for exactly this case:
         // a timestamp the box could not supply.
-        t: numOr(e.t, -1),
+        t: intOr(e.t, -1),
       }));
   } catch {
     return [];

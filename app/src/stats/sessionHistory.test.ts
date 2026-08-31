@@ -254,3 +254,52 @@ describe('dayKeyToDate', () => {
     expect(dayKeyToDate('2026-01-01').getFullYear()).toBe(2026);
   });
 });
+
+// The box's RTC is volatile -- set from the phone on connect
+// (PhoneBoxClient.syncTime), low after a power loss -- so a long session
+// finishing shortly after a reset genuinely computes a pre-epoch start.
+// firestore.rules' sessions `create` rule requires `startedAt >= 0`, so that
+// record is a doc the rules refuse, failing the whole batch and with it
+// syncSessions -- the first step of the account sync, retried and failing
+// identically forever, because the record stays in local storage.
+describe('buildLoggedSessions guards a clock too low to date a session', () => {
+  const NOW = 1_700_000_000_000;
+
+  it('treats a start computed before the epoch as an unusable clock, not a real reading', () => {
+    // Box clock reads 100s past the epoch; the session ran 25 minutes.
+    const entries: HistoryEntry[] = [{ p: 1500, a: 1500, c: 1, t: 100 }];
+    const [s] = buildLoggedSessions(entries, null, 0, 0, NOW).sessions;
+    expect(s.approxStart).toBe(true);
+    expect(s.startedAt).toBe(NOW - 1500 * 1000);
+    expect(s.startedAt).toBeGreaterThanOrEqual(0);
+  });
+
+  it('still trusts a clock that dates the session after the epoch', () => {
+    const entries: HistoryEntry[] = [{ p: 1500, a: 1500, c: 1, t: 1_700_000_000 }];
+    const [s] = buildLoggedSessions(entries, null, 0, 0, NOW).sessions;
+    expect(s.approxStart).toBeUndefined();
+    expect(s.startedAt).toBe(1_700_000_000_000 - 1500 * 1000);
+  });
+
+  it('keeps the -1 never-synced sentinel on its existing path', () => {
+    const entries: HistoryEntry[] = [{ p: 1500, a: 1500, c: 1, t: -1 }];
+    const [s] = buildLoggedSessions(entries, null, 0, 0, NOW).sessions;
+    expect(s.approxStart).toBe(true);
+    expect(s.startedAt).toBe(NOW - 1500 * 1000);
+  });
+
+  it('produces integer, non-negative fields for every entry the parser can emit', () => {
+    // The four rule-checked numeric fields, across the awkward inputs above.
+    const entries: HistoryEntry[] = [
+      { p: 1500, a: 1500, c: 1, t: 100 },
+      { p: 60, a: 60, c: 0, t: -1 },
+      { p: 3600, a: 3600, c: 1, t: 1_700_000_000 },
+    ];
+    for (const s of buildLoggedSessions(entries, null, 0, 0, NOW).sessions) {
+      for (const v of [s.startedAt, s.plannedS, s.actualS]) {
+        expect(Number.isInteger(v)).toBe(true);
+        expect(v).toBeGreaterThanOrEqual(0);
+      }
+    }
+  });
+});
