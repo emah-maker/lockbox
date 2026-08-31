@@ -225,3 +225,32 @@ describe('sanitizeCustomLabels', () => {
     expect(sanitizeCustomLabels(many)).toHaveLength(MAX_CUSTOM_LABELS);
   });
 });
+
+// The color is not just handed to a style: readableTextColor does contrast
+// math on it, and withAlpha builds an 8-digit hex from it by string
+// concatenation (FocusHero's topic pill, the stats donut). Neither has any
+// meaning for a color that isn't hex.
+describe('color validation at both boundaries', () => {
+  const label = (over = {}) => ({ id: 'custom:1', name: 'Deep Work', color: '#123456', ...over });
+
+  it('drops a remote label whose color is not a hex color', () => {
+    for (const color of ['red', 'rgb(1,2,3)', '#ab', '#aabbccdd', '', 7, null]) {
+      expect(sanitizeCustomLabels([label({ color })])).toEqual([]);
+    }
+  });
+
+  it('keeps a remote label written in the shorthand form, stored expanded', () => {
+    // '#abc' is legal and renders fine; what breaks is withAlpha('#abc', a)
+    // -> '#abcXX', which React Native drops. Expanding on the way in means no
+    // render site has to know about the shorthand at all.
+    expect(sanitizeCustomLabels([label({ color: '#abc' })])[0].color).toBe('#aabbcc');
+  });
+
+  it('rejects a non-hex color in the authoring path too, with a renderable message', () => {
+    expect(() => createCustomLabel([], 'Reading', 'red')).toThrow(/hex color/);
+  });
+
+  it('stores a shorthand color from the authoring path expanded, same as the sync path', () => {
+    expect(createCustomLabel([], 'Reading', '#abc')[0].color).toBe('#aabbcc');
+  });
+});

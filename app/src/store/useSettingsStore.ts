@@ -8,7 +8,7 @@ import { create } from 'zustand';
 import { getJSON, setJSON } from '../storage/storage';
 import { ThemeMode, AccentKey } from '../theme/theme';
 import type { Settings } from '../ble/protocol';
-import { CustomLabel, createCustomLabel, renameCustomLabel as renameCustomLabelIn, deleteCustomLabel as deleteCustomLabelIn } from '../stats/customLabels';
+import { CustomLabel, createCustomLabel, renameCustomLabel as renameCustomLabelIn, deleteCustomLabel as deleteCustomLabelIn, sanitizeCustomLabels } from '../stats/customLabels';
 import type { RingBaselineWindow, RingSourceKind } from '../screens/home/idleRingState';
 
 // Mirrors the firmware's own defaults (Box-code/lib/lock_config.py /
@@ -205,7 +205,16 @@ async function hydrateOnce(set: (partial: Partial<SettingsState>) => void): Prom
     themeMode,
     accent,
     callAlertsEnabled,
-    customLabels,
+    // Sanitized on the way OUT of storage as well as on the way in from
+    // Firestore, the same self-healing loadSessions() does for the session
+    // log and for the same reason: applyRemoteSettings persists whatever the
+    // remote merge produced, so a catalog entry that predates a tightening of
+    // sanitizeCustomLabels is already sitting in local storage on existing
+    // installs. Validating only at the sync boundary would leave those
+    // installs broken until the next remote pull happened to rewrite the key.
+    // themeMode/accent need no equivalent -- resolveTheme normalizes both on
+    // every render already.
+    customLabels: sanitizeCustomLabels(customLabels),
     boxSettings,
     settingsUpdatedAt,
     autoSyncEnabled,

@@ -16,6 +16,7 @@
 import type { LoggedSession } from './sessionHistory';
 import type { ThemeMode } from '../theme/theme';
 import { TOPIC_KEYS, TOPIC_LABELS, topicColor, readableTextColor, TopicKey } from './topics';
+import { expandHex, isHexColor } from '../theme/color';
 
 export interface CustomLabel {
   id: string;
@@ -65,9 +66,15 @@ export function createCustomLabel(labels: CustomLabel[], name: string, color: st
   const trimmed = name.trim();
   if (!trimmed) throw new Error('Label name is required.');
   if (trimmed.length > MAX_LABEL_NAME_LENGTH) throw new Error(`Label name must be ${MAX_LABEL_NAME_LENGTH} characters or fewer.`);
+  // Same hex requirement sanitizeCustomLabels enforces on the remote side --
+  // the authoring path shouldn't be able to create locally what the sync
+  // boundary would drop on the way back in. Throws (rather than dropping)
+  // because this is a user-initiated edit with a form to render the message
+  // in, the create/sanitize split goalSanitize.ts's header describes.
   if (!color) throw new Error('Label color is required.');
+  if (!isHexColor(color)) throw new Error('Label color must be a hex color.');
   if (labels.length >= MAX_CUSTOM_LABELS) throw new Error(`You can have at most ${MAX_CUSTOM_LABELS} custom labels.`);
-  return [...labels, { id: makeCustomLabelId(), name: trimmed, color }];
+  return [...labels, { id: makeCustomLabelId(), name: trimmed, color: expandHex(color) }];
 }
 
 export function renameCustomLabel(labels: CustomLabel[], id: string, name: string): CustomLabel[] {
@@ -110,9 +117,27 @@ export function sanitizeCustomLabels(value: unknown): CustomLabel[] {
     const { id, name, color } = entry as Partial<CustomLabel>;
     if (typeof id !== 'string' || !id || seen.has(id)) continue;
     if (typeof name !== 'string' || !name.trim()) continue;
-    if (typeof color !== 'string' || !color) continue;
+    // Hex specifically, not merely "a non-empty string". Two things in this
+    // app do arithmetic on a label's color rather than just handing it to a
+    // style: theme/color.ts's contrast math (via readableTextColor, which
+    // picks the ink for text sitting inside a chip of this color) and
+    // withAlpha, which builds an 8-digit hex by string concatenation --
+    // FocusHero's topic pill and the stats donut both call it on exactly this
+    // value. Neither has any meaning for `rgb(...)`, a CSS color name, or a
+    // typo, and the second produces a string React Native cannot render at
+    // all, so the chip loses its fill. Both clients that write this document
+    // pick from a hex swatch list (LABEL_SWATCHES here, the same set in
+    // website/js/labelsPanel.js), so requiring hex rejects nothing either one
+    // legitimately produces.
+    //
+    // Dropped rather than recolored, the same discipline as the fields above:
+    // a color invented here is one the user never chose, and the next sync
+    // would push it back to the account as though they had.
+    if (!isHexColor(color)) continue;
     seen.add(id);
-    out.push({ id, name: name.trim().slice(0, MAX_LABEL_NAME_LENGTH), color });
+    // Stored in the 6-digit form, so `#abc` -- legal, and what a website
+    // color input can emit -- doesn't have to be re-expanded at every render.
+    out.push({ id, name: name.trim().slice(0, MAX_LABEL_NAME_LENGTH), color: expandHex(color) });
     if (out.length === MAX_CUSTOM_LABELS) break;
   }
   return out;

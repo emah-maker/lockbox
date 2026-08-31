@@ -173,12 +173,17 @@ export default function StatsScreen() {
       setPeriod(intent.statsPeriod);
     }
     if (intent.topic) setSelectedTopic(intent.topic);
-    if (intent.goalId) {
-      userSelectedRef.current = true;
-      setPeriod('goals');
-      setHighlightGoalId(intent.goalId);
-      setTimeout(() => setHighlightGoalId(null), HIGHLIGHT_MS);
-    }
+    if (!intent.goalId) return;
+    userSelectedRef.current = true;
+    setPeriod('goals');
+    setHighlightGoalId(intent.goalId);
+    // Cleared on unmount like the wheel safety timer above, rather than left
+    // to fire into a screen that is gone: switching tabs unmounts this one
+    // (App.tsx renders exactly one screen at a time), and the highlight timer
+    // is armed by a cross-tab deep link, so leaving this tab within the
+    // highlight window is the ordinary case, not the unlikely one.
+    const timer = setTimeout(() => setHighlightGoalId(null), HIGHLIGHT_MS);
+    return () => clearTimeout(timer);
   }, []);
 
   const selectPeriod = (p: StatsPeriod) => {

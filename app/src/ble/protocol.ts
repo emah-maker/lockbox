@@ -21,6 +21,26 @@ export const CHAR = {
 // ----- box -> app payloads -----
 export type BoxState = 'idle' | 'closed' | 'running' | 'done';
 
+// The runtime half of BoxState, so parseStatus can actually enforce the union
+// rather than casting whatever string arrived into it. Keep in lockstep with
+// Box-code/lib/lock_controller.py's own state names.
+const BOX_STATES: readonly string[] = ['idle', 'closed', 'running', 'done'];
+
+/** `Number(v)`, but a value that isn't a real finite number comes back as
+ * `fallback` instead of NaN.
+ *
+ * The `Number(x) || 0` idiom used for the other numeric fields already does
+ * this, because 0 is their fallback and NaN is falsy. It does NOT work for a
+ * field whose fallback isn't 0 -- `bat` and `t` both use -1 as a documented
+ * "unavailable" sentinel, and -1 is truthy, so `Number(x) || -1` would map a
+ * legitimate 0% battery to -1. Writing the check out is the only way to get
+ * both halves right. */
+function numOr(value: unknown, fallback: number): number {
+  if (value == null) return fallback;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
 export interface Status {
   st: BoxState;
   rem: number; // remaining seconds (running only, else 0)
@@ -84,12 +104,27 @@ export interface Settings {
 export function parseStatus(json: string): Status | null {
   try {
     const d = JSON.parse(json);
-    if (typeof d.st !== 'string') return null;
+    // Checked against the union, not merely `typeof === 'string'`. `st` drives
+    // every state machine downstream (useStore's freshRun detection,
+    // CallMonitor's LOCKED check, the Home hero's whole rendering), and a
+    // string this build has never heard of was previously cast straight into
+    // BoxState -- so the type said the value was one of four things while the
+    // value was anything at all. Rejecting the frame is right rather than
+    // defaulting: a status whose state can't be read carries no information
+    // any of those consumers can use, and the box re-notifies on a cadence.
+    if (!BOX_STATES.includes(d.st)) return null;
     return {
-      st: d.st,
+      st: d.st as BoxState,
       rem: Number(d.rem) || 0,
       set: Number(d.set) || 0,
-      bat: d.bat == null ? -1 : Number(d.bat),
+      // -1, this field's own documented "unavailable" sentinel, for a value
+      // that isn't a finite number -- NOT NaN. A NaN here poisoned the
+      // persisted battery-sample log (battery/useBatteryStore.ts): its two
+      // skip guards are `pct < 0` and `lastRecordedPct === pct`, and NaN
+      // satisfies neither (NaN !== NaN), so every single status tick appended
+      // a fresh NaN sample and rewrote AsyncStorage, until the 500-sample log
+      // held nothing else and the runtime estimate could never recover.
+      bat: numOr(d.bat, -1),
       tp: String(d.tp ?? ''),
       fw: String(d.fw ?? ''),
     };
@@ -108,7 +143,18 @@ export function parseHistoryEntries(json: string): HistoryEntry[] {
         p: Number(e.p) || 0,
         a: Number(e.a) || 0,
         c: e.c ? 1 : 0,
-        t: e.t == null ? -1 : Number(e.t),
+        // -1 ("never time-synced") for a non-finite value, same as `bat`
+        // above and for a sharper reason: sessionHistory's
+        // buildLoggedSessions branches on `t < 0`, which NaN fails, so a
+        // garbled timestamp used to compute `startedAt: NaN` and store it
+        // durably. That is not a display glitch -- dayKey() renders
+        // 'NaN-NaN-NaN' so the session vanishes from the calendar and every
+        // day-bucketed stat, the merge sorts it arbitrarily, and
+        // sessionMerge's deterministic doc id uploads it to Firestore as
+        // `<device>_NaN_<actualS>`, permanently. -1 instead routes it down
+        // the approxStart path this field already has for exactly this case:
+        // a timestamp the box could not supply.
+        t: numOr(e.t, -1),
       }));
   } catch {
     return [];

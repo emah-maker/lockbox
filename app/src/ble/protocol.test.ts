@@ -1,5 +1,7 @@
 // Unit tests for the BLE wire-contract codecs. Run with `npm test` (jest-expo).
 import {
+  parseStatus,
+  parseHistoryEntries,
   parseSettings,
   encodeSettings,
   Settings,
@@ -152,5 +154,56 @@ describe('cmdSetPendingTopic', () => {
 
   it('encodes null as the empty-string "nothing pending" sentinel', () => {
     expect(cmdSetPendingTopic(null)).toBe('');
+  });
+});
+
+
+// A garbled-but-parseable frame is the case these parsers exist for (see
+// protocol.ts's "the radio can hand us partial/garbled JSON"). The danger is
+// not a throw -- JSON.parse is already wrapped -- it is a field that comes
+// back as NaN and is then carried, silently, into durable storage.
+describe('parseStatus hardening', () => {
+  const frame = (over: Record<string, unknown>) =>
+    JSON.stringify({ st: 'running', rem: 10, set: 60, bat: 50, tp: '', fw: '1.0', ...over });
+
+  it('reports an unreadable battery as the -1 sentinel, never NaN', () => {
+    // NaN here defeats both of useBatteryStore.recordIfNew's skip guards
+    // (`pct < 0` and `lastRecordedPct === pct`, and NaN equals nothing), so
+    // every status tick would append another NaN to the persisted sample log.
+    for (const bad of ['--', 'n/a', {}, [1, 2], null]) {
+      expect(parseStatus(frame({ bat: bad }))!.bat).toBe(-1);
+    }
+  });
+
+  it('still reports a genuine 0% battery as 0, not as the -1 sentinel', () => {
+    expect(parseStatus(frame({ bat: 0 }))!.bat).toBe(0);
+  });
+
+  it('rejects a frame whose state is not one of the four BoxStates', () => {
+    expect(parseStatus(frame({ st: 'paused' }))).toBeNull();
+    expect(parseStatus(frame({ st: '' }))).toBeNull();
+    expect(parseStatus(frame({ st: 3 }))).toBeNull();
+  });
+
+  it('accepts every real BoxState', () => {
+    for (const st of ['idle', 'closed', 'running', 'done']) {
+      expect(parseStatus(frame({ st }))!.st).toBe(st);
+    }
+  });
+});
+
+describe('parseHistoryEntries hardening', () => {
+  it('reports an unreadable end-time as the -1 "never synced" sentinel, never NaN', () => {
+    // buildLoggedSessions branches on `t < 0`, which NaN fails -- so a NaN
+    // here became `startedAt: NaN` in the durable session log, a session that
+    // day-buckets as 'NaN-NaN-NaN' and uploads under a doc id containing NaN.
+    const [entry] = parseHistoryEntries(JSON.stringify([{ p: 1500, a: 1500, c: 1, t: 'oops' }]));
+    expect(entry.t).toBe(-1);
+    expect(Number.isNaN(entry.t)).toBe(false);
+  });
+
+  it('keeps a real epoch timestamp intact', () => {
+    const [entry] = parseHistoryEntries(JSON.stringify([{ p: 1500, a: 1500, c: 1, t: 1700000000 }]));
+    expect(entry.t).toBe(1700000000);
   });
 });

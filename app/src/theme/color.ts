@@ -11,9 +11,42 @@
 // both in the app alone, with `contrastRatio` even taking different argument
 // types in each (hex pair here, luminance pair there).
 
-/** WCAG 2.x sRGB relative luminance for a 6-digit hex color. */
-function luminance(hex: string): number {
+/** True for the one color notation every function in this module can do
+ * arithmetic on: `#RGB` or `#RRGGBB`. Deliberately narrower than what React
+ * Native itself renders (it also takes `rgb()`, `hsl()` and the CSS color
+ * names) -- see `expandHex` below for why the app needs the narrower form
+ * anyway, and stats/customLabels.ts's sanitizeCustomLabels for the boundary
+ * that enforces it on untrusted input. */
+export function isHexColor(value: unknown): value is string {
+  return typeof value === 'string' && /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(value);
+}
+
+/** `#RGB` -> `#RRGGBB`, leaving an already-6-digit value alone.
+ *
+ * Every function below indexes the string two characters at a time, so the
+ * shorthand form -- which React Native renders perfectly well, and which the
+ * website's own color inputs can emit -- silently produced NaN: `#abc` parses
+ * channel 0 as `ab`, channel 1 as `c` (12, not 204), and channel 2 as the
+ * empty string. withAlpha has the same shape problem in reverse, since it
+ * appends two hex digits to whatever it is given. Normalizing once, here, is
+ * what lets the rest of this module assume six digits. */
+export function expandHex(hex: string): string {
   const h = hex.replace('#', '');
+  return h.length === 3 ? `#${h[0]}${h[0]}${h[1]}${h[1]}${h[2]}${h[2]}` : `#${h}`;
+}
+
+/** WCAG 2.x sRGB relative luminance for a hex color.
+ *
+ * Non-hex input resolves to mid-gray's luminance rather than NaN. This runs
+ * underneath every "which ink reads on this chip" decision in the app
+ * (topics.ts's readableTextColor), and a NaN there doesn't throw -- it makes
+ * every `>` comparison false, so bestTextOn silently stops measuring and
+ * always returns its first argument. A defined midpoint keeps the choice a
+ * real one; the boundary that stops unrenderable colors getting this far is
+ * sanitizeCustomLabels. */
+function luminance(hex: string): number {
+  if (!isHexColor(hex)) return 0.2158; // luminance of #808080
+  const h = expandHex(hex).replace('#', '');
   let sum = 0;
   const weights = [0.2126, 0.7152, 0.0722];
   for (let i = 0; i < 3; i++) {
@@ -37,7 +70,13 @@ export function withAlpha(hex: string, alpha: number): string {
   const a = Math.round(Math.max(0, Math.min(1, alpha)) * 255)
     .toString(16)
     .padStart(2, '0');
-  return `${hex}${a}`;
+  // Expanded first: appending two alpha digits to `#abc` yields `#abcXX`, a
+  // 5-digit body React Native reads as nothing at all, so the style is
+  // dropped and the element renders untinted. `#aabbccXX` is what was meant.
+  // A value that isn't hex has no 8-digit form to build, so it is returned
+  // untouched -- still whatever it was, rather than mangled into something
+  // that definitely can't render.
+  return isHexColor(hex) ? `${expandHex(hex)}${a}` : hex;
 }
 
 /** Composites `hex` at `alpha` over the opaque `base`, returning the opaque
@@ -51,8 +90,11 @@ export function withAlpha(hex: string, alpha: number): string {
  * and disappears. Composite first, then ask what reads on the result. */
 export function blendOver(hex: string, base: string, alpha: number): string {
   const a = Math.max(0, Math.min(1, alpha));
-  const fg = hex.replace('#', '');
-  const bg = base.replace('#', '');
+  // Same expansion (and same non-hex passthrough) as withAlpha above: without
+  // it a shorthand input composites to '#NaNNaNNaN'.
+  if (!isHexColor(hex) || !isHexColor(base)) return hex;
+  const fg = expandHex(hex).replace('#', '');
+  const bg = expandHex(base).replace('#', '');
   let out = '#';
   for (let i = 0; i < 3; i++) {
     const f = parseInt(fg.slice(i * 2, i * 2 + 2), 16);
