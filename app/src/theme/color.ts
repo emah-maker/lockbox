@@ -45,7 +45,7 @@ export function expandHex(hex: string): string {
  * real one; the boundary that stops unrenderable colors getting this far is
  * sanitizeCustomLabels. */
 function luminance(hex: string): number {
-  if (!isHexColor(hex)) return 0.2158; // luminance of #808080
+  if (!isHexColor(hex)) return 0.2159; // luminance of #808080, mid-gray
   const h = expandHex(hex).replace('#', '');
   let sum = 0;
   const weights = [0.2126, 0.7152, 0.0722];
