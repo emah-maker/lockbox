@@ -182,6 +182,20 @@ export function WheelPicker({
     forceResync();
   };
 
+  // Claim the ScrollView for an imperative animated scroll and arm the
+  // backstop that guarantees the claim can't outlive it. EVERY animated
+  // scrollTo in this component must go through here: an animated scroll owns
+  // the view for its whole ~250-300ms duration, and a second one issued
+  // before the first lands is the "two imperative scrolls fighting over one
+  // ScrollView" wedge documented on correctingRef above. Normally cleared by
+  // the trailing onMomentumScrollEnd the scroll fires when it lands, which
+  // re-enters commit() with pos already on the snap point.
+  const beginCorrecting = () => {
+    correctingRef.current = true;
+    if (correctingTimerRef.current) clearTimeout(correctingTimerRef.current);
+    correctingTimerRef.current = setTimeout(endCorrecting, CORRECTION_SETTLE_MS);
+  };
+
   // Marks the wheel busy and (re-)arms the backstop that guarantees the flag
   // can't outlive the gesture -- see BUSY_SETTLE_MS/BUSY_MAX_DRAG_MS.
   const beginBusy = (ms: number) => {
@@ -255,10 +269,32 @@ export function WheelPicker({
   // corrective scroll is an imperative animation on this very ScrollView, so
   // scrolling again before it lands is the same fight as interrupting a drag.
   // endCorrecting() forces the render that re-runs this once it does land.
+  // This effect's OWN scroll is claimed through beginCorrecting() for exactly
+  // the same reason: it is an animated scrollTo, so it owns the view for the
+  // couple hundred ms it runs, and until it was guarded this was the one
+  // scrollTo in the component that could be re-entered while still in flight
+  // -- a second external `selectedIndex` change arriving inside that window
+  // fired a second overlapping scrollTo onto the same ScrollView, which is
+  // the gesture-responder wedge (i.e. the frozen picker) that correctingRef
+  // exists to prevent everywhere else.
+  //
+  // Reachable from an HOURS drag in particular: hours is the only wheel whose
+  // onChange rewrites its SIBLING's value (DashboardScreen's 0h00m guard
+  // bumps minutes to 5), so one hours commit forces a value change on an idle
+  // wheel that has neither isBusyRef nor correctingRef set -- and the
+  // box-sync tick is a second, drag-independent source that can land on the
+  // same wheel a moment later. Dragging minutes never writes hours, so the
+  // minutes-only path never stacked two forced scrolls this way.
+  //
+  // Deferred, not dropped: endCorrecting()'s forceResync() re-runs this once
+  // the in-flight scroll lands (or once CORRECTION_SETTLE_MS rescues it), and
+  // settledIndexRef still holds the older index, so the comparison below
+  // catches up to whatever the latest selectedIndex turned out to be.
   useEffect(() => {
     if (isBusyRef.current || correctingRef.current) return;
     if (settledIndexRef.current === selectedIndex) return;
     settledIndexRef.current = selectedIndex;
+    beginCorrecting();
     scrollToIndex(selectedIndex, true);
   });
 
@@ -294,12 +330,10 @@ export function WheelPicker({
     const alreadyCommitted = committedRef.current === index;
     if (Math.abs(pos - snappedPos) > 0.5 && pos >= -0.5 && pos <= maxOffset + 0.5) {
       // Hold the resync effect off until this correction actually lands --
-      // see correctingRef's own comment. Normally cleared by the trailing
+      // see correctingRef's own comment. Cleared by the trailing
       // onMomentumScrollEnd this scroll fires, which re-enters commit() with
       // pos already on the snap point and so takes the else branch below.
-      correctingRef.current = true;
-      if (correctingTimerRef.current) clearTimeout(correctingTimerRef.current);
-      correctingTimerRef.current = setTimeout(endCorrecting, CORRECTION_SETTLE_MS);
+      beginCorrecting();
       scrollToIndex(index, true);
     } else {
       endCorrecting();
@@ -340,6 +374,11 @@ export function WheelPicker({
     // committedRef here turns that trailing call into the ordinary
     // already-committed no-op, same as commit()'s own dedupe for a drag.
     committedRef.current = next;
+    // Claimed like every other animated scroll here (see beginCorrecting) --
+    // onChange(next) below can land a new selectedIndex on this wheel in the
+    // very next render, and without the claim the resync effect would fire a
+    // second scrollTo into the middle of this one.
+    beginCorrecting();
     scrollToIndex(next, true);
     Haptics.selectionAsync();
     onChange(next);

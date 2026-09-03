@@ -336,3 +336,77 @@ describe('a dropped scroll-lifecycle event cannot wedge the wheel forever', () =
     expect(props().contentOffset).toEqual({ x: 0, y: 3 * WHEEL_ITEM_SIZE });
   });
 });
+
+describe('the resync effect does not race its own scroll', () => {
+  // The resync effect issues an ANIMATED scrollTo, which owns the ScrollView
+  // for the ~250-300ms it runs. Until it claimed correctingRef the way
+  // commit()'s correction always has, it was the one scrollTo in the
+  // component that could be re-entered while still in flight: a second
+  // external selectedIndex change arriving inside that window fired a second
+  // overlapping scroll onto the same view -- the two-imperative-scrolls fight
+  // this whole file exists to prevent.
+  //
+  // Reachable from an HOURS drag specifically: hours is the only wheel whose
+  // onChange rewrites its sibling's value (DashboardScreen's 0h00m guard
+  // bumps minutes to 5), so one hours commit forces a change on an *idle*
+  // wheel -- neither isBusyRef nor correctingRef set -- and a box-sync tick
+  // is a second, drag-independent source that can land right behind it.
+  function renderControlled(initial: number) {
+    let tree: TestRenderer.ReactTestRenderer;
+    const render = (i: number) => (
+      <WheelPicker
+        labels={LABELS}
+        selectedIndex={i}
+        onChange={() => {}}
+        accessibilityLabel="test wheel"
+      />
+    );
+    act(() => {
+      tree = TestRenderer.create(render(initial));
+    });
+    mounted.push(tree!);
+    const sv = () => tree!.root.findAll((n) => n.props?.snapToInterval === WHEEL_ITEM_SIZE)[0];
+    return {
+      props: () => sv().props,
+      update: (next: number) => act(() => tree!.update(render(next))),
+    };
+  }
+
+  it('does not stack a second scroll when a new value lands mid-resync', () => {
+    const { update } = renderControlled(3);
+
+    update(5); // e.g. the sibling-wheel clamp an hours commit forces
+    expect(scrolledOffsets()).toEqual([5 * WHEEL_ITEM_SIZE]);
+
+    // Second external change, while that scroll is still animating -- no
+    // trailing onMomentumScrollEnd has arrived yet.
+    update(7);
+    expect(scrolledOffsets()).toEqual([5 * WHEEL_ITEM_SIZE]);
+  });
+
+  it('catches up to the newest value once the in-flight scroll lands', () => {
+    const { props, update } = renderControlled(3);
+
+    update(5);
+    update(7); // deferred, not dropped
+
+    // The first scroll lands, firing its own trailing momentum event.
+    act(() => props().onMomentumScrollEnd(scrollEvent(5 * WHEEL_ITEM_SIZE)));
+
+    expect(scrolledOffsets()).toEqual([5 * WHEEL_ITEM_SIZE, 7 * WHEEL_ITEM_SIZE]);
+  });
+
+  it('catches up even if the trailing momentum event never arrives', () => {
+    const { update } = renderControlled(3);
+
+    update(5);
+    update(7);
+
+    // Backstop only -- CORRECTION_SETTLE_MS rescues a dropped event.
+    act(() => {
+      jest.advanceTimersByTime(500);
+    });
+
+    expect(scrolledOffsets()).toEqual([5 * WHEEL_ITEM_SIZE, 7 * WHEEL_ITEM_SIZE]);
+  });
+});
