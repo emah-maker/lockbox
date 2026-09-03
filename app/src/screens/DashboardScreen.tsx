@@ -142,7 +142,7 @@ export default function DashboardScreen() {
   // back, which is safe only as long as React batches both into a single
   // render. If it ever didn't (a "speculative" finding in the production
   // readiness review, Low), the first, partially-updated render could
-  // consume syncingFromBoxRef's guard before the second setState landed,
+  // consume boxOriginSecondsRef's guard before the second setState landed,
   // leaving the push effect below free to fire an ordinary user-edit push
   // for what was actually a box-driven sync. One state object makes that
   // impossible regardless of batching.
@@ -170,6 +170,7 @@ export default function DashboardScreen() {
   // below) so the wheels' displayed value never disagrees with what actually
   // gets pushed to the box.
   const onHoursIndexChange = (index: number) => {
+    boxOriginSecondsRef.current = null; // a finger moved this wheel -- what the box last told us is no longer what's picked
     setPick((p) => {
       const hours = HOUR_VALUES[index];
       const minutes = hours === 0 && p.minutes === 0 ? MINUTE_STEP : p.minutes;
@@ -177,6 +178,7 @@ export default function DashboardScreen() {
     });
   };
   const onMinutesIndexChange = (index: number) => {
+    boxOriginSecondsRef.current = null; // as above -- a user edit supersedes the box's own last word
     setPick((p) => {
       const minutes = MINUTE_VALUES[index];
       // Reject 0 while hours is 0 -- must return a *new* object even when
@@ -232,11 +234,26 @@ export default function DashboardScreen() {
   const canClose = connected && (status?.st === 'idle' || status?.st === 'done');
   const canOpen = connected && (status?.st === 'running' || status?.st === 'closed');
 
-  // True for exactly one render right after the wheels below were moved by
-  // the box-sync effect (not by the user's own finger) -- lets the push
-  // effect skip re-sending a value the box just told us it already has,
-  // instead of round-tripping the same number straight back to it.
-  const syncingFromBoxRef = useRef(false);
+  // The pickSeconds the box itself last told us about -- lets the push effect
+  // skip re-sending a value the box already has, instead of round-tripping
+  // the same number straight back to it.
+  //
+  // Keyed on the VALUE, not a one-shot `true` token. As a boolean this was set
+  // by the box-sync effect but consumed by the push effect, which only runs
+  // when its own deps change -- so it leaked in both directions:
+  //   * Stranded: clampLockSeconds floors at MIN_LOCK_SECONDS and so isn't
+  //     injective, meaning a sync can land on a `pick` whose pickSeconds is
+  //     UNCHANGED. The push effect then never re-ran, the flag stayed true,
+  //     and it silently swallowed the next genuine user edit's push -- the
+  //     box would just never hear about the duration the wheels were showing.
+  //   * Mis-consumed: the push effect also re-runs on connected/canClose, so
+  //     a reconnect could eat the token before the pick change it was meant
+  //     to suppress ever arrived, and that box-driven value then got pushed
+  //     straight back at the box anyway.
+  // A value can't be spent by the wrong render: the push effect skips exactly
+  // the number the box supplied and nothing else. Cleared on any wheel edit
+  // below, so a user landing back on that same number still pushes it.
+  const boxOriginSecondsRef = useRef<number | null>(null);
 
   // Mirrors a duration changed directly on the box (its own +/- buttons or
   // swipe-to-adjust while idle) back into the app's wheels -- otherwise the
@@ -253,16 +270,21 @@ export default function DashboardScreen() {
     // (lock_config.py MAX_HOURS), but a remainder that rounds up to a full
     // hour used to land on an impossible `minutes: 60` here, which the minute
     // wheel silently rendered as 00m while pushing a whole extra hour.
-    syncingFromBoxRef.current = true;
-    setPick(splitLockSeconds(status.set, MINUTE_STEP)); // one atomic update -- see the `pick` state's own comment above
+    const next = splitLockSeconds(status.set, MINUTE_STEP);
+    // Record the pickSeconds this will actually produce, not status.set --
+    // splitLockSeconds and clampLockSeconds don't round-trip for a box value
+    // below MIN_LOCK_SECONDS, and it's the derived number the push effect
+    // below compares against.
+    boxOriginSecondsRef.current = clampLockSeconds(next.hours, next.minutes);
+    setPick(next); // one atomic update -- see the `pick` state's own comment above
   }, [status?.set, status?.st]);
 
   // Push the picked duration to the box as it changes. This is what lets the
   // box's on-screen clock track the stepper live, so the picked time is
   // visible on the box before the user taps its own LOCK button.
   useEffect(() => {
-    if (syncingFromBoxRef.current) {
-      syncingFromBoxRef.current = false; // consumed -- this pickSeconds change came from the box, not the user
+    if (boxOriginSecondsRef.current === pickSeconds) {
+      boxOriginSecondsRef.current = null; // consumed -- this exact value came from the box, not the user
       return;
     }
     if (!connected || !canClose) return;
