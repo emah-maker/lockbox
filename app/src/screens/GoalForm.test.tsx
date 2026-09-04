@@ -22,7 +22,6 @@
 // PREVIOUS goal's value (documenting why GoalsSection can't skip the key);
 // with a `key` that changes alongside `initial` -- the real fix -- the
 // wheel correctly reports the NEW goal's own value.
-import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
 import { GoalForm } from './GoalForm';
 import { WheelPicker } from '../ui/WheelPicker';

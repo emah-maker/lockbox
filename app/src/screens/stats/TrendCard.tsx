@@ -21,7 +21,7 @@
 // cannot fit into on top of everything else. `onOpenHeatmap` is a small
 // Feather icon button in this card's own title row rather than a second
 // full row of text, so the affordance costs no extra vertical space here.
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { View, Text, StyleSheet, StyleProp, ViewStyle } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';

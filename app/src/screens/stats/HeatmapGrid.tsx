@@ -11,7 +11,6 @@
 // `onInspectDay` -> `setDaySheetKey` wiring TrendCard's bars already drive
 // (see StatsScreen's daySheetKey Sheet) rather than inventing a second
 // "which day is open" state.
-import React from 'react';
 import { View, StyleSheet } from 'react-native';
 import { useTheme } from '../../theme/useTheme';
 import { withAlpha } from '../../theme/color';

@@ -22,7 +22,6 @@
 // -- so this card's height is a constant regardless of which period is
 // selected, and Trend/Topic's shared budget never shrinks out from under
 // them.
-import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useTheme } from '../../theme/useTheme';

@@ -367,9 +367,9 @@ export function Sheet({
 }
 
 const styles = StyleSheet.create({
-  scrim: { ...StyleSheet.absoluteFillObject, backgroundColor: overlay.scrim },
+  scrim: { ...StyleSheet.absoluteFill, backgroundColor: overlay.scrim },
   scrimTouch: { flex: 1 },
-  sheetLayer: { ...StyleSheet.absoluteFillObject, justifyContent: 'flex-end' },
+  sheetLayer: { ...StyleSheet.absoluteFill, justifyContent: 'flex-end' },
   sheet: {
     borderTopLeftRadius: radius.lg,
     borderTopRightRadius: radius.lg,

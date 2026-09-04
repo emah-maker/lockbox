@@ -5,7 +5,6 @@
 // relabelling the last session carrying the selected topic is an ordinary
 // path, not an exotic one. `topics` dropped the topic; `selectedTopic` did
 // not, and every card filters by the latter.
-import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 

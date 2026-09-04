@@ -8,7 +8,6 @@
 // own hub row, since neither the hub's category list nor NavIntent's
 // settingsSection union carved out a separate slot for it, and it's still a
 // connectivity *notification* behavior in the same family as call alerts.
-import React from 'react';
 import { Text, StyleSheet } from 'react-native';
 import { Switch } from 'react-native';
 import { useTheme } from '../../theme/useTheme';

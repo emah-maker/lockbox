@@ -9,7 +9,6 @@
 // tiny harness component pattern, and fake timers throughout for the same
 // reason Sheet.test.tsx gives: a real setInterval firing after teardown
 // would re-render (or, here, schedule work on) an unmounted tree.
-import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
 import { AppState } from 'react-native';
 import { useNowMs } from './useNowMs';

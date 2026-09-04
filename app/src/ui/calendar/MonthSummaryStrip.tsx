@@ -2,7 +2,6 @@
 // under the month grid (manager brief: "a month-summary strip"). Split into
 // src/ui/calendar (this feature's own visual-components folder) rather than
 // inlined in CalendarScreen.tsx, same reasoning as DayCell.tsx.
-import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { ThemeColors } from '../../theme/theme';
 import { typeScale } from '../../theme/tokens';

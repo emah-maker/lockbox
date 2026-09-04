@@ -13,7 +13,6 @@
 // against a real 4h remaining). idleRingState.ts's `goalWindow` now carries
 // the real window pair for those three sources; this test pins FocusHero to
 // actually using it instead of re-deriving from todayFocusS/progress.
-import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
 import { Text } from 'react-native';
 import { FocusHero } from './FocusHero';

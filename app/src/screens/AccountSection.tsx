@@ -7,7 +7,6 @@
 // danger zone, each its own file under screens/account/ so no single file
 // grows past this project's 500-line guideline. This file itself holds no
 // business logic -- only which subsection renders when.
-import React from 'react';
 import { View, StyleSheet } from 'react-native';
 import { useAuthStore } from '../auth/useAuthStore';
 import { useTheme } from '../theme/useTheme';

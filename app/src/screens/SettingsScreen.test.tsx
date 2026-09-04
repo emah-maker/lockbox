@@ -19,7 +19,6 @@
 // transitively touches is mocked below purely so the component tree can
 // exist in this environment; none of that mocking is what this test is
 // actually about.
-import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
@@ -113,29 +112,49 @@ function mountAndOpenGoals() {
 }
 
 test('clears the wheel-drag safety timer on unmount', () => {
-  // Control: mount/open/unmount with NO wheel drag at all -- whatever timer
-  // count is left pending afterward is every OTHER effect's own business
-  // (Sheet's own animations, auth listeners, etc.), not this one's.
-  const control = mountAndOpenGoals();
-  act(() => {
-    control.unmount();
-  });
-  const controlLeak = jest.getTimerCount();
+  // Identified by its delay rather than by jest.getTimerCount(). Mounting
+  // this screen leaves dozens of unrelated framework timers pending -- RN's
+  // Animated schedules a rAF chain per animated component, and unmounting
+  // doesn't drain them -- so an absolute count can't separate this screen's
+  // one 600ms timer from that noise, and the count doesn't repeat exactly
+  // between two mounts either. Watching setTimeout/clearTimeout for the
+  // 600ms delay names the timer this test is actually about.
+  const armed = new Set<unknown>();
+  const realSetTimeout = globalThis.setTimeout;
+  const realClearTimeout = globalThis.clearTimeout;
+  const setSpy = jest
+    .spyOn(globalThis, 'setTimeout')
+    .mockImplementation((...args: Parameters<typeof globalThis.setTimeout>) => {
+      const id = realSetTimeout(...args);
+      if (args[1] === 600) armed.add(id);
+      return id;
+    });
+  const clearSpy = jest
+    .spyOn(globalThis, 'clearTimeout')
+    .mockImplementation((...args: Parameters<typeof globalThis.clearTimeout>) => {
+      armed.delete(args[0]);
+      return realClearTimeout(...args);
+    });
 
-  // Same steps, but with a wheel drag started (onWheelActiveChange(true))
-  // and never released before the screen unmounts -- simulates switching
-  // tabs away from Settings mid-drag (App.tsx unmounts the outgoing tab's
-  // screen outright). If the 600ms safety timer this arms is properly
-  // cleared on unmount, this leaks exactly as many timers as the control
-  // above; if it isn't, this leaks one more.
-  const tree = mountAndOpenGoals();
-  const goalsSection = tree.root.findAll((n) => typeof n.props?.onWheelActiveChange === 'function')[0];
-  act(() => {
-    goalsSection.props.onWheelActiveChange(true); // arms SettingsScreen's 600ms wheel-safety timer
-  });
-  act(() => {
-    tree.unmount(); // simulates switching tabs away from Settings mid-drag
-  });
+  try {
+    const tree = mountAndOpenGoals();
+    // Only the drag arms the safety timer; whatever the mount itself queued
+    // at 600ms is some other effect's business, not this one's.
+    armed.clear();
 
-  expect(jest.getTimerCount()).toBe(controlLeak);
+    const goalsSection = tree.root.findAll((n) => typeof n.props?.onWheelActiveChange === 'function')[0];
+    act(() => {
+      goalsSection.props.onWheelActiveChange(true); // arms SettingsScreen's 600ms wheel-safety timer
+    });
+    expect(armed.size).toBe(1); // guards the test itself: the timer really is armed
+
+    act(() => {
+      tree.unmount(); // simulates switching tabs away from Settings mid-drag
+    });
+
+    expect(armed.size).toBe(0);
+  } finally {
+    setSpy.mockRestore();
+    clearSpy.mockRestore();
+  }
 });

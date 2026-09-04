@@ -17,7 +17,6 @@
 // reads useBatteryStore directly for the sample log estimateRemainingMs
 // needs, the same shared log StatusStrip now also just reads (see
 // battery/useBatteryStore.ts, battery/batterySamplingBridge.ts).
-import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { useTheme } from '../../theme/useTheme';
 import { typeScale } from '../../theme/tokens';

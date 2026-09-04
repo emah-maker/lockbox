@@ -18,7 +18,6 @@
 // tap into a Sheet (StatsScreen's allTopicsSheetOpen) that reuses this same
 // row markup via the exported TopicRows, so the two surfaces can't drift
 // apart the way two copies of the same JSX would.
-import React from 'react';
 import { View, Text, StyleSheet, StyleProp, ViewStyle } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { useTheme } from '../../theme/useTheme';

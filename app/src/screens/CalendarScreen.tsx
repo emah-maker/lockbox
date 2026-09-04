@@ -50,7 +50,7 @@
 // truly "scaling to fit". On a screen too short even for MIN_CELL_SIZE
 // cells (a genuinely tiny device), the grid stays at that floor and may
 // slightly exceed the ideal budget rather than render broken.
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, StyleSheet, Animated, Easing, PanResponder, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';

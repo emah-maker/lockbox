@@ -8,7 +8,6 @@
 // dependency arrays -- the token could be stranded (never consumed, then
 // eating the next real user edit) or spent by the wrong render. It is now
 // keyed on the value the box supplied, which is what these tests pin down.
-import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 

@@ -6,7 +6,6 @@
 // onAuthStateChanged handler skips its automatic syncNow() call; the manual
 // "Sync now" button (SyncStatusSection, above this one on the page) is
 // unaffected by this toggle either way.
-import React from 'react';
 import { Switch } from 'react-native';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import { useTheme } from '../../theme/useTheme';

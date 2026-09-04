@@ -5,7 +5,7 @@
 // bar's layout in RN -- unlike animating layout across a whole web page,
 // there's no larger reflow chain here to worry about. Shared by
 // StatsScreen's trend/topic bars and DashboardScreen's Focus-card sparkline.
-import React, { useEffect, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { Animated } from 'react-native';
 import { useReducedMotion } from './useReducedMotion';
 

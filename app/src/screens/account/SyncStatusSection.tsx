@@ -4,7 +4,6 @@
 // (pre-restructure) AccountSection.tsx -- formatRelative itself moved to
 // accountDisplay.ts so it's covered by that module's own unit tests instead
 // of living untested inline in a UI file.
-import React from 'react';
 import { Text, StyleSheet } from 'react-native';
 import { useAuthStore } from '../../auth/useAuthStore';
 import { formatRelative } from '../../auth/accountDisplay';

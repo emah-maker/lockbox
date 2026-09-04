@@ -9,7 +9,7 @@
 // since the interaction (drag, momentum-snap, VoiceOver increment/decrement)
 // is identical either way and only the scroll axis changes.
 import * as Haptics from 'expo-haptics';
-import React, { useEffect, useReducer, useRef } from 'react';
+import { useEffect, useReducer, useRef } from 'react';
 import {
   Animated,
   NativeScrollEvent,

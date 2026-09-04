@@ -5,7 +5,6 @@
 // how full it looked. Built on AnimatedFill's existing width axis -- the
 // same fill this app already uses for the Focus-card sparkline/StatsScreen
 // bars -- rather than a new SVG/animation dependency.
-import React from 'react';
 import { View, StyleSheet } from 'react-native';
 import { AnimatedFill } from './AnimatedFill';
 

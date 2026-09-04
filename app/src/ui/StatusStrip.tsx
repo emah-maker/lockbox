@@ -51,7 +51,7 @@ function connDotColor(conn: string, t: ReturnType<typeof useTheme>): string {
   }
 }
 
-export function StatusStrip(): JSX.Element {
+export function StatusStrip(): React.JSX.Element {
   const conn = useStore((s) => s.conn);
   const status = useStore((s) => s.status);
   const theme = useTheme();

@@ -6,7 +6,6 @@
 // no image-loading path anywhere else (photoURL is carried on AccountUser
 // but never rendered), and adding one just for this header would be new
 // surface area the spec didn't ask for.
-import React from 'react';
 import { Text, View, StyleSheet } from 'react-native';
 import type { AccountUser } from '../../auth/useAuthStore';
 import { useTheme } from '../../theme/useTheme';

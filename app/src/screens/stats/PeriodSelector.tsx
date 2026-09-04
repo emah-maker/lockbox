@@ -6,7 +6,6 @@
 // nav/useNav.ts's `NavIntent.statsPeriod` union exactly, so a deep link's
 // `statsPeriod` value can be handed straight to `onSelect` with no mapping
 // layer at the call site.
-import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { useTheme } from '../../theme/useTheme';
 import { withAlpha } from '../../theme/color';

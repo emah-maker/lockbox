@@ -7,7 +7,6 @@
 // values of its own -- that's the whole point of that module: this legend and
 // every day cell's fill are guaranteed to agree because they call the same
 // function.
-import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { ThemeColors } from '../../theme/theme';
 import { typeScale } from '../../theme/tokens';

@@ -5,7 +5,6 @@
 // while a session is running; DashboardScreen owns visibility and the
 // tagCurrentSession call itself, this just renders TopicPicker inside a
 // Sheet and closes itself once a tag is actually chosen.
-import React from 'react';
 import { Sheet } from '../../ui/Sheet';
 import { TopicPicker } from '../TopicPicker';
 import { useTheme } from '../../theme/useTheme';

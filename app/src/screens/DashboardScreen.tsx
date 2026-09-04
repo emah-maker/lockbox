@@ -36,7 +36,7 @@
 // space-between shape, so on any screen where the content already fits
 // nothing looks different; it only starts scrolling instead of letting
 // TodaySummary's last line get clipped against the tab bar underneath.
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, View, Text, ScrollView, StyleSheet } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { useStore } from '../store/useStore';

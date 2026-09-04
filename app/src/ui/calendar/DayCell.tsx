@@ -4,7 +4,6 @@
 // can be unit-visually-reasoned-about on its own: given a date + that day's
 // derived numbers, render it. No store reads, no navigation -- purely a
 // dumb, memo-friendly leaf.
-import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';

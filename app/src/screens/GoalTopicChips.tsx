@@ -8,7 +8,6 @@
 // the period selector, or the reminder schedule -- it only answers "which
 // topic", and it answers it the same way TopicPicker.tsx's chip row does
 // elsewhere in the app.
-import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useTheme } from '../theme/useTheme';

@@ -17,7 +17,6 @@
 // test file uses one) -- same react-test-renderer + tiny harness component
 // pattern this screen's own FocusHero.test.tsx already uses to pin a bug in
 // a sibling Home-ring computation.
-import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
 import { AppState } from 'react-native';
 import { useHomeGoalRing } from './useHomeGoalRing';

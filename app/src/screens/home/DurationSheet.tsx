@@ -19,7 +19,7 @@
 // onDragEnd not firing -- cheap insurance, kept even though WheelPicker's
 // own edge-bounce (the original trigger for a stuck onDragEnd) is gone now
 // that WheelPicker sets bounces={false}.
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Sheet } from '../../ui/Sheet';
 import { WheelPicker } from '../../ui/WheelPicker';

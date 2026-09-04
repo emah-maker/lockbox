@@ -18,7 +18,6 @@
 // simply hasn't been tagged yet), and the render below has an explicit,
 // deliberately calm empty state for that -- never a zero-width bar or a
 // broken-looking blank card.
-import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { useTheme } from '../../theme/useTheme';
 import { withAlpha } from '../../theme/color';

@@ -5,7 +5,6 @@
 // settings/app, goals/config, sessions); the sessions-retained-but-orphaned
 // exception on deletion is spelled out in DangerZoneSection's delete copy
 // instead of repeated here, since it only matters at deletion time.
-import React from 'react';
 import { Text, StyleSheet } from 'react-native';
 import { useTheme } from '../../theme/useTheme';
 import { Section, captionStyle } from '../SettingsPrimitives';

@@ -12,7 +12,6 @@
 //
 // describeTopic is exported because GoalsSection needs the same display name
 // for its delete-confirmation copy; everything else here is module-private.
-import React from 'react';
 import { Animated, View, Text, StyleSheet } from 'react-native';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useTheme } from '../theme/useTheme';

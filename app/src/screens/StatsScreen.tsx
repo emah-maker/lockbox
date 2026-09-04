@@ -36,7 +36,7 @@
 // rendered inline. CustomLabelsSection moved to Settings' own "Custom
 // labels" row entirely rather than being mounted here too, so there is one
 // canonical place to edit the label catalog.
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { useStore } from '../store/useStore';
 import { useSettingsStore } from '../store/useSettingsStore';

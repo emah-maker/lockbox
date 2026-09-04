@@ -15,7 +15,6 @@
 // that looks wrong -- meant navigating to Calendar, finding the right day,
 // and starting over. The row's main press still deep-links to Calendar; the
 // tag button is a separate target so neither action steals the other.
-import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { useTheme } from '../../theme/useTheme';
 import { withAlpha } from '../../theme/color';

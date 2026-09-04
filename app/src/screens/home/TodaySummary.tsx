@@ -9,7 +9,6 @@
 // canonical goal-math helper) and passes the result down. This file does not
 // import useGoalsStore or goalProgress itself, so there's no path for it to
 // ever reimplement that math.
-import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { useTheme } from '../../theme/useTheme';
 import { withAlpha } from '../../theme/color';

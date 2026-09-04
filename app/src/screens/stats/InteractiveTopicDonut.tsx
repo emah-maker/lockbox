@@ -14,7 +14,7 @@
 // unselected slices dim toward the track color instead of disappearing, so
 // the ring's overall proportions stay legible while one topic is singled
 // out.
-import React, { useEffect, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { Animated, Easing } from 'react-native';
 import Svg, { Circle, G } from 'react-native-svg';
 import * as Haptics from 'expo-haptics';

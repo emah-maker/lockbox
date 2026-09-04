@@ -1,7 +1,6 @@
 // RecentSessionsRow.tsx -- the horizontal "jump to a recent session" strip
 // above the month grid. Extracted verbatim out of CalendarScreen.tsx (see
 // this project's 500-line file guideline) with no behavior change.
-import React from 'react';
 import { View, Text, ScrollView, StyleSheet } from 'react-native';
 import { AnimatedPressable } from '../AnimatedPressable';
 import { ThemeColors } from '../../theme/theme';

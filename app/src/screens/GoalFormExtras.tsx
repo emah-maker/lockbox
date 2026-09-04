@@ -17,7 +17,6 @@
 // useGoalsStore) on submit. goals.ts is still the only authority on whether
 // a particular combination (e.g. daysOfWeek on a non-daily goal) is
 // actually acceptable.
-import React from 'react';
 import { View, Text, StyleSheet, Switch } from 'react-native';
 import { useTheme } from '../theme/useTheme';
 import { withAlpha } from '../theme/color';

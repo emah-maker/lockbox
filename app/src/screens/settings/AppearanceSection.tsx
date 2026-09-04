@@ -3,7 +3,6 @@
 // small onboard display follows the phone's theme/accent choice). Extracted
 // out of SettingsScreen.tsx's previous inline "Appearance" Section the same
 // way BoxBehaviorSection.tsx was, for the hub/sheet restructure.
-import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { useTheme } from '../../theme/useTheme';
 import { THEME_MODES, ACCENT_KEYS, ACCENT_LABELS, accentSwatch, ThemeMode, AccentKey } from '../../theme/theme';

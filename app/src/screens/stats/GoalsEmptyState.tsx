@@ -13,7 +13,6 @@
 // deliberately much bigger/more prominent (a real empty-state CTA, not a row
 // action); changing Button's sizing for this one caller would ripple into
 // every other row that uses it.
-import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useTheme } from '../../theme/useTheme';

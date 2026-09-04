@@ -16,7 +16,6 @@
 // parent this file can't touch -- same "a Section reads its own store slice"
 // shape AccountSettingsSection.tsx and friends already use elsewhere in
 // Settings, just not one this file itself had needed until now.
-import React from 'react';
 import { View, Text, StyleSheet, Switch } from 'react-native';
 import { useTheme } from '../../theme/useTheme';
 import { useSettingsStore } from '../../store/useSettingsStore';

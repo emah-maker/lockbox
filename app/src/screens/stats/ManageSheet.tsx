@@ -23,7 +23,6 @@
 // Settings' own "Custom labels" row now; mounting it on Stats as well would
 // mean two equally-canonical places to edit the same catalog, which is the
 // clutter this screen's rework was meant to remove.
-import React from 'react';
 import { View } from 'react-native';
 import { useTheme } from '../../theme/useTheme';
 import { GoalsSection } from '../GoalsSection';

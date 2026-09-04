@@ -19,7 +19,7 @@
 // show -- same empty-state look as before, just reserved rather than
 // removed, so switching between an empty and a real period never reflows
 // anything below it.
-import React, { useEffect, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { Animated, View, Text, StyleSheet } from 'react-native';
 import { useTheme } from '../../theme/useTheme';
 import { formatDuration, completionRate, Stats } from '../../stats/stats';

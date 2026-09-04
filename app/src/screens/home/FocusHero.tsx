@@ -20,7 +20,7 @@
 // Renders only -- every actual control here (opening the duration/tag sheet,
 // opening the retag sheet) is a callback prop; DashboardScreen still owns
 // the BLE state, the picked-duration state, and the sheets themselves.
-import React, { useEffect, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { Animated, Text, View, StyleSheet } from 'react-native';
 import type { Status } from '../../ble/protocol';
 import { useTheme } from '../../theme/useTheme';

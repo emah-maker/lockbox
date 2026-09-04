@@ -9,7 +9,6 @@
 // Mirrors Box-code/lib/lock_config.py -- keep OVR_MIN/OVR_MAX/OVR_STEP
 // (overridePresses.ts) and SLEEP_OPTIONS/BRIGHT_OPTIONS below in lockstep
 // with the firmware side.
-import React from 'react';
 import { Switch } from 'react-native';
 import { useTheme } from '../../theme/useTheme';
 import { useStore } from '../../store/useStore';

@@ -13,7 +13,6 @@
 // set) and a plain `onToggle` callback -- it doesn't read useSettingsStore
 // or useGoalsStore itself, so it can't drift from whatever CalendarScreen.tsx
 // decided "visible" means.
-import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { Sheet } from '../Sheet';
