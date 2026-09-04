@@ -28,7 +28,7 @@ import { withAlpha } from '../theme/color';
 import { AnimatedPressable } from '../ui/AnimatedPressable';
 import { WheelPicker } from '../ui/WheelPicker';
 import { useSettingsStore } from '../store/useSettingsStore';
-import { MAX_NOTIFY_TIMES } from '../goals/goalReminders';
+import { MAX_NOTIFY_TIMES, notifyTimeToMinutes } from '../goals/goalReminders';
 import { isInQuietHours } from '../goals/goalNotificationPlan';
 import { formatClockTime } from '../ui/time';
 import { WeekdayChips } from './GoalFormExtras';
@@ -66,6 +66,53 @@ function formatTime(hour: number, minute: number): string {
   return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
 }
 
+const MINUTES_PER_DAY = 24 * 60;
+
+/**
+ * Where the "+ Add time" picker's draft opens for a NEW entry -- the fix for
+ * the silent-collapse bug this file's header now documents (openPicker used
+ * to hand back the hardcoded DEFAULT_NOTIFY_AT unconditionally, identical to
+ * an already-seeded '09:00', so a user who tapped "Add" without touching the
+ * wheel got no second reminder and no sign anything had gone wrong).
+ *
+ * Seeds one hour after the LATEST existing time (`times` is always the
+ * canonical sorted list -- see commitDraft -- so the last element is the
+ * max), which is never itself a duplicate: everything already in `times` is
+ * <= that max, so max+1h can only collide with something already in the
+ * list if it overflows past the end of the day and lands back on an entry
+ * near midnight.
+ *
+ * Two searches, in order, so it can never wrap past midnight into an
+ * earlier time that's ALSO taken and call that a fix (that would just move
+ * this same silent-collision bug to a different fixed value):
+ *  1. Forward from latest+1h to the end of the day, in the same 5-minute
+ *     grid every wheel in this app already snaps to -- this is the common
+ *     case, and (per the paragraph above) resolves on its very first
+ *     candidate unless latest is already within an hour of midnight.
+ *  2. The whole day from midnight, for when step 1 has nowhere left to
+ *     search (a `23:xx` latest) or the caller's `times` isn't actually
+ *     sorted-with-a-true-max (defensive only -- every real caller sorts).
+ * With MAX_NOTIFY_TIMES capped at 6, a free 5-minute slot always exists
+ * somewhere in the 288-slot day, so step 2 always finds one in practice;
+ * the DEFAULT_NOTIFY_AT after it is an unreachable-but-total fallback, not
+ * a real answer -- commitDraft's own collision check is what actually
+ * guards the case this function can't resolve.
+ */
+export function nextAvailableDraftTime(times: string[]): string {
+  if (times.length === 0) return DEFAULT_NOTIFY_AT;
+  const taken = new Set(times);
+  const latestMinutes = notifyTimeToMinutes(times[times.length - 1]) ?? 0;
+  for (let m = latestMinutes + 60; m < MINUTES_PER_DAY; m += NOTIFY_MINUTE_STEP) {
+    const candidate = formatTime(Math.floor(m / 60), m % 60);
+    if (!taken.has(candidate)) return candidate;
+  }
+  for (let m = 0; m < MINUTES_PER_DAY; m += NOTIFY_MINUTE_STEP) {
+    const candidate = formatTime(Math.floor(m / 60), m % 60);
+    if (!taken.has(candidate)) return candidate;
+  }
+  return DEFAULT_NOTIFY_AT;
+}
+
 /**
  * The reminder block. `times` is the canonical list GoalForm submits as
  * Goal.notifyTimes; `days` is the optional reminder-weekday set
@@ -101,6 +148,12 @@ export function GoalReminderControl({
   // can never be open in two conflicting modes at once.
   const [editingIndex, setEditingIndex] = React.useState<number | null>(null);
   const [draft, setDraft] = React.useState<string>(DEFAULT_NOTIFY_AT);
+  // Set only when commitDraft finds the draft collides with a DIFFERENT
+  // existing entry -- the surfaced half of the silent-collapse fix. `null`
+  // whenever the picker isn't showing a rejected commit, including right
+  // after it opens (a stale message from a previous attempt would otherwise
+  // linger under a since-changed draft).
+  const [collisionError, setCollisionError] = React.useState<string | null>(null);
 
   // Read rather than threaded through as props: the quiet-hours warning
   // below is this control's own business and no caller of GoalForm has any
@@ -112,6 +165,14 @@ export function GoalReminderControl({
 
   const { hour, minuteIndex } = parseTime(draft);
 
+  // Clears a stale collision message the instant the user actually changes
+  // the wheel -- otherwise "You already have a reminder at that time"
+  // would keep showing under a draft that no longer collides with anything.
+  const changeDraft = (next: string) => {
+    setDraft(next);
+    setCollisionError(null);
+  };
+
   const setToggle = (next: boolean) => {
     onNotifyChange(next);
     // Turning the reminder on for the first time seeds a real time rather
@@ -122,12 +183,21 @@ export function GoalReminderControl({
   };
 
   const openPicker = (index: number) => {
-    setDraft(index >= 0 ? times[index] : DEFAULT_NOTIFY_AT);
+    // Editing an existing chip still seeds from that chip's own time
+    // (unchanged). A NEW entry no longer seeds the hardcoded
+    // DEFAULT_NOTIFY_AT unconditionally -- that was the bug: it opened
+    // identical to an already-seeded '09:00', so tapping "Add" without
+    // touching the wheel silently produced a duplicate that then
+    // de-duped away with no error. nextAvailableDraftTime seeds a time
+    // that isn't already taken instead.
+    setDraft(index >= 0 ? times[index] : nextAvailableDraftTime(times));
     setEditingIndex(index);
+    setCollisionError(null);
   };
 
   const closePicker = () => {
     setEditingIndex(null);
+    setCollisionError(null);
     // The wheels are unmounting -- release the enclosing Sheet's scroll lock
     // unconditionally, since a wheel that disappears mid-drag will never
     // fire its own onDragEnd. Without this the sheet could be left
@@ -139,11 +209,25 @@ export function GoalReminderControl({
   const commitDraft = () => {
     if (editingIndex === null) return;
     const next = editingIndex >= 0 ? times.map((t, i) => (i === editingIndex ? draft : t)) : [...times, draft];
+    const dedup = Array.from(new Set(next)).sort();
+    // A shorter deduped list means `draft` collided with some OTHER entry
+    // (editing a chip back to its own unchanged value doesn't shrink
+    // anything, since that value only ever appeared once to begin with).
+    // This is the other half of the fix: instead of silently saving the
+    // deduped list and closing as though the commit succeeded, surface it
+    // and leave the picker open so the user can actually pick a different
+    // time. De-duping stays in place below as a final safety net -- the
+    // goal is that the user is never misled, not that a duplicate becomes
+    // storable.
+    if (dedup.length !== next.length) {
+      setCollisionError('You already have a reminder at that time.');
+      return;
+    }
     // Deduped and sorted here as well as in goals.ts -- not redundancy for
     // its own sake: the chip row must show the same canonical order the
     // saved goal will have, or adding a time would visibly reorder the list
     // only after saving.
-    onTimesChange(Array.from(new Set(next)).sort());
+    onTimesChange(dedup);
     closePicker();
   };
 
@@ -249,7 +333,7 @@ export function GoalReminderControl({
                 <WheelPicker
                   labels={CLOCK_HOUR_LABELS}
                   selectedIndex={hour}
-                  onChange={(i) => setDraft(formatTime(i, NOTIFY_MINUTE_VALUES[minuteIndex]))}
+                  onChange={(i) => changeDraft(formatTime(i, NOTIFY_MINUTE_VALUES[minuteIndex]))}
                   onDragStart={() => onWheelActiveChange(true)}
                   onDragEnd={() => onWheelActiveChange(false)}
                   accessibilityLabel="Reminder time, hour"
@@ -257,7 +341,7 @@ export function GoalReminderControl({
                 <WheelPicker
                   labels={NOTIFY_MINUTE_LABELS}
                   selectedIndex={minuteIndex}
-                  onChange={(i) => setDraft(formatTime(hour, NOTIFY_MINUTE_VALUES[i]))}
+                  onChange={(i) => changeDraft(formatTime(hour, NOTIFY_MINUTE_VALUES[i]))}
                   onDragStart={() => onWheelActiveChange(true)}
                   onDragEnd={() => onWheelActiveChange(false)}
                   accessibilityLabel="Reminder time, minute"
@@ -281,6 +365,13 @@ export function GoalReminderControl({
                   <Text style={[styles.pickerBtnText, { color: color.textDim }]}>Cancel</Text>
                 </AnimatedPressable>
               </View>
+              {collisionError ? (
+                // Same styles.hint/color.danger treatment the quiet-hours
+                // warning above already uses for this screen's other
+                // reminder-time validation message -- reused rather than
+                // inventing a second way to surface an inline form error.
+                <Text style={[styles.hint, { color: color.danger }]}>{collisionError}</Text>
+              ) : null}
             </View>
           ) : null}
 
