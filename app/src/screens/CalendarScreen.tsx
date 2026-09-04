@@ -69,9 +69,10 @@ import { HeatLegend } from '../ui/calendar/HeatLegend';
 import { RecentSessionsRow } from '../ui/calendar/RecentSessionsRow';
 import { CalendarStreaksSheet } from '../ui/calendar/CalendarStreaksSheet';
 import { DaySheet } from './calendar/DaySheet';
-import { buildGrid, computeMonthSummary, computeStreakRuns, goalsMetOnDay, monthHeatLevels, startOfMonth } from './calendar/monthGrid';
+import { buildGrid, computeMonthSummary, computeStreakRuns, goalsMetOnDay, monthHeatLevels, startOfMonth, streakConnectorForIndex } from './calendar/monthGrid';
 import { useCalendarStreaks } from './calendar/useCalendarStreaks';
 import { useReducedMotion, configureLayoutAnimation } from '../ui/useReducedMotion';
+import { useNowMs } from '../ui/useNowMs';
 import { typeScale } from '../theme/tokens';
 import { useNav } from '../nav/useNav';
 
@@ -123,6 +124,13 @@ export default function CalendarScreen() {
   const [daySheetVisible, setDaySheetVisible] = useState(false);
   const [streaksSheetVisible, setStreaksSheetVisible] = useState(false);
   const reducedMotion = useReducedMotion();
+  // Ticks on its own (ui/useNowMs.ts) so today's cell highlight and the
+  // "current streak as of now" summary below (computeMonthSummary ->
+  // computeStreak) re-cross local midnight while this screen just sits
+  // open, instead of freezing at whatever instant they last recomputed
+  // because grid/byDay happened to change reference -- see that hook's own
+  // header for the underlying bug.
+  const nowMs = useNowMs();
 
   // Goal Streaks feature's own state slice (active goals, the resolved
   // "which goals show" set, the toggle action, and the per-day dot builder)
@@ -220,7 +228,7 @@ export default function CalendarScreen() {
 
   const byDay = useMemo(() => groupByDay(sessions), [sessions]);
   const grid = useMemo(() => buildGrid(cursor), [cursor]);
-  const todayKey = dayKey(Date.now());
+  const todayKey = dayKey(nowMs);
 
   // Discrete heat level per day, scoped to the currently displayed month
   // (not an all-time-global max the old continuous-alpha scheme used) --
@@ -237,7 +245,7 @@ export default function CalendarScreen() {
   // connector bar and flame badge.
   const streakRuns = useMemo(() => computeStreakRuns(grid, byDay), [grid, byDay]);
 
-  const monthSummary = useMemo(() => computeMonthSummary(grid, byDay), [grid, byDay]);
+  const monthSummary = useMemo(() => computeMonthSummary(grid, byDay, nowMs), [grid, byDay, nowMs]);
 
   // Which days carry a still-outstanding planned session. A Set of dayKeys
   // rather than a per-cell filter of the whole array: the grid asks this
@@ -263,15 +271,17 @@ export default function CalendarScreen() {
         const level = heatLevels.get(key) ?? 0;
         // A cell's left/right connector lights up when the *adjacent grid
         // index* (not adjacent calendar date -- see computeStreakRuns's own
-        // comment on why that's equivalent here) belongs to the same run.
+        // comment on why that's equivalent here) belongs to the same run AND
+        // is actually its on-screen neighbor -- see monthGrid.ts's
+        // streakConnectorForIndex doc comment for why that second condition
+        // matters at a week-row boundary (e.g. Sat->Sun), where two indices
+        // can be run-adjacent without being visually adjacent.
         // showFlame is reserved for a run's most recent day (its highest
         // index, since `grid` runs oldest-to-newest) and only for runs of
         // length >= 3, per the manager brief -- a casual 2-day pair
         // shouldn't get a flame badge.
         const run = streakRuns.find((r) => i >= r.startIndex && i <= r.endIndex);
-        const streakEdge = run
-          ? { left: i > run.startIndex, right: i < run.endIndex }
-          : { left: false, right: false };
+        const streakEdge = streakConnectorForIndex(streakRuns, i);
         const showFlame = !!run && run.length >= 3 && i === run.endIndex;
         const hasPlan = plannedDays.has(key);
         // Per-goal streak dots -- see useCalendarStreaks.ts's streakDotsForDay.

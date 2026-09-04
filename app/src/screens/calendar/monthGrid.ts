@@ -233,6 +233,47 @@ export function computeStreakRuns(
   return runs;
 }
 
+/** Number of columns in the grid buildGrid/computeStreakRuns produce (see
+ * this file's header + CalendarScreen.tsx's own "7-per-row" comment) --
+ * shared by streakConnectorForIndex below so it doesn't hardcode the same
+ * literal a second place. */
+const GRID_COLUMNS = 7;
+
+/**
+ * Whether grid index `i` should draw a left/right streak connector bar
+ * (DayCell.tsx's `streakEdge` prop), given the maximal run (computeStreakRuns)
+ * it belongs to.
+ *
+ * A run is a range of grid INDICES, which is calendar-day-adjacent (see
+ * computeStreakRuns's own comment) but NOT necessarily visually adjacent:
+ * CalendarScreen.tsx renders the grid 7-per-row with `flexWrap`, so index i
+ * and i+1 sit side by side on screen only within the same row (i.e. i is not
+ * the row's last column). When a run crosses a week-row boundary -- e.g. a
+ * run covering Sat (index 6) through the following Sun (index 7) -- index 6
+ * and index 7 are consecutive indices but Sat is the RIGHTMOST cell of row 1
+ * and Sun is the LEFTMOST cell of row 2, nowhere near each other on screen.
+ * Drawing Sat's right-pointing connector or Sun's left-pointing connector in
+ * that case draws a bar reaching toward a cell that isn't actually there
+ * (off the edge of the row), which reads as the streak visibly breaking mid-
+ * chain even though the underlying run is still intact. This function is
+ * what the naive `{ left: i > run.startIndex, right: i < run.endIndex }`
+ * (this bug's original form) was missing: a connector on a given side also
+ * requires that side's on-screen NEIGHBOR to exist, i.e. `i` isn't already at
+ * that row edge.
+ */
+export function streakConnectorForIndex(
+  streakRuns: StreakRun[],
+  i: number,
+): { left: boolean; right: boolean } {
+  const run = streakRuns.find((r) => i >= r.startIndex && i <= r.endIndex);
+  if (!run) return { left: false, right: false };
+  const col = i % GRID_COLUMNS;
+  return {
+    left: i > run.startIndex && col > 0,
+    right: i < run.endIndex && col < GRID_COLUMNS - 1,
+  };
+}
+
 /**
  * The effective set of goal ids whose streaks CalendarScreen.tsx's month
  * grid should draw a dot for, given the user's stored preference

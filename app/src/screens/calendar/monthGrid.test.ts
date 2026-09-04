@@ -10,6 +10,7 @@ import {
   monthHeatLevels,
   resolveCalendarStreakGoalIds,
   startOfMonth,
+  streakConnectorForIndex,
 } from './monthGrid';
 import { dayKey, groupByDay, LoggedSession } from '../../stats/sessionHistory';
 import { Goal } from '../../goals/goals';
@@ -226,6 +227,50 @@ describe('computeStreakRuns', () => {
     const byDay = groupByDay([session(july(30), 100), session(july(31), 100)]);
     const runs = computeStreakRuns(JULY_GRID, byDay);
     expect(runs).toEqual([{ startIndex: 30, endIndex: 31, length: 2 }]);
+  });
+});
+
+describe('streakConnectorForIndex', () => {
+  // July 2024 grid (see JULY_GRID's own comment above): July 1 is a Monday
+  // at index 1, so index 6 is Sat July 6 (last column of row 1) and index 7
+  // is Sun July 7 (first column of row 2) -- adjacent grid indices, but NOT
+  // adjacent on screen (see streakConnectorForIndex's own doc comment).
+  it('draws both a left and right connector for a day in the middle of a run', () => {
+    // Index 10 (Wed July 10, column 3 of row 2) has both its in-run
+    // neighbors (indices 9 and 11) in the SAME row, so both connectors draw.
+    const runs = [{ startIndex: 9, endIndex: 12, length: 4 }]; // July 9-12
+    expect(streakConnectorForIndex(runs, 10)).toEqual({ left: true, right: true });
+  });
+
+  it('does not draw a right connector when the run continues into the next row (Sat->Sun)', () => {
+    // Index 6 (Sat July 6) is the last column of its row -- even though the
+    // run continues at index 7 (Sun July 7, next row), there is no on-screen
+    // neighbor to its right to connect to.
+    const runs = [{ startIndex: 5, endIndex: 8, length: 4 }]; // July 4-7
+    expect(streakConnectorForIndex(runs, 6)).toEqual(expect.objectContaining({ right: false }));
+  });
+
+  it('does not draw a left connector when the run continued from the previous row (Sat->Sun)', () => {
+    // Index 7 (Sun July 7) is the first column of its row -- even though the
+    // run started at index 5 (in the previous row), there is no on-screen
+    // neighbor to its left to connect to.
+    const runs = [{ startIndex: 5, endIndex: 8, length: 4 }]; // July 4-7
+    expect(streakConnectorForIndex(runs, 7)).toEqual(expect.objectContaining({ left: false }));
+  });
+
+  it('still draws the connector on the days flanking the row-boundary pair', () => {
+    // July 5 (index 5, run start): no left neighbor in-run at all, so no
+    // left connector regardless of column; right connector draws normally
+    // since index 6 is still in the same row.
+    const runs = [{ startIndex: 5, endIndex: 8, length: 4 }];
+    expect(streakConnectorForIndex(runs, 5)).toEqual({ left: false, right: true });
+    // July 8 (index 8, run end): same reasoning mirrored.
+    expect(streakConnectorForIndex(runs, 8)).toEqual({ left: true, right: false });
+  });
+
+  it('draws no connector for an index outside every run', () => {
+    const runs = [{ startIndex: 5, endIndex: 8, length: 4 }];
+    expect(streakConnectorForIndex(runs, 15)).toEqual({ left: false, right: false });
   });
 });
 
