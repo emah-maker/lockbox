@@ -33,6 +33,38 @@ export const PENDING_TOPIC_SLACK_MS = 5000;
  */
 export const PENDING_TOPIC_PRE_SLACK_MS = 120_000;
 
+// Serializes every read-modify-write against PENDING_TOPIC_KEY that this
+// module and useStore.ts's handleStatus perform, so the two sequences that
+// touch it -- this module's read-pending -> decide -> re-read -> compare-
+// and-clear below, and handleStatus's read -> refresh-the-timestamp ->
+// compare-and-set write on a freshRun where the box echoes no topic -- can
+// never interleave. Without this, handleStatus's refresh landing between
+// this module's initial `pending` read and its own `stillCurrent` re-read
+// could (a) change `.at` out from under the compare-and-clear so this
+// module wrongly skips clearing a tag it DID just consume, leaving a
+// stale-but-freshly-timestamped tag in storage for a LATER session to pick
+// up, or (b) land after the clear has already run and resurrect the
+// just-cleared tag with a fresh timestamp attached to nothing. AsyncStorage
+// gives no real atomic compare-and-swap, so this is a plain in-process
+// promise chain: each queued unit of work only starts once every previously
+// queued one has fully settled (success or failure). It deliberately does
+// NOT cover tagCurrentSession's own direct setJSON(PENDING_TOPIC_KEY, ...)
+// in useStore.ts -- that is a single unconditional write, not a
+// read-modify-write, so it cannot tear -- callers here still re-check with
+// their own compare-and-set immediately before writing, to avoid clobbering
+// a tag tagCurrentSession wrote in between.
+let pendingTopicChain: Promise<unknown> = Promise.resolve();
+export function withPendingTopicLock<T>(fn: () => Promise<T>): Promise<T> {
+  const result = pendingTopicChain.then(fn, fn);
+  // Chain the NEXT queued call off a version of this one that always
+  // resolves, so one failed unit of work doesn't wedge every call after it.
+  pendingTopicChain = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
+}
+
 /** What the intake needs from whatever owns the connection and the store. */
 export interface HistoryIntakeDeps {
   /** Commit the reconciled session list to the live store. */
@@ -59,7 +91,12 @@ export interface HistoryIntakeDeps {
 // is entirely app-side and only ever needs to survive to this hand-off.
 export function handleHistoryEntries(entries: HistoryEntry[], deps: HistoryIntakeDeps): void {
   if (!entries.length) return;
-  getJSON<PendingTopicTag | null>(PENDING_TOPIC_KEY, null).then(async (pending) => {
+  // The `pending` read, the decide, the re-read, and the conditional clear
+  // all run as one queued unit against withPendingTopicLock -- see that
+  // function's comment -- so none of it can interleave with handleStatus's
+  // own refresh of this same key.
+  withPendingTopicLock(async () => {
+    const pending = await getJSON<PendingTopicTag | null>(PENDING_TOPIC_KEY, null);
     // buildLoggedSessions drops sessions under MIN_LOGGED_SESSION_S
     // (accidental taps/instant overrides, not real focus time) so they
     // never reach the durable log/stats, not merely hidden from it later.
@@ -70,11 +107,9 @@ export function handleHistoryEntries(entries: HistoryEntry[], deps: HistoryIntak
       PENDING_TOPIC_PRE_SLACK_MS,
     );
     if (consumedPendingTopic && pending) {
-      // Compare-and-clear, not an unconditional clear: `onHistory`/
-      // `onStatus` both fire right after connect, so a fresh tag write for
-      // a just-started session (tagCurrentSession, or handleStatus's
-      // on-box tag echo below) can land in storage while this function's
-      // own PENDING_TOPIC_KEY read was still in flight. Clearing
+      // Compare-and-clear, not an unconditional clear: tagCurrentSession's
+      // direct (lock-free) write can still land in storage while this
+      // function's own PENDING_TOPIC_KEY read was in flight. Clearing
       // unconditionally would silently discard that newer tag instead of
       // the stale one this call actually consumed (production readiness
       // review, High: "handleHistory async-read-then-clear race"). Only
@@ -85,6 +120,8 @@ export function handleHistoryEntries(entries: HistoryEntry[], deps: HistoryIntak
         deps.onTopicConsumed(pending.topic);
       }
     }
+    return logged;
+  }).then((logged) => {
     // Ack by the original entry count once handled, whether or not any of
     // them were durably logged -- see Box-code/lib/lock_log.py's
     // SessionLog.ack and

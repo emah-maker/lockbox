@@ -19,7 +19,7 @@ import { CallMonitor } from '../calls/CallMonitor';
 import type { Status, HistoryEntry, BoxState, Settings } from '../ble/protocol';
 import { getJSON, setJSON } from '../storage/storage';
 import { reconnectDelayMs, shouldScheduleReconnect } from '../ble/reconnectPolicy';
-import { handleHistoryEntries, PENDING_TOPIC_KEY } from '../ble/historyIntake';
+import { handleHistoryEntries, PENDING_TOPIC_KEY, withPendingTopicLock } from '../ble/historyIntake';
 import { loadSessions, retagSession, LoggedSession, PendingTopicTag } from '../stats/sessionHistory';
 import { useSettingsStore } from './useSettingsStore';
 // Remote sync (docs/rfcs/google-signin-cross-device-sync-architecture.md §4.3)
@@ -174,6 +174,47 @@ export const useStore = create<AppState>((set, get) => {
       ack: (count) => client.ackHistory(count),
     });
 
+  // The user report this fixes: "goals do not update with the topic". A
+  // pre-session pick durably writes PENDING_TOPIC_KEY at PICK time
+  // (tagCurrentSession) and separately best-effort pushes the topic to the
+  // box (setPendingBoxTopic) so the box can echo it back once running. If
+  // that forward push never lands -- not connected yet, rejected, box busy
+  // -- status.tp stays '' for the whole session, so the branch below (which
+  // only refreshes on a truthy tp) never fires, and PENDING_TOPIC_KEY keeps
+  // its original pick-time timestamp. An ordinary walk-to-the-box delay
+  // then pushes that timestamp outside buildLoggedSessions'
+  // PENDING_TOPIC_PRE_SLACK_MS window by the time the session's history
+  // actually arrives, and the tag is silently dropped. The local tag is the
+  // source of truth and must not depend on the box's forward acknowledgment
+  // landing -- so on a freshRun with no echoed topic, refresh whatever tag
+  // is ALREADY stored (never invent one from currentTopic or any other
+  // in-memory field) against the moment this session actually started,
+  // rather than the moment the user picked it.
+  //
+  // Goes through withPendingTopicLock, the same queue historyIntake.ts's
+  // consume-then-compare-and-clear uses for this exact key, so this can
+  // never land in the middle of that sequence: either this whole refresh
+  // completes before historyIntake even reads the tag (whose own read then
+  // simply sees the refreshed value), or after historyIntake's clear has
+  // already run (in which case the read below sees null and this is a
+  // no-op) -- never between its consume and its compare-and-clear, which is
+  // what would let a tag historyIntake DID consume dodge the clear (stale
+  // tag left in storage for a later session to pick up), or let this
+  // refresh resurrect a tag historyIntake just cleared. Re-checks with its
+  // own compare-and-set immediately before writing too, since
+  // tagCurrentSession's direct setJSON isn't behind this lock and could
+  // still land in between this function's two reads.
+  const refreshPendingTopicOnFreshRun = () => {
+    withPendingTopicLock(async () => {
+      const existing = await getJSON<PendingTopicTag | null>(PENDING_TOPIC_KEY, null);
+      if (!existing) return; // nothing to refresh -- never invent a tag
+      const stillCurrent = await getJSON<PendingTopicTag | null>(PENDING_TOPIC_KEY, null);
+      if (stillCurrent && stillCurrent.at === existing.at && stillCurrent.topic === existing.topic) {
+        await setJSON<PendingTopicTag>(PENDING_TOPIC_KEY, { topic: existing.topic, at: Date.now() });
+      }
+    }).catch(() => {});
+  };
+
   const handleStatus = (status: Status) =>
     set((state) => {
       const freshRun = status.st === 'running' && state.status?.st !== 'running';
@@ -207,6 +248,14 @@ export const useStore = create<AppState>((set, get) => {
         // re-push last session's topic on the next reconnect -- the exact
         // resurrection the clear exists to prevent.
         return { status, currentTopic: status.tp, pendingBoxTopic: freshRun ? null : state.pendingBoxTopic };
+      }
+      // The box echoed no topic for this fresh run -- either nothing was
+      // ever picked, or (see refreshPendingTopicOnFreshRun's comment above)
+      // the forward BLE push of a pick that WAS made never landed. Refresh
+      // whichever it is: a no-op if nothing is stored, otherwise it keeps
+      // the durable tag alive against this session's actual start time.
+      if (status.st === 'running' && !status.tp && freshRun) {
+        refreshPendingTopicOnFreshRun();
       }
       // A fresh run needs a fresh tag; clear the label from whatever finished
       // before. Also drop any still-pending app-side suggestion (pure local
@@ -419,6 +468,12 @@ export const useStore = create<AppState>((set, get) => {
     // this one is a forward suggestion for a session that doesn't exist yet).
     setPendingBoxTopic: (topic) => {
       set({ pendingBoxTopic: topic });
+      // Defense in depth, not the fix for the topic-drop bug above (that fix
+      // must hold even when this write fails outright): matches pushLabels'
+      // guard three lines up, so a push while disconnected fails loudly (in
+      // the logs, via the native client rejecting a write with nothing
+      // connected) instead of silently pretending to have gone out.
+      if (!client.connected) return;
       client.setPendingTopic(topic).catch(() => {});
     },
 
