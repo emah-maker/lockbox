@@ -70,6 +70,9 @@
         "backgroundColor": "#1a1a1c"
       }
     },
+    "experiments": {
+      "reactCompiler": true
+    },
     "extra": {
       "eas": {
         "projectId": "95e39362-3a53-4150-afed-77bcde196369"
