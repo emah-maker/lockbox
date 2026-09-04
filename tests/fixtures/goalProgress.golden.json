@@ -10,10 +10,37 @@
     "computeGoalProgress (the two implementations are formula-identical), then",
     "verified by hand against the window/topic/met semantics documented in",
     "goalProgress.ts's own comments -- not just checked for agreement between the",
-    "two sides. nowMs values are epoch ms produced by",
-    "`new Date(2024, 0, 10, 12, 0, 0)` (a Wednesday) and",
-    "`new Date(2024, 11, 15, 12, 0, 0)` in this repo's local timezone, same",
-    "convention as goalProgress.test.ts/tests/website/goals.test.js's own NOW.",
+    "two sides.",
+    "",
+    "TIMEZONE REPRESENTATION -- read this before touching any timestamp below.",
+    "`now` and `startedAt` are LOCAL-TIME-relative: the window math anchors to",
+    "LOCAL midnight/week-start/month-start, computed via `new Date(y, mo, d, ...)`",
+    "in whatever timezone the test happens to run in. A raw epoch-ms literal",
+    "bakes in ONE specific timezone's interpretation of that instant, so a",
+    "session meant to sit 1ms before a local-midnight boundary in Pacific can",
+    "silently sit 1ms AFTER that boundary in Eastern (or vice versa) -- same",
+    "epoch number, different window membership, a fixture that's permanently",
+    "wrong outside one timezone. This bit monthly_window_year_rollover_december",
+    "for real: both implementations agreed with each other and STILL failed the",
+    "fixture on an Eastern machine, because the fixture's own literals were",
+    "wrong, not the math.",
+    "",
+    "So: every `now`/`startedAt` here is given as `nowLocal`/`startedAtLocal`,",
+    "a `[year, monthIndex, day, hour, minute, second, ms]` tuple (monthIndex is",
+    "0-based, same as `Date`'s constructor -- both readers do",
+    "`new Date(y, mo, d, h, mi, s, ms).getTime()`, in THEIR OWN runtime",
+    "timezone, not a hardcoded one). Because both nowLocal and startedAtLocal",
+    "go through the identical conversion in the identical process, their",
+    "relative position (which side of a window boundary a session falls on)",
+    "is preserved in ANY timezone, even though the resulting epoch ms differs",
+    "from machine to machine. Every case uses *Local parts, including sessions",
+    "whose startedAt is simply \"the same instant as now\" -- verified live: on a",
+    "UTC+5:30/UTC+13 process those sessions stopped landing on nowMs's calendar",
+    "day when only nowMs (not the session) was converted, so this is not",
+    "theoretical. DO NOT reintroduce a raw epoch-ms literal for any timestamp",
+    "here (window boundaries, day-of-week, or \"now\" itself) -- always use the",
+    "*Local parts form; both readers still accept a plain `nowMs`/`startedAt`",
+    "number for backward compatibility, but nothing in this file should use it.",
     "",
     "If you change the window/progress math on EITHER side, this fixture stops",
     "being a safe oracle -- regenerate it (see goalProgress.golden.test.ts's",
@@ -27,12 +54,26 @@
     "case is asserted rather than merely documented. It is unreachable through",
     "createGoal/updateGoal or sanitizeRemoteGoals, which both enforce",
     "targetS >= MIN_TARGET_S -- but it is the shape a corrupted or hand-built",
-    "synced goal takes, which is why the app guarded it in the first place."
+    "synced goal takes, which is why the app guarded it in the first place.",
+    "",
+    "`labels`/`excludedTopicKeys` (both optional per-case, defaulting to `[]` on",
+    "both readers when absent) exercise computeGoalProgress's exclusion filter",
+    "(app/src/stats/customLabels.ts's sessionCountsTowardTotals, threaded through",
+    "goalProgress.ts's own `labels`/`excludedTopicKeys` params) -- every case",
+    "above this comment predates that filter and leaves both unset, which is",
+    "exactly why the website's own missing implementation of it went uncaught",
+    "here for as long as it did. The four cases below close that blind spot:",
+    "a custom label with excludeFromTotals true, an excluded built-in topic",
+    "key, an untagged session (must still count despite unrelated exclusions",
+    "being active), and an excluded label alongside a non-excluded one in the",
+    "same case. Expected values were derived by hand from",
+    "stats/customLabels.ts's sessionCountsTowardTotals doc comment, then",
+    "confirmed to match both implementations."
   ],
   "cases": [
     {
       "name": "daily_basic_partial_progress",
-      "nowMs": 1704916800000,
+      "nowLocal": [2024, 0, 10, 12, 0, 0, 0],
       "goals": [
         {
           "id": "goal:a",
@@ -46,7 +87,7 @@
       ],
       "sessions": [
         {
-          "startedAt": 1704916800000,
+          "startedAtLocal": [2024, 0, 10, 12, 0, 0, 0],
           "plannedS": 400,
           "actualS": 400,
           "outcome": "completed"
@@ -68,7 +109,7 @@
     },
     {
       "name": "daily_window_boundaries",
-      "nowMs": 1704916800000,
+      "nowLocal": [2024, 0, 10, 12, 0, 0, 0],
       "goals": [
         {
           "id": "goal:a",
@@ -82,25 +123,25 @@
       ],
       "sessions": [
         {
-          "startedAt": 1704873600000,
+          "startedAtLocal": [2024, 0, 10, 0, 0, 0, 0],
           "plannedS": 100,
           "actualS": 100,
           "outcome": "completed"
         },
         {
-          "startedAt": 1704960000000,
+          "startedAtLocal": [2024, 0, 11, 0, 0, 0, 0],
           "plannedS": 100,
           "actualS": 100,
           "outcome": "completed"
         },
         {
-          "startedAt": 1704873599999,
+          "startedAtLocal": [2024, 0, 9, 23, 59, 59, 999],
           "plannedS": 100,
           "actualS": 100,
           "outcome": "completed"
         },
         {
-          "startedAt": 1704959999999,
+          "startedAtLocal": [2024, 0, 10, 23, 59, 59, 999],
           "plannedS": 100,
           "actualS": 100,
           "outcome": "completed"
@@ -122,7 +163,7 @@
     },
     {
       "name": "weekly_window_boundaries",
-      "nowMs": 1704916800000,
+      "nowLocal": [2024, 0, 10, 12, 0, 0, 0],
       "goals": [
         {
           "id": "goal:a",
@@ -136,25 +177,25 @@
       ],
       "sessions": [
         {
-          "startedAt": 1704614400000,
+          "startedAtLocal": [2024, 0, 7, 0, 0, 0, 0],
           "plannedS": 100,
           "actualS": 100,
           "outcome": "completed"
         },
         {
-          "startedAt": 1705219200000,
+          "startedAtLocal": [2024, 0, 14, 0, 0, 0, 0],
           "plannedS": 100,
           "actualS": 100,
           "outcome": "completed"
         },
         {
-          "startedAt": 1704614399999,
+          "startedAtLocal": [2024, 0, 6, 23, 59, 59, 999],
           "plannedS": 100,
           "actualS": 100,
           "outcome": "completed"
         },
         {
-          "startedAt": 1705219199999,
+          "startedAtLocal": [2024, 0, 13, 23, 59, 59, 999],
           "plannedS": 100,
           "actualS": 100,
           "outcome": "completed"
@@ -176,7 +217,7 @@
     },
     {
       "name": "monthly_window_boundaries",
-      "nowMs": 1704916800000,
+      "nowLocal": [2024, 0, 10, 12, 0, 0, 0],
       "goals": [
         {
           "id": "goal:a",
@@ -190,25 +231,25 @@
       ],
       "sessions": [
         {
-          "startedAt": 1704096000000,
+          "startedAtLocal": [2024, 0, 1, 0, 0, 0, 0],
           "plannedS": 100,
           "actualS": 100,
           "outcome": "completed"
         },
         {
-          "startedAt": 1706774400000,
+          "startedAtLocal": [2024, 1, 1, 0, 0, 0, 0],
           "plannedS": 100,
           "actualS": 100,
           "outcome": "completed"
         },
         {
-          "startedAt": 1704095999999,
+          "startedAtLocal": [2023, 11, 31, 23, 59, 59, 999],
           "plannedS": 100,
           "actualS": 100,
           "outcome": "completed"
         },
         {
-          "startedAt": 1706774399999,
+          "startedAtLocal": [2024, 0, 31, 23, 59, 59, 999],
           "plannedS": 100,
           "actualS": 100,
           "outcome": "completed"
@@ -230,7 +271,7 @@
     },
     {
       "name": "monthly_window_year_rollover_december",
-      "nowMs": 1734292800000,
+      "nowLocal": [2024, 11, 15, 12, 0, 0, 0],
       "goals": [
         {
           "id": "goal:a",
@@ -244,19 +285,19 @@
       ],
       "sessions": [
         {
-          "startedAt": 1733040000000,
+          "startedAtLocal": [2024, 11, 1, 0, 0, 0, 0],
           "plannedS": 50,
           "actualS": 50,
           "outcome": "completed"
         },
         {
-          "startedAt": 1735718400000,
+          "startedAtLocal": [2025, 0, 1, 0, 0, 0, 0],
           "plannedS": 50,
           "actualS": 50,
           "outcome": "completed"
         },
         {
-          "startedAt": 1735718399999,
+          "startedAtLocal": [2024, 11, 31, 23, 59, 59, 999],
           "plannedS": 50,
           "actualS": 50,
           "outcome": "completed"
@@ -278,7 +319,7 @@
     },
     {
       "name": "day_restricted_daily_due_today",
-      "nowMs": 1704916800000,
+      "nowLocal": [2024, 0, 10, 12, 0, 0, 0],
       "goals": [
         {
           "id": "goal:a",
@@ -297,7 +338,7 @@
       ],
       "sessions": [
         {
-          "startedAt": 1704916800000,
+          "startedAtLocal": [2024, 0, 10, 12, 0, 0, 0],
           "plannedS": 500,
           "actualS": 500,
           "outcome": "completed"
@@ -319,7 +360,7 @@
     },
     {
       "name": "day_restricted_daily_off_day_still_counts",
-      "nowMs": 1704916800000,
+      "nowLocal": [2024, 0, 10, 12, 0, 0, 0],
       "goals": [
         {
           "id": "goal:a",
@@ -337,7 +378,7 @@
       ],
       "sessions": [
         {
-          "startedAt": 1704916800000,
+          "startedAtLocal": [2024, 0, 10, 12, 0, 0, 0],
           "plannedS": 500,
           "actualS": 500,
           "outcome": "completed"
@@ -359,7 +400,7 @@
     },
     {
       "name": "session_count_target_time_met_but_sessions_not",
-      "nowMs": 1704916800000,
+      "nowLocal": [2024, 0, 10, 12, 0, 0, 0],
       "goals": [
         {
           "id": "goal:a",
@@ -374,7 +415,7 @@
       ],
       "sessions": [
         {
-          "startedAt": 1704916800000,
+          "startedAtLocal": [2024, 0, 10, 12, 0, 0, 0],
           "plannedS": 1000,
           "actualS": 1000,
           "outcome": "completed"
@@ -398,7 +439,7 @@
     },
     {
       "name": "session_count_target_both_met",
-      "nowMs": 1704916800000,
+      "nowLocal": [2024, 0, 10, 12, 0, 0, 0],
       "goals": [
         {
           "id": "goal:a",
@@ -413,13 +454,13 @@
       ],
       "sessions": [
         {
-          "startedAt": 1704916800000,
+          "startedAtLocal": [2024, 0, 10, 12, 0, 0, 0],
           "plannedS": 1000,
           "actualS": 1000,
           "outcome": "completed"
         },
         {
-          "startedAt": 1704916800000,
+          "startedAtLocal": [2024, 0, 10, 12, 0, 0, 0],
           "plannedS": 1000,
           "actualS": 1000,
           "outcome": "completed"
@@ -443,7 +484,7 @@
     },
     {
       "name": "time_only_goal_met_exactly_at_target",
-      "nowMs": 1704916800000,
+      "nowLocal": [2024, 0, 10, 12, 0, 0, 0],
       "goals": [
         {
           "id": "goal:a",
@@ -457,7 +498,7 @@
       ],
       "sessions": [
         {
-          "startedAt": 1704916800000,
+          "startedAtLocal": [2024, 0, 10, 12, 0, 0, 0],
           "plannedS": 1000,
           "actualS": 1000,
           "outcome": "completed"
@@ -479,7 +520,7 @@
     },
     {
       "name": "time_only_goal_unmet_by_one_second",
-      "nowMs": 1704916800000,
+      "nowLocal": [2024, 0, 10, 12, 0, 0, 0],
       "goals": [
         {
           "id": "goal:a",
@@ -493,7 +534,7 @@
       ],
       "sessions": [
         {
-          "startedAt": 1704916800000,
+          "startedAtLocal": [2024, 0, 10, 12, 0, 0, 0],
           "plannedS": 999,
           "actualS": 999,
           "outcome": "completed"
@@ -515,7 +556,7 @@
     },
     {
       "name": "ratio_unclamped_when_goal_exceeded",
-      "nowMs": 1704916800000,
+      "nowLocal": [2024, 0, 10, 12, 0, 0, 0],
       "goals": [
         {
           "id": "goal:a",
@@ -529,7 +570,7 @@
       ],
       "sessions": [
         {
-          "startedAt": 1704916800000,
+          "startedAtLocal": [2024, 0, 10, 12, 0, 0, 0],
           "plannedS": 1800,
           "actualS": 1800,
           "outcome": "completed"
@@ -551,7 +592,7 @@
     },
     {
       "name": "archived_goal_excluded_entirely",
-      "nowMs": 1704916800000,
+      "nowLocal": [2024, 0, 10, 12, 0, 0, 0],
       "goals": [
         {
           "id": "goal:live",
@@ -574,7 +615,7 @@
       ],
       "sessions": [
         {
-          "startedAt": 1704916800000,
+          "startedAtLocal": [2024, 0, 10, 12, 0, 0, 0],
           "plannedS": 100,
           "actualS": 100,
           "outcome": "completed"
@@ -596,7 +637,7 @@
     },
     {
       "name": "topic_matching_independent_per_goal",
-      "nowMs": 1704916800000,
+      "nowLocal": [2024, 0, 10, 12, 0, 0, 0],
       "goals": [
         {
           "id": "goal:any",
@@ -628,21 +669,21 @@
       ],
       "sessions": [
         {
-          "startedAt": 1704916800000,
+          "startedAtLocal": [2024, 0, 10, 12, 0, 0, 0],
           "plannedS": 100,
           "actualS": 100,
           "outcome": "completed",
           "topic": "work"
         },
         {
-          "startedAt": 1704916800000,
+          "startedAtLocal": [2024, 0, 10, 12, 0, 0, 0],
           "plannedS": 200,
           "actualS": 200,
           "outcome": "completed",
           "topic": "custom:deleted-label"
         },
         {
-          "startedAt": 1704916800000,
+          "startedAtLocal": [2024, 0, 10, 12, 0, 0, 0],
           "plannedS": 300,
           "actualS": 300,
           "outcome": "completed"
@@ -687,7 +728,7 @@
     {
       "name": "nonpositive_target_guards_the_divide",
       "_note": "A hand-built or corrupted goal with targetS <= 0, reachable in principle via sanitizeRemoteGoals from another device. Both sides return ratio 0 rather than NaN/Infinity. This case was excluded while only the app guarded the divide; the website now matches, so it is covered.",
-      "nowMs": 1704916800000,
+      "nowLocal": [2024, 0, 10, 12, 0, 0, 0],
       "goals": [
         {
           "id": "goal:zero",
@@ -710,7 +751,7 @@
       ],
       "sessions": [
         {
-          "startedAt": 1704916800000,
+          "startedAtLocal": [2024, 0, 10, 12, 0, 0, 0],
           "plannedS": 600,
           "actualS": 600,
           "outcome": "completed"
@@ -736,6 +777,176 @@
           "remainingS": 0,
           "ratio": 0,
           "met": true,
+          "sessionCount": 1,
+          "dueToday": true
+        }
+      ]
+    },
+    {
+      "name": "excluded_custom_label_does_not_count",
+      "_note": "The demonstrated Sleep-label bug: a session tagged with a custom label whose excludeFromTotals is true must not advance an any-topic goal. sessionCountsTowardTotals says no even though the goal's own topic:null already matched.",
+      "nowLocal": [2024, 0, 10, 12, 0, 0, 0],
+      "labels": [
+        { "id": "custom:sleep", "name": "Sleep", "color": "#78716c", "excludeFromTotals": true }
+      ],
+      "goals": [
+        {
+          "id": "goal:a",
+          "topic": null,
+          "period": "daily",
+          "targetS": 3600,
+          "createdAt": 0,
+          "updatedAt": 0,
+          "archived": false
+        }
+      ],
+      "sessions": [
+        {
+          "startedAtLocal": [2024, 0, 10, 12, 0, 0, 0],
+          "plannedS": 3600,
+          "actualS": 3600,
+          "outcome": "completed",
+          "topic": "custom:sleep"
+        }
+      ],
+      "expected": [
+        {
+          "goalId": "goal:a",
+          "period": "daily",
+          "targetS": 3600,
+          "focusS": 0,
+          "remainingS": 3600,
+          "ratio": 0,
+          "met": false,
+          "sessionCount": 0,
+          "dueToday": true
+        }
+      ]
+    },
+    {
+      "name": "excluded_builtin_topic_key_does_not_count",
+      "_note": "A built-in topic key (not a custom label) present in excludedTopicKeys must be excluded the same way an excludeFromTotals custom label is.",
+      "nowLocal": [2024, 0, 10, 12, 0, 0, 0],
+      "excludedTopicKeys": ["work"],
+      "goals": [
+        {
+          "id": "goal:a",
+          "topic": null,
+          "period": "daily",
+          "targetS": 1000,
+          "createdAt": 0,
+          "updatedAt": 0,
+          "archived": false
+        }
+      ],
+      "sessions": [
+        {
+          "startedAtLocal": [2024, 0, 10, 12, 0, 0, 0],
+          "plannedS": 500,
+          "actualS": 500,
+          "outcome": "completed",
+          "topic": "work"
+        }
+      ],
+      "expected": [
+        {
+          "goalId": "goal:a",
+          "period": "daily",
+          "targetS": 1000,
+          "focusS": 0,
+          "remainingS": 1000,
+          "ratio": 0,
+          "met": false,
+          "sessionCount": 0,
+          "dueToday": true
+        }
+      ]
+    },
+    {
+      "name": "untagged_session_always_counts_despite_exclusions",
+      "_note": "An untagged session has no catalog entry to carry an exclusion opinion, so it must count toward an any-topic goal even while an excludeFromTotals label AND an excluded built-in topic key are both active for other sessions.",
+      "nowLocal": [2024, 0, 10, 12, 0, 0, 0],
+      "labels": [
+        { "id": "custom:sleep", "name": "Sleep", "color": "#78716c", "excludeFromTotals": true }
+      ],
+      "excludedTopicKeys": ["work"],
+      "goals": [
+        {
+          "id": "goal:a",
+          "topic": null,
+          "period": "daily",
+          "targetS": 1000,
+          "createdAt": 0,
+          "updatedAt": 0,
+          "archived": false
+        }
+      ],
+      "sessions": [
+        {
+          "startedAtLocal": [2024, 0, 10, 12, 0, 0, 0],
+          "plannedS": 400,
+          "actualS": 400,
+          "outcome": "completed"
+        }
+      ],
+      "expected": [
+        {
+          "goalId": "goal:a",
+          "period": "daily",
+          "targetS": 1000,
+          "focusS": 400,
+          "remainingS": 600,
+          "ratio": 0.4,
+          "met": false,
+          "sessionCount": 1,
+          "dueToday": true
+        }
+      ]
+    },
+    {
+      "name": "excluded_label_alongside_counted_label",
+      "_note": "Two custom labels in the same catalog, only one excluded -- the excluded label's session must be dropped while the non-excluded label's session still counts, in the same computeGoalProgress call.",
+      "nowLocal": [2024, 0, 10, 12, 0, 0, 0],
+      "labels": [
+        { "id": "custom:sleep", "name": "Sleep", "color": "#78716c", "excludeFromTotals": true },
+        { "id": "custom:deep", "name": "Deep Work", "color": "#123456" }
+      ],
+      "goals": [
+        {
+          "id": "goal:a",
+          "topic": null,
+          "period": "daily",
+          "targetS": 1000,
+          "createdAt": 0,
+          "updatedAt": 0,
+          "archived": false
+        }
+      ],
+      "sessions": [
+        {
+          "startedAtLocal": [2024, 0, 10, 12, 0, 0, 0],
+          "plannedS": 600,
+          "actualS": 600,
+          "outcome": "completed",
+          "topic": "custom:sleep"
+        },
+        {
+          "startedAtLocal": [2024, 0, 10, 12, 0, 0, 0],
+          "plannedS": 300,
+          "actualS": 300,
+          "outcome": "completed",
+          "topic": "custom:deep"
+        }
+      ],
+      "expected": [
+        {
+          "goalId": "goal:a",
+          "period": "daily",
+          "targetS": 1000,
+          "focusS": 300,
+          "remainingS": 700,
+          "ratio": 0.3,
+          "met": false,
           "sessionCount": 1,
           "dueToday": true
         }

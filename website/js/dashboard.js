@@ -230,6 +230,14 @@ applyTheme(theme); // hexToRgba/applyTheme now live in theme.js -- see its heade
 // privately -- dashboard.js only ever resets them via resetCalendarView (renderAll below).
 let calSessions = [];
 let calCustomLabels = [];
+// The synced counterpart to calCustomLabels' excludeFromTotals flags -- the
+// six built-in topics a user has excluded from focus totals/goal progress
+// (users/{uid}/settings/app's excludedTopicKeys, same field the app's
+// useSettingsStore.ts syncs). Set once per load (fetchDashboardData already
+// sanitizes it) and read directly by renderDataViews below, the same way
+// `themeMode` is -- nothing on this page writes it, so unlike calCustomLabels
+// it never needs to be threaded through a write's onWritten/onCommitted callback.
+let calExcludedTopicKeys = [];
 // Planned focus sessions (users/{uid}/scheduledSessions). Loaded alongside
 // everything else in loadDashboard and re-read after every write -- see
 // plannedCtx.onChanged for why re-reading rather than mutating locally.
@@ -260,8 +268,15 @@ let goalsProgress = [];
  * via onWritten) keeps working unchanged -- none of them touch goals, so
  * they shouldn't have to pass calGoals through by hand on every call. */
 function renderDataViews(sessions, customLabels, goals = calGoals) {
-  const stats = aggregate(sessions);
-  const trend = lastNDays(sessions);
+  // customLabels/calExcludedTopicKeys are threaded through so an
+  // excludeFromTotals-tagged (or excluded-built-in-topic) session doesn't
+  // inflate the total focus time / trend chart, matching app/src/stats/
+  // stats.ts's aggregate and app/src/stats/trend.ts's lastNDays. Note
+  // topicBreakdownWithCustom deliberately does NOT take these -- see its own
+  // comment in focusStats.js for why the "by label" breakdown still shows an
+  // excluded session's time.
+  const stats = aggregate(sessions, customLabels, calExcludedTopicKeys);
+  const trend = lastNDays(sessions, 7, Date.now(), customLabels, calExcludedTopicKeys);
   const topics = topicBreakdownWithCustom(sessions, customLabels, themeMode);
 
   // These three must be assigned BEFORE any render below, not after. Every
@@ -292,7 +307,7 @@ function renderDataViews(sessions, customLabels, goals = calGoals) {
   // own Date.now(), so a render straddling a local-midnight (or Sunday-
   // midnight) window boundary could show a row's bar computed against one
   // window and its "Week of ..." caption against the next.
-  goalsProgress = computeGoalProgress(goals, sessions);
+  goalsProgress = computeGoalProgress(goals, sessions, Date.now(), customLabels, calExcludedTopicKeys);
   renderGoalsList(goals, goalsProgress, els, goalsCtx);
   renderCalendar(sessions, customLabels, els, {
     theme,
@@ -377,13 +392,14 @@ async function loadDashboard(db, uid) {
   // and the dashboard's own four reads below should not queue behind it.
   void refreshWebPushRow();
   try {
-    const { sessions, settings, customLabels, goals, plans } = await fetchDashboardData(db, uid);
+    const { sessions, settings, customLabels, excludedTopicKeys, goals, plans } = await fetchDashboardData(db, uid);
     // A newer loadDashboard call already started (and may have already
     // rendered) while this one's Firestore round-trip was in flight -- drop
     // this stale result rather than let it stomp the newer one. See loadSeq's
     // own comment above.
     if (seq !== loadSeq) return;
     calPlans = plans;
+    calExcludedTopicKeys = excludedTopicKeys;
     // Same themeMode/accent fields useSettingsStore.ts syncs from the app
     // (SyncableSettings) -- resolving them here is what makes this page look
     // like *this user's* app, not just a fixed website palette. Also kept

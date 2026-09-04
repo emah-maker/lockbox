@@ -30,6 +30,21 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const fixturePath = path.join(__dirname, '..', 'fixtures', 'goalProgress.golden.json');
 const fixture = JSON.parse(readFileSync(fixturePath, 'utf8'));
 
+// `now`/`startedAt` in the fixture are LOCAL-TIME-relative (the window math
+// anchors to local midnight/week-start/month-start), so the fixture gives
+// them as `nowLocal`/`startedAtLocal` [year, monthIndex, day, hour, minute,
+// second, ms] tuples instead of raw epoch ms -- see goalProgress.golden.json's
+// own header for why. Converting via the local Date constructor here (not
+// Date.UTC) means this runs in whatever timezone the test process is in,
+// same as website/js/goalProgress.js's own window math, so the two stay in
+// lockstep regardless of the machine's timezone. A case may still carry a
+// plain numeric `nowMs`/`startedAt` where that's safe (see the fixture
+// header) -- support both forms.
+function localPartsToMs(parts) {
+  const [y, mo, d, h = 0, mi = 0, s = 0, ms = 0] = parts;
+  return new Date(y, mo, d, h, mi, s, ms).getTime();
+}
+
 describe('computeGoalProgress -- golden fixture parity with app/src/goals/goalProgress.ts', () => {
   it('has at least one case per branch this fixture exists to cover', () => {
     assert.ok(fixture.cases.length >= 10);
@@ -37,7 +52,12 @@ describe('computeGoalProgress -- golden fixture parity with app/src/goals/goalPr
 
   for (const c of fixture.cases) {
     it(c.name, () => {
-      const result = computeGoalProgress(c.goals, c.sessions, c.nowMs);
+      const nowMs = c.nowLocal ? localPartsToMs(c.nowLocal) : c.nowMs;
+      const sessions = c.sessions.map((s) => ({
+        ...s,
+        startedAt: s.startedAtLocal ? localPartsToMs(s.startedAtLocal) : s.startedAt,
+      }));
+      const result = computeGoalProgress(c.goals, sessions, nowMs, c.labels || [], c.excludedTopicKeys || []);
       assert.deepEqual(result, c.expected);
     });
   }

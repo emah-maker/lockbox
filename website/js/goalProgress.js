@@ -16,6 +16,7 @@
    app/src/goals/goalProgress.ts still agrees. That fixture is the one place
    drift between the two surfaces actually gets caught.
    ========================================================================= */
+import { sessionCountsTowardTotals } from './focusStats.js';
 
 // This section (goalWindow, isGoalDueOn, computeGoalProgress below) is the
 // plain-JS port of app/src/goals/goalProgress.ts's window/progress math.
@@ -98,8 +99,25 @@ export function isGoalDueOn(goal, nowMs) {
  * flag changes, per isGoalDueOn above. `met` requires BOTH the time target
  * AND the session-count target (when the goal has one) -- for a time-only
  * goal (no targetSessions, the shape every goal had before this field
- * existed) this is exactly the pre-extension `focusS >= targetS` check. */
-export function computeGoalProgress(goals, sessions, nowMs = Date.now()) {
+ * existed) this is exactly the pre-extension `focusS >= targetS` check.
+ *
+ * `labels` (default `[]`, i.e. nothing excluded) additionally requires
+ * focusStats.js's sessionCountsTowardTotals to allow each session before it
+ * contributes to focusS/sessionCount -- a session tagged with an
+ * `excludeFromTotals` label never advances a goal's progress, even a goal
+ * explicitly aimed at that exact label id (the raw topic match above can
+ * still say "yes this matches"; the session still doesn't count). Mirrors
+ * app/src/goals/goalProgress.ts's own `labels` parameter -- see that
+ * function's comment for the full rationale. Omitting `labels` reproduces
+ * the exact pre-exclusion behavior, which is what every pre-existing caller/
+ * test depends on.
+ *
+ * `excludedTopicKeys` (default `[]`) is sessionCountsTowardTotals' other
+ * exclusion list -- a goal aimed at (or merely matching) one of the six
+ * built-in topics doesn't advance from a session tagged with a topic the
+ * user has excluded, same rule as `labels` and same backward-compatible
+ * default. */
+export function computeGoalProgress(goals, sessions, nowMs = Date.now(), labels = [], excludedTopicKeys = []) {
   const results = [];
   for (const goal of goals) {
     if (goal.archived) continue;
@@ -109,6 +127,7 @@ export function computeGoalProgress(goals, sessions, nowMs = Date.now()) {
     for (const s of sessions) {
       if (s.startedAt < startMs || s.startedAt >= endMs) continue;
       if (goal.topic !== null && s.topic !== goal.topic) continue;
+      if (!sessionCountsTowardTotals(s.topic, labels, excludedTopicKeys)) continue;
       focusS += s.actualS;
       sessionCount += 1;
     }

@@ -25,7 +25,7 @@ import {
   orderBy,
   query,
 } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
-import { sanitizeCustomLabels } from './focusStats.js';
+import { sanitizeCustomLabels, sanitizeExcludedTopicKeys } from './focusStats.js';
 import { sanitizeRemoteGoals } from './goals.js';
 import { loadScheduledSessions } from './scheduledSessionsSync.js';
 
@@ -59,7 +59,7 @@ function withTimeout(promise, ms) {
  * a denied or timed-out read of the core documents. The planned-sessions
  * read is deliberately NOT one of those; see its own comment below.
  *
- * Answers with { sessions, settings, customLabels, goals, plans }.
+ * Answers with { sessions, settings, customLabels, excludedTopicKeys, goals, plans }.
  */
 export async function fetchDashboardData(db, uid) {
   const [sessionsSnap, settingsSnap, goalsSnap, plans] = await withTimeout(Promise.all([
@@ -104,6 +104,14 @@ export async function fetchDashboardData(db, uid) {
   // checked by anything, and every renderer below reads .id/.name/.color
   // straight out of them.
   const customLabels = sanitizeCustomLabels(settings.customLabels);
+  // sanitizeExcludedTopicKeys is the same untrusted-input boundary for the
+  // built-in-topic exclusion list -- settings/app's rule bounds this array's
+  // SIZE and type but cannot check each element is actually one of the six
+  // real topic keys (see that function's own comment in focusStats.js).
+  // Sessions/goals/customLabels all go through their own boundary above;
+  // this was the one field of settings/app that fed straight into
+  // computeGoalProgress/aggregate/lastNDays completely unvalidated.
+  const excludedTopicKeys = sanitizeExcludedTopicKeys(settings.excludedTopicKeys);
   // sanitizeRemoteGoals is the untrusted-input boundary for this doc (see
   // its own comment in goals.js) -- run before anything else (including
   // computeGoalProgress in renderAll/renderDataViews) ever sees it, the
@@ -116,5 +124,5 @@ export async function fetchDashboardData(db, uid) {
   // update rule. Those three are normalized where they are applied
   // (theme.js's resolveTheme already falls back for values it does not
   // know), not here, so this stays a read rather than a policy.
-  return { sessions, settings, customLabels, goals, plans };
+  return { sessions, settings, customLabels, excludedTopicKeys, goals, plans };
 }

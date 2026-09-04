@@ -150,6 +150,52 @@ export function deleteCustomLabel(labels, id) {
   return labels.filter((l) => l.id !== id);
 }
 
+/** Whether a session tagged `topic` should count toward focus totals/goal
+ * progress -- port of app/src/stats/customLabels.ts's sessionCountsTowardTotals
+ * (see that function's own long comment for the full rationale; kept here
+ * rather than shared for this file's own header reason). Untagged always
+ * counts; a built-in topic key counts unless it's in `excludedTopicKeys`; a
+ * saved custom label counts unless that label has `excludeFromTotals: true`;
+ * anything matching neither catalog (a one-time free-text tag, or a saved
+ * label since deleted) always counts too -- there's no catalog entry left to
+ * carry an exclusion opinion. */
+export function sessionCountsTowardTotals(topic, labels, excludedTopicKeys = []) {
+  if (!topic) return true;
+  if (topic in TOPIC_LABELS) return !excludedTopicKeys.includes(topic);
+  const label = (labels || []).find((l) => l.id === topic);
+  return !(label && label.excludeFromTotals);
+}
+
+/** `sessions` with every entry `sessionCountsTowardTotals` says not to count
+ * removed -- port of app/src/stats/customLabels.ts's filterCountedSessions,
+ * the shared filter step aggregate/lastNDays below run before summing.
+ * `excludedTopicKeys` (default `[]`) is forwarded straight through, same as
+ * the app twin. */
+export function filterCountedSessions(sessions, labels, excludedTopicKeys = []) {
+  return sessions.filter((s) => sessionCountsTowardTotals(s.topic, labels, excludedTopicKeys));
+}
+
+/**
+ * Untrusted value -> a clean `excludedTopicKeys` array -- port of
+ * app/src/stats/customLabels.ts's sanitizeExcludedTopicKeys, sanitizeCustomLabels's
+ * counterpart for the built-in-topic exclusion list. settings/app's rule
+ * bounds this array's SIZE and type but cannot check each element is
+ * actually one of the six real topic keys, so a garbage entry is dropped
+ * rather than carried through (harmless to sessionCountsTowardTotals'
+ * membership test, but it would round-trip back to the account forever and
+ * silently occupy a slot toward the cap otherwise). Returns keys in
+ * TOPIC_KEYS' own fixed order and de-duplicated, same as the app twin.
+ */
+export function sanitizeExcludedTopicKeys(value) {
+  if (!Array.isArray(value)) return [];
+  const keys = new Set();
+  for (const entry of value) {
+    if (typeof entry === 'string' && TOPIC_KEYS.includes(entry)) keys.add(entry);
+    if (keys.size === TOPIC_KEYS.length) break; // every real key already seen -- nothing left to add
+  }
+  return TOPIC_KEYS.filter((k) => keys.has(k));
+}
+
 /**
  * Untrusted value -> a label catalog this page can actually render. The twin
  * of app/src/stats/customLabels.ts's sanitizeCustomLabels; keep the two in
@@ -225,16 +271,25 @@ export function resolveTopic(topic, customLabels, mode = 'dark') {
 
 /** Aggregate raw session records the same way the app/firmware does. Records
  * are expected oldest-first; streak = trailing consecutive completed
- * sessions. Mirrors app/src/stats/stats.ts's aggregate. */
-export function aggregate(records) {
+ * sessions. Mirrors app/src/stats/stats.ts's aggregate.
+ *
+ * `labels` (default `[]`, i.e. nothing excluded) is threaded through
+ * filterCountedSessions above before any of the math below runs, so a
+ * session tagged with an `excludeFromTotals` label contributes to none of
+ * `n`/`foc`/`done`/`str`/`lng` -- same rationale/default as the app twin.
+ * `excludedTopicKeys` (default `[]`) is the identical exclusion for the six
+ * built-in topics. Omitting both reproduces the pre-exclusion behavior
+ * byte-for-byte, since an empty catalog excludes nothing. */
+export function aggregate(records, labels = [], excludedTopicKeys = []) {
+  const counted = filterCountedSessions(records, labels, excludedTopicKeys);
   let n = 0;
   let foc = 0;
   let done = 0;
   let lng = 0;
   let str = 0;
   let streakOpen = true;
-  for (let i = records.length - 1; i >= 0; i -= 1) {
-    const r = records[i];
+  for (let i = counted.length - 1; i >= 0; i -= 1) {
+    const r = counted[i];
     n += 1;
     foc += r.actualS;
     if (r.actualS > lng) lng = r.actualS;
@@ -316,9 +371,15 @@ export function bestDay(sessions) {
 }
 
 /** Oldest-to-newest focus totals for the last `days` calendar days (including
- * today). Mirrors app/src/stats/trend.ts's lastNDays. */
-export function lastNDays(sessions, days = 7, nowMs = Date.now()) {
-  const byDay = groupByDay(sessions);
+ * today). Mirrors app/src/stats/trend.ts's lastNDays.
+ *
+ * `labels` (default `[]`) excludes `excludeFromTotals`-tagged sessions from
+ * every day's total, same rationale/default as aggregate above -- the trend
+ * bars this feeds shouldn't read higher just because a day also had an
+ * excluded label's time logged on it. `excludedTopicKeys` (default `[]`) is
+ * the same exclusion for built-in topics, forwarded alongside `labels`. */
+export function lastNDays(sessions, days = 7, nowMs = Date.now(), labels = [], excludedTopicKeys = []) {
+  const byDay = groupByDay(filterCountedSessions(sessions, labels, excludedTopicKeys));
   const now = new Date(nowMs);
   const out = [];
   for (let i = days - 1; i >= 0; i -= 1) {
@@ -332,7 +393,18 @@ export function lastNDays(sessions, days = 7, nowMs = Date.now()) {
 
 /** Focus time + session count per resolvable label (built-in or custom),
  * sorted highest focus first. Untagged/deleted-label sessions are excluded --
- * mirrors app/src/stats/customLabels.ts's topicBreakdownWithCustom. */
+ * mirrors app/src/stats/customLabels.ts's topicBreakdownWithCustom.
+ *
+ * Deliberately takes no `labels`/`excludedTopicKeys` exclusion params, unlike
+ * aggregate/lastNDays above -- this is a "what was actually tagged" breakdown,
+ * not a counting total. app/src/stats/customLabels.ts's own
+ * sessionCountsTowardTotals doc comment names this exact function as one of
+ * the views an excluded session is "NEVER hidden from ... only from the
+ * aggregates that answer 'how much have I focused'/'did I hit my goal'" --
+ * so an excludeFromTotals-tagged session's time still shows up here, same as
+ * the app. Do not add exclusion filtering here without re-checking that
+ * comment; doing so would newly diverge FROM the app rather than fix a
+ * divergence. */
 export function topicBreakdownWithCustom(sessions, customLabels, mode = 'dark') {
   const totals = new Map();
   for (const s of sessions) {
