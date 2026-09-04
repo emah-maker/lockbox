@@ -48,6 +48,7 @@ import { filterByWindow } from '../stats/sessionHistory';
 import type { Goal } from '../goals/goals';
 import { AnimatedPressable } from '../ui/AnimatedPressable';
 import { useReducedMotion } from '../ui/useReducedMotion';
+import { useNowMs } from '../ui/useNowMs';
 import { useNav } from '../nav/useNav';
 import { typeScale, opacity } from '../theme/tokens';
 import { FocusHero } from './home/FocusHero';
@@ -129,6 +130,13 @@ export default function DashboardScreen() {
   // would also re-render this screen whenever a *pending intent* changes,
   // which is a value only the destination screen ever consumes.
   const navigate = useNav((st) => st.navigate);
+  // Ticks on its own (ui/useNowMs.ts) so "today" below re-crosses local
+  // midnight while this screen just sits open, instead of freezing at
+  // whatever instant todaySessions/todayStats last recomputed because
+  // `sessions` happened to change reference -- see that hook's own header
+  // for the underlying bug. This is the Home tab's headline number, so it's
+  // the highest-visibility instance of that bug in the app.
+  const nowMs = useNowMs();
 
   // Duration picker -- local to this screen, not persisted. Preview-only: it
   // can't start a lock from the phone (that has to happen at the box, with
@@ -202,7 +210,7 @@ export default function DashboardScreen() {
   // Kept as its own memo (rather than inlined into todayStats below) since
   // the new TopicBreakdownStrip filler block (task 5) also needs the raw,
   // untotaled session list, not just its aggregate.
-  const todaySessions = useMemo(() => filterByWindow(sessions, 'day'), [sessions]);
+  const todaySessions = useMemo(() => filterByWindow(sessions, 'day', nowMs), [sessions, nowMs]);
   // customLabels so a session tagged with an excludeFromTotals label
   // (stats/customLabels.ts) doesn't inflate "focus time today" -- todayStats.foc
   // feeds useHomeGoalRing's todayFocusS below, which the idle ring and

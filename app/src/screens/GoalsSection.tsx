@@ -41,6 +41,7 @@ import { Section, Button } from './SettingsPrimitives';
 import { GoalForm, GoalFormValues } from './GoalForm';
 import { Sheet } from '../ui/Sheet';
 import { useReducedMotion, configureLayoutAnimation } from '../ui/useReducedMotion';
+import { useNowMs } from '../ui/useNowMs';
 import { typeScale } from '../theme/tokens';
 import { GoalsEmptyState } from './stats/GoalsEmptyState';
 import { GoalRow, describeTopic } from './GoalRow';
@@ -150,17 +151,20 @@ export function GoalsSection({
   // out on its own side too; both are needed, since this list also drives
   // the rows themselves, not just their progress lookups.
   const visible = React.useMemo(() => goals.filter((g) => !g.archived), [goals]);
-  // Date.now() is read here rather than passed in from the caller because a
-  // goal's window boundary is a render-time fact, not a prop -- and this
-  // recomputes on every sessions/goals change anyway, which is the only time
-  // a bar can actually move.
+  // Ticks on its own (ui/useNowMs.ts) so a goal's window boundary crossed
+  // while this list just sits open (e.g. a daily goal met by a 23:50
+  // session, still open past midnight) flips this memo back to "not met" on
+  // its own, instead of freezing at whatever `nowMs` was at the last render
+  // that happened to touch goals/sessions/customLabels/excludedTopicKeys --
+  // see that hook's own header for the underlying bug.
   // customLabels/excludedTopicKeys so a session tagged with an
   // excludeFromTotals label, or an excluded built-in topic (stats/
   // customLabels.ts), never advances a goal's bar here, matching every other
   // computeGoalProgress call site in the app.
+  const nowMs = useNowMs();
   const progress = React.useMemo(
-    () => computeGoalProgress(goals, sessions, Date.now(), customLabels, excludedTopicKeys),
-    [goals, sessions, customLabels, excludedTopicKeys],
+    () => computeGoalProgress(goals, sessions, nowMs, customLabels, excludedTopicKeys),
+    [goals, sessions, nowMs, customLabels, excludedTopicKeys],
   );
   const progressById = React.useMemo(
     () => new Map(progress.map((p) => [p.goalId, p])),

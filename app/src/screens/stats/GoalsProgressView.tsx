@@ -34,6 +34,7 @@ import { computeGoalStreak, isGoalOnPace, goalStreakState, GoalStreakState } fro
 import { computeBestGoalStreak } from '../../stats/goalStreakHistory';
 import { AnimatedPressable } from '../../ui/AnimatedPressable';
 import { useReducedMotion } from '../../ui/useReducedMotion';
+import { useNowMs } from '../../ui/useNowMs';
 import { typeScale } from '../../theme/tokens';
 import { GoalRing } from './GoalRing';
 import { GoalsEmptyState } from './GoalsEmptyState';
@@ -82,7 +83,12 @@ export function GoalsProgressView({
   const goals = useGoalsStore((s) => s.goals);
 
   const active = React.useMemo(() => goals.filter((g) => !g.archived), [goals]);
-  const nowMs = Date.now();
+  // Ticks on its own (useNowMs.ts) so a day/window boundary crossed while
+  // this screen just sits open -- e.g. a daily goal met by a 23:50 session,
+  // still open past midnight -- flips this memo back to "not met" on its
+  // own, instead of freezing at whatever `nowMs` was at the last render that
+  // happened to touch goals/sessions/customLabels/excludedTopicKeys.
+  const nowMs = useNowMs();
   // customLabels/excludedTopicKeys so an excludeFromTotals-tagged session, or
   // one tagged with an excluded built-in topic, doesn't advance this ring
   // any more than it does anywhere else that counts (stats/customLabels.ts) --
@@ -90,7 +96,7 @@ export function GoalsProgressView({
   // site in the app.
   const progress = React.useMemo(
     () => computeGoalProgress(goals, sessions, nowMs, customLabels, excludedTopicKeys),
-    [goals, sessions, customLabels, excludedTopicKeys],
+    [goals, sessions, nowMs, customLabels, excludedTopicKeys],
   );
   const progressById = React.useMemo(() => new Map(progress.map((p) => [p.goalId, p])), [progress]);
 

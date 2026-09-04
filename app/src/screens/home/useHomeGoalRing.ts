@@ -10,6 +10,7 @@
 // wiring, a pure module does the math" split DashboardScreen itself already
 // keeps for e.g. its own useDisabledFade.
 import { useMemo } from 'react';
+import { useNowMs } from '../../ui/useNowMs';
 import type { LoggedSession } from '../../stats/sessionHistory';
 import { bestDay } from '../../stats/trend';
 import { resolveTopic, topicBreakdownWithCustom } from '../../stats/customLabels';
@@ -80,18 +81,28 @@ export function useHomeGoalRing(params: {
     ringShowTopicMix,
   } = params;
 
+  // Ticks on its own (ui/useNowMs.ts) so every "today"/"this window" memo
+  // below re-crosses its day/window boundary while Home just sits open,
+  // instead of freezing at whatever instant it last recomputed because
+  // sessions/goals/customLabels/excludedTopicKeys happened to change
+  // reference -- see that hook's own header for the underlying bug. The
+  // 'pace' ring source (idleRing below) is the sharpest case: it's meant to
+  // move visibly within a single day, and without this it would read the
+  // same expectedS/progress at 9am as at 8pm.
+  const nowMs = useNowMs();
+
   // Every non-archived goal's current-window progress -- goalProgress.ts's
   // shared, canonical math (never reimplemented here), computed once and
   // reused by goalHighlight (below), the idle ring's 'weeklyGoal' source, and
   // its 'chosenGoal' source, rather than each calling computeGoalProgress
-  // (and its own fresh Date.now()) separately.
+  // separately.
   // customLabels so an excludeFromTotals-tagged session never advances a
   // goal here either -- goalHighlight (TodaySummary's card) and the ring's
   // 'weeklyGoal'/'monthlyGoal'/'chosenGoal' sources all read off this same
   // array (stats/customLabels.ts).
   const goalProgressAll = useMemo(
-    () => computeGoalProgress(goals, sessions, Date.now(), customLabels, excludedTopicKeys),
-    [goals, sessions, customLabels, excludedTopicKeys],
+    () => computeGoalProgress(goals, sessions, nowMs, customLabels, excludedTopicKeys),
+    [goals, sessions, nowMs, customLabels, excludedTopicKeys],
   );
 
   // The single most-relevant goal for TodaySummary -- the nearest-to-
@@ -146,7 +157,7 @@ export function useHomeGoalRing(params: {
   // way (see IdleRingState.segments). Skipped entirely when the arc is off.
   const segments: RingSegment[] | undefined = useMemo(() => {
     if (!ringShowTopicMix || todayFocusS <= 0) return undefined;
-    const today = groupByDay(sessions).get(dayKey(Date.now())) ?? [];
+    const today = groupByDay(sessions).get(dayKey(nowMs)) ?? [];
     const breakdown = topicBreakdownWithCustom(today, customLabels, themeMode);
     const total = breakdown.reduce((sum, b) => sum + b.focusS, 0);
     if (total <= 0) return undefined;
@@ -155,7 +166,7 @@ export function useHomeGoalRing(params: {
     // hairline slivers -- the remainder simply isn't drawn, which reads as
     // the same "rest of the day" gap an under-100% ring already leaves.
     return breakdown.slice(0, 6).map((b) => ({ key: b.key, fraction: b.focusS / total, color: b.color }));
-  }, [ringShowTopicMix, sessions, todayFocusS, customLabels, themeMode]);
+  }, [ringShowTopicMix, sessions, todayFocusS, nowMs, customLabels, themeMode]);
 
   const idleRing = useMemo(
     () =>
@@ -163,7 +174,7 @@ export function useHomeGoalRing(params: {
         ringSource: ringSourceKind,
         todayFocusS,
         dailyGoalTargetS: dailyGoal ? dailyGoal.targetS : null,
-        baselineFocusS: bestDay(sessions, ringBaselineWindow, Date.now(), customLabels, excludedTopicKeys)?.focusS ?? 0,
+        baselineFocusS: bestDay(sessions, ringBaselineWindow, nowMs, customLabels, excludedTopicKeys)?.focusS ?? 0,
         weeklyGoalRatio: weeklyGoalResult ? weeklyGoalResult.ratio : null,
         monthlyGoalRatio: monthlyGoalResult ? monthlyGoalResult.ratio : null,
         chosenGoalRatio: chosenGoalResult ? chosenGoalResult.ratio : null,
@@ -180,16 +191,16 @@ export function useHomeGoalRing(params: {
           ? { focusS: chosenGoalResult.focusS, targetS: chosenGoalResult.targetS }
           : null,
         chosenGoalName: chosenGoal ? describeGoalTopic(chosenGoal.topic, customLabels, themeMode) : null,
-        rollingAverageS: computeRollingAverageS(sessions, Date.now(), customLabels, excludedTopicKeys),
-        streakCurrent: computeDailyStreak(sessions, Date.now(), customLabels, excludedTopicKeys),
+        rollingAverageS: computeRollingAverageS(sessions, nowMs, customLabels, excludedTopicKeys),
+        streakCurrent: computeDailyStreak(sessions, nowMs, customLabels, excludedTopicKeys),
         streakLongest: computeLongestDailyStreak(sessions, customLabels, excludedTopicKeys),
-        todaySessionCount: todaySessionCount(sessions, Date.now(), customLabels, excludedTopicKeys),
+        todaySessionCount: todaySessionCount(sessions, nowMs, customLabels, excludedTopicKeys),
         // The daily goal's own session target -- never invented when it has
         // none (see computeSessionCountRingProgress), which is what makes
         // the 'sessionCount' source read as empty rather than as a
         // meaningless fraction of a made-up number.
         dailySessionTarget: dailyGoal?.targetSessions ?? null,
-        nowMs: Date.now(),
+        nowMs,
         segments,
       }),
     [
@@ -202,6 +213,7 @@ export function useHomeGoalRing(params: {
       monthlyGoalResult,
       chosenGoalResult,
       chosenGoal,
+      nowMs,
       customLabels,
       excludedTopicKeys,
       themeMode,

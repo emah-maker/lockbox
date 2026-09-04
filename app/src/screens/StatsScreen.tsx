@@ -48,6 +48,7 @@ import { lastNDays, lastNDaysHeatmap, bestDay } from '../stats/trend';
 import { filterByWindow, dayKey, dayKeyToDate, TimeWindow, LoggedSession } from '../stats/sessionHistory';
 import { getJSON, setJSON } from '../storage/storage';
 import { useReducedMotion } from '../ui/useReducedMotion';
+import { useNowMs } from '../ui/useNowMs';
 import { Sheet } from '../ui/Sheet';
 import { useNav } from '../nav/useNav';
 import { PeriodSelector, StatsPeriod, isStatsPeriod } from './stats/PeriodSelector';
@@ -195,6 +196,12 @@ export default function StatsScreen() {
   };
 
   const windowKey: TimeWindow = isTimeWindow(period) ? period : 'all';
+  // Ticks on its own (ui/useNowMs.ts) so windowOnlySessions/best/trend/
+  // heatmap below re-cross their day/window boundaries while this screen
+  // just sits open, instead of freezing at whatever instant they last
+  // recomputed because sessions/customLabels/excludedTopicKeys happened to
+  // change reference -- see that hook's own header for the underlying bug.
+  const nowMs = useNowMs();
 
   // Topic filter (InteractiveTopicDonut / TopicCard row taps) scopes every
   // card on this screen, not just the topic card itself -- computed as two
@@ -203,7 +210,10 @@ export default function StatsScreen() {
   // stay selectable/clearable; `topicScoped` (topic filter only, no period
   // window) feeds the always-unwindowed trend/heatmap/streak, matching
   // those cards' pre-existing "ignore the period control" behavior.
-  const windowOnlySessions = useMemo(() => filterByWindow(sessions, windowKey), [sessions, windowKey]);
+  const windowOnlySessions = useMemo(
+    () => filterByWindow(sessions, windowKey, nowMs),
+    [sessions, windowKey, nowMs],
+  );
   const topics = useMemo(
     () => topicBreakdownWithCustom(windowOnlySessions, customLabels, themeMode),
     [windowOnlySessions, customLabels, themeMode],
@@ -262,16 +272,16 @@ export default function StatsScreen() {
   );
   const comparisons = useMemo(() => topComparisons(stats.foc).slice(0, TOP_N), [stats.foc]);
   const best = useMemo(
-    () => bestDay(topicScoped, 'all', Date.now(), customLabels, excludedTopicKeys),
-    [topicScoped, customLabels, excludedTopicKeys],
+    () => bestDay(topicScoped, 'all', nowMs, customLabels, excludedTopicKeys),
+    [topicScoped, nowMs, customLabels, excludedTopicKeys],
   );
   const trend = useMemo(
-    () => lastNDays(topicScoped, 7, Date.now(), customLabels, excludedTopicKeys),
-    [topicScoped, customLabels, excludedTopicKeys],
+    () => lastNDays(topicScoped, 7, nowMs, customLabels, excludedTopicKeys),
+    [topicScoped, nowMs, customLabels, excludedTopicKeys],
   );
   const heatmap = useMemo(
-    () => lastNDaysHeatmap(topicScoped, Date.now(), customLabels, excludedTopicKeys),
-    [topicScoped, customLabels, excludedTopicKeys],
+    () => lastNDaysHeatmap(topicScoped, nowMs, customLabels, excludedTopicKeys),
+    [topicScoped, nowMs, customLabels, excludedTopicKeys],
   );
 
   const daySheetSessions: LoggedSession[] = daySheetKey

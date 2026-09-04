@@ -19,6 +19,7 @@
 // a sibling Home-ring computation.
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
+import { AppState } from 'react-native';
 import { useHomeGoalRing } from './useHomeGoalRing';
 import type { Goal } from '../../goals/goals';
 import type { LoggedSession } from '../../stats/sessionHistory';
@@ -75,6 +76,79 @@ function renderRing(sessions: LoggedSession[], customLabels: CustomLabel[], excl
   });
   return idleRing!;
 }
+
+// Module-scope, stable references -- matching the real app, where Zustand
+// selectors keep the same array/reference until the underlying data
+// actually changes. An inline `[]`/`[goal]` literal below would be a fresh
+// reference every render and would mask the very bug this describe block
+// exists to catch: if useHomeGoalRing's memos depend on nowMs (via
+// useNowMs.ts) rather than one of these references changing, only a stable
+// reference proves the clock -- not an unrelated prop -- is what triggered
+// the recompute.
+const PACE_GOALS: Goal[] = [dailyGoal];
+const PACE_SESSIONS: LoggedSession[] = [];
+const STABLE_LABELS: CustomLabel[] = [];
+const STABLE_EXCLUDED: string[] = [];
+
+describe('useHomeGoalRing pace source clock', () => {
+  // Same fake-timer + explicit AppState setup as useNowMs.test.tsx itself --
+  // this hook's own regression tests -- since the bug this proves fixed is
+  // that nothing without a real ticking clock ever revisited these memos.
+  beforeEach(() => {
+    jest.useFakeTimers();
+    (AppState as unknown as { currentState: string }).currentState = 'active';
+  });
+
+  afterEach(() => {
+    jest.clearAllTimers();
+    jest.useRealTimers();
+  });
+
+  it('moves expectedS/progress across a single day without sessions/goals/labels ever changing reference', () => {
+    // 9am: matches this task's own worked example -- a 1-hour (3600s) daily
+    // goal expects 225s done by 9am (paceFractionOfDay's 08:00-24:00 window).
+    const morning = new Date(2026, 0, 15, 9, 0, 0).getTime();
+    jest.setSystemTime(morning);
+
+    let idleRing: IdleRingState | undefined;
+    function Harness() {
+      const { idleRing: r } = useHomeGoalRing({
+        sessions: PACE_SESSIONS,
+        todayFocusS: 1800,
+        goals: PACE_GOALS,
+        customLabels: STABLE_LABELS,
+        excludedTopicKeys: STABLE_EXCLUDED,
+        themeMode: 'dark',
+        ringBaselineWindow: 'week',
+        ringSourceKind: 'pace',
+        ringGoalId: null,
+        ringShowTopicMix: false,
+      });
+      idleRing = r;
+      return null;
+    }
+    act(() => {
+      mounted.push(TestRenderer.create(<Harness />));
+    });
+
+    expect(idleRing?.pace?.expectedS).toBeCloseTo(225);
+
+    // 8pm the same day -- same worked example's 2700s expected. No prop
+    // passed to the hook above changes at all; only wall-clock time (and
+    // useNowMs's own 60s interval tick, which actually fires the re-render)
+    // moves. Sets the fake clock to one tick-interval before 8pm, then
+    // advances exactly that interval, so the tick's own Date.now() lands
+    // precisely on `evening` instead of one interval past it.
+    const evening = new Date(2026, 0, 15, 20, 0, 0).getTime();
+    jest.setSystemTime(evening - 60_000);
+    act(() => {
+      jest.advanceTimersByTime(60_000);
+    });
+
+    expect(idleRing?.pace?.expectedS).toBeCloseTo(2700);
+    expect(idleRing?.progress).toBeCloseTo(1800 / 2700);
+  });
+});
 
 describe('useHomeGoalRing sessionCount source', () => {
   it('does not count a session tagged with an excludeFromTotals label', () => {
