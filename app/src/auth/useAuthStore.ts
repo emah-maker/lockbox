@@ -23,13 +23,15 @@ import { initFirebaseAuth, getFirebaseAuth } from './firebase';
 import {
   signInWithGoogle as signInWithGoogleAuth,
   signOutFully as signOutGoogleFully,
-  deleteAccountFully as deleteAccountGoogleFully,
+  reauthenticateForDeletion as reauthenticateGoogleForDeletion,
+  deleteUserAccount as deleteGoogleUserAccount,
   linkGoogleToCurrentUser,
 } from './googleAuth';
 import {
   signInWithApple as signInWithAppleAuth,
   signOutFully as signOutAppleFully,
-  deleteAccountFully as deleteAccountAppleFully,
+  reauthenticateForDeletion as reauthenticateAppleForDeletion,
+  deleteUserAccount as deleteAppleUserAccount,
   linkAppleToCurrentUser,
 } from './appleAuth';
 import {
@@ -122,11 +124,15 @@ interface AuthState {
   signInWithGoogle: () => Promise<void>;
   signInWithApple: () => Promise<void>;
   signOut: () => Promise<void>;
-  /** Full account deletion (§4.3, §5 checklist item 12): cascade-deletes
-   * what firestore.rules permits, then deletes the Firebase Auth user
-   * itself, then clears local account state. See firestoreSync.ts's
-   * deleteAllUserData for the one documented exception (session docs are
-   * orphaned, not purged, by design). */
+  /** Full account deletion (§4.3, §5 checklist item 12): re-authenticates
+   * FIRST (proving recent presence before anything irreversible runs),
+   * then cascade-deletes what firestore.rules permits, then deletes the
+   * Firebase Auth user itself, then clears local account state. A cancelled
+   * or failed re-auth aborts the whole flow untouched. See
+   * firestoreSync.ts's deleteAllUserData for the one documented exception
+   * (session docs are orphaned, not purged, by design), and this file's
+   * AccountDataWipedError for the one abnormal outcome (data wiped, Auth
+   * user deletion itself then failed). */
   deleteAccount: () => Promise<void>;
   syncNow: () => Promise<void>;
   /** Links `provider`'s credential to the CURRENT signed-in user -- the
@@ -153,22 +159,37 @@ function linkedProviders(user: User): AuthProviderKind[] {
   return toProviderKinds(user.providerData.map((p) => p.providerId));
 }
 
-/** Wraps a provider's deleteAccountFully() with exactly one retry on
- * auth/requires-recent-login (spec §4). Each call to `run` already performs
- * its own fresh native sign-in + reauthenticateWithCredential before
- * deleteUser() (see googleAuth.ts/appleAuth.ts's deleteAccountFully), so a
- * first attempt that hit this because that reauth step was itself skipped
- * (e.g. a cancelled native picker, which both files deliberately swallow and
- * fall through past) gets exactly one more chance to complete it. A second
- * failure of any kind propagates unchanged -- deleteAccount's own caller
- * (the Account page) turns any failure here into one generic,
- * credential-free message, never this raw error. */
+/** Wraps a provider's reauthenticateForDeletion() with exactly one retry on
+ * auth/requires-recent-login (spec §4). This runs BEFORE any destructive
+ * step in deleteAccount below -- a cancelled native picker/sheet throws a
+ * plain (non-`auth/requires-recent-login`) error from
+ * googleAuth.ts/appleAuth.ts's reauthenticateForDeletion, which is rethrown
+ * immediately below without a second prompt; only a genuine
+ * requires-recent-login failure gets one more attempt. A second failure of
+ * any kind propagates unchanged -- deleteAccount's own caller (the Account
+ * page) turns any failure here into one generic, credential-free message,
+ * never this raw error. */
 async function deleteWithReauthRetry(run: () => Promise<void>): Promise<void> {
   try {
     await run();
   } catch (e: any) {
     if (e?.code !== 'auth/requires-recent-login') throw e;
     await run();
+  }
+}
+
+/** Thrown by deleteAccount() below in the one abnormal case it can produce:
+ * deleteAllUserData(uid) already succeeded (cloud settings/goals/devices/etc.
+ * are irreversibly gone) but the Auth-user deletion that follows it
+ * (deleteUserAccount) failed, so the user is left signed in. Callers
+ * (DangerZoneSection) must check for this and show a message that says the
+ * data is gone even though the account isn't -- never the generic "please
+ * try again" text, which would imply nothing happened. `cause` is logged,
+ * never shown (matches this file's credential-free-message discipline). */
+export class AccountDataWipedError extends Error {
+  constructor(public readonly cause: unknown) {
+    super('Account data was deleted, but removing the sign-in itself failed.');
+    this.name = 'AccountDataWipedError';
   }
 }
 
@@ -353,34 +374,58 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   deleteAccount: async () => {
     const user = get().user;
     if (!user) return;
-    // Order matters: Firestore data must go first, while still authenticated
-    // as this uid -- see deleteAllUserData's own header comment. Local data
-    // is cleared last, after the Auth user is gone, for the same reason
-    // signOut clears after signOutFully -- no lingering local data once
-    // nobody is signed in on this device.
+    // Order matters, and this order is the fix for a real data-loss bug: the
+    // native re-auth prompt -- the one step in this whole flow the user can
+    // cancel or fail -- MUST complete successfully BEFORE deleteAllUserData
+    // runs. Firestore data used to be wiped first and re-auth attempted
+    // after, so a cancelled/failed picker left cloud data destroyed with the
+    // user still signed in and no indication anything happened. Re-auth
+    // still has to happen while signed in as this uid (same reason as
+    // before -- deleteAllUserData's own header comment: firestore.rules'
+    // isOwner(uid) needs a live credential), it just now happens first
+    // instead of last.
     //
-    // beginAccountDeletion/endAccountDeletion bracket the whole sequence so
-    // the best-effort push bridges (sessionsSyncBridge/settingsSyncBridge)
-    // can't re-create a doc deleteAllUserData just wiped -- deleteAccountFully
-    // re-authenticates via a fresh native sign-in, which can take a while,
-    // and a settings/session change landing in that window (still
-    // authenticated as this uid) would otherwise repush straight back in.
+    // Local data is cleared last, after the Auth user is gone, for the same
+    // reason signOut clears after signOutFully -- no lingering local data
+    // once nobody is signed in on this device.
+    //
+    // beginAccountDeletion/endAccountDeletion still bracket the whole
+    // sequence (reauth through deleteUser) so the best-effort push bridges
+    // (sessionsSyncBridge/settingsSyncBridge) can't re-create a doc that was
+    // just wiped -- the native picker/sheet can take a while, and a
+    // settings/session change landing in that window (still authenticated
+    // as this uid) would otherwise repush straight back in.
     //
     // deleteUser() only needs to run once -- it removes the Firebase Auth
     // user and ALL its linked provider associations in a single call, so
     // when both providers are linked this deliberately picks exactly one
     // (Google, if present) to reauthenticate with rather than running both
-    // deleteAccountFully()s, which would double-prompt (Google picker +
-    // Apple sheet) for no benefit.
+    // providers' flows, which would double-prompt (Google picker + Apple
+    // sheet) for no benefit.
     const auth = getFirebaseAuth();
     const providers = auth.currentUser ? linkedProviders(auth.currentUser) : [];
-    const deleteAccountFully = providers.includes('apple') && !providers.includes('google')
-      ? deleteAccountAppleFully
-      : deleteAccountGoogleFully;
+    const useApple = providers.includes('apple') && !providers.includes('google');
+    const reauthenticateForDeletion = useApple ? reauthenticateAppleForDeletion : reauthenticateGoogleForDeletion;
+    const deleteUserAccount = useApple ? deleteAppleUserAccount : deleteGoogleUserAccount;
     beginAccountDeletion(user.uid);
     try {
+      // Step 1: prove the user is currently present. Throws (and aborts
+      // everything below, untouched) on a cancelled or otherwise failed
+      // picker/sheet -- see reauthenticateForDeletion's own comment.
+      await deleteWithReauthRetry(reauthenticateForDeletion);
+      // Step 2: only now wipe Firestore -- reauth already succeeded.
       await deleteAllUserData(user.uid);
-      await deleteWithReauthRetry(deleteAccountFully);
+      // Step 3: only after the wipe succeeds, remove the Auth user itself.
+      try {
+        await deleteUserAccount();
+      } catch (e) {
+        // The one abnormal outcome this flow can produce: cloud data is
+        // already gone but the Auth user survived. Tag it so
+        // DangerZoneSection can tell the user the truth instead of the
+        // generic "please try again" that would imply nothing happened.
+        console.warn('[useAuthStore] deleteAccount: data wiped but deleteUserAccount failed:', (e as any)?.message ?? e);
+        throw new AccountDataWipedError(e);
+      }
     } finally {
       endAccountDeletion();
     }

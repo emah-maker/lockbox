@@ -116,35 +116,51 @@ export async function signOutFully(): Promise<void> {
 }
 
 /**
- * Full account deletion (design doc §4.3, §5 checklist item 12): deletes the
- * Firebase Auth user itself, then revokes/wipes the same way signOutFully()
- * does. Caller (useAuthStore.deleteAccount) MUST delete the user's Firestore
- * documents (firestoreSync.deleteAllUserData) BEFORE calling this -- once the
- * Auth user is gone, firestore.rules' `isOwner(uid)` check can never
- * authenticate as that uid again, so a cascade delete after this point is
- * impossible, not just harder.
+ * Step 1 of account deletion (design doc §4.3, §5 checklist item 12): proves
+ * the user is currently present via a fresh native Google Sign-In +
+ * reauthenticateWithCredential, BEFORE useAuthStore.deleteAccount touches
+ * anything destructive. This is deliberately stricter than
+ * signInWithGoogle/linkGoogleToCurrentUser's "cancel = stay in the previous
+ * state" contract: getGoogleCredential() already throws on a cancelled or
+ * failed picker, and that throw is left to propagate here rather than
+ * swallowed -- a cancelled picker MUST abort the whole deletion flow, since
+ * the invariant deleteAccount relies on is that nothing irreversible runs
+ * until this function has succeeded.
  *
  * Firebase requires a *recent* sign-in to delete a user
- * (`auth/requires-recent-login` otherwise); this re-runs the native Google
- * Sign-In flow to get a fresh credential and re-authenticates before
- * deleting, so the deletion doesn't fail on a long-lived session.
+ * (`auth/requires-recent-login` otherwise); this is what proves that
+ * recency. useAuthStore.deleteAccount retries this once on that error code
+ * (deleteWithReauthRetry) before giving up.
  */
-export async function deleteAccountFully(): Promise<void> {
+export async function reauthenticateForDeletion(): Promise<void> {
   const auth = getFirebaseAuth();
   const user = auth.currentUser;
   if (!user) return;
-  await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
-  const response = await GoogleSignin.signIn(); // fresh account picker -- proves recent user presence
-  if (response.type === 'success' && response.data.idToken) {
-    const credential = GoogleAuthProvider.credential(response.data.idToken);
-    await reauthenticateWithCredential(user, credential);
-  }
+  const credential = await getGoogleCredential(); // throws on cancel -- see comment above
+  await reauthenticateWithCredential(user, credential);
+}
+
+/**
+ * Step 3 of account deletion: deletes the Firebase Auth user itself, then
+ * revokes/wipes the same way signOutFully() does. Caller
+ * (useAuthStore.deleteAccount) MUST call reauthenticateForDeletion() above
+ * AND firestoreSync.deleteAllUserData() BEFORE calling this -- once the Auth
+ * user is gone, firestore.rules' `isOwner(uid)` check can never authenticate
+ * as that uid again, so a cascade delete after this point is impossible, not
+ * just harder. No native prompt runs here -- reauthenticateForDeletion
+ * already proved recent presence, so this is the one place deleteUser()
+ * itself is invoked.
+ */
+export async function deleteUserAccount(): Promise<void> {
+  const auth = getFirebaseAuth();
+  const user = auth.currentUser;
+  if (!user) return;
   await deleteUser(user);
   await GoogleSignin.revokeAccess().catch(() => {});
   await GoogleSignin.signOut().catch(() => {});
   for (const key of FIREBASE_AUTH_SECURE_STORE_KEYS) {
     await SecureStore.deleteItemAsync(key, SECURE_STORE_OPTS).catch((e) =>
-      console.warn('[googleAuth] deleteAccountFully: failed to delete', key, e?.message),
+      console.warn('[googleAuth] deleteUserAccount: failed to delete', key, e?.message),
     );
   }
 }

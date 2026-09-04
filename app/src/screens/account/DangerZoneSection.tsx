@@ -5,11 +5,16 @@
 // Alert.alert with an explicit destructive action is this platform's
 // equivalent, matching the pattern the pre-restructure AccountSection.tsx
 // already used. Re-authentication (auth/requires-recent-login) is handled
-// inside useAuthStore.deleteAccount's own retry-once wrapper -- this
-// component only ever sees success or a single generic failure.
+// inside useAuthStore.deleteAccount's own retry-once wrapper, and now runs
+// BEFORE any data is touched -- a cancelled/failed picker aborts the whole
+// flow untouched, and this component just sees the generic failure below.
+// The one other outcome it must distinguish is AccountDataWipedError: cloud
+// data was already deleted but removing the sign-in itself then failed, so
+// this can't share the generic "please try again" message, which would
+// falsely imply nothing happened.
 import React from 'react';
 import { Text, StyleSheet, Alert } from 'react-native';
-import { useAuthStore } from '../../auth/useAuthStore';
+import { useAuthStore, AccountDataWipedError } from '../../auth/useAuthStore';
 import { useTheme } from '../../theme/useTheme';
 import { AnimatedPressable } from '../../ui/AnimatedPressable';
 import { Button, Section, captionStyle } from '../SettingsPrimitives';
@@ -48,11 +53,22 @@ export function DangerZoneSection({ color }: { color: ReturnType<typeof useTheme
           setDeleteError(null);
           try {
             await deleteAccount();
-          } catch {
-            // Generic message only (spec §4) -- never interpolate the
-            // underlying error in case a future failure mode ever carries
-            // more than a plain string message.
-            setDeleteError('Could not delete account. Please try again.');
+          } catch (e) {
+            if (e instanceof AccountDataWipedError) {
+              // Honest, distinct message: unlike the generic case below,
+              // cloud data really is already gone. The account itself is
+              // still signed in, so retrying Delete account is the correct
+              // next step (deleteAllUserData is a no-op the second time).
+              setDeleteError(
+                'Your cloud data was deleted, but we could not finish removing your account. ' +
+                  'Please try Delete account again.',
+              );
+            } else {
+              // Generic message only (spec §4) -- never interpolate the
+              // underlying error in case a future failure mode ever carries
+              // more than a plain string message.
+              setDeleteError('Could not delete account. Please try again.');
+            }
           } finally {
             setBusy(false);
           }

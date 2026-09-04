@@ -28,13 +28,15 @@ jest.mock('firebase/auth', () => ({
 jest.mock('./googleAuth', () => ({
   signInWithGoogle: jest.fn(),
   signOutFully: jest.fn(),
-  deleteAccountFully: jest.fn(),
+  reauthenticateForDeletion: jest.fn(),
+  deleteUserAccount: jest.fn(),
   linkGoogleToCurrentUser: jest.fn(),
 }));
 jest.mock('./appleAuth', () => ({
   signInWithApple: jest.fn(),
   signOutFully: jest.fn(),
-  deleteAccountFully: jest.fn(),
+  reauthenticateForDeletion: jest.fn(),
+  deleteUserAccount: jest.fn(),
   linkAppleToCurrentUser: jest.fn(),
 }));
 jest.mock('../sync/firestoreSync', () => ({

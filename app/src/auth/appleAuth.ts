@@ -121,44 +121,49 @@ export async function signOutFully(): Promise<void> {
 }
 
 /**
- * Full account deletion, matching googleAuth.ts's deleteAccountFully():
- * deletes the Firebase Auth user itself, then wipes the same way
- * signOutFully() does. Caller (useAuthStore.deleteAccount) MUST delete the
- * user's Firestore documents BEFORE calling this -- see googleAuth.ts's
- * identical note.
+ * Step 1 of account deletion, matching googleAuth.ts's
+ * reauthenticateForDeletion(): proves the user is currently present via a
+ * fresh native Sign in with Apple sheet + reauthenticateWithCredential,
+ * BEFORE useAuthStore.deleteAccount touches anything destructive.
+ *
+ * Unlike this file's OLD deleteAccountFully (which caught
+ * ERR_REQUEST_CANCELED and fell through to deleteUser(), letting it fail
+ * later with auth/requires-recent-login instead of aborting up front), a
+ * cancelled sheet here is a hard failure: getAppleCredential() already turns
+ * ERR_REQUEST_CANCELED into a plain throw, and that throw is left to
+ * propagate rather than swallowed. The invariant deleteAccount relies on is
+ * that nothing irreversible runs until this function has succeeded.
  *
  * Firebase requires a *recent* sign-in to delete a user
- * (`auth/requires-recent-login` otherwise); this re-runs the native Apple
- * Sign-In sheet to get a fresh credential and re-authenticates before
- * deleting, so the deletion doesn't fail on a long-lived session.
+ * (`auth/requires-recent-login` otherwise); this is what proves that
+ * recency. useAuthStore.deleteAccount retries this once on that error code
+ * (deleteWithReauthRetry) before giving up.
  */
-export async function deleteAccountFully(): Promise<void> {
+export async function reauthenticateForDeletion(): Promise<void> {
   const auth = getFirebaseAuth();
   const user = auth.currentUser;
   if (!user) return;
-  const { raw: nonce, hashed: hashedNonce } = await generateNonce();
-  // Unlike GoogleSignin.signIn() (which resolves with a "cancelled" result
-  // type), AppleAuthentication.signInAsync() REJECTS with ERR_REQUEST_CANCELED
-  // on cancel -- caught here so a cancelled reauth sheet skips
-  // reauthenticateWithCredential and falls through to deleteUser() below
-  // (which itself throws auth/requires-recent-login if the session actually
-  // isn't recent), matching googleAuth.ts's graceful-skip-on-cancel behavior
-  // instead of aborting the whole deletion on a cancelled picker.
-  let result: AppleAuthentication.AppleAuthenticationCredential | null = null;
-  try {
-    result = await AppleAuthentication.signInAsync({ requestedScopes: APPLE_SCOPES, nonce: hashedNonce }); // fresh sheet -- proves recent user presence
-  } catch (e: any) {
-    if (e?.code !== 'ERR_REQUEST_CANCELED') throw e;
-  }
-  if (result?.identityToken) {
-    const provider = new OAuthProvider('apple.com');
-    const credential = provider.credential({ idToken: result.identityToken, rawNonce: nonce });
-    await reauthenticateWithCredential(user, credential);
-  }
+  const credential = await getAppleCredential(); // throws on cancel -- see comment above
+  await reauthenticateWithCredential(user, credential);
+}
+
+/**
+ * Step 3 of account deletion, matching googleAuth.ts's deleteUserAccount():
+ * deletes the Firebase Auth user itself, then wipes the same way
+ * signOutFully() does. Caller (useAuthStore.deleteAccount) MUST call
+ * reauthenticateForDeletion() above AND firestoreSync.deleteAllUserData()
+ * BEFORE calling this -- see googleAuth.ts's identical note. No native
+ * prompt runs here -- reauthenticateForDeletion already proved recent
+ * presence, so this is the one place deleteUser() itself is invoked.
+ */
+export async function deleteUserAccount(): Promise<void> {
+  const auth = getFirebaseAuth();
+  const user = auth.currentUser;
+  if (!user) return;
   await deleteUser(user);
   for (const key of FIREBASE_AUTH_SECURE_STORE_KEYS) {
     await SecureStore.deleteItemAsync(key, SECURE_STORE_OPTS).catch((e) =>
-      console.warn('[appleAuth] deleteAccountFully: failed to delete', key, e?.message),
+      console.warn('[appleAuth] deleteUserAccount: failed to delete', key, e?.message),
     );
   }
 }

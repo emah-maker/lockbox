@@ -359,7 +359,8 @@ export async function pushGoalsPatch(): Promise<void> {
  * this client-only, no-backend design; flagged as a known follow-up, not a
  * silent gap.
  *
- * MUST be called (and awaited) BEFORE googleAuth.deleteAccountFully() removes
+ * MUST be called (and awaited) AFTER useAuthStore.deleteAccount's re-auth
+ * step succeeds but BEFORE googleAuth/appleAuth's deleteUserAccount() removes
  * the Firebase Auth user -- every delete below is authorized by
  * `isOwner(uid)`, which requires the caller to still be signed in as that
  * uid. Deleting the auth user first would make even these permitted deletes
