@@ -37,6 +37,9 @@
     "react-native-svg": "15.15.4",
     "zustand": "^5.0.2"
   },
+  "overrides": {
+    "@react-native-async-storage/async-storage": "2.2.0"
+  },
   "devDependencies": {
     "@babel/core": "^7.25.0",
     "@babel/preset-env": "^7.29.7",
