@@ -18,11 +18,17 @@ describe('providerLabel', () => {
   it('maps known provider ids to their display labels', () => {
     expect(providerLabel('google.com')).toBe('Google');
     expect(providerLabel('apple.com')).toBe('Apple');
+    // Firebase's raw id for email/password is the bare string 'password' --
+    // NOT 'password.com' -- unlike the two dotted-reverse-domain OAuth ids.
+    expect(providerLabel('password')).toBe('Email');
   });
 
   it('falls back to "Other" for an unrecognized id without throwing', () => {
     expect(providerLabel('facebook.com')).toBe('Other');
     expect(providerLabel('')).toBe('Other');
+    // Guards the exact copy-paste mistake providerLabel's own comment warns
+    // about: assuming email/password follows the dotted convention.
+    expect(providerLabel('password.com')).toBe('Other');
   });
 });
 
@@ -31,8 +37,15 @@ describe('toProviderKinds', () => {
     expect(toProviderKinds(['google.com', 'apple.com'])).toEqual(['google', 'apple']);
   });
 
+  it('recognizes password alongside google.com/apple.com, in input order', () => {
+    // Was the "drops unrecognized ids" case before this app supported a third
+    // provider -- 'password' is now a recognized id, not a dropped one.
+    expect(toProviderKinds(['password', 'google.com', 'facebook.com'])).toEqual(['password', 'google']);
+    expect(toProviderKinds(['google.com', 'password', 'apple.com'])).toEqual(['google', 'password', 'apple']);
+  });
+
   it('drops unrecognized provider ids rather than throwing', () => {
-    expect(toProviderKinds(['password', 'google.com', 'facebook.com'])).toEqual(['google']);
+    expect(toProviderKinds(['facebook.com', 'google.com', 'twitter.com'])).toEqual(['google']);
   });
 
   it('returns an empty array for no providers', () => {
@@ -44,6 +57,7 @@ describe('canUnlink', () => {
   it('is false with zero or one linked provider', () => {
     expect(canUnlink([])).toBe(false);
     expect(canUnlink(['google.com'])).toBe(false);
+    expect(canUnlink(['password'])).toBe(false);
   });
 
   it('is true with two or more linked providers', () => {
@@ -55,17 +69,24 @@ describe('canUnlink', () => {
 });
 
 describe('unlinkedProviders', () => {
-  it('returns both providers when none are linked', () => {
-    expect(unlinkedProviders([])).toEqual(['google', 'apple']);
+  it('returns all three providers, in Google/Apple/Email order, when none are linked', () => {
+    expect(unlinkedProviders([])).toEqual(['google', 'apple', 'password']);
   });
 
-  it('returns only the missing provider when one is linked', () => {
-    expect(unlinkedProviders(['google'])).toEqual(['apple']);
-    expect(unlinkedProviders(['apple'])).toEqual(['google']);
+  it('returns the two missing providers when only one is linked', () => {
+    expect(unlinkedProviders(['google'])).toEqual(['apple', 'password']);
+    expect(unlinkedProviders(['apple'])).toEqual(['google', 'password']);
+    expect(unlinkedProviders(['password'])).toEqual(['google', 'apple']);
   });
 
-  it('returns an empty array when both are linked', () => {
-    expect(unlinkedProviders(['google', 'apple'])).toEqual([]);
+  it('returns only the missing provider when two are linked', () => {
+    expect(unlinkedProviders(['google', 'apple'])).toEqual(['password']);
+    expect(unlinkedProviders(['google', 'password'])).toEqual(['apple']);
+    expect(unlinkedProviders(['apple', 'password'])).toEqual(['google']);
+  });
+
+  it('returns an empty array when all three are linked', () => {
+    expect(unlinkedProviders(['google', 'apple', 'password'])).toEqual([]);
   });
 });
 
@@ -131,6 +152,12 @@ describe('providerActionErrorMessage', () => {
     expect(providerActionErrorMessage(sdk('auth/too-many-requests'), 'fallback')).toBe(
       'Too many attempts. Try again later.',
     );
+    // Same shared table backs the email/password-specific codes added for the
+    // third provider (e.g. linking a password to an already-signed-in account
+    // that turns out too weak gets the same wording sign-in does).
+    expect(providerActionErrorMessage(sdk('auth/weak-password'), 'fallback')).toBe(
+      'Password must be at least 6 characters.',
+    );
   });
 
   it('falls back to the caller-supplied message for an unrecognized code', () => {
@@ -188,6 +215,39 @@ describe('signInErrorMessage', () => {
     );
     expect(signInErrorMessage({ code: 'auth/too-many-requests', message: 'Firebase: Error (auth/too-many-requests).' })).toBe(
       'Too many attempts. Try again later.',
+    );
+  });
+
+  it('maps the five email/password-specific codes emailAuth.ts can throw to short, human-readable text', () => {
+    expect(signInErrorMessage({ code: 'auth/invalid-credential', message: 'Firebase: Error (auth/invalid-credential).' })).toBe(
+      'Incorrect email or password.',
+    );
+    expect(signInErrorMessage({ code: 'auth/email-already-in-use', message: 'Firebase: Error (auth/email-already-in-use).' })).toBe(
+      'An account with that email already exists.',
+    );
+    expect(signInErrorMessage({ code: 'auth/weak-password', message: 'Firebase: Error (auth/weak-password).' })).toBe(
+      'Password must be at least 6 characters.',
+    );
+    expect(signInErrorMessage({ code: 'auth/invalid-email', message: 'Firebase: Error (auth/invalid-email).' })).toBe(
+      'Enter a valid email address.',
+    );
+    expect(signInErrorMessage({ code: 'auth/missing-password', message: 'Firebase: Error (auth/missing-password).' })).toBe(
+      'Enter your password.',
+    );
+  });
+
+  it('gives auth/email-already-in-use different text at sign-in time than at link time -- same code, deliberately different copy', () => {
+    // providerActionErrorMessage (already-signed-in link flow) special-cases
+    // this code to "already linked to a different sign-in" BEFORE it ever
+    // reaches the shared SIGN_IN_ERROR_MESSAGES table; signInErrorMessage has
+    // no such early branch, so the same code reaches the table's own
+    // account-creation-flavored wording instead. A future refactor that made
+    // one of these delegate to the other would silently change one of the two.
+    expect(signInErrorMessage({ code: 'auth/email-already-in-use', message: 'x' })).toBe(
+      'An account with that email already exists.',
+    );
+    expect(providerActionErrorMessage({ code: 'auth/email-already-in-use', message: 'x' }, 'fallback')).toBe(
+      'That account is already linked to a different sign-in.',
     );
   });
 

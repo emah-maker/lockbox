@@ -1,9 +1,11 @@
 // SignInMethodsSection.tsx -- Account page's sign-in-method status (spec
 // §1): one chip per linked provider (accountDisplay.ts's providerLabel maps
-// any id besides google.com/apple.com to "Other" rather than dropping it), a
-// "Link" action for each supported provider NOT yet linked (Apple gated on
-// AppleAuthentication.isAvailableAsync(), same runtime check
-// SignedOutAccount.tsx uses), a "Remove" action per linked provider gated on
+// any id besides google.com/apple.com/password to "Other" rather than
+// dropping it), a "Link" action for each supported provider NOT yet linked
+// (Apple gated on AppleAuthentication.isAvailableAsync(), same runtime check
+// SignedOutAccount.tsx uses; linking email opens an inline form below
+// instead of a one-tap action, since it needs typed credentials rather than
+// a provider redirect), a "Remove" action per linked provider gated on
 // accountDisplay.ts's canUnlink (never leave the account with zero sign-in
 // methods) and confirmed via a native Alert first, and the account-created/
 // last-sign-in dates straight off useAuthStore's AccountUser.
@@ -22,17 +24,27 @@ import {
 } from '../../auth/accountDisplay';
 import { useTheme } from '../../theme/useTheme';
 import { Button, Row, Section, captionStyle } from '../SettingsPrimitives';
+import { EmailPasswordFields, validateEmailPassword } from './EmailPasswordFields';
 
-const PROVIDER_NAME: Record<AuthProviderKind, string> = { google: 'Google', apple: 'Apple' };
+const PROVIDER_NAME: Record<AuthProviderKind, string> = { google: 'Google', apple: 'Apple', password: 'Email' };
 
 export function SignInMethodsSection({ color }: { color: ReturnType<typeof useTheme> }) {
   const user = useAuthStore((s) => s.user);
   const linkProvider = useAuthStore((s) => s.linkProvider);
   const unlinkProvider = useAuthStore((s) => s.unlinkProvider);
+  const linkEmailPassword = useAuthStore((s) => s.linkEmailPassword);
 
   const [busyProvider, setBusyProvider] = React.useState<AuthProviderKind | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [appleAvailable, setAppleAvailable] = React.useState(false);
+
+  // The inline "Link email" form's own two fields -- kept separate from
+  // busyProvider/error above only where the shape genuinely differs (a
+  // typed credential pair instead of a one-tap redirect); it still shares
+  // this section's single busyProvider/error slots below.
+  const [linkEmailOpen, setLinkEmailOpen] = React.useState(false);
+  const [linkEmail, setLinkEmail] = React.useState('');
+  const [linkPassword, setLinkPassword] = React.useState('');
 
   React.useEffect(() => {
     let cancelled = false;
@@ -46,7 +58,7 @@ export function SignInMethodsSection({ color }: { color: ReturnType<typeof useTh
 
   if (!user) return null;
 
-  const handleLink = async (provider: AuthProviderKind) => {
+  const handleLink = async (provider: 'google' | 'apple') => {
     setBusyProvider(provider);
     setError(null);
     try {
@@ -57,6 +69,30 @@ export function SignInMethodsSection({ color }: { color: ReturnType<typeof useTh
       // user-initiated cancel, so there is nothing to suppress here. This
       // used to pass `e.message` as the fallback, which handed the raw SDK
       // string straight back for any code the mapping didn't cover.
+      setError(providerActionErrorMessage(e, 'Could not link account. Please try again.'));
+    } finally {
+      setBusyProvider(null);
+    }
+  };
+
+  // Email can't go through handleLink/linkProvider above -- linking a
+  // password needs a typed credential (linkEmailPassword), not a provider
+  // redirect, so it gets its own submit handler and its own inline form
+  // (rendered below) instead of a one-tap button.
+  const handleLinkEmail = async () => {
+    const validationError = validateEmailPassword(linkEmail, linkPassword);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+    setBusyProvider('password');
+    setError(null);
+    try {
+      await linkEmailPassword(linkEmail, linkPassword);
+      setLinkEmailOpen(false);
+      setLinkEmail('');
+      setLinkPassword('');
+    } catch (e: any) {
       setError(providerActionErrorMessage(e, 'Could not link account. Please try again.'));
     } finally {
       setBusyProvider(null);
@@ -91,7 +127,7 @@ export function SignInMethodsSection({ color }: { color: ReturnType<typeof useTh
   const linked = user.linkedProviders;
   const eligibleToUnlink = canUnlink(user.providerIds);
   // Apple must only be offered where it's actually available (spec §1) --
-  // Google has no equivalent runtime-availability check.
+  // Google and Email have no equivalent runtime-availability check.
   const notLinked = unlinkedProviders(linked).filter((p) => p !== 'apple' || appleAvailable);
   const createdLabel = formatShortDate(user.creationTime);
   const lastSignInLabel = formatShortDate(user.lastSignInTime);
@@ -125,24 +161,64 @@ export function SignInMethodsSection({ color }: { color: ReturnType<typeof useTh
 
       {notLinked.length > 0 ? (
         <View style={styles.chipRow}>
-          {notLinked.map((provider) => (
+          {notLinked
+            // Hides the "Link Email" trigger once its own form (below) is
+            // open, rather than showing both at once.
+            .filter((provider) => provider !== 'password' || !linkEmailOpen)
+            .map((provider) => (
+              <Button
+                key={provider}
+                label={`Link ${PROVIDER_NAME[provider]}`}
+                onPress={() => (provider === 'password' ? setLinkEmailOpen(true) : handleLink(provider))}
+                disabled={busyProvider !== null}
+                loading={busyProvider === provider}
+                color={color}
+                variant="outline"
+                icon={
+                  <Ionicons
+                    name={provider === 'google' ? 'logo-google' : provider === 'apple' ? 'logo-apple' : 'mail-outline'}
+                    size={16}
+                    color={color.text}
+                  />
+                }
+              />
+            ))}
+        </View>
+      ) : null}
+
+      {linkEmailOpen ? (
+        <View style={styles.linkEmailForm}>
+          <EmailPasswordFields
+            email={linkEmail}
+            onChangeEmail={setLinkEmail}
+            password={linkPassword}
+            onChangePassword={setLinkPassword}
+            newPassword
+            editable={busyProvider === null}
+            color={color}
+          />
+          <View style={styles.chipRow}>
             <Button
-              key={provider}
-              label={`Link ${PROVIDER_NAME[provider]}`}
-              onPress={() => handleLink(provider)}
+              label="Link"
+              onPress={handleLinkEmail}
               disabled={busyProvider !== null}
-              loading={busyProvider === provider}
+              loading={busyProvider === 'password'}
               color={color}
               variant="outline"
-              icon={
-                <Ionicons
-                  name={provider === 'google' ? 'logo-google' : 'logo-apple'}
-                  size={16}
-                  color={color.text}
-                />
-              }
             />
-          ))}
+            <Button
+              label="Cancel"
+              onPress={() => {
+                setLinkEmailOpen(false);
+                setLinkEmail('');
+                setLinkPassword('');
+                setError(null);
+              }}
+              disabled={busyProvider !== null}
+              color={color}
+              variant="outline"
+            />
+          </View>
         </View>
       ) : null}
 
@@ -161,4 +237,5 @@ const styles = StyleSheet.create({
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   chip: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6 },
   chipText: { fontSize: 13, fontWeight: '600' },
+  linkEmailForm: { gap: 8 },
 });

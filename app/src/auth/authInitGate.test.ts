@@ -20,6 +20,10 @@ jest.mock('./firebase', () => ({
   initFirebaseAuth: jest.fn(),
   getFirebaseAuth: jest.fn(() => ({})),
   getDb: jest.fn(() => ({})),
+  // Only ever read to annotate a diagnostic log line (useAuthStore's
+  // describeInitError / watchdog), so a fixed value is enough -- these tests
+  // assert on the store's state and the gate's timing, not on log text.
+  getAuthInitStage: jest.fn(() => 'initialize-auth'),
 }));
 jest.mock('firebase/auth', () => ({
   onAuthStateChanged: jest.fn(),

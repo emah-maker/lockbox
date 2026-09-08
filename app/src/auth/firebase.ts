@@ -55,6 +55,22 @@ function assertFirebaseConfigValid(): void {
 }
 
 /**
+ * Which step of initFirebaseAuth() is currently outstanding. Exists purely so
+ * useAuthStore's watchdog can name the stalled step instead of reporting the
+ * same generic "didn't start" for every cause. The distinction that actually
+ * matters is 'done' vs anything else: reaching 'done' and STILL never getting
+ * an onAuthStateChanged callback means the SDK's own initializeCurrentUser()
+ * rejected internally (historically, the persistence adapter throwing -- see
+ * secureStorePersistence.ts's _get), which is invisible from out here
+ * otherwise because initializeAuth() itself resolves fine in that case.
+ */
+export type AuthInitStage = 'not-started' | 'config-check' | 'stale-session-wipe' | 'initialize-auth' | 'done';
+let initStage: AuthInitStage = 'not-started';
+export function getAuthInitStage(): AuthInitStage {
+  return initStage;
+}
+
+/**
  * Wipes any stale pre-install Keychain session (§2.5), then initializes
  * Firebase Auth with the SecureStore-backed persistence adapter (§2.2).
  * Idempotent -- safe to call multiple times; only the first call does work,
@@ -63,9 +79,16 @@ function assertFirebaseConfigValid(): void {
 export function initFirebaseAuth(): Promise<void> {
   if (!initPromise) {
     initPromise = Promise.resolve()
-      .then(() => assertFirebaseConfigValid()) // fail loudly here, not three steps later during sign-in
-      .then(() => wipeStaleSessionOnFreshInstall())
       .then(() => {
+        initStage = 'config-check';
+        assertFirebaseConfigValid(); // fail loudly here, not three steps later during sign-in
+      })
+      .then(() => {
+        initStage = 'stale-session-wipe';
+        return wipeStaleSessionOnFreshInstall();
+      })
+      .then(() => {
+        initStage = 'initialize-auth';
         try {
           auth = initializeAuth(app, { persistence: secureStorePersistence });
         } catch (e: any) {
@@ -83,6 +106,7 @@ export function initFirebaseAuth(): Promise<void> {
           auth = getAuth(app);
         }
         db = getFirestore(app);
+        initStage = 'done';
       })
       .catch((e) => {
         // Never leave a rejected promise cached: `initPromise` is the only

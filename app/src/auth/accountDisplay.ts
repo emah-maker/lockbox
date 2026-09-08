@@ -16,10 +16,14 @@ import type { AuthProviderKind } from './accountLinking';
 export function providerLabel(providerId: string): string {
   if (providerId === 'google.com') return 'Google';
   if (providerId === 'apple.com') return 'Apple';
+  // Firebase's raw id for email/password is the literal string 'password'
+  // (EmailAuthProvider.PROVIDER_ID) -- NOT 'password.com'. Unlike the two
+  // OAuth providers above, it was never assigned a dotted reverse-domain id.
+  if (providerId === 'password') return 'Email';
   return 'Other';
 }
 
-/** Narrows raw providerData ids to the two providers this app's link/unlink
+/** Narrows raw providerData ids to the three providers this app's link/unlink
  * actions actually understand, in the same shape useAuthStore.ts's
  * AccountUser.linkedProviders and internal linkedProviders(user) both need.
  * Promoted out of useAuthStore.ts (which used to inline this exact filter
@@ -27,8 +31,8 @@ export function providerLabel(providerId: string): string {
  * canUnlink below -- share one definition instead of drifting apart. */
 export function toProviderKinds(providerIds: string[]): AuthProviderKind[] {
   return providerIds
-    .filter((id): id is 'google.com' | 'apple.com' => id === 'google.com' || id === 'apple.com')
-    .map((id) => (id === 'google.com' ? 'google' : 'apple'));
+    .filter((id): id is 'google.com' | 'apple.com' | 'password' => id === 'google.com' || id === 'apple.com' || id === 'password')
+    .map((id) => (id === 'google.com' ? 'google' : id === 'apple.com' ? 'apple' : 'password'));
 }
 
 /** §1's "never leave an account with zero sign-in methods" rule: unlinking a
@@ -37,24 +41,25 @@ export function toProviderKinds(providerIds: string[]): AuthProviderKind[] {
  *
  * Takes RAW provider ids, deliberately not the toProviderKinds()-narrowed
  * list: the question "would this account still have a way to sign in?" is
- * about everything Firebase actually has linked, not just the two providers
+ * about everything Firebase actually has linked, not just the three providers
  * this app's own Link buttons understand. Counting the narrowed list would
- * wrongly refuse a legitimate unlink for an account that also has some third
- * method attached (it would see 1 where Firebase has 2) -- unreachable while
- * Google and Apple are the only providers enabled, but wrong the moment a
- * third is, and it would put this out of step with the website's own account
- * panel, which counts user.providerData directly. */
+ * wrongly refuse a legitimate unlink for an account that also has some other
+ * method attached (it would see 2 where Firebase has 3) -- unreachable while
+ * Google, Apple, and email/password are the only providers enabled, but wrong
+ * the moment a fourth is, and it would put this out of step with the
+ * website's own account panel, which counts user.providerData directly. */
 export function canUnlink(providerIds: string[]): boolean {
   return providerIds.length >= 2;
 }
 
-/** Providers NOT currently linked, in a fixed (Google, Apple) order -- what
- * §1's "Not linked yet" affordance offers a Link action for. Callers still
- * need to separately gate Apple on AppleAuthentication.isAvailableAsync()
- * (§1) -- that's a platform/runtime check, not a pure function of `linked`,
- * so it deliberately doesn't live here. */
+/** Providers NOT currently linked, in a fixed (Google, Apple, Email) order --
+ * what §1's "Not linked yet" affordance offers a Link action for. Callers
+ * still need to separately gate Apple on
+ * AppleAuthentication.isAvailableAsync() (§1) -- that's a platform/runtime
+ * check, not a pure function of `linked`, so it deliberately doesn't live
+ * here. Email/password has no equivalent runtime gate -- it's always offered. */
 export function unlinkedProviders(linked: AuthProviderKind[]): AuthProviderKind[] {
-  const all: AuthProviderKind[] = ['google', 'apple'];
+  const all: AuthProviderKind[] = ['google', 'apple', 'password'];
   return all.filter((p) => !linked.includes(p));
 }
 
@@ -147,6 +152,18 @@ const SIGN_IN_ERROR_MESSAGES: Record<string, string> = {
   'auth/network-request-failed': 'No connection. Check your network and try again.',
   'auth/too-many-requests': 'Too many attempts. Try again later.',
   'auth/user-disabled': 'This account has been disabled.',
+  // Email/password-specific codes (emailAuth.ts). This Firebase project has
+  // Email Enumeration Protection enabled (see accountLinking.ts's header for
+  // the same constraint on fetchSignInMethodsForEmail), which is why
+  // invalid-credential's copy below is deliberately vague: it's what
+  // signInWithEmailAndPassword returns for BOTH a wrong password and a
+  // nonexistent account, on purpose, so this must never guess which --
+  // matches website/js/authErrors.js's identical reasoning for the same code.
+  'auth/invalid-credential': 'Incorrect email or password.',
+  'auth/email-already-in-use': 'An account with that email already exists.',
+  'auth/weak-password': 'Password must be at least 6 characters.',
+  'auth/invalid-email': 'Enter a valid email address.',
+  'auth/missing-password': 'Enter your password.',
   // What Firebase's own REST call throws for a missing/invalid API key or a
   // project with Auth not configured -- exactly the bug this file's
   // FirebaseConfigError check (firebase.ts) exists to catch earlier, but a

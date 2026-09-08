@@ -52,18 +52,22 @@ describe('signInDetectingLinkConflict', () => {
     expect(pending!.credential).toBe(fakeCredential);
   });
 
-  it('computes the other provider correctly in both directions', async () => {
+  // candidateProviders REPLACES the old single linkWithProvider field from
+  // when this app supported only two providers (see accountLinking.ts's
+  // PendingAccountLink doc comment) -- with three, "the other one" is a list,
+  // not a single answer.
+  it('computes candidateProviders as every OTHER supported provider, excluding only the one that just conflicted', async () => {
     await expect(
       signInDetectingLinkConflict('apple', fakeCredential, () => Promise.reject(conflictError(null))),
     ).rejects.toBeInstanceOf(AccountExistsError);
-    expect(getPendingLink()!.linkWithProvider).toBe('google');
+    expect(getPendingLink()!.candidateProviders).toEqual(['google', 'password']);
 
     clearPendingLink();
 
     await expect(
       signInDetectingLinkConflict('google', fakeCredential, () => Promise.reject(conflictError(null))),
     ).rejects.toBeInstanceOf(AccountExistsError);
-    expect(getPendingLink()!.linkWithProvider).toBe('apple');
+    expect(getPendingLink()!.candidateProviders).toEqual(['apple', 'password']);
   });
 
   it('defaults email to null when the error has no customData.email', async () => {
@@ -110,5 +114,29 @@ describe('completePendingLink', () => {
     await expect(completePendingLink(fakeUser)).rejects.toThrow('link failed');
 
     expect(getPendingLink()).toBeNull();
+  });
+});
+
+describe('clearPendingLink', () => {
+  // End-to-end proof (against this module's real, unmocked logic) that
+  // dismissing a conflict actually closes the exploit useAuthStore.ts's
+  // dismissPendingLink was added to fix: a credential stashed by one
+  // conflict, abandoned (not completed), must never be available for a
+  // LATER, unrelated sign-in to have linked onto it. The
+  // deleteAccount.test.ts suite asserts useAuthStore.ts *calls*
+  // clearPendingLink at the right points; this asserts the call actually
+  // removes the credential, not just that some mock recorded an invocation.
+  it('removes the stashed credential, so a later completePendingLink for an unrelated user is a no-op', async () => {
+    await expect(
+      signInDetectingLinkConflict('google', fakeCredential, () => Promise.reject(conflictError('a@b.com'))),
+    ).rejects.toBeInstanceOf(AccountExistsError);
+    expect(getPendingLink()).not.toBeNull();
+
+    clearPendingLink(); // the dismissal useAuthStore.ts's dismissPendingLink performs
+
+    expect(getPendingLink()).toBeNull();
+    const unrelatedUser = { uid: 'someone-else-entirely' } as any;
+    await completePendingLink(unrelatedUser);
+    expect(mockLinkWithCredential).not.toHaveBeenCalled();
   });
 });

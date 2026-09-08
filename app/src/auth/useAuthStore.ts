@@ -6,20 +6,21 @@
 // Never logs user.email/displayName/photoURL/uid (design doc §5 checklist
 // item 3) -- SettingsScreen reads them straight off `user` for display only.
 //
-// Two sign-in providers (Google, Apple) share one Firebase Auth user per
-// email via accountLinking.ts: `pendingLink` below surfaces the "sign in
-// with your other provider to link" prompt state to SettingsScreen, and
-// handleProviderSignIn() completes the link once the user proves ownership
-// by signing in with that other provider. linkProvider/unlinkProvider below
-// are the separate, additive case: already signed in, and adding/removing
-// the OTHER provider deliberately rather than resolving a sign-in conflict.
+// Three sign-in providers (Google, Apple, email/password) share one Firebase
+// Auth user per email via accountLinking.ts: `pendingLink` below surfaces the
+// "sign in with one of your other providers to link" prompt state to
+// SettingsScreen, and handleProviderSignIn() completes the link once the
+// user proves ownership by signing in with one of those other providers.
+// linkProvider/linkEmailPassword/unlinkProvider below are the separate,
+// additive case: already signed in, and adding/removing another provider
+// deliberately rather than resolving a sign-in conflict.
 //
 // autoSyncEnabled gates ONLY the automatic syncNow() call in init()'s
 // onAuthStateChanged handler below -- syncNow() itself (and the manual
 // "Sync now" button that calls it) is never gated by this preference.
 import { create } from 'zustand';
 import { onAuthStateChanged, unlink, type User } from 'firebase/auth';
-import { initFirebaseAuth, getFirebaseAuth } from './firebase';
+import { initFirebaseAuth, getFirebaseAuth, getAuthInitStage } from './firebase';
 import {
   signInWithGoogle as signInWithGoogleAuth,
   signOutFully as signOutGoogleFully,
@@ -35,8 +36,18 @@ import {
   linkAppleToCurrentUser,
 } from './appleAuth';
 import {
+  signInWithEmail as signInWithEmailAuth,
+  createAccountWithEmail as createAccountWithEmailAuth,
+  sendPasswordReset as sendPasswordResetAuth,
+  linkEmailToCurrentUser,
+  signOutFully as signOutEmailFully,
+  reauthenticateForDeletion as reauthenticateEmailForDeletion,
+  deleteUserAccount as deleteEmailUserAccount,
+} from './emailAuth';
+import {
   getPendingLink,
   completePendingLink,
+  clearPendingLink,
   AccountExistsError,
   type AuthProviderKind,
   type PendingAccountLink,
@@ -61,14 +72,22 @@ export interface AccountUser {
   lastSignInTime: string | null;
   /** Raw Firebase providerData ids, unfiltered -- so the Account page's chip
    * list can show an "Other" chip (accountDisplay.ts's providerLabel) for a
-   * provider id besides google.com/apple.com, per spec §1, rather than
-   * silently dropping it the way linkedProviders below deliberately does. */
+   * provider id besides google.com/apple.com/password, per spec §1, rather
+   * than silently dropping it the way linkedProviders below deliberately does. */
   providerIds: string[];
-  /** providerIds narrowed to the two providers this app's link/unlink
+  /** providerIds narrowed to the three providers this app's link/unlink
    * actions understand -- same data linkedProviders(user) below has always
    * computed for signOut/deleteAccount's provider-specific branching. */
   linkedProviders: AuthProviderKind[];
 }
+
+/** linkProvider (below) only ever runs a native picker/sheet -- there is no
+ * typed-credential equivalent of that for a password, so linking one has its
+ * own action (linkEmailPassword) instead. Excluding 'password' here makes
+ * passing it to linkProvider a compile error rather than a runtime no-op or,
+ * worse, silently falling into the wrong branch of a ternary that assumed
+ * only two members. */
+type OAuthProviderKind = Exclude<AuthProviderKind, 'password'>;
 
 const LAST_SYNCED_KEY = 'lastSyncedAt';
 
@@ -112,8 +131,9 @@ interface AuthState {
   syncError: string | null;
   lastSyncedAt: number | null;
   /** Set when a sign-in attempt hit auth/account-exists-with-different-credential:
-   * surfaces "sign in with your other provider to link" to SettingsScreen.
-   * Cleared once the user completes that sign-in (link succeeds or fails). */
+   * surfaces "sign in with one of your other providers to link" to
+   * SettingsScreen. Cleared once the user completes that sign-in (link
+   * succeeds or fails). */
   pendingLink: PendingAccountLink | null;
 
   /** Call once at app start (App.tsx's init effect). Runs
@@ -123,6 +143,20 @@ interface AuthState {
   init: () => Promise<void>;
   signInWithGoogle: () => Promise<void>;
   signInWithApple: () => Promise<void>;
+  /** Signs in with an existing email/password account. Can still complete a
+   * pending cross-provider link the same way signInWithGoogle/
+   * signInWithApple do -- handleProviderSignIn checks the pending link's
+   * candidateProviders, not which path the sign-in itself took -- even
+   * though this path never THROWS the conflict that creates one; see
+   * emailAuth.ts's signInWithEmail for why. */
+  signInWithEmail: (email: string, password: string) => Promise<void>;
+  /** Creates a brand-new email/password account and signs it in. Deliberately
+   * never completes a pending link -- see this action's own implementation
+   * comment for why that would be unsafe to do here. */
+  createAccountWithEmail: (email: string, password: string) => Promise<void>;
+  /** Sends a password-reset email; resolves the same way whether or not
+   * `email` has an account (see emailAuth.ts's sendPasswordReset). */
+  sendPasswordReset: (email: string) => Promise<void>;
   signOut: () => Promise<void>;
   /** Full account deletion (§4.3, §5 checklist item 12): re-authenticates
    * FIRST (proving recent presence before anything irreversible runs),
@@ -132,16 +166,29 @@ interface AuthState {
    * firestoreSync.ts's deleteAllUserData for the one documented exception
    * (session docs are orphaned, not purged, by design), and this file's
    * AccountDataWipedError for the one abnormal outcome (data wiped, Auth
-   * user deletion itself then failed). */
-  deleteAccount: () => Promise<void>;
+   * user deletion itself then failed).
+   *
+   * `password` is required only when email/password ends up the CHOSEN
+   * provider for this deletion (see this action's own comment for the
+   * google > apple > password preference order) -- every other case ignores
+   * it. Throws PasswordRequiredError, BEFORE any of the above runs, if it's
+   * needed and wasn't passed. */
+  deleteAccount: (password?: string) => Promise<void>;
   syncNow: () => Promise<void>;
   /** Links `provider`'s credential to the CURRENT signed-in user -- the
    * additive "I'm signed in and want to also add my other method" case.
    * No-op if signed out. Throws (generic, credential-free message) if the
    * link fails, e.g. that credential already belongs to a different
    * Firebase user -- see accountDisplay.ts's providerActionErrorMessage,
-   * which UI callers should use to translate the thrown error's `code`. */
-  linkProvider: (provider: AuthProviderKind) => Promise<void>;
+   * which UI callers should use to translate the thrown error's `code`.
+   * Google/Apple only -- linking a password needs typed credentials rather
+   * than a native picker/sheet, so it has its own action (linkEmailPassword)
+   * instead, and `provider` is typed to make passing 'password' here a
+   * compile error rather than a silent no-op/wrong branch. */
+  linkProvider: (provider: OAuthProviderKind) => Promise<void>;
+  /** The password counterpart to linkProvider -- see its doc comment for why
+   * it's a separate action instead of a case linkProvider handles. */
+  linkEmailPassword: (email: string, password: string) => Promise<void>;
   /** Unlinks `provider` from the current user. Refuses (throws) unless 2+
    * providers are currently linked -- §1's "never leave zero sign-in
    * methods" rule, enforced here (not just in the UI) so this action is
@@ -193,13 +240,50 @@ export class AccountDataWipedError extends Error {
   }
 }
 
-/** Shared by signInWithGoogle/signInWithApple below: runs the provider's own
- * sign-in, and if it succeeds while a link conflict was pending FOR THIS
- * provider (i.e. this sign-in is the "other provider" the user was asked to
- * prove ownership with), completes the link. `pendingLink` is cleared as
- * soon as `doSignIn` succeeds regardless of what linkWithCredential does
- * next -- the user has done what was asked; a link failure surfaces as a
- * normal error, not a stuck prompt. */
+/** Thrown by deleteAccount() below, BEFORE beginAccountDeletion and before
+ * anything destructive runs, when email/password is the chosen provider for
+ * this deletion (see deleteAccount's own comment for the preference order)
+ * and no password was passed in. Unlike a cancelled native Google picker/
+ * Apple sheet -- which the OAuth paths treat as a hard failure that aborts an
+ * already-started flow -- there is no native prompt this store can trigger on
+ * its own for a password, so the flow can't even start without one: callers
+ * (the Account page) must catch this by name, collect a password, and retry
+ * with it. */
+export class PasswordRequiredError extends Error {
+  constructor(message = 'A password is required to delete this account.') {
+    super(message);
+    this.name = 'PasswordRequiredError';
+  }
+}
+
+/** Clears BOTH halves of the pending-link state: accountLinking.ts's
+ * module-level stashed credential AND this store's UI mirror of it.
+ *
+ * They are two separate pieces of state and every path that abandons a
+ * pending link must clear both, which is exactly what was going wrong:
+ * `set({ pendingLink: null })` alone only takes the prompt off the screen,
+ * while the stashed credential lives on in accountLinking.ts's module
+ * singleton. clearPendingLink() was exported but called from no production
+ * path at all -- only tests -- so an abandoned link left a live credential
+ * behind indefinitely. Because handleProviderSignIn below consults
+ * getPendingLink() (the module state, not this store's copy), the next
+ * successful sign-in by ANY candidate provider would then silently link that
+ * orphaned credential onto whatever account had just authenticated -- an
+ * unrelated one, possibly under a different email. Routing every dismissal
+ * through here is what keeps the two from diverging.
+ */
+function dismissPendingLink(set: (partial: Partial<AuthState>) => void): void {
+  clearPendingLink();
+  set({ pendingLink: null });
+}
+
+/** Shared by signInWithGoogle/signInWithApple/signInWithEmail below: runs the
+ * provider's own sign-in, and if it succeeds while a link conflict was
+ * pending and this provider is one of its candidateProviders (i.e. this
+ * sign-in is one of the ways the user was asked to prove ownership), completes
+ * the link. `pendingLink` is cleared as soon as `doSignIn` succeeds
+ * regardless of what linkWithCredential does next -- the user has done what
+ * was asked; a link failure surfaces as a normal error, not a stuck prompt. */
 async function handleProviderSignIn(
   provider: AuthProviderKind,
   doSignIn: () => Promise<User>,
@@ -209,8 +293,15 @@ async function handleProviderSignIn(
     const user = await doSignIn();
     const pending = getPendingLink();
     set({ pendingLink: null });
-    if (pending && pending.linkWithProvider === provider) {
-      await completePendingLink(user);
+    if (pending && pending.candidateProviders.includes(provider)) {
+      await completePendingLink(user); // consumes and clears the stashed credential itself
+    } else {
+      // Not a candidate (or nothing pending): there is no link to complete,
+      // but any stashed credential must still go rather than be left for a
+      // later, unrelated sign-in to pick up -- see dismissPendingLink above.
+      // Reachable whenever a conflicted provider later succeeds on its own,
+      // e.g. the user retries Google and picks a different Google account.
+      dismissPendingLink(set);
     }
   } catch (e: any) {
     if (e instanceof AccountExistsError) {
@@ -228,6 +319,18 @@ const AUTH_INIT_ERROR = "Couldn't start sign-in. Check your connection and try a
 // wrong problem.
 function initErrorMessageFor(e: any): string {
   return e?.name === 'FirebaseConfigError' ? SIGN_IN_NOT_CONFIGURED_MESSAGE : AUTH_INIT_ERROR;
+}
+
+/** name/code/message plus the stage it died at -- deliberately these fields
+ * rather than the error object, which for some Firebase Auth errors carries a
+ * `_tokenResponse`/`customData` credential payload this file must never print
+ * (design doc §5 checklist item 3; website/js/authErrors.js redacts the same
+ * way for the same reason). An init failure shouldn't carry one, but the log
+ * shouldn't be what depends on that being true. Both init paths below log
+ * through this so a failed sign-in gate reports which of the two it was. */
+function describeInitError(e: any): string {
+  const parts = [e?.name, e?.code, e?.message ?? String(e)].filter(Boolean);
+  return `${parts.join(' / ')} (stage: ${getAuthInitStage()})`;
 }
 // Watchdog for init(): everything it awaits is local (SecureStore/AsyncStorage
 // reads, then initializeAuth -- no network; Firebase fires onAuthStateChanged
@@ -258,7 +361,7 @@ async function requireFirebaseAuth(
   try {
     await startFirebaseAuth(set, get);
   } catch (e: any) {
-    console.warn('[useAuthStore] Firebase Auth init failed on sign-in:', e?.message ?? e);
+    console.warn('[useAuthStore] Firebase Auth init failed on sign-in:', describeInitError(e));
     const message = initErrorMessageFor(e);
     set({ initError: message });
     throw new Error(message);
@@ -303,8 +406,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     // check, and one pending 10s timer per app launch is not worth tracking.
     setTimeout(() => {
       if (get().ready) return;
+      // The stage is the whole diagnostic here: this message is otherwise
+      // identical whether the config check hung, the Keychain wipe hung, or
+      // initializeAuth() finished cleanly and the SDK simply never called
+      // back. 'done' specifically means the last of those -- look at
+      // secureStorePersistence.ts, not at the network.
       console.warn(
-        `[useAuthStore] Firebase Auth did not start within ${AUTH_INIT_TIMEOUT_MS}ms; releasing the sign-in gate.`,
+        `[useAuthStore] Firebase Auth did not start within ${AUTH_INIT_TIMEOUT_MS}ms ` +
+          `(stalled at stage: ${getAuthInitStage()}); releasing the sign-in gate.`,
       );
       set({ ready: true, initError: AUTH_INIT_ERROR });
     }, AUTH_INIT_TIMEOUT_MS);
@@ -321,7 +430,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       // work", with no error to report. Release the gate and say so instead;
       // initFirebaseAuth() no longer caches its rejection, so the retry the
       // sign-in actions below make can actually succeed.
-      console.warn('[useAuthStore] Firebase Auth init failed:', e?.message ?? e);
+      console.warn('[useAuthStore] Firebase Auth init failed:', describeInitError(e));
       set({ ready: true, initError: initErrorMessageFor(e) });
     }
   },
@@ -340,11 +449,44 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     // onAuthStateChanged (above) picks up the new user and triggers syncNow().
   },
 
+  signInWithEmail: async (email, password) => {
+    set({ syncError: null });
+    await requireFirebaseAuth(set, get); // no-op once started; retries a failed init()
+    await handleProviderSignIn('password', () => signInWithEmailAuth(email, password), set);
+    // onAuthStateChanged (above) picks up the new user and triggers syncNow().
+  },
+
+  createAccountWithEmail: async (email, password) => {
+    set({ syncError: null });
+    await requireFirebaseAuth(set, get); // no-op once started; retries a failed init()
+    await createAccountWithEmailAuth(email, password);
+    // Deliberately NOT handleProviderSignIn/completePendingLink: that path
+    // exists to complete a link once the user has PROVEN ownership of the
+    // SAME email a previous sign-in attempt conflicted on. This call always
+    // creates a brand-new Firebase user under whatever email was typed,
+    // which proves nothing about a pending conflict's (possibly different)
+    // email -- and if the two happen to be the same email, Firebase itself
+    // already refuses this call outright with auth/email-already-in-use
+    // (that email is already the other provider's account), so there is no
+    // legitimate case here that needs completing. Any stale prompt is
+    // cleared instead, since a newly-created and signed-in account makes it
+    // moot either way -- and cleared through dismissPendingLink so the
+    // stashed credential goes with the prompt, not just the prompt.
+    dismissPendingLink(set);
+    // onAuthStateChanged (above) picks up the new user and triggers syncNow().
+  },
+
+  sendPasswordReset: async (email) => {
+    await requireFirebaseAuth(set, get); // no-op once started; retries a failed init()
+    await sendPasswordResetAuth(email);
+  },
+
   signOut: async () => {
-    // Both providers' signOutFully() do the same generic Firebase
-    // auth.signOut() + SecureStore wipe (redundant but harmless if both run);
-    // only Google's additionally revokes its native OAuth grant, which is
-    // why a both-linked account runs both rather than just one.
+    // All three providers' signOutFully() do the same generic Firebase
+    // auth.signOut() + SecureStore wipe (redundant but harmless if more than
+    // one run); only Google's additionally revokes its native OAuth grant,
+    // which is why an account linked to more than one provider runs each of
+    // them rather than just one.
     const auth = getFirebaseAuth();
     const providers = auth.currentUser ? linkedProviders(auth.currentUser) : [];
     // BEFORE the provider sign-outs, not after: deleting this device's push
@@ -356,6 +498,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const signingOutUid = auth.currentUser?.uid;
     if (signingOutUid) await unregisterPushToken(signingOutUid);
     if (providers.includes('apple')) await signOutAppleFully();
+    if (providers.includes('password')) await signOutEmailFully();
     if (providers.includes('google') || providers.length === 0) await signOutGoogleFully();
     // After sign-out, not before: clearing settings triggers
     // settingsSyncBridge's push subscription, which itself no-ops once
@@ -368,22 +511,26 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     // next BLE history event or an app restart.
     useStore.getState().setSessions([]);
     set({ user: null, lastSyncedAt: null, syncError: null });
+    // Nobody is signed in any more, so a credential stashed by an earlier
+    // conflict is both moot and unsafe to keep -- without this it survived
+    // sign-out entirely, ready for the NEXT person to sign in on this device
+    // to have it silently linked onto their account. See dismissPendingLink.
+    dismissPendingLink(set);
     await setJSON<number | null>(LAST_SYNCED_KEY, null);
   },
 
-  deleteAccount: async () => {
+  deleteAccount: async (password) => {
     const user = get().user;
     if (!user) return;
     // Order matters, and this order is the fix for a real data-loss bug: the
-    // native re-auth prompt -- the one step in this whole flow the user can
-    // cancel or fail -- MUST complete successfully BEFORE deleteAllUserData
-    // runs. Firestore data used to be wiped first and re-auth attempted
-    // after, so a cancelled/failed picker left cloud data destroyed with the
-    // user still signed in and no indication anything happened. Re-auth
-    // still has to happen while signed in as this uid (same reason as
-    // before -- deleteAllUserData's own header comment: firestore.rules'
-    // isOwner(uid) needs a live credential), it just now happens first
-    // instead of last.
+    // re-auth step -- the one step in this whole flow the user can cancel or
+    // fail -- MUST complete successfully BEFORE deleteAllUserData runs.
+    // Firestore data used to be wiped first and re-auth attempted after, so
+    // a cancelled/failed picker left cloud data destroyed with the user
+    // still signed in and no indication anything happened. Re-auth still
+    // has to happen while signed in as this uid (same reason as before --
+    // deleteAllUserData's own header comment: firestore.rules' isOwner(uid)
+    // needs a live credential), it just now happens first instead of last.
     //
     // Local data is cleared last, after the Auth user is gone, for the same
     // reason signOut clears after signOutFully -- no lingering local data
@@ -398,15 +545,58 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     //
     // deleteUser() only needs to run once -- it removes the Firebase Auth
     // user and ALL its linked provider associations in a single call, so
-    // when both providers are linked this deliberately picks exactly one
-    // (Google, if present) to reauthenticate with rather than running both
-    // providers' flows, which would double-prompt (Google picker + Apple
-    // sheet) for no benefit.
+    // when more than one provider is linked this deliberately picks exactly
+    // one to reauthenticate with rather than running every linked provider's
+    // flow, which would double- (or triple-) prompt for no benefit. The
+    // preference order is google > apple > password, so an existing OAuth
+    // user's flow is completely unchanged by password now existing as an
+    // option -- they never see a new prompt because of it. Password is only
+    // ever the chosen provider when it's the sole one linked, since there is
+    // no native picker/sheet for it to run on its own: the caller (the
+    // Account page) must have already collected `password` and passed it in,
+    // which is what the PasswordRequiredError check just below is for.
     const auth = getFirebaseAuth();
     const providers = auth.currentUser ? linkedProviders(auth.currentUser) : [];
-    const useApple = providers.includes('apple') && !providers.includes('google');
-    const reauthenticateForDeletion = useApple ? reauthenticateAppleForDeletion : reauthenticateGoogleForDeletion;
-    const deleteUserAccount = useApple ? deleteAppleUserAccount : deleteGoogleUserAccount;
+    const chosenProvider: AuthProviderKind = providers.includes('google')
+      ? 'google'
+      : providers.includes('apple')
+        ? 'apple'
+        : providers.includes('password')
+          ? 'password'
+          : // No RECOGNIZED provider linked -- reachable if auth.currentUser
+            // went null between this action's `get().user` check and here, or
+            // for an account carrying only some provider toProviderKinds
+            // doesn't narrow. Falls back to Google, which is what this chose
+            // before password existed. The point is what it must NOT do:
+            // land on 'password' by exhaustion and demand a password the user
+            // has no reason to be asked for, for an account that isn't
+            // password-linked at all. Both providers' reauthenticateForDeletion
+            // no-op on a null currentUser, so the flow then fails at the
+            // Firestore wipe (isOwner(uid) with no credential) exactly as it
+            // did before.
+            'google';
+    if (chosenProvider === 'password' && !password) {
+      // Thrown BEFORE beginAccountDeletion and before anything destructive --
+      // see PasswordRequiredError's own comment for why this is a distinct
+      // failure mode from a cancelled native picker/sheet, which the OAuth
+      // branches below instead let run through deleteWithReauthRetry and
+      // treat as a normal (already-started-flow) failure.
+      throw new PasswordRequiredError();
+    }
+    let reauthenticateForDeletion: () => Promise<void>;
+    let deleteUserAccount: () => Promise<void>;
+    if (chosenProvider === 'google') {
+      reauthenticateForDeletion = reauthenticateGoogleForDeletion;
+      deleteUserAccount = deleteGoogleUserAccount;
+    } else if (chosenProvider === 'apple') {
+      reauthenticateForDeletion = reauthenticateAppleForDeletion;
+      deleteUserAccount = deleteAppleUserAccount;
+    } else {
+      // Safe: chosenProvider === 'password' only reaches here after the
+      // PasswordRequiredError check above has already ensured `password` is set.
+      reauthenticateForDeletion = () => reauthenticateEmailForDeletion(password!);
+      deleteUserAccount = deleteEmailUserAccount;
+    }
     beginAccountDeletion(user.uid);
     try {
       // Step 1: prove the user is currently present. Throws (and aborts
@@ -434,6 +624,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     // AsyncStorage, not the live store the Stats/Dashboard/Calendar screens read.
     useStore.getState().setSessions([]);
     set({ user: null, lastSyncedAt: null, syncError: null });
+    // Nobody is signed in any more, so a credential stashed by an earlier
+    // conflict is both moot and unsafe to keep -- without this it survived
+    // sign-out entirely, ready for the NEXT person to sign in on this device
+    // to have it silently linked onto their account. See dismissPendingLink.
+    dismissPendingLink(set);
     await setJSON<number | null>(LAST_SYNCED_KEY, null);
   },
 
@@ -492,6 +687,23 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     if (get().user?.uid === uid) set({ user: toAccountUser(updated) });
   },
 
+  linkEmailPassword: async (email, password) => {
+    const auth = getFirebaseAuth();
+    const current = auth.currentUser;
+    if (!current) return;
+    // Same "already signed in, adding on purpose" case as linkProvider above
+    // (see its comment), but kept as its own action rather than a case
+    // linkProvider handles: linking a password needs the typed email/password
+    // this action's caller collected, not a native picker/sheet result, so
+    // its parameters -- and the emailAuth.ts call it makes -- are shaped
+    // differently from linkProvider's throughout.
+    const uid = current.uid;
+    const updated = await linkEmailToCurrentUser(current, email, password);
+    // Same stale-uid discipline as linkProvider's own result-application
+    // check above -- see its comment.
+    if (get().user?.uid === uid) set({ user: toAccountUser(updated) });
+  },
+
   unlinkProvider: async (provider) => {
     const auth = getFirebaseAuth();
     const current = auth.currentUser;
@@ -504,7 +716,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       // remembered to check first.
       throw new Error('Cannot remove your only sign-in method.');
     }
-    const providerId = provider === 'google' ? 'google.com' : 'apple.com';
+    const providerId = provider === 'google' ? 'google.com' : provider === 'apple' ? 'apple.com' : 'password';
     const uid = current.uid;
     const updated = await unlink(current, providerId);
     if (get().user?.uid === uid) set({ user: toAccountUser(updated) }); // see linkProvider's note
