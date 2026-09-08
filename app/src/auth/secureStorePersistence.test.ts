@@ -14,6 +14,13 @@
 //      (`_set(key, user.toJSON())`) and SecureStore stores only strings.
 //   3. The keys the SDK asks for (`firebase:authUser:<apiKey>:[DEFAULT]`)
 //      are rejected outright by expo-secure-store's key validation.
+//   4. _get rejected instead of returning null when the persisted value could
+//      not be read back -- an unparseable string, or a Keychain read that
+//      errored. The SDK calls _get from initializeCurrentUser(), so that
+//      rejection rejected Auth's own init promise: onAuthStateChanged never
+//      fired and useAuthStore's watchdog reported the same message. Uniquely
+//      among the four, this one was self-perpetuating -- nothing removed the
+//      value responsible, so every later launch failed identically.
 //
 // Fault 1 is only catchable by running the real SDK, so the first test does
 // exactly that -- initializeAuth() against a throwaway FirebaseApp. It needs
@@ -154,6 +161,38 @@ describe('SecureStorePersistence', () => {
   it('reports unavailability instead of throwing when SecureStore fails', async () => {
     (SecureStore.setItemAsync as jest.Mock).mockRejectedValueOnce(new Error('keychain locked'));
     await expect(persistence._isAvailable()).resolves.toBe(false);
+  });
+});
+
+describe('SecureStorePersistence._get on an unreadable value (fault 4)', () => {
+  it('returns null rather than rejecting when the stored value is unparseable', async () => {
+    // Write past the adapter, so the backing store holds something _set could
+    // never have produced -- a truncated or legacy-format entry.
+    backing.set(secureStoreKey(FIREBASE_USER_KEY), '{"uid":"abc');
+    await expect(persistence._get(FIREBASE_USER_KEY)).resolves.toBeNull();
+  });
+
+  it('discards the unparseable value, so the next read starts clean', async () => {
+    const storeKey = secureStoreKey(FIREBASE_USER_KEY);
+    backing.set(storeKey, 'not json at all');
+    await persistence._get(FIREBASE_USER_KEY);
+    // The self-perpetuating half of fault 4: without this delete, every
+    // subsequent launch re-read the same value and failed the same way.
+    expect(backing.has(storeKey)).toBe(false);
+  });
+
+  it('returns null rather than rejecting when the Keychain read itself fails', async () => {
+    (SecureStore.getItemAsync as jest.Mock).mockRejectedValueOnce(new Error('keychain locked'));
+    await expect(persistence._get(FIREBASE_USER_KEY)).resolves.toBeNull();
+  });
+
+  it('leaves a good value untouched', async () => {
+    // The guard must not cost a legitimate session: a readable record still
+    // round-trips, and is still there afterwards.
+    const userRecord = { uid: 'abc123', stsTokenManager: { refreshToken: 'r' } };
+    await persistence._set(FIREBASE_USER_KEY, userRecord);
+    await expect(persistence._get(FIREBASE_USER_KEY)).resolves.toEqual(userRecord);
+    expect(backing.has(secureStoreKey(FIREBASE_USER_KEY))).toBe(true);
   });
 });
 

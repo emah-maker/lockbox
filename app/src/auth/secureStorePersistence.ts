@@ -76,9 +76,39 @@ export class SecureStorePersistence implements AuthPersistenceImpl {
     await SecureStore.setItemAsync(secureStoreKey(key), JSON.stringify(value), SECURE_STORE_OPTS);
   }
 
+  // Must never reject. Firebase calls _get from initializeCurrentUser(), and a
+  // rejection there rejects Auth's own initialization promise: onAuthStateChanged
+  // never fires, useAuthStore's `ready` never flips, and its 10s watchdog
+  // surfaces "Couldn't start sign-in. Check your connection and try again." --
+  // see secureStoreKeys.ts's own account of that exact failure. The part that
+  // made it unrecoverable was that nothing removed the value responsible, so
+  // every subsequent launch took the same branch. Two ways this used to throw:
+  // getItemAsync itself erroring (a Keychain read failure, e.g. an entry
+  // written under different keychainAccessible terms), and JSON.parse on a
+  // truncated or legacy-format value. Both now degrade to "no persisted
+  // session" -- which costs the user one sign-in, against costing them sign-in
+  // altogether -- matching the corrupt-value-falls-back-to-default discipline
+  // storage.ts's getJSON already applies on the AsyncStorage side.
   async _get(key: string): Promise<unknown> {
-    const json = await SecureStore.getItemAsync(secureStoreKey(key), SECURE_STORE_OPTS);
-    return json ? JSON.parse(json) : null;
+    const storeKey = secureStoreKey(key);
+    let json: string | null;
+    try {
+      json = await SecureStore.getItemAsync(storeKey, SECURE_STORE_OPTS);
+    } catch (e: any) {
+      // Key names only, never the value -- see secureStoreKeys.ts.
+      console.warn('[secureStorePersistence] read failed for', storeKey, e?.message);
+      return null;
+    }
+    if (!json) return null;
+    try {
+      return JSON.parse(json);
+    } catch (e: any) {
+      // Self-healing: drop the unparseable entry rather than leaving it to be
+      // re-read (and re-rejected) on every launch from here on.
+      console.warn('[secureStorePersistence] discarding unparseable value at', storeKey, e?.message);
+      await SecureStore.deleteItemAsync(storeKey, SECURE_STORE_OPTS).catch(() => {});
+      return null;
+    }
   }
 
   async _remove(key: string): Promise<void> {
