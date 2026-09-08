@@ -23,6 +23,19 @@ const MESSAGES = {
   'auth/web-storage-unsupported': 'Your browser is blocking the storage this sign-in needs. Turn off strict tracking protection for this site, or leave private browsing, and try again.',
   'auth/too-many-requests': 'Too many attempts from this device. Wait a few minutes and try again.',
   'auth/internal-error': 'The sign-in provider returned an internal error. Try again -- if it repeats, check that the Google provider has a support email set in the Firebase console.',
+  // Email/password specific, still login.html. This project's Firebase
+  // project has Email Enumeration Protection on, which is why
+  // invalid-credential (below) is deliberately vague: it's what
+  // signInWithEmailAndPassword returns for BOTH a wrong password and a
+  // nonexistent account, on purpose, so this copy must never guess which.
+  // (fetchSignInMethodsForEmail is likewise useless under that protection --
+  // it always returns [] -- see app/src/auth/accountLinking.ts for the same
+  // constraint on the app side.)
+  'auth/invalid-credential': 'That email and password don’t match. Double-check both, or use “Forgot password?” below.',
+  'auth/email-already-in-use': 'That email already has an account -- sign in instead, or use “Forgot password?” if you don’t remember the password.',
+  'auth/weak-password': 'That password is too short -- Firebase requires at least 6 characters.',
+  'auth/invalid-email': 'That doesn’t look like a valid email address.',
+  'auth/missing-password': 'Enter a password.',
   // --- Account panel (dashboard.html's link/unlink/delete actions) ---
   'auth/requires-recent-login': 'This action needs a fresh sign-in. Sign in again and retry.',
   'auth/credential-already-in-use': 'That sign-in method is already linked to a different account.',

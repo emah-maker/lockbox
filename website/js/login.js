@@ -16,6 +16,7 @@ import {
 import { loadFirebaseConfigOrNull } from './firebaseConfig.js';
 import { initAppCheck } from './appCheck.js';
 import { friendlyErrorMessage, isIgnorableAuthError, logAuthError } from './authErrors.js';
+import { initEmailAuthForm, awaitPendingVerification } from './emailAuthForm.js';
 
 const els = {
   notConfigured: document.getElementById('loginNotConfigured'),
@@ -68,6 +69,7 @@ async function init() {
   // appCheck.js's header. No-ops safely today (site key not registered yet).
   await initAppCheck(app);
   const auth = getAuth(app);
+  initEmailAuthForm(auth);
 
   let lastProvider = () => new GoogleAuthProvider();
   const trySignIn = (makeProvider) => {
@@ -82,7 +84,13 @@ async function init() {
     if (user) {
       // Already signed in (e.g. navigated back here, or a second tab) --
       // the dashboard is the actual destination, this page is just the gate.
-      window.location.replace('dashboard.html');
+      // Waits on awaitPendingVerification() first: a just-completed signup
+      // (emailAuthForm.js) fires this same listener, and without the wait
+      // this redirect's navigation could abort that account's
+      // sendEmailVerification request before it leaves the browser. Every
+      // other path (Google, Apple, an existing session, plain email
+      // sign-in) has nothing pending, so this resolves immediately for them.
+      awaitPendingVerification().then(() => window.location.replace('dashboard.html'));
       return;
     }
     showState('signedOut');

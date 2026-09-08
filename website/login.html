@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Sign in — Phone Box</title>
-  <meta name="description" content="Sign in with the Google or Apple account you use in the Phone Box app to see your dashboard." />
+  <meta name="description" content="Sign in with Google, Apple, or an email and password to see your Phone Box dashboard." />
   <meta name="robots" content="noindex" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect x='4' y='2.5' width='16' height='19' rx='3' fill='%231a1a1c' stroke='%23c9cbce' stroke-width='1.8'/%3E%3Crect x='7.5' y='6' width='9' height='9' rx='1.4' fill='%23ef5350'/%3E%3C/svg%3E" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -51,8 +51,8 @@
         <div class="dash__head">
           <h1>Sign in</h1>
           <p class="section-sub">
-            Sign in with the same Google or Apple account you use in the Phone Box app to see
-            your synced focus session history on the dashboard.
+            Sign in with the same Google or Apple account you use in the Phone Box app -- or with
+            an email and password -- to see your synced focus session history on the dashboard.
           </p>
         </div>
 
@@ -84,6 +84,29 @@
             </svg>
             Sign in with Apple
           </button>
+
+          <div class="dash__auth-divider"><span>or</span></div>
+
+          <form id="emailAuthForm" class="dash__auth-form" novalidate>
+            <div class="dash__auth-field">
+              <label class="dash__auth-field-label" for="authEmail">Email</label>
+              <input id="authEmail" class="dash__auth-input" type="email" autocomplete="email" required />
+            </div>
+            <div class="dash__auth-field" id="authPasswordField">
+              <label class="dash__auth-field-label" for="authPassword">Password</label>
+              <input id="authPassword" class="dash__auth-input" type="password" autocomplete="current-password" minlength="6" required />
+            </div>
+            <div class="dash__auth-field" id="authConfirmField" hidden>
+              <label class="dash__auth-field-label" for="authPasswordConfirm">Confirm password</label>
+              <input id="authPasswordConfirm" class="dash__auth-input" type="password" autocomplete="new-password" minlength="6" />
+            </div>
+            <p id="authFormError" class="form-msg dash__msg" role="alert" hidden></p>
+            <button id="authSubmitBtn" type="submit" class="btn btn--primary btn--block">Sign in</button>
+            <div class="dash__auth-links">
+              <button id="authForgotBtn" type="button" class="dash__auth-link">Forgot password?</button>
+              <button id="authToggleModeBtn" type="button" class="dash__auth-link">Need an account? Create one</button>
+            </div>
+          </form>
         </div>
 
         <div id="loginError" class="card dash__state dash__state--error dash__fade" hidden>
