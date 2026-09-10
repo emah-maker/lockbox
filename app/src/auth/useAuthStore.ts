@@ -256,6 +256,32 @@ export class PasswordRequiredError extends Error {
   }
 }
 
+/**
+ * Everything that has to happen once nobody is signed in on this device any
+ * more -- the tail of BOTH signOut and deleteAccount, which were the same
+ * six statements twice with the same three comments explaining them.
+ *
+ * Runs AFTER the provider sign-out / Auth-user deletion, never before:
+ * clearing settings triggers settingsSyncBridge push subscription, which
+ * itself no-ops once signed out, but ordering it this way makes that
+ * explicit rather than relying on the no-op.
+ */
+async function clearSignedInState(set: (partial: Partial<AuthState>) => void): Promise<void> {
+  await clearLocalAccountData();
+  // clearLocalAccountData() only wipes AsyncStorage -- useStore.sessions
+  // (what StatsScreen/DashboardScreen/CalendarScreen actually render) needs
+  // its own update or it keeps showing the previous account's sessions until
+  // the next BLE history event or an app restart.
+  useStore.getState().setSessions([]);
+  set({ user: null, lastSyncedAt: null, syncError: null });
+  // A credential stashed by an earlier conflict is now both moot and unsafe
+  // to keep -- without this it survived sign-out entirely, ready for the NEXT
+  // person to sign in on this device to have it silently linked onto their
+  // account. See dismissPendingLink just below.
+  dismissPendingLink(set);
+  await setJSON<number | null>(LAST_SYNCED_KEY, null);
+}
+
 /** Clears BOTH halves of the pending-link state: accountLinking.ts's
  * module-level stashed credential AND this store's UI mirror of it.
  *
@@ -500,23 +526,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     if (providers.includes('apple')) await signOutAppleFully();
     if (providers.includes('password')) await signOutEmailFully();
     if (providers.includes('google') || providers.length === 0) await signOutGoogleFully();
-    // After sign-out, not before: clearing settings triggers
-    // settingsSyncBridge's push subscription, which itself no-ops once
-    // signed out, but ordering it this way makes that explicit rather than
-    // relying on the no-op.
-    await clearLocalAccountData();
-    // clearLocalAccountData() only wipes AsyncStorage -- useStore.sessions
-    // (what StatsScreen/DashboardScreen/CalendarScreen actually render) needs
-    // its own update or it keeps showing this account's sessions until the
-    // next BLE history event or an app restart.
-    useStore.getState().setSessions([]);
-    set({ user: null, lastSyncedAt: null, syncError: null });
-    // Nobody is signed in any more, so a credential stashed by an earlier
-    // conflict is both moot and unsafe to keep -- without this it survived
-    // sign-out entirely, ready for the NEXT person to sign in on this device
-    // to have it silently linked onto their account. See dismissPendingLink.
-    dismissPendingLink(set);
-    await setJSON<number | null>(LAST_SYNCED_KEY, null);
+    // After the provider sign-outs, not before -- see clearSignedInState.
+    await clearSignedInState(set);
   },
 
   deleteAccount: async (password) => {
@@ -619,17 +630,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     } finally {
       endAccountDeletion();
     }
-    await clearLocalAccountData();
-    // See signOut's identical call: clearLocalAccountData() only clears
-    // AsyncStorage, not the live store the Stats/Dashboard/Calendar screens read.
-    useStore.getState().setSessions([]);
-    set({ user: null, lastSyncedAt: null, syncError: null });
-    // Nobody is signed in any more, so a credential stashed by an earlier
-    // conflict is both moot and unsafe to keep -- without this it survived
-    // sign-out entirely, ready for the NEXT person to sign in on this device
-    // to have it silently linked onto their account. See dismissPendingLink.
-    dismissPendingLink(set);
-    await setJSON<number | null>(LAST_SYNCED_KEY, null);
+    await clearSignedInState(set);
   },
 
   syncNow: async () => {

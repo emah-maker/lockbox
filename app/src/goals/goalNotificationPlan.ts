@@ -25,6 +25,7 @@ import { goalNotifyTimes, goalNotifyDays, notifyTimeToMinutes } from './goalRemi
 // (topics.ts -> theme/color.ts) is pure TypeScript with no react-native
 // import anywhere in it, so this stays as unit-testable as it was.
 import { topicDisplayName, type CustomLabel } from '../stats/customLabels';
+import { shortDuration } from '../ui/time';
 
 // Every identifier this feature ever schedules starts with this prefix, and
 // ONLY this feature schedules anything with it -- syncGoalNotifications uses
@@ -97,19 +98,6 @@ function periodLabel(period: GoalPeriod): string {
   if (period === 'daily') return 'daily';
   if (period === 'weekly') return 'weekly';
   return 'monthly';
-}
-
-/** Short "1h 20m" / "45m" phrasing for a reminder body. A local copy rather
- * than an import of stats/stats.ts's formatDuration, for the same reason
- * contentFor below doesn't import resolveTopic: that module drags in a
- * dependency chain this leaf deliberately doesn't have, and a reminder
- * string needs only this much. */
-function shortDuration(totalS: number): string {
-  const s = Math.max(0, Math.round(totalS));
-  const h = Math.floor(s / 3600);
-  const m = Math.round((s % 3600) / 60);
-  if (h > 0) return m > 0 ? `${h}h ${m}m` : `${h}h`;
-  return `${Math.max(1, m)}m`;
 }
 
 /** Reminder copy for `goal`. Deliberately generic about the topic ("your

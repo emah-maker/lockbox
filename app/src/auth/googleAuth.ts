@@ -15,20 +15,15 @@
 // Firebase issues and manages its own session from `signInWithCredential`
 // onward, persisted only through secureStorePersistence (§2.2).
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
-import {
-  GoogleAuthProvider,
-  signInWithCredential,
-  linkWithCredential,
-  deleteUser,
-  reauthenticateWithCredential,
-  type AuthCredential,
-  type User,
-} from 'firebase/auth';
-import * as SecureStore from 'expo-secure-store';
-import { getFirebaseAuth } from './firebase';
-import { SECURE_STORE_OPTS, FIREBASE_AUTH_SECURE_STORE_KEYS } from './secureStoreKeys';
+import { GoogleAuthProvider, type AuthCredential, type User } from 'firebase/auth';
 import { GOOGLE_WEB_CLIENT_ID, GOOGLE_IOS_CLIENT_ID } from './firebaseConfig';
-import { signInDetectingLinkConflict } from './accountLinking';
+import {
+  signInWithProviderCredential,
+  linkCredentialToUser,
+  reauthenticateCurrentUser,
+  signOutFirebaseSession,
+  deleteFirebaseUser,
+} from './authSession';
 
 let configured = false;
 function ensureConfigured(): void {
@@ -71,48 +66,42 @@ async function getGoogleCredential(): Promise<AuthCredential> {
  * treat that as "stay signed out", not a fatal error.
  */
 export async function signInWithGoogle(): Promise<User> {
-  const credential = await getGoogleCredential();
-  const userCredential = await signInDetectingLinkConflict('google', credential, () =>
-    signInWithCredential(getFirebaseAuth(), credential),
-  );
-  // `credential` falls out of scope here -- used once, never persisted.
-  return userCredential.user;
+  return signInWithProviderCredential('google', await getGoogleCredential());
 }
 
 /**
  * Links a fresh Google credential to `user` -- the additive "I'm already
  * signed in and want to also add Google" case (Account page §2 ask),
- * distinct from signInWithGoogle's sign-in-time conflict path above: this
- * deliberately never calls signInWithCredential, which would authenticate as
- * a DIFFERENT (or brand-new) Firebase user tied to this Google account
- * instead of attaching the credential to the one already signed in. Callers
- * must pass the CURRENT signed-in user (useAuthStore.linkProvider does).
+ * distinct from signInWithGoogle's sign-in-time conflict path above. See
+ * authSession.ts's linkCredentialToUser for the invariant that makes this a
+ * link and not a sign-in. Callers must pass the CURRENT signed-in user
+ * (useAuthStore.linkProvider does).
  */
 export async function linkGoogleToCurrentUser(user: User): Promise<User> {
-  const credential = await getGoogleCredential();
-  const result = await linkWithCredential(user, credential);
-  return result.user;
+  return linkCredentialToUser(user, await getGoogleCredential());
 }
 
 /**
- * Full secure sign-out (§2.4): Firebase session, then the Google OAuth grant
- * itself (not just the local session cache), then the native module's own
- * cached account, then a defense-in-depth explicit SecureStore wipe -- rather
- * than trusting any one of those SDKs' own cleanup alone.
+ * The one thing this app can release on Google's side that Apple and
+ * email/password have no equivalent of: the OAuth grant itself (not just the
+ * local session cache), then the native module's own cached account. Both
+ * best-effort -- neither is a reason to fail a sign-out or a deletion.
+ *
+ * Runs after the Firebase call and before the SecureStore wipe on both paths
+ * below, which is exactly where each used to run it inline.
  */
-export async function signOutFully(): Promise<void> {
-  const auth = getFirebaseAuth();
-  await auth.signOut().catch(() => {});
+async function revokeGoogleGrant(): Promise<void> {
   await GoogleSignin.revokeAccess().catch(() => {}); // invalidates the grant at Google, not just the local session
   await GoogleSignin.signOut().catch(() => {});
-  for (const key of FIREBASE_AUTH_SECURE_STORE_KEYS) {
-    // Key names only, never token contents -- see secureStoreKeys.ts (safe to
-    // log). Previously a bare `.catch(() => {})` gave no diagnostic at all if
-    // this wipe ever failed (production readiness review, Medium).
-    await SecureStore.deleteItemAsync(key, SECURE_STORE_OPTS).catch((e) =>
-      console.warn('[googleAuth] signOutFully: failed to delete', key, e?.message),
-    );
-  }
+}
+
+/**
+ * Full secure sign-out (§2.4): Firebase session, then the Google grant above,
+ * then a defense-in-depth explicit SecureStore wipe -- rather than trusting
+ * any one of those SDKs' own cleanup alone. See authSession.ts.
+ */
+export async function signOutFully(): Promise<void> {
+  await signOutFirebaseSession('[googleAuth] signOutFully', revokeGoogleGrant);
 }
 
 /**
@@ -133,11 +122,9 @@ export async function signOutFully(): Promise<void> {
  * (deleteWithReauthRetry) before giving up.
  */
 export async function reauthenticateForDeletion(): Promise<void> {
-  const auth = getFirebaseAuth();
-  const user = auth.currentUser;
-  if (!user) return;
-  const credential = await getGoogleCredential(); // throws on cancel -- see comment above
-  await reauthenticateWithCredential(user, credential);
+  // getGoogleCredential() throws on cancel and that throw is left to
+  // propagate -- see the comment above and authSession.ts's own.
+  await reauthenticateCurrentUser(getGoogleCredential);
 }
 
 /**
@@ -152,15 +139,5 @@ export async function reauthenticateForDeletion(): Promise<void> {
  * itself is invoked.
  */
 export async function deleteUserAccount(): Promise<void> {
-  const auth = getFirebaseAuth();
-  const user = auth.currentUser;
-  if (!user) return;
-  await deleteUser(user);
-  await GoogleSignin.revokeAccess().catch(() => {});
-  await GoogleSignin.signOut().catch(() => {});
-  for (const key of FIREBASE_AUTH_SECURE_STORE_KEYS) {
-    await SecureStore.deleteItemAsync(key, SECURE_STORE_OPTS).catch((e) =>
-      console.warn('[googleAuth] deleteUserAccount: failed to delete', key, e?.message),
-    );
-  }
+  await deleteFirebaseUser('[googleAuth] deleteUserAccount', revokeGoogleGrant);
 }

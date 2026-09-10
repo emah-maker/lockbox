@@ -201,7 +201,10 @@ export async function runMigrationAndSync(uid: string): Promise<void> {
     // remote side is untouched and correct; there is just no longer a local
     // side belonging to this uid to merge into.
     if (e instanceof LocalDataSuperseded) {
-      console.log('[sync] abandoned mid-run --', e.message);
+      // Diagnostic only, and __DEV__-gated accordingly: as the comment above
+      // says this is the expected outcome, not a fault, so a release build
+      // should not log it.
+      if (__DEV__) console.log('[sync] abandoned mid-run --', e.message);
       return;
     }
     throw e;

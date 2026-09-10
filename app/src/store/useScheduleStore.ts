@@ -26,7 +26,8 @@
 // call did.
 import { create } from 'zustand';
 import { getJSON, setJSON } from '../storage/storage';
-import { useSettingsStore } from './useSettingsStore';
+import { readNotificationPrefs, watchSettingsKey } from './useSettingsStore';
+import { createDebouncer } from '../util/debounce';
 import {
   SCHEDULED_PRUNE_MS,
   ScheduledSession,
@@ -39,7 +40,6 @@ import {
 } from '../schedule/scheduledSessions';
 import { syncSessionReminders } from '../schedule/sessionReminders';
 import { reportLocalCoverage } from '../push/pushRegistration';
-import type { NotificationPrefs } from '../goals/goalNotificationPlan';
 
 const SCHEDULE_KEY = 'scheduledSessions';
 const DELETED_KEY = 'scheduledSessionsDeleted';
@@ -49,21 +49,7 @@ const DELETED_KEY = 'scheduledSessionsDeleted';
 // several times in a tick, and each would otherwise trigger a full
 // cancel-and-reschedule pass against the OS.
 const RESYNC_DEBOUNCE_MS = 400;
-let resyncTimer: ReturnType<typeof setTimeout> | null = null;
-
-/** Reads the four global notification prefs in the shape the planner takes.
- * Read (not threaded through) for the same reason goalNotificationBridge
- * reads them: no caller of a mutation has any business knowing about quiet
- * hours. */
-function readPrefs(): NotificationPrefs {
-  const s = useSettingsStore.getState();
-  return {
-    enabled: s.notificationsEnabled,
-    quietHoursEnabled: s.quietHoursEnabled,
-    quietStart: s.quietStart,
-    quietEnd: s.quietEnd,
-  };
-}
+const resync = createDebouncer(() => useScheduleStore.getState().resyncReminders(), RESYNC_DEBOUNCE_MS);
 
 interface ScheduleState {
   hydrated: boolean;
@@ -147,7 +133,7 @@ function persist(
   // syncSessionReminders' own return-value comment for why reporting an
   // intention instead would silence the server's copy of a reminder the
   // phone then never shows.
-  void syncSessionReminders(pruned, readPrefs()).then(reportLocalCoverage);
+  void syncSessionReminders(pruned, readNotificationPrefs()).then(reportLocalCoverage);
 }
 
 /** Drops tombstones older than the plans themselves are kept for. Same
@@ -191,7 +177,7 @@ export const useScheduleStore = create<ScheduleState>((set, get) => ({
     if (get().hydrated) return;
     set({ hydrated: true, scheduled: pruned, deletedIds: tombstones });
     if (pruned.length !== scheduled.length) setJSON(SCHEDULE_KEY, pruned);
-    void syncSessionReminders(pruned, readPrefs()).then(reportLocalCoverage);
+    void syncSessionReminders(pruned, readNotificationPrefs()).then(reportLocalCoverage);
   },
 
   addScheduledSession: (input) => {
@@ -222,7 +208,7 @@ export const useScheduleStore = create<ScheduleState>((set, get) => ({
   },
 
   resyncReminders: () => {
-    void syncSessionReminders(get().scheduled, readPrefs()).then(reportLocalCoverage);
+    void syncSessionReminders(get().scheduled, readNotificationPrefs()).then(reportLocalCoverage);
   },
 
   resetScheduledSessions: () => {
@@ -242,9 +228,12 @@ export const useScheduleStore = create<ScheduleState>((set, get) => ({
  * same "snapshot then compare" shape settingsSyncBridge.ts and
  * goalNotificationBridge.ts both use, small enough that a string beats a
  * structural compare. */
+// Derived from readNotificationPrefs() rather than re-reading the four
+// store fields a second time -- one place names them, so a fifth pref
+// cannot be added to the projection and missed by this watch's key.
 function prefsKey(): string {
-  const s = useSettingsStore.getState();
-  return `${s.notificationsEnabled}|${s.quietHoursEnabled}|${s.quietStart}|${s.quietEnd}`;
+  const p = readNotificationPrefs();
+  return `${p.enabled}|${p.quietHoursEnabled}|${p.quietStart}|${p.quietEnd}`;
 }
 
 let teardown: (() => void) | null = null;
@@ -265,24 +254,11 @@ let teardown: (() => void) | null = null;
 export function startSessionReminderWatch(): () => void {
   if (teardown) return teardown;
 
-  let prev = prefsKey();
-  const unsub = useSettingsStore.subscribe(() => {
-    const next = prefsKey();
-    if (next === prev) return; // some other settings field changed
-    prev = next;
-    if (resyncTimer) clearTimeout(resyncTimer);
-    resyncTimer = setTimeout(() => {
-      resyncTimer = null;
-      useScheduleStore.getState().resyncReminders();
-    }, RESYNC_DEBOUNCE_MS);
-  });
+  const unsub = watchSettingsKey(prefsKey, resync.run);
 
   teardown = () => {
     teardown = null;
-    if (resyncTimer) {
-      clearTimeout(resyncTimer);
-      resyncTimer = null;
-    }
+    resync.cancel(); // must not fire against a torn-down subscription
     unsub();
   };
   return teardown;

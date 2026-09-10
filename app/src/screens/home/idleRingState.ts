@@ -34,17 +34,14 @@ import { computeSessionCountRingProgress, computePaceRingProgress } from './idle
 
 export type RingBaselineWindow = 'week' | 'month' | 'year' | 'all';
 
-export type RingProgressSource =
-  | 'goal'
-  | 'baseline'
-  | 'weeklyGoal'
-  | 'monthlyGoal'
-  | 'chosenGoal'
-  | 'rollingAverage'
-  | 'streak'
-  | 'sessionCount'
-  | 'pace'
-  | 'empty';
+/** What the ring actually ended up showing. Every explicitly-pickable
+ * source (RingSourceKind, below) can be a result verbatim -- minus 'auto',
+ * which is a REQUEST, not a result: it always resolves to 'goal',
+ * 'baseline' or 'empty'. Those three are the only ones this module can
+ * produce without the user having picked them, so they are the only members
+ * listed here and the rest are derived -- which is what stops a source being
+ * added to the picker and forgotten in the result tag, or vice versa. */
+export type RingProgressSource = Exclude<RingSourceKind, 'auto'> | 'goal' | 'baseline' | 'empty';
 
 export interface IdleRingState {
   /** Unclamped fraction -- ProgressRing itself clamps to 0..1 (see its own
@@ -166,8 +163,9 @@ export function ringBaselineWindowLabel(w: RingBaselineWindow): string {
 
 /** The user-facing setting (useSettingsStore's ringSourceKind, picked in
  * RingBaselineSection.tsx) -- distinct from RingProgressSource above, which
- * is this module's own computed RESULT tag (e.g. 'auto' always resolves to
- * either 'goal', 'baseline', or 'empty', never a literal 'auto' result). */
+ * is this module's own computed RESULT tag and is DERIVED from this union
+ * (e.g. 'auto' always resolves to either 'goal', 'baseline', or 'empty',
+ * never a literal 'auto' result). */
 export type RingSourceKind =
   | 'auto'
   | 'weeklyGoal'

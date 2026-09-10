@@ -19,14 +19,15 @@ import {
   createUserWithEmailAndPassword,
   sendPasswordResetEmail,
   sendEmailVerification,
-  linkWithCredential,
-  deleteUser,
-  reauthenticateWithCredential,
   type User,
 } from 'firebase/auth';
-import * as SecureStore from 'expo-secure-store';
 import { getFirebaseAuth } from './firebase';
-import { SECURE_STORE_OPTS, FIREBASE_AUTH_SECURE_STORE_KEYS } from './secureStoreKeys';
+import {
+  linkCredentialToUser,
+  reauthenticateCurrentUser,
+  signOutFirebaseSession,
+  deleteFirebaseUser,
+} from './authSession';
 
 /**
  * Signs in with an existing email/password account.
@@ -104,29 +105,18 @@ export async function sendPasswordReset(email: string): Promise<void> {
  * linkProvider rather than sharing its shape.
  */
 export async function linkEmailToCurrentUser(user: User, email: string, password: string): Promise<User> {
-  const credential = EmailAuthProvider.credential(email, password);
-  const result = await linkWithCredential(user, credential);
   // `password` falls out of scope here -- used once, never persisted.
-  return result.user;
+  return linkCredentialToUser(user, EmailAuthProvider.credential(email, password));
 }
 
 /**
- * Full secure sign-out, mirroring appleAuth.ts's signOutFully() (not
- * googleAuth.ts's): the Firebase session, then a defense-in-depth explicit
- * SecureStore wipe. Like Sign in with Apple, there is no OAuth grant to
- * revoke here -- email/password is a Firebase-only credential with no
- * separate provider-side session -- so there is no equivalent of
- * GoogleSignin.revokeAccess()/signOut() to call.
+ * Full secure sign-out (authSession.ts): the Firebase session, then a
+ * defense-in-depth explicit SecureStore wipe. Like Sign in with Apple, no
+ * provider cleanup is passed -- email/password is a Firebase-only credential
+ * with no separate provider-side session to revoke.
  */
 export async function signOutFully(): Promise<void> {
-  const auth = getFirebaseAuth();
-  await auth.signOut().catch(() => {});
-  for (const key of FIREBASE_AUTH_SECURE_STORE_KEYS) {
-    // Key names only, never token contents -- see secureStoreKeys.ts.
-    await SecureStore.deleteItemAsync(key, SECURE_STORE_OPTS).catch((e) =>
-      console.warn('[emailAuth] signOutFully: failed to delete', key, e?.message),
-    );
-  }
+  await signOutFirebaseSession('[emailAuth] signOutFully');
 }
 
 /**
@@ -148,19 +138,17 @@ export async function signOutFully(): Promise<void> {
  * (deleteWithReauthRetry) before giving up.
  */
 export async function reauthenticateForDeletion(password: string): Promise<void> {
-  const auth = getFirebaseAuth();
-  const user = auth.currentUser;
-  if (!user) return;
-  if (!user.email) {
-    // Should be unreachable: every email/password-linked Firebase user has
-    // `email` set from account creation. Thrown rather than silently
-    // returned -- returning here would let deleteAccount's caller believe
-    // reauth succeeded and proceed straight to the destructive Firestore
-    // wipe without anything having actually proven the user's presence.
-    throw new Error('The current user has no email; cannot reauthenticate with a password.');
-  }
-  const credential = EmailAuthProvider.credential(user.email, password);
-  await reauthenticateWithCredential(user, credential);
+  await reauthenticateCurrentUser((user) => {
+    if (!user.email) {
+      // Should be unreachable: every email/password-linked Firebase user has
+      // `email` set from account creation. Thrown rather than silently
+      // returned -- returning here would let deleteAccount's caller believe
+      // reauth succeeded and proceed straight to the destructive Firestore
+      // wipe without anything having actually proven the user's presence.
+      throw new Error('The current user has no email; cannot reauthenticate with a password.');
+    }
+    return EmailAuthProvider.credential(user.email, password);
+  });
   // `password` falls out of scope here -- used once, never persisted.
 }
 
@@ -174,13 +162,5 @@ export async function reauthenticateForDeletion(password: string): Promise<void>
  * this is the one place deleteUser() itself is invoked.
  */
 export async function deleteUserAccount(): Promise<void> {
-  const auth = getFirebaseAuth();
-  const user = auth.currentUser;
-  if (!user) return;
-  await deleteUser(user);
-  for (const key of FIREBASE_AUTH_SECURE_STORE_KEYS) {
-    await SecureStore.deleteItemAsync(key, SECURE_STORE_OPTS).catch((e) =>
-      console.warn('[emailAuth] deleteUserAccount: failed to delete', key, e?.message),
-    );
-  }
+  await deleteFirebaseUser('[emailAuth] deleteUserAccount');
 }

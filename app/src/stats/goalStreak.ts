@@ -134,6 +134,61 @@ export function isWindowMet(goal: Goal, totals: { focusS: number; sessionCount: 
  * function's own comment on `sessionCountsTowardTotals` -- and both default
  * to `[]` for the same backward-compatible reason.
  */
+/**
+ * Walks `goal`'s windows backwards from `nowMs`, yielding one entry per DUE
+ * window -- whether it was met, and whether it is the still-in-progress
+ * current one.
+ *
+ * The shared body of computeGoalStreak (below) and goalStreakHistory.ts's
+ * computeBestGoalStreak. Those two differ only in what they DO with each
+ * window -- stop at the first closed miss versus reset a running count and
+ * keep going -- and they had the whole walk written out twice: the same two
+ * bounds, the same cursor step, the same off-day skip, the same
+ * "only a due window advances the cap" rule.
+ *
+ * `isCurrentWindow` is `i === 0`, which is exactly "the window containing
+ * nowMs" -- the only window that can still be in progress, since every later
+ * iteration has stepped strictly backwards past it. It was once a mutable
+ * flag cleared at the BOTTOM of the loop, which the off-day `continue`
+ * jumped over: on a Mon/Wed/Fri goal checked on a Tuesday, the flag was still
+ * set when the walk reached Monday, so Monday got the leniency meant for an
+ * unfinished window even though its window had closed hours earlier. A missed
+ * Monday was silently forgiven and the streak kept counting from the Monday
+ * before it -- the Stats screen showed a live streak to someone who had just
+ * broken it, and only on the days they weren't scheduled, which is why it
+ * read as intermittent. Deriving it from the index is what makes that
+ * unrepresentable, and it now has to be got right in exactly one place.
+ *
+ * Both bounds are the caller's because the two walks are shaped differently:
+ * one stops early, one inspects everything -- see each constant's own
+ * comment. `maxCalendarSteps` bounds raw windows stepped over (including off
+ * days); `maxWindows` bounds DUE windows actually yielded.
+ */
+export function* dueWindowsBackwards(
+  goal: Goal,
+  sessions: LoggedSession[],
+  nowMs: number,
+  labels: CustomLabel[],
+  excludedTopicKeys: string[],
+  bounds: { maxCalendarSteps: number; maxWindows: number },
+): Generator<{ met: boolean; isCurrentWindow: boolean }> {
+  let cursorMs = nowMs;
+  let dueWindowsChecked = 0;
+  for (let i = 0; i < bounds.maxCalendarSteps && dueWindowsChecked < bounds.maxWindows; i++) {
+    const window = goalWindow(goal.period, cursorMs);
+    const isCurrentWindow = i === 0;
+    cursorMs = window.startMs - 1; // step into the previous window
+    if (!isGoalDueOn(goal, window.startMs)) continue; // off day -- neither a hit nor a miss
+    // Only a DUE window advances the maxWindows cap -- an off day above
+    // never reaches this line.
+    dueWindowsChecked += 1;
+    yield {
+      met: isWindowMet(goal, windowTotals(goal, sessions, window, labels, excludedTopicKeys)),
+      isCurrentWindow,
+    };
+  }
+}
+
 export function computeGoalStreak(
   goal: Goal,
   sessions: LoggedSession[],
@@ -143,31 +198,10 @@ export function computeGoalStreak(
 ): number {
   if (goal.archived) return 0;
   let streak = 0;
-  let cursorMs = nowMs;
-  let dueWindowsChecked = 0;
-  for (let i = 0; i < MAX_STREAK_CALENDAR_STEPS && dueWindowsChecked < MAX_STREAK_WINDOWS; i++) {
-    const window = goalWindow(goal.period, cursorMs);
-    // `i === 0` is exactly "the window containing nowMs", which is the only
-    // window that can still be in progress -- every later iteration has
-    // stepped strictly backwards past it. This used to be a mutable flag
-    // cleared at the BOTTOM of the loop, which the off-day `continue` below
-    // jumps over: on a Mon/Wed/Fri goal checked on a Tuesday, the flag was
-    // still set when the walk reached Monday, so Monday got the leniency
-    // meant for an unfinished window even though its window had closed
-    // hours earlier. A missed Monday was silently forgiven and the streak
-    // kept counting from the Monday before it -- the Stats screen showed a
-    // live streak to someone who had just broken it, and only on the days
-    // they weren't scheduled, which is why it reads as intermittent.
-    const isCurrentWindow = i === 0;
-    if (!isGoalDueOn(goal, window.startMs)) {
-      cursorMs = window.startMs - 1;
-      continue; // off day -- neither a hit nor a miss, doesn't count or break
-    }
-    // Only a DUE window advances the MAX_STREAK_WINDOWS cap (see
-    // MAX_STREAK_CALENDAR_STEPS's own comment) -- an off day above never
-    // reaches this line.
-    dueWindowsChecked += 1;
-    const met = isWindowMet(goal, windowTotals(goal, sessions, window, labels, excludedTopicKeys));
+  for (const { met, isCurrentWindow } of dueWindowsBackwards(goal, sessions, nowMs, labels, excludedTopicKeys, {
+    maxCalendarSteps: MAX_STREAK_CALENDAR_STEPS,
+    maxWindows: MAX_STREAK_WINDOWS,
+  })) {
     if (met) {
       streak += 1;
     } else if (!isCurrentWindow) {
@@ -175,7 +209,6 @@ export function computeGoalStreak(
     }
     // An unmet CURRENT window falls through without counting and without
     // breaking -- an unfinished window is not a miss (see the doc comment).
-    cursorMs = window.startMs - 1; // step into the previous window
   }
   return streak;
 }

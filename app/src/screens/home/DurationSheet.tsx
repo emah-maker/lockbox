@@ -24,8 +24,6 @@ import { View, StyleSheet } from 'react-native';
 import { Sheet } from '../../ui/Sheet';
 import { WheelPicker } from '../../ui/WheelPicker';
 import { TopicPicker } from '../TopicPicker';
-import { useStore } from '../../store/useStore';
-import { useTheme } from '../../theme/useTheme';
 import { useSettingsStore } from '../../store/useSettingsStore';
 
 // Matches DashboardScreen's old pickerSafetyTimer duration -- no real
@@ -60,15 +58,9 @@ export function DurationSheet({
   themeMode: ReturnType<typeof useSettingsStore.getState>['themeMode'];
   onSelectTopic: (topic: string) => void;
 }) {
-  const theme = useTheme();
-  // Read here rather than threaded through DashboardScreen -- the session
-  // log only feeds TopicPicker's "Recent" ranking, which is that
-  // component's own concern, and this sheet already self-supplies `theme`.
-  // excludedTopicKeys is read the identical way, for the identical reason --
-  // TopicPicker's own excluded-marker affordance is its concern, not
-  // DashboardScreen's.
-  const sessions = useStore((s) => s.sessions);
-  const excludedTopicKeys = useSettingsStore((s) => s.excludedTopicKeys);
+  // theme / sessions / excludedTopicKeys used to be read here purely to hand
+  // to TopicPicker -- the identical three reads TagSheet was also making.
+  // TopicPicker reads them itself now; see its own comment.
   const [sheetScrollEnabled, setSheetScrollEnabled] = useState(true);
   const safetyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -124,10 +116,7 @@ export function DurationSheet({
         heading="Tag this session before you lock it"
         currentTopic={currentTopic}
         customLabels={customLabels}
-        excludedTopicKeys={excludedTopicKeys}
         themeMode={themeMode}
-        theme={theme}
-        sessions={sessions}
         onSelect={onSelectTopic}
       />
     </Sheet>

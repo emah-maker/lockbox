@@ -11,7 +11,8 @@
 import { View, Text, StyleSheet } from 'react-native';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useTheme } from '../theme/useTheme';
-import { resolveTopic } from '../stats/customLabels';
+import { goalTopicLabel } from '../goals/goalTopicDisplay';
+import type { ResolvedTopic } from '../stats/customLabels';
 import { AnimatedPressable } from '../ui/AnimatedPressable';
 import { typeScale } from '../theme/tokens';
 
@@ -35,16 +36,59 @@ export function topicIdToStored(topicId: string): string | null {
  * allLabelChoices -- a since-deleted saved custom label, or a one-time
  * free-text tag typed into DashboardScreen's TopicPicker. resolveTopic
  * returns null only for the former (it falls back to the raw string for the
- * latter, see stats/customLabels.ts), which is exactly the two-case split
- * GoalsSection's own describeTopic makes for the row. Kept local so this
- * module needs nothing from the section that mounts it -- the same
- * arrangement as website/js/goalForm.js's orphanOptionLabel. */
-export function orphanLabel(
+ * latter, see stats/customLabels.ts).
+ *
+ * That is exactly stats/customLabels.ts's goalTopicLabel, minus its
+ * `topic === null` branch, which cannot happen here (an orphan chip only
+ * exists for a topic the goal actually names) -- so this is a named alias
+ * for the shared version rather than a fifth copy of the same two lines. It
+ * keeps the name the chips and website/js/goalForm.js's orphanOptionLabel
+ * both use for the concept. */
+export const orphanLabel: (
   topic: string,
   customLabels: ReturnType<typeof useSettingsStore.getState>['customLabels'],
   themeMode: ReturnType<typeof useSettingsStore.getState>['themeMode'],
-): string {
-  return resolveTopic(topic, customLabels, themeMode)?.label ?? 'Deleted label';
+) => string = goalTopicLabel;
+
+/**
+ * The catalog half of a topic chip row: one TopicChip per resolved choice.
+ *
+ * Both topic pickers -- GoalFormGroups.tsx's goal-topic group and
+ * calendar/SessionReminderForm.tsx's label field -- wrap this in their own
+ * leading chip ("All focus time" / "No label") and their own trailing orphan
+ * chip, which is where they genuinely differ. The map between them was
+ * identical, down to the comment explaining why `choice.textColor` is reused
+ * rather than re-measured.
+ */
+export function TopicChoiceChips({
+  choices,
+  selectedId,
+  onSelect,
+  color,
+}: {
+  choices: ResolvedTopic[];
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+  color: ReturnType<typeof useTheme>;
+}) {
+  return (
+    <>
+      {choices.map((choice) => (
+        <TopicChip
+          key={choice.id}
+          label={choice.label}
+          swatchColor={choice.color}
+          // allLabelChoices already measured this per choice
+          // (customLabels.ts's readableTextColor) -- reused rather than
+          // re-derived, same as every other chip row in the app.
+          activeTextColor={choice.textColor}
+          active={selectedId === choice.id}
+          onPress={() => onSelect(choice.id)}
+          color={color}
+        />
+      ))}
+    </>
+  );
 }
 
 /** One selectable topic chip. Same pill shape/fill-when-active model as

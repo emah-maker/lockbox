@@ -2,7 +2,7 @@
 // §1): one chip per linked provider (accountDisplay.ts's providerLabel maps
 // any id besides google.com/apple.com/password to "Other" rather than
 // dropping it), a "Link" action for each supported provider NOT yet linked
-// (Apple gated on AppleAuthentication.isAvailableAsync(), same runtime check
+// (Apple gated on useAppleAuthAvailable(), the same runtime check
 // SignedOutAccount.tsx uses; linking email opens an inline form below
 // instead of a one-tap action, since it needs typed credentials rather than
 // a provider redirect), a "Remove" action per linked provider gated on
@@ -12,7 +12,6 @@
 import React from 'react';
 import { View, Text, StyleSheet, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import * as AppleAuthentication from 'expo-apple-authentication';
 import { useAuthStore } from '../../auth/useAuthStore';
 import type { AuthProviderKind } from '../../auth/accountLinking';
 import {
@@ -25,6 +24,7 @@ import {
 import { useTheme } from '../../theme/useTheme';
 import { Button, Row, Section, captionStyle } from '../SettingsPrimitives';
 import { EmailPasswordFields, validateEmailPassword } from './EmailPasswordFields';
+import { useAppleAuthAvailable } from './useAppleAuthAvailable';
 
 const PROVIDER_NAME: Record<AuthProviderKind, string> = { google: 'Google', apple: 'Apple', password: 'Email' };
 
@@ -36,7 +36,7 @@ export function SignInMethodsSection({ color }: { color: ReturnType<typeof useTh
 
   const [busyProvider, setBusyProvider] = React.useState<AuthProviderKind | null>(null);
   const [error, setError] = React.useState<string | null>(null);
-  const [appleAvailable, setAppleAvailable] = React.useState(false);
+  const appleAvailable = useAppleAuthAvailable();
 
   // The inline "Link email" form's own two fields -- kept separate from
   // busyProvider/error above only where the shape genuinely differs (a
@@ -45,16 +45,6 @@ export function SignInMethodsSection({ color }: { color: ReturnType<typeof useTh
   const [linkEmailOpen, setLinkEmailOpen] = React.useState(false);
   const [linkEmail, setLinkEmail] = React.useState('');
   const [linkPassword, setLinkPassword] = React.useState('');
-
-  React.useEffect(() => {
-    let cancelled = false;
-    AppleAuthentication.isAvailableAsync().then((available) => {
-      if (!cancelled) setAppleAvailable(available);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   if (!user) return null;
 

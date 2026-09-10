@@ -13,7 +13,7 @@
 // (a Fragment carries no layout of its own).
 import { TextInput, StyleSheet } from 'react-native';
 import { useTheme } from '../../theme/useTheme';
-import { typeScale } from '../../theme/tokens';
+import { textInputStyle } from '../SettingsPrimitives';
 
 const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // Firebase Auth's own floor -- createUserWithEmailAndPassword/updatePassword
@@ -128,16 +128,4 @@ export function EmailPasswordFields({
   );
 }
 
-const styles = StyleSheet.create({
-  input: {
-    borderWidth: 1,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 15,
-    // lineHeight is left off deliberately -- on Android it mis-centers text
-    // inside a TextInput's padding box (same reasoning as
-    // CustomLabelsSection's own textInput style).
-    letterSpacing: typeScale.sectionTitle.letterSpacing,
-  },
-});
+const styles = StyleSheet.create({ input: textInputStyle });

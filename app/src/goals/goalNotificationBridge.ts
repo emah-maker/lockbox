@@ -23,9 +23,10 @@
 // Both inputs are therefore PUSHED in and cached here (`latestGoals`,
 // `latestSessions`); goalNotificationWatch.ts is the one module that owns
 // the useStore subscription feeding sessions in.
-import { useSettingsStore } from '../store/useSettingsStore';
+import { useSettingsStore, readNotificationPrefs, watchSettingsKey } from '../store/useSettingsStore';
+import { createDebouncer } from '../util/debounce';
 import { computeGoalProgress } from './goalProgress';
-import { syncGoalNotifications, type GoalProgressSnapshot, type NotificationPrefs } from './goalNotifications';
+import { syncGoalNotifications, type GoalProgressSnapshot } from './goalNotifications';
 import type { Goal } from './goals';
 import type { LoggedSession } from '../stats/sessionHistory';
 
@@ -48,17 +49,6 @@ let latestSessions: LoggedSession[] = [];
 // own full cancel-and-reschedule pass against the OS. The delay is short
 // enough to be invisible and long enough to collapse a batch.
 const RESYNC_DEBOUNCE_MS = 400;
-let resyncTimer: ReturnType<typeof setTimeout> | null = null;
-
-function readPrefs(): NotificationPrefs {
-  const s = useSettingsStore.getState();
-  return {
-    enabled: s.notificationsEnabled,
-    quietHoursEnabled: s.quietHoursEnabled,
-    quietStart: s.quietStart,
-    quietEnd: s.quietEnd,
-  };
-}
 
 /** Current-window progress for every goal, in the minimal shape the planner
  * needs. goalProgress.ts's computeGoalProgress is the one authority on this
@@ -83,7 +73,7 @@ function readProgress(goals: Goal[]): Map<string, GoalProgressSnapshot> {
  * exist before: goal mutations alone never observed a session landing. */
 export function noteSessionsChanged(sessions: LoggedSession[]): void {
   latestSessions = sessions;
-  scheduleResync();
+  resync.run();
 }
 
 /**
@@ -104,7 +94,7 @@ export function resyncGoalNotifications(goals?: Goal[]): void {
   // reminder for a custom-label goal named that label by its internal id.
   void syncGoalNotifications(
     planned,
-    readPrefs(),
+    readNotificationPrefs(),
     readProgress(planned),
     useSettingsStore.getState().customLabels,
   );
@@ -112,13 +102,7 @@ export function resyncGoalNotifications(goals?: Goal[]): void {
 
 /** Debounced variant for the subscription paths, where several changes can
  * land in the same tick. */
-function scheduleResync(): void {
-  if (resyncTimer) clearTimeout(resyncTimer);
-  resyncTimer = setTimeout(() => {
-    resyncTimer = null;
-    resyncGoalNotifications();
-  }, RESYNC_DEBOUNCE_MS);
-}
+const resync = createDebouncer(() => resyncGoalNotifications(), RESYNC_DEBOUNCE_MS);
 
 /**
  * Subscribes to the notification PREFS half of the plan's inputs and
@@ -150,20 +134,11 @@ function scheduleResync(): void {
 export function startGoalNotificationPrefsWatch(): () => void {
   if (teardown) return teardown;
 
-  let prevKey = watchedKey();
-  const unsubPrefs = useSettingsStore.subscribe(() => {
-    const next = watchedKey();
-    if (next === prevKey) return; // some other settings field changed
-    prevKey = next;
-    scheduleResync();
-  });
+  const unsubPrefs = watchSettingsKey(watchedKey, resync.run);
 
   teardown = () => {
     teardown = null;
-    if (resyncTimer) {
-      clearTimeout(resyncTimer);
-      resyncTimer = null;
-    }
+    resync.cancel(); // must not fire against a torn-down subscription
     unsubPrefs();
   };
   return teardown;

@@ -24,7 +24,7 @@ import { FormDisclosure } from '../../ui/FormDisclosure';
 import { WheelPicker } from '../../ui/WheelPicker';
 import { AnimatedPressable } from '../../ui/AnimatedPressable';
 import { Button } from '../SettingsPrimitives';
-import { TopicChip } from '../GoalTopicChips';
+import { TopicChip, TopicChoiceChips } from '../GoalTopicChips';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import { useTheme } from '../../theme/useTheme';
 import { withAlpha } from '../../theme/color';
@@ -261,27 +261,15 @@ export function SessionReminderForm({
             it behind a tap would be hiding the point. */}
         <Text style={[styles.label, { color: color.textDim }]}>Remind me</Text>
         <View style={styles.chipRow}>
-          {LEAD_MINUTE_OPTIONS.map((minutes) => {
-            const active = leadMinutes === minutes;
-            return (
-              <AnimatedPressable
-                key={minutes}
-                onPress={() => setLeadMinutes(minutes)}
-                accessibilityRole="button"
-                accessibilityState={{ selected: active }}
-                accessibilityLabel={leadLabel(minutes)}
-                style={[
-                  styles.chip,
-                  { borderColor: withAlpha(color.accent, 0.4) },
-                  active && { backgroundColor: color.accent, borderColor: color.accent },
-                ]}
-              >
-                <Text style={[styles.chipText, { color: active ? color.accentText : color.textDim }]}>
-                  {leadLabel(minutes)}
-                </Text>
-              </AnimatedPressable>
-            );
-          })}
+          {LEAD_MINUTE_OPTIONS.map((minutes) => (
+            <SelectChip
+              key={minutes}
+              label={leadLabel(minutes)}
+              active={leadMinutes === minutes}
+              onPress={() => setLeadMinutes(minutes)}
+              color={color}
+            />
+          ))}
         </View>
 
         {inQuietHours ? (
@@ -310,20 +298,7 @@ export function SessionReminderForm({
               onPress={() => setTopic(null)}
               color={color}
             />
-            {choices.map((choice) => (
-              <TopicChip
-                key={choice.id}
-                label={choice.label}
-                swatchColor={choice.color}
-                // allLabelChoices already measured this per choice
-                // (customLabels.ts's readableTextColor) -- reused rather
-                // than re-derived, same as every other chip row in the app.
-                activeTextColor={choice.textColor}
-                active={topic === choice.id}
-                onPress={() => setTopic(choice.id)}
-                color={color}
-              />
-            ))}
+            <TopicChoiceChips choices={choices} selectedId={topic} onSelect={setTopic} color={color} />
             {orphanId ? (
               <TopicChip
                 label="Deleted label"
@@ -345,42 +320,22 @@ export function SessionReminderForm({
           color={color}
         >
           <View style={styles.chipRow}>
-            <AnimatedPressable
-              onPress={() => setPlannedS(undefined)}
-              accessibilityRole="button"
-              accessibilityState={{ selected: plannedS === undefined }}
+            <SelectChip
+              label="Not set"
               accessibilityLabel="No planned length"
-              style={[
-                styles.chip,
-                { borderColor: withAlpha(color.accent, 0.4) },
-                plannedS === undefined && { backgroundColor: color.accent, borderColor: color.accent },
-              ]}
-            >
-              <Text style={[styles.chipText, { color: plannedS === undefined ? color.accentText : color.textDim }]}>
-                Not set
-              </Text>
-            </AnimatedPressable>
-            {DURATION_OPTIONS_S.map((seconds) => {
-              const active = plannedS === seconds;
-              return (
-                <AnimatedPressable
-                  key={seconds}
-                  onPress={() => setPlannedS(seconds)}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: active }}
-                  accessibilityLabel={formatDuration(seconds)}
-                  style={[
-                    styles.chip,
-                    { borderColor: withAlpha(color.accent, 0.4) },
-                    active && { backgroundColor: color.accent, borderColor: color.accent },
-                  ]}
-                >
-                  <Text style={[styles.chipText, { color: active ? color.accentText : color.textDim }]}>
-                    {formatDuration(seconds)}
-                  </Text>
-                </AnimatedPressable>
-              );
-            })}
+              active={plannedS === undefined}
+              onPress={() => setPlannedS(undefined)}
+              color={color}
+            />
+            {DURATION_OPTIONS_S.map((seconds) => (
+              <SelectChip
+                key={seconds}
+                label={formatDuration(seconds)}
+                active={plannedS === seconds}
+                onPress={() => setPlannedS(seconds)}
+                color={color}
+              />
+            ))}
           </View>
           <Text style={[styles.hint, { color: color.textDim }]}>
             A note to yourself -- the box's own timer is still set at the box.
@@ -413,6 +368,47 @@ export function SessionReminderForm({
         </View>
       </View>
     </Sheet>
+  );
+}
+
+/** An accent-filled selection chip. This form draws three rows of them --
+ * lead time, "Not set", and the planned-length options -- which were three
+ * copies of the same AnimatedPressable, the same two-layer style array, and
+ * the same active/inactive text color ternary.
+ *
+ * Distinct from GoalTopicChips' TopicChip, which is a different chip: that
+ * one borders and fills with a TOPIC's own swatch color and carries a dot,
+ * where this one is a plain accent-filled pill for a value with no color of
+ * its own. */
+function SelectChip({
+  label,
+  active,
+  onPress,
+  color,
+  accessibilityLabel,
+}: {
+  label: string;
+  active: boolean;
+  onPress: () => void;
+  color: ReturnType<typeof useTheme>;
+  /** Only where the visible label isn't the whole answer -- "Not set" reads
+   * as "No planned length" to a screen reader. */
+  accessibilityLabel?: string;
+}) {
+  return (
+    <AnimatedPressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityState={{ selected: active }}
+      accessibilityLabel={accessibilityLabel ?? label}
+      style={[
+        styles.chip,
+        { borderColor: withAlpha(color.accent, 0.4) },
+        active && { backgroundColor: color.accent, borderColor: color.accent },
+      ]}
+    >
+      <Text style={[styles.chipText, { color: active ? color.accentText : color.textDim }]}>{label}</Text>
+    </AnimatedPressable>
   );
 }
 

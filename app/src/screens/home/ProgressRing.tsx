@@ -35,7 +35,7 @@ import Svg, { Circle, G } from 'react-native-svg';
 import { useReducedMotion } from '../../ui/useReducedMotion';
 import type { RingSegment } from './idleRingState';
 
-const AnimatedCircle = Animated.createAnimatedComponent(Circle);
+import { AnimatedCircle } from '../../ui/AnimatedCircle';
 
 // ~90-100 degrees reads clearly as "an arc, not a circle" without eating so
 // much of the ring that the remaining sweep looks thin or lopsided -- picked

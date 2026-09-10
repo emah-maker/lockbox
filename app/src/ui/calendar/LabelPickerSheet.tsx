@@ -12,6 +12,7 @@ import { Sheet } from '../Sheet';
 import { AnimatedPressable } from '../AnimatedPressable';
 import { ThemeColors } from '../../theme/theme';
 import { typeScale } from '../../theme/tokens';
+import { sheetRowStyles } from './sheetRows';
 import { ResolvedTopic } from '../../stats/customLabels';
 
 export function LabelPickerSheet({
@@ -38,11 +39,11 @@ export function LabelPickerSheet({
     // problem Sheet's own swipe-to-dismiss comment calls out. This list
     // scrolls for free as part of the sheet's body.
     <Sheet visible={visible} onClose={onClose} title="Tag this session" size="large">
-      <View style={styles.list}>
+      <View style={sheetRowStyles.list}>
         {choices.map((choice) => (
           <AnimatedPressable
             key={choice.id}
-            style={styles.row}
+            style={sheetRowStyles.row}
             onPress={() => onPick(choice.id)}
             accessibilityRole="button"
             accessibilityLabel={choice.label}
@@ -51,8 +52,8 @@ export function LabelPickerSheet({
             // reader which row is the session's current tag.
             accessibilityState={{ selected: current === choice.id }}
           >
-            <View style={[styles.dot, { backgroundColor: choice.color }]} />
-            <Text style={[styles.rowLabel, { color: theme.text }]}>{choice.label}</Text>
+            <View style={[sheetRowStyles.dot, { backgroundColor: choice.color }]} />
+            <Text style={[sheetRowStyles.rowLabel, { color: theme.text }]}>{choice.label}</Text>
             {/* Doesn't change what's pickable -- an excluded label tags a
                 session exactly the same as any other (this file's own
                 header: "still pickable for tagging a session"). Only flags,
@@ -70,13 +71,13 @@ export function LabelPickerSheet({
       </View>
       {onClear && (
         <AnimatedPressable
-          style={styles.row}
+          style={sheetRowStyles.row}
           onPress={onClear}
           accessibilityRole="button"
           accessibilityLabel="Clear tag"
           accessibilityHint="Removes this session's tag"
         >
-          <Text style={[styles.rowLabel, { color: theme.danger }]}>Clear tag</Text>
+          <Text style={[sheetRowStyles.rowLabel, { color: theme.danger }]}>Clear tag</Text>
         </AnimatedPressable>
       )}
     </Sheet>
@@ -84,18 +85,8 @@ export function LabelPickerSheet({
 }
 
 const styles = StyleSheet.create({
-  list: { marginBottom: 4 },
-  // paddingVertical 12 (was 10): with a 20px label line that lands the row
-  // at exactly the 44pt minimum touch target, in a list where mis-tapping
-  // retags the wrong thing.
-  row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12 },
-  dot: { width: 12, height: 12, borderRadius: 6 },
-  rowLabel: {
-    fontSize: 15,
-    flex: 1,
-    letterSpacing: typeScale.body.letterSpacing,
-    lineHeight: typeScale.body.lineHeight,
-  },
+  // list / row / dot / rowLabel now come from sheetRows.ts, which also
+  // carries the "why 12px" note this file used to own alone.
   excludedTag: {
     fontSize: 11,
     borderWidth: 1,

@@ -14,19 +14,14 @@
 // documents.
 import * as AppleAuthentication from 'expo-apple-authentication';
 import * as Crypto from 'expo-crypto';
+import { OAuthProvider, type AuthCredential, type User } from 'firebase/auth';
 import {
-  OAuthProvider,
-  signInWithCredential,
-  linkWithCredential,
-  deleteUser,
-  reauthenticateWithCredential,
-  type AuthCredential,
-  type User,
-} from 'firebase/auth';
-import * as SecureStore from 'expo-secure-store';
-import { getFirebaseAuth } from './firebase';
-import { SECURE_STORE_OPTS, FIREBASE_AUTH_SECURE_STORE_KEYS } from './secureStoreKeys';
-import { signInDetectingLinkConflict } from './accountLinking';
+  signInWithProviderCredential,
+  linkCredentialToUser,
+  reauthenticateCurrentUser,
+  signOutFirebaseSession,
+  deleteFirebaseUser,
+} from './authSession';
 
 const APPLE_SCOPES = [AppleAuthentication.AppleAuthenticationScope.FULL_NAME, AppleAuthentication.AppleAuthenticationScope.EMAIL];
 
@@ -80,12 +75,7 @@ async function getAppleCredential(): Promise<AuthCredential> {
  * treat that as "stay signed out", not a fatal error.
  */
 export async function signInWithApple(): Promise<User> {
-  const credential = await getAppleCredential();
-  const userCredential = await signInDetectingLinkConflict('apple', credential, () =>
-    signInWithCredential(getFirebaseAuth(), credential),
-  );
-  // `credential` falls out of scope here -- used once, never persisted.
-  return userCredential.user;
+  return signInWithProviderCredential('apple', await getAppleCredential());
 }
 
 /**
@@ -96,28 +86,19 @@ export async function signInWithApple(): Promise<User> {
  * the CURRENT signed-in user (useAuthStore.linkProvider does).
  */
 export async function linkAppleToCurrentUser(user: User): Promise<User> {
-  const credential = await getAppleCredential();
-  const result = await linkWithCredential(user, credential);
-  return result.user;
+  return linkCredentialToUser(user, await getAppleCredential());
 }
 
 /**
- * Full secure sign-out, matching googleAuth.ts's signOutFully(): the
- * Firebase session, then a defense-in-depth explicit SecureStore wipe.
- * Unlike Google, Sign in with Apple has no client-revocable local grant to
- * release -- Apple's revocation model is server-side (an authorization-code
- * exchange this app doesn't implement) -- so there is no equivalent of
- * GoogleSignin.revokeAccess()/signOut() to call here.
+ * Full secure sign-out (authSession.ts): the Firebase session, then a
+ * defense-in-depth explicit SecureStore wipe. No provider cleanup is passed
+ * because, unlike Google, Sign in with Apple has no client-revocable local
+ * grant to release -- Apple's revocation model is server-side (an
+ * authorization-code exchange this app doesn't implement) -- so there is no
+ * equivalent of GoogleSignin.revokeAccess()/signOut() to call here.
  */
 export async function signOutFully(): Promise<void> {
-  const auth = getFirebaseAuth();
-  await auth.signOut().catch(() => {});
-  for (const key of FIREBASE_AUTH_SECURE_STORE_KEYS) {
-    // Key names only, never token contents -- see secureStoreKeys.ts.
-    await SecureStore.deleteItemAsync(key, SECURE_STORE_OPTS).catch((e) =>
-      console.warn('[appleAuth] signOutFully: failed to delete', key, e?.message),
-    );
-  }
+  await signOutFirebaseSession('[appleAuth] signOutFully');
 }
 
 /**
@@ -140,11 +121,9 @@ export async function signOutFully(): Promise<void> {
  * (deleteWithReauthRetry) before giving up.
  */
 export async function reauthenticateForDeletion(): Promise<void> {
-  const auth = getFirebaseAuth();
-  const user = auth.currentUser;
-  if (!user) return;
-  const credential = await getAppleCredential(); // throws on cancel -- see comment above
-  await reauthenticateWithCredential(user, credential);
+  // getAppleCredential() throws on cancel and that throw is left to
+  // propagate -- see the comment above and authSession.ts's own.
+  await reauthenticateCurrentUser(getAppleCredential);
 }
 
 /**
@@ -157,13 +136,5 @@ export async function reauthenticateForDeletion(): Promise<void> {
  * presence, so this is the one place deleteUser() itself is invoked.
  */
 export async function deleteUserAccount(): Promise<void> {
-  const auth = getFirebaseAuth();
-  const user = auth.currentUser;
-  if (!user) return;
-  await deleteUser(user);
-  for (const key of FIREBASE_AUTH_SECURE_STORE_KEYS) {
-    await SecureStore.deleteItemAsync(key, SECURE_STORE_OPTS).catch((e) =>
-      console.warn('[appleAuth] deleteUserAccount: failed to delete', key, e?.message),
-    );
-  }
+  await deleteFirebaseUser('[appleAuth] deleteUserAccount');
 }

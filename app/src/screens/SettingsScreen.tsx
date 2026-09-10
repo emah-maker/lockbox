@@ -37,10 +37,20 @@ import { AppearanceSection, appearanceSummary } from './settings/AppearanceSecti
 import { AlertsSection, alertsSummary } from './settings/AlertsSection';
 import { NotificationsSection, notificationsSummary } from './settings/NotificationsSection';
 import { RingBaselineSection, ringBaselineSummary } from './settings/RingBaselineSection';
+import { AboutSection, aboutSummary } from './settings/AboutSection';
 import { typeScale, elevation, radius } from '../theme/tokens';
 import { withAlpha } from '../theme/color';
 
-type SheetKey = 'account' | 'goals' | 'labels' | 'box' | 'appearance' | 'alerts' | 'notifications' | 'ringBaseline';
+type SheetKey =
+  | 'account'
+  | 'goals'
+  | 'labels'
+  | 'box'
+  | 'appearance'
+  | 'alerts'
+  | 'notifications'
+  | 'ringBaseline'
+  | 'about';
 
 export default function SettingsScreen() {
   const c = useTheme();
@@ -152,8 +162,10 @@ export default function SettingsScreen() {
             onPress={() => setSheet('notifications')}
             color={c}
           />
-
+          <Divider color={c} />
           <DisclosureRow label="Focus ring" value={ringBaselineValue} onPress={() => setSheet('ringBaseline')} color={c} />
+          <Divider color={c} />
+          <DisclosureRow label="About" value={aboutSummary()} onPress={() => setSheet('about')} color={c} />
         </View>
       </ScrollView>
 
@@ -228,6 +240,10 @@ export default function SettingsScreen() {
         dragBodyToDismiss={false}
       >
         <NotificationsSection color={c} onWheelActiveChange={onWheelActiveChange} />
+      </Sheet>
+
+      <Sheet visible={sheet === 'about'} onClose={closeSheet} size="auto">
+        <AboutSection color={c} />
       </Sheet>
 
       <Sheet visible={sheet === 'ringBaseline'} onClose={closeSheet} size="auto">

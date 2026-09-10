@@ -24,6 +24,7 @@
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 import { serializeLatest } from '../push/reconcileQueue';
+import { cancelScheduledWithPrefix, scheduleLocalNotifications } from '../push/localNotifications';
 import { ensureNotificationSetup, requestGoalNotificationPermission } from '../goals/goalNotifications';
 import type { NotificationPrefs } from '../goals/goalNotificationPlan';
 import { planSessionReminders, SESSION_NOTIF_ID_PREFIX } from './sessionReminderPlan';
@@ -58,28 +59,6 @@ async function ensureSessionChannel(): Promise<void> {
   } catch {
     // Scheduling will fall back to whatever default channel the platform
     // provides, or to nothing -- same degradation as everywhere else here.
-  }
-}
-
-/** Cancels every notification THIS feature has ever scheduled (any
- * identifier starting with SESSION_NOTIF_ID_PREFIX) -- never a goal
- * reminder, and never anything else the app or OS might hold. Degrades to a
- * no-op on any native failure: if notifications aren't available here,
- * nothing was scheduled in the first place. */
-async function cancelAllSessionReminders(): Promise<void> {
-  try {
-    const scheduled = await Notifications.getAllScheduledNotificationsAsync();
-    const ours = scheduled.filter((n) => n.identifier.startsWith(SESSION_NOTIF_ID_PREFIX));
-    await Promise.all(
-      ours.map((n) =>
-        Notifications.cancelScheduledNotificationAsync(n.identifier).catch(() => {
-          // One stale identifier failing shouldn't stop the rest -- the next
-          // reconcile tries again anyway.
-        }),
-      ),
-    );
-  } catch {
-    // No native module / nothing ever scheduled.
   }
 }
 
@@ -119,7 +98,9 @@ export const syncSessionReminders = serializeLatest(async function syncSessionRe
   prefs: NotificationPrefs,
   nowMs: number = Date.now(),
 ): Promise<ReminderCoverage> {
-  await cancelAllSessionReminders();
+  // Cancels only this feature's own identifiers -- never a goal reminder,
+  // never anything else the app or OS holds.
+  await cancelScheduledWithPrefix(SESSION_NOTIF_ID_PREFIX);
 
   const { requests, quietHoursSuppressed } = planSessionReminders(items, prefs, nowMs);
   // Note the early return still carries the suppressed ids: "every plan I
@@ -134,38 +115,26 @@ export const syncSessionReminders = serializeLatest(async function syncSessionRe
   const granted = await requestGoalNotificationPermission();
   if (!granted) return { scheduled: [], suppressed: quietHoursSuppressed };
 
-  // Collected from the individual results rather than assumed from
-  // `requests`: a request whose schedule call rejected is NOT covered
-  // locally, and reporting it as covered would suppress the server's copy
-  // too, leaving that reminder with nowhere at all to come from.
-  const scheduled: string[] = [];
-  await Promise.all(
-    requests.map((r) =>
-      Notifications.scheduleNotificationAsync({
-        identifier: r.identifier,
-        content: {
-          title: r.title,
-          body: r.body,
-          ...(Platform.OS === 'android' ? { channelId: ANDROID_CHANNEL_ID } : {}),
-        },
-        trigger: {
-          type: Notifications.SchedulableTriggerInputTypes.DATE,
-          // A Date, not epoch ms: the SDK accepts either, and passing the
-          // Date makes the local-timezone reading explicit -- fireAtMs was
-          // built from local Y/M/D + H:M (scheduledSessions.ts's
-          // scheduledStartMs), never from a UTC-parsed date string.
-          date: new Date(r.fireAtMs),
-          ...(Platform.OS === 'android' ? { channelId: ANDROID_CHANNEL_ID } : {}),
-        },
-      })
-        .then(() => {
-          scheduled.push(r.planId);
-        })
-        .catch(() => {
-          // One plan failing to schedule shouldn't take down the rest -- it
-          // just doesn't join `scheduled`, so the backend still pushes it.
-        }),
-    ),
+  const landed = await scheduleLocalNotifications(
+    requests.map((r) => ({
+      identifier: r.identifier,
+      title: r.title,
+      body: r.body,
+      trigger: {
+        type: Notifications.SchedulableTriggerInputTypes.DATE,
+        // A Date, not epoch ms: the SDK accepts either, and passing the
+        // Date makes the local-timezone reading explicit -- fireAtMs was
+        // built from local Y/M/D + H:M (scheduledSessions.ts's
+        // scheduledStartMs), never from a UTC-parsed date string.
+        date: new Date(r.fireAtMs),
+      },
+    })),
+    ANDROID_CHANNEL_ID,
   );
+  // Derived from what actually landed rather than assumed from `requests`: a
+  // request whose schedule call rejected is NOT covered locally, and
+  // reporting it as covered would suppress the server's copy too, leaving
+  // that reminder with nowhere at all to come from.
+  const scheduled = requests.filter((r) => landed.has(r.identifier)).map((r) => r.planId);
   return { scheduled, suppressed: quietHoursSuppressed };
 });

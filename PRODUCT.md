@@ -36,14 +36,16 @@ integration.
 ## Operating Context
 
 Visitor evaluates the product entirely through the marketing site (no
-in-person trial). Purchase is one-time hardware, not a subscription signup.
-The companion app (React Native/Expo, iOS-first) and the box firmware
-(CircuitPython, touchscreen UI) are separate surfaces from this website but
-share the same product story and BLE feature set (call alerts, live stats).
+in-person trial). There is no purchase or subscription of any kind — the
+project has never been sold. The companion app (React Native/Expo, iOS-first)
+and the box firmware (CircuitPython, touchscreen UI) are separate surfaces
+from this website but share the same product story and BLE feature set
+(call alerts, live stats).
 
 ## Capabilities and Constraints
 
-- One-time $99 price, no subscription, ever.
+- Never sold — no price, no subscription, no waitlist. A personal project,
+  not a commercial product.
 - True physical lockaway (hardware, not a software toggle).
 - On-device touchscreen countdown.
 - Tunable emergency override (adjustable so it isn't trivially easy, but real
@@ -70,8 +72,9 @@ share the same product story and BLE feature set (call alerts, live stats).
 
 ## Brand Commitments
 
-- Product name "Phone Box" and the "$99, one-time, no subscription — ever"
-  claim are fixed and must read clearly on the redesigned site.
+- Product name "Phone Box" is fixed. The redesigned site must read clearly
+  as a personal project that has never been sold — no price, subscription,
+  or availability claim of any kind belongs on it.
 - Existing visual identity (current colors/type/imagery) is NOT a locked
   brand commitment — it is evidence/anti-reference only. Full restyle is
   in scope; factual copy and pricing claims are not.
@@ -92,7 +95,8 @@ share the same product story and BLE feature set (call alerts, live stats).
    trust in the physical mechanism, not just describe a feature list.
 2. Smart, not gimmicky — call alert-through and live stats support the focus
    goal, they are not the headline over the core lockaway promise.
-3. No subscription, ever, is a structural advantage — make it legible without
-   turning the whole page into a pricing pitch.
+3. This has never been a commercial product — the site should read as an
+   honest personal build, not a sales pitch; no pricing or subscription
+   framing belongs anywhere on it.
 4. Override tuning is the "grown-up" answer to "what about emergencies?" —
    it should read as considered, not as a loophole.

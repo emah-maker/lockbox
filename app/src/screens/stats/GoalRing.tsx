@@ -18,7 +18,7 @@ import { Animated, Easing, View } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 import { useReducedMotion } from '../../ui/useReducedMotion';
 
-const AnimatedCircle = Animated.createAnimatedComponent(Circle);
+import { AnimatedCircle } from '../../ui/AnimatedCircle';
 
 export function GoalRing({
   ratio,

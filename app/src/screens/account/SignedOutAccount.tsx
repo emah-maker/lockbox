@@ -12,7 +12,6 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import * as AppleAuthentication from 'expo-apple-authentication';
 import { useAuthStore } from '../../auth/useAuthStore';
 import { signInErrorMessage } from '../../auth/accountDisplay';
 import type { AuthProviderKind } from '../../auth/accountLinking';
@@ -21,6 +20,7 @@ import { Button, captionStyle } from '../SettingsPrimitives';
 import { AnimatedPressable } from '../../ui/AnimatedPressable';
 import { hitSlop, typeScale } from '../../theme/tokens';
 import { EmailPasswordFields, validateEmailPassword, isValidEmail } from './EmailPasswordFields';
+import { useAppleAuthAvailable } from './useAppleAuthAvailable';
 
 type EmailAuthMode = 'signIn' | 'createAccount' | 'forgotPassword';
 
@@ -63,10 +63,9 @@ export function SignedOutAccount({ color, ready }: { color: ReturnType<typeof us
 
   const [busy, setBusy] = React.useState(false);
   const [signInError, setSignInError] = React.useState<string | null>(null);
-  // Runtime capability check (not Platform.OS): false on Android, and on iOS
-  // devices/OS versions where Sign in with Apple isn't available -- keeps
-  // the button from ever being shown somewhere it would just fail.
-  const [appleAvailable, setAppleAvailable] = React.useState(false);
+  // Runtime capability check, shared with SignInMethodsSection's "Link
+  // Apple" action -- see useAppleAuthAvailable.ts.
+  const appleAvailable = useAppleAuthAvailable();
 
   const [emailMode, setEmailMode] = React.useState<EmailAuthMode>('signIn');
   const [email, setEmail] = React.useState('');
@@ -77,16 +76,6 @@ export function SignedOutAccount({ color, ready }: { color: ReturnType<typeof us
   // address has an account, so this can never honestly say more than "if
   // one exists" -- see the copy below.
   const [resetSent, setResetSent] = React.useState(false);
-
-  React.useEffect(() => {
-    let cancelled = false;
-    AppleAuthentication.isAvailableAsync().then((available) => {
-      if (!cancelled) setAppleAvailable(available);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   const handleSignIn = async (signIn: () => Promise<void>) => {
     setBusy(true);

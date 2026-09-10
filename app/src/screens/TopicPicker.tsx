@@ -26,9 +26,9 @@ import React from 'react';
 import { View, Text, StyleSheet, TextInput } from 'react-native';
 import { useTheme } from '../theme/useTheme';
 import { useSettingsStore } from '../store/useSettingsStore';
+import { useStore } from '../store/useStore';
 import { allLabelChoices, resolveTopic, MAX_TOPIC_LENGTH, LABEL_SWATCHES } from '../stats/customLabels';
 import { topRecentTopics } from '../stats/recentTopics';
-import type { LoggedSession } from '../stats/sessionHistory';
 import { AnimatedPressable } from '../ui/AnimatedPressable';
 import { typeScale } from '../theme/tokens';
 
@@ -49,30 +49,31 @@ export function TopicPicker({
   heading,
   currentTopic,
   customLabels,
-  excludedTopicKeys,
   themeMode,
-  theme,
   onSelect,
-  sessions,
 }: {
   heading: string;
   currentTopic: string | null;
   customLabels: ReturnType<typeof useSettingsStore.getState>['customLabels'];
-  /** Built-in topics excluded from totals/goals/streaks (stats/
-   * customLabels.ts's setTopicKeyExcluded) -- customLabels' own
-   * excludeFromTotals extended to the six built-ins. Defaults to `[]` so an
-   * existing caller with nothing wired up yet renders exactly as before
-   * (every chip pickable, none marked excluded). */
-  excludedTopicKeys?: string[];
   themeMode: ReturnType<typeof useSettingsStore.getState>['themeMode'];
-  theme: ReturnType<typeof useTheme>;
   onSelect: (topic: string) => void;
-  /** Session history the "Recent" row is ranked from. Omit it (or pass an
-   * empty array) and that row simply doesn't render -- this component works
-   * exactly as it did before for any caller that has no history to hand. */
-  sessions?: LoggedSession[];
 }) {
   const addCustomLabel = useSettingsStore((s) => s.addCustomLabel);
+  // Read here rather than taken as props. Both callers -- home/TagSheet.tsx
+  // and home/DurationSheet.tsx -- were making these same three reads and
+  // handing the results straight down, so the plumbing existed twice to
+  // deliver values only this component uses. TagSheet's own comment already
+  // made the argument for it: the "Recent" row's ranking and the excluded-
+  // topic marker are this component's concerns, not its caller's, and it
+  // already self-supplied `theme` the same way one level up.
+  //
+  // `customLabels`/`themeMode` stay props: DashboardScreen owns those two for
+  // the whole Home screen and passes them through both sheets to here, so
+  // reading them again would be a second subscription to state the parent is
+  // already tracking, not the removal of a duplicate.
+  const theme = useTheme();
+  const sessions = useStore((s) => s.sessions);
+  const excludedTopicKeys = useSettingsStore((s) => s.excludedTopicKeys);
 
   // Local to this render of the picker, not persisted -- a true one-time
   // tag (manager brief), never added to useSettingsStore.customLabels, so it

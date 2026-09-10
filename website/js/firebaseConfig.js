@@ -27,8 +27,9 @@
  * `firebase serve` each get their own project's config with no branching. */
 const INIT_JSON_PATH = '/__/firebase/init.json';
 
-// Cached across callers: dashboard.js and login.js are separate pages, but
-// script.js's waitlist form can ask more than once in a single page session.
+// Cached across callers within a single page session -- dashboard.js and
+// login.js are separate pages, so each starts with a fresh copy of this
+// module and its own cache.
 let configPromise = null;
 
 /**

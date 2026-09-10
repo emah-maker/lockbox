@@ -13,7 +13,8 @@ import { useMemo } from 'react';
 import { useNowMs } from '../../ui/useNowMs';
 import type { LoggedSession } from '../../stats/sessionHistory';
 import { bestDay } from '../../stats/trend';
-import { resolveTopic, topicBreakdownWithCustom } from '../../stats/customLabels';
+import { goalTopicLabel } from '../../goals/goalTopicDisplay';
+import { topicBreakdownWithCustom } from '../../stats/customLabels';
 import { groupByDay, dayKey } from '../../stats/sessionHistory';
 import { computeGoalProgress, goalDisplayPercent } from '../../goals/goalProgress';
 import type { Goal } from '../../goals/goals';
@@ -30,24 +31,6 @@ import {
 } from './idleRingState';
 import { todaySessionCount } from './idleRingSources';
 import type { GoalHighlight } from './TodaySummary';
-
-/** Display name for a goal's stored topic string -- same convention
- * GoalsSection.tsx's own (unexported) describeTopic uses: null is "All
- * focus time", otherwise resolveTopic's label, falling back to "Deleted
- * label" for a since-deleted saved custom label. Kept as a small local copy
- * rather than importing GoalsSection's version (not exported, and
- * GoalsSection.tsx belongs to the `stats`/`goals` ownership, not this
- * screen's) -- same "each screen keeps its own tiny display helper"
- * precedent this app already follows elsewhere (RingBaselineSection.tsx has
- * its own near-identical copy, for the same reason). */
-function describeGoalTopic(
-  topic: string | null,
-  customLabels: ReturnType<typeof useSettingsStore.getState>['customLabels'],
-  themeMode: ReturnType<typeof useSettingsStore.getState>['themeMode'],
-): string {
-  if (topic === null) return 'All focus time';
-  return resolveTopic(topic, customLabels, themeMode)?.label ?? 'Deleted label';
-}
 
 export function useHomeGoalRing(params: {
   sessions: LoggedSession[];
@@ -115,7 +98,7 @@ export function useHomeGoalRing(params: {
     const chosen = unmet[0] ?? goalProgressAll[0];
     const goal = goals.find((g: Goal) => g.id === chosen.goalId);
     return {
-      name: describeGoalTopic(goal ? goal.topic : null, customLabels, themeMode),
+      name: goalTopicLabel(goal ? goal.topic : null, customLabels, themeMode),
       // Clamped display percentage -- see goalProgress.ts's
       // goalDisplayPercent for why this isn't `Math.round(chosen.ratio *
       // 100)` off the unclamped ratio (that used to print "1741%" on this
@@ -190,7 +173,7 @@ export function useHomeGoalRing(params: {
         chosenGoalWindow: chosenGoalResult
           ? { focusS: chosenGoalResult.focusS, targetS: chosenGoalResult.targetS }
           : null,
-        chosenGoalName: chosenGoal ? describeGoalTopic(chosenGoal.topic, customLabels, themeMode) : null,
+        chosenGoalName: chosenGoal ? goalTopicLabel(chosenGoal.topic, customLabels, themeMode) : null,
         rollingAverageS: computeRollingAverageS(sessions, nowMs, customLabels, excludedTopicKeys),
         streakCurrent: computeDailyStreak(sessions, nowMs, customLabels, excludedTopicKeys),
         streakLongest: computeLongestDailyStreak(sessions, customLabels, excludedTopicKeys),

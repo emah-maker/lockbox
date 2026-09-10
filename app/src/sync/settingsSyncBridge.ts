@@ -8,11 +8,9 @@
 // firestoreSync.ts already reads useSettingsStore for the migration/LWW
 // logic, so useSettingsStore itself stays free of any Firebase import.
 import { useSettingsStore } from '../store/useSettingsStore';
-import { getFirebaseAuth } from '../auth/firebase';
 import { pushSettingsPatch } from './firestoreSync';
+import { createSnapshotPushBridge } from './syncCommon';
 import type { CustomLabel } from '../stats/customLabels';
-
-let started = false;
 
 interface Snapshot {
   themeMode: string;
@@ -49,22 +47,14 @@ function equal(a: Snapshot, b: Snapshot): boolean {
   );
 }
 
-/** Call once at app start, after initFirebaseAuth() has resolved. Idempotent. */
-export function startSettingsSyncBridge(): void {
-  if (started) return;
-  started = true;
-  let prev = snapshot(useSettingsStore.getState());
-  useSettingsStore.subscribe((state) => {
-    const next = snapshot(state);
-    if (equal(prev, next)) return; // e.g. boxSettings/hydrated changed, not a synced field
-    prev = next;
-    let auth;
-    try {
-      auth = getFirebaseAuth();
-    } catch {
-      return; // Firebase Auth not initialized yet -- nothing to push to
-    }
-    if (!auth.currentUser) return; // signed out: local-only, nothing to push
-    pushSettingsPatch().catch(() => {}); // best-effort; next successful sync catches up
-  });
-}
+/** Call once at app start, after initFirebaseAuth() has resolved. Idempotent.
+ * The start flag, the signed-out early-out and the best-effort push all live
+ * in createSnapshotPushBridge (syncCommon.ts); the `equal` above is the only
+ * part specific to this store -- an emission for boxSettings or hydrated is
+ * not a synced-field change. */
+export const startSettingsSyncBridge = createSnapshotPushBridge(
+  useSettingsStore,
+  snapshot,
+  equal,
+  pushSettingsPatch,
+);

@@ -16,12 +16,12 @@
 // out.
 import { useEffect, useRef } from 'react';
 import { Animated, Easing } from 'react-native';
-import Svg, { Circle, G } from 'react-native-svg';
+import Svg, { G } from 'react-native-svg';
 import * as Haptics from 'expo-haptics';
 import { useReducedMotion } from '../../ui/useReducedMotion';
 import { withAlpha } from '../../theme/color';
 
-const AnimatedCircle = Animated.createAnimatedComponent(Circle);
+import { AnimatedCircle } from '../../ui/AnimatedCircle';
 
 export interface DonutSegment {
   key: string;

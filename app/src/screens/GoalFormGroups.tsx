@@ -30,7 +30,7 @@ import { FormDisclosure } from '../ui/FormDisclosure';
 import { formatClockTime } from '../ui/time';
 import { WeekdayChips, SessionTargetControl, weekdaySummary } from './GoalFormExtras';
 import { GoalReminderControl } from './GoalReminderControl';
-import { ALL_TOPICS_ID, orphanLabel, TopicChip } from './GoalTopicChips';
+import { ALL_TOPICS_ID, orphanLabel, TopicChip, TopicChoiceChips } from './GoalTopicChips';
 import { spacing } from '../theme/tokens';
 
 /** Which group is expanded. `null` -- nothing open -- is the resting state,
@@ -147,20 +147,7 @@ export function GoalFormGroups({
             onPress={() => onTopicChange(ALL_TOPICS_ID)}
             color={color}
           />
-          {choices.map((choice) => (
-            <TopicChip
-              key={choice.id}
-              label={choice.label}
-              swatchColor={choice.color}
-              // allLabelChoices already measured this per choice
-              // (customLabels.ts's readableTextColor) -- reused rather than
-              // re-derived, exactly as TopicPicker.tsx's own chip row does.
-              activeTextColor={choice.textColor}
-              active={topicId === choice.id}
-              onPress={() => onTopicChange(choice.id)}
-              color={color}
-            />
-          ))}
+          <TopicChoiceChips choices={choices} selectedId={topicId} onSelect={onTopicChange} color={color} />
           {orphanId ? (
             <TopicChip
               label={orphanLabel(orphanId, customLabels, themeMode)}

@@ -10,11 +10,9 @@
 // for the migration/merge logic, so useGoalsStore itself stays free of any
 // Firebase import.
 import { useGoalsStore } from '../store/useGoalsStore';
-import { getFirebaseAuth } from '../auth/firebase';
 import { pushGoalsPatch } from './firestoreSync';
+import { createSnapshotPushBridge } from './syncCommon';
 import type { Goal } from '../goals/goals';
-
-let started = false;
 
 function snapshot(state: ReturnType<typeof useGoalsStore.getState>): Goal[] {
   return state.goals;
@@ -30,22 +28,14 @@ function equal(a: Goal[], b: Goal[]): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
 }
 
-/** Call once at app start, after initFirebaseAuth() has resolved. Idempotent. */
-export function startGoalsSyncBridge(): void {
-  if (started) return;
-  started = true;
-  let prev = snapshot(useGoalsStore.getState());
-  useGoalsStore.subscribe((state) => {
-    const next = snapshot(state);
-    if (equal(prev, next)) return; // e.g. hydrated flipped with no actual goal change
-    prev = next;
-    let auth;
-    try {
-      auth = getFirebaseAuth();
-    } catch {
-      return; // Firebase Auth not initialized yet -- nothing to push to
-    }
-    if (!auth.currentUser) return; // signed out: local-only, nothing to push
-    pushGoalsPatch().catch(() => {}); // best-effort; next successful sync catches up
-  });
-}
+/** Call once at app start, after initFirebaseAuth() has resolved. Idempotent.
+ * Shares settingsSyncBridge's whole scaffold through
+ * createSnapshotPushBridge (syncCommon.ts) -- `equal` above is the only
+ * difference, so that hydrated flipping with no actual goal change doesn't
+ * push. */
+export const startGoalsSyncBridge = createSnapshotPushBridge(
+  useGoalsStore,
+  snapshot,
+  equal,
+  pushGoalsPatch,
+);

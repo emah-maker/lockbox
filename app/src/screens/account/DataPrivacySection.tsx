@@ -5,9 +5,15 @@
 // settings/app, goals/config, sessions); the sessions-retained-but-orphaned
 // exception on deletion is spelled out in DangerZoneSection's delete copy
 // instead of repeated here, since it only matters at deletion time.
+//
+// The text below is a summary, not the policy: the policy itself is linked
+// from here (and from the Settings hub's About sheet, for the signed-out
+// case) via SettingsPrimitives' shared PrivacyPolicyLink -- App Store Review
+// Guideline 5.1.1(i) wants the actual document reachable from inside the app,
+// not just a description of it.
 import { Text, StyleSheet } from 'react-native';
 import { useTheme } from '../../theme/useTheme';
-import { Section, captionStyle } from '../SettingsPrimitives';
+import { Section, PrivacyPolicyLink, captionStyle } from '../SettingsPrimitives';
 
 export function DataPrivacySection({ color }: { color: ReturnType<typeof useTheme> }) {
   return (
@@ -18,6 +24,7 @@ export function DataPrivacySection({ color }: { color: ReturnType<typeof useThem
         Not stored: any raw sign-in token or credential. Firebase manages your session directly; this
         app never uploads it.
       </Text>
+      <PrivacyPolicyLink color={color} />
     </Section>
   );
 }

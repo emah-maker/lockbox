@@ -4,10 +4,18 @@
 //
 // One shared module so secureStorePersistence.ts (the Persistence adapter
 // itself), wipeStaleSessionOnFreshInstall.ts (§2.5's reinstall wipe), and
-// googleAuth.ts's signOutFully() (§2.4's defense-in-depth wipe) all read and
-// wipe the exact same keys -- expo-secure-store has no "list keys" API, so a
-// full wipe must know every key Firebase Auth's persistence layer might have
-// written, rather than clearing "everything under some prefix".
+// every provider's sign-out/delete path (§2.4's defense-in-depth wipe, via
+// authSession.ts) all read and wipe the exact same keys -- expo-secure-store
+// has no "list keys" API, so a full wipe must know every key Firebase Auth's
+// persistence layer might have written, rather than clearing "everything
+// under some prefix".
+//
+// The wipe itself lives here too (wipeFirebaseAuthSecureStore, below) rather
+// than being re-typed next to each list of keys: it was the same loop in four
+// places, and a wipe that misses one key in one of them is exactly the bug
+// this module exists to prevent. Note this file deliberately imports nothing
+// from ./firebase -- wipeStaleSessionOnFreshInstall must run BEFORE Firebase
+// Auth initializes, so its wipe cannot sit behind getFirebaseAuth().
 import * as SecureStore from 'expo-secure-store';
 import { firebaseConfig } from './firebaseConfig';
 
@@ -53,3 +61,23 @@ export const FIREBASE_AUTH_SECURE_STORE_KEYS: string[] = [
   secureStoreKey(`firebase:authUser:${firebaseConfig.apiKey}:${FIREBASE_APP_NAME}`),
   secureStoreKey(`firebase:persistence:${firebaseConfig.apiKey}:${FIREBASE_APP_NAME}`),
 ];
+
+/**
+ * Deletes every key above, best-effort: one failure must not stop the rest,
+ * and no caller has anything better to do than report it.
+ *
+ * `context` names the caller (e.g. `'[googleAuth] signOutFully'`) so the
+ * warning says which wipe path failed. Logging the key NAMES is safe and
+ * deliberate -- they are derived from firebaseConfig.apiKey, not secret (see
+ * above) -- and it is the only diagnostic there is if an SDK version drift
+ * ever changes the internal key format this module still assumes. A bare
+ * `.catch(() => {})` here previously gave none at all (production readiness
+ * review, Medium).
+ */
+export async function wipeFirebaseAuthSecureStore(context: string): Promise<void> {
+  for (const key of FIREBASE_AUTH_SECURE_STORE_KEYS) {
+    await SecureStore.deleteItemAsync(key, SECURE_STORE_OPTS).catch((e) =>
+      console.warn(`${context}: failed to delete`, key, e?.message),
+    );
+  }
+}

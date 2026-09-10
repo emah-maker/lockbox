@@ -5,7 +5,7 @@
 // setBoxSettings() after a read/write so this mirror stays in sync (see
 // useStore.ts afterConnected / pushBoxSettings).
 import { create } from 'zustand';
-import { getJSON, setJSON } from '../storage/storage';
+import { setJSON } from '../storage/storage';
 import { ThemeMode, AccentKey } from '../theme/theme';
 import type { Settings } from '../ble/protocol';
 import {
@@ -15,53 +15,23 @@ import {
   deleteCustomLabel as deleteCustomLabelIn,
   setLabelExcluded as setLabelExcludedIn,
   setTopicKeyExcluded as setTopicKeyExcludedIn,
-  sanitizeCustomLabels,
-  sanitizeExcludedTopicKeys,
 } from '../stats/customLabels';
+// What a settings field IS on disk -- its default, its sanitizer, and the
+// one read that loads them all. See settingsPersistence.ts for why this file
+// no longer holds any of that, and why the dependency only points one way.
+import {
+  DEFAULT_BOX_SETTINGS,
+  SYNCABLE_SETTINGS_DEFAULTS,
+  loadPersistedSettings,
+  type SyncableSettings,
+} from './settingsPersistence';
+
+// Re-exported unchanged: sync/firestoreSync.ts and sync/settingsSyncPlan.ts
+// import this type from here, and where it is declared is not their concern.
+export type { SyncableSettings };
 import type { TopicKey } from '../stats/topics';
 import type { RingBaselineWindow, RingSourceKind } from '../screens/home/idleRingState';
-
-// Mirrors the firmware's own defaults (Box-code/lib/lock_config.py /
-// lock_settings.py) so the Settings screen shows sane values before the
-// first successful connection.
-const DEFAULT_BOX_SETTINGS: Settings = { ovr: 25, auto: 1, sleep: 20, bright: 50, unlk: 0, ucal: 0, thm: 0, acc: 0, flip: 0, langle: 45, uangle: 0, ovrt: 10 };
-
-// Defaults for the five account-syncable fields -- what a signed-out device
-// (or a brand-new account) should show, and what sync/localDataOwner.ts
-// resets local storage to on sign-out/account-switch so no prior account's
-// preferences linger on the device.
-const SYNCABLE_SETTINGS_DEFAULTS: SyncableSettings = {
-  themeMode: 'dark',
-  accent: 'mint',
-  callAlertsEnabled: true,
-  customLabels: [],
-  excludedTopicKeys: [],
-};
-
-// The account-syncable fields, per
-// docs/rfcs/google-signin-cross-device-sync-architecture.md §3.1/§4.2 --
-// cross-device last-write-wins settings, distinct from boxSettings (the
-// per-physical-box BLE mirror, which is never account state -- see §3.1's
-// "deliberate scoping decision"). customLabels joined this set so a user's
-// custom focus-label catalog follows them to a new device the same way
-// their theme/accent/toggles already do.
-export interface SyncableSettings {
-  themeMode: ThemeMode;
-  accent: AccentKey;
-  callAlertsEnabled: boolean;
-  customLabels: CustomLabel[];
-  /** The built-in topics (stats/topics.ts's TopicKey) a user has switched off
-   * from counting toward totals/goals/streaks -- customLabels' own
-   * excludeFromTotals field extended to the six built-ins, which have no
-   * catalog entry of their own to carry a boolean flag on (see
-   * customLabels.ts's setTopicKeyExcluded for the full reasoning). Joined
-   * SyncableSettings alongside customLabels, not boxSettings/autoSyncEnabled,
-   * for the same reason customLabels itself did: this is the identical
-   * user-facing "doesn't count" switch, just for a built-in topic instead of
-   * a saved custom label, and a user would find it surprising if one kind of
-   * label's exclusion followed them to a new device while the other didn't. */
-  excludedTopicKeys: string[];
-}
+import type { NotificationPrefs } from '../goals/goalNotificationPlan';
 
 interface SettingsState {
   hydrated: boolean;
@@ -224,93 +194,60 @@ interface SettingsState {
  * caller. Nothing else should call this directly. */
 let hydrating: Promise<void> | null = null;
 
-/** `calendarStreakGoalIds`'s sanitize-on-the-way-out-of-storage step -- the
- * same belt-and-suspenders treatment customLabels/excludedTopicKeys get from
- * sanitizeCustomLabels/sanitizeExcludedTopicKeys below, needed here for a
- * sharper reason: storage.ts's generic corrupt-value guard opts out entirely
- * for a nullable-default caller like this one (no shape to compare a `string
- * | null` against), but this field's non-null shape genuinely is a
- * `string[]`, and screens/calendar/monthGrid.ts's resolveCalendarStreakGoalIds
- * calls `.filter` on it unconditionally once it isn't `null`. An unsanitized
- * garbage value here would reach that `.filter` and crash the Calendar tab
- * instead of degrading to "no customization" like every other field does. */
-function sanitizeCalendarStreakGoalIds(value: unknown): string[] | null {
-  if (value === null) return null;
-  if (!Array.isArray(value)) return null;
-  return value.filter((v): v is string => typeof v === 'string');
+/** Loads every persisted field (store/settingsPersistence.ts owns the
+ * defaults, the sanitizers, and the read itself) and commits it in one
+ * update. Spreading into set() is also the type check that every persisted
+ * field still matches the store's own: set() takes Partial<SettingsState>,
+ * so a field renamed on one side and not the other fails to compile here. */
+async function hydrateOnce(set: (partial: Partial<SettingsState>) => void): Promise<void> {
+  set({ hydrated: true, ...(await loadPersistedSettings()) });
 }
 
-async function hydrateOnce(set: (partial: Partial<SettingsState>) => void): Promise<void> {
-  const [
-    themeMode,
-    accent,
-    callAlertsEnabled,
-    customLabels,
-    excludedTopicKeys,
-    boxSettings,
-    settingsUpdatedAt,
-    autoSyncEnabled,
-    ringBaselineWindow,
-    ringSourceKind,
-    ringGoalId,
-    ringShowTopicMix,
-    notificationsEnabled,
-    quietHoursEnabled,
-    quietStart,
-    quietEnd,
-    calendarStreakGoalIds,
-  ] = await Promise.all([
-    getJSON<ThemeMode>('themeMode', SYNCABLE_SETTINGS_DEFAULTS.themeMode),
-    getJSON<AccentKey>('accent', SYNCABLE_SETTINGS_DEFAULTS.accent),
-    getJSON<boolean>('callAlertsEnabled', SYNCABLE_SETTINGS_DEFAULTS.callAlertsEnabled),
-    getJSON<CustomLabel[]>('customLabels', SYNCABLE_SETTINGS_DEFAULTS.customLabels),
-    getJSON<string[]>('excludedTopicKeys', SYNCABLE_SETTINGS_DEFAULTS.excludedTopicKeys),
-    getJSON<Settings>('boxSettings', DEFAULT_BOX_SETTINGS),
-    getJSON<number>('settingsUpdatedAt', 0),
-    getJSON<boolean>('autoSyncEnabled', true),
-    getJSON<RingBaselineWindow>('ringBaselineWindow', 'week'),
-    getJSON<RingSourceKind>('ringSourceKind', 'auto'),
-    getJSON<string | null>('ringGoalId', null),
-    getJSON<boolean>('ringShowTopicMix', true),
-    getJSON<boolean>('notificationsEnabled', true),
-    getJSON<boolean>('quietHoursEnabled', false),
-    getJSON<string>('quietStart', '22:00'),
-    getJSON<string>('quietEnd', '07:00'),
-    getJSON<string[] | null>('calendarStreakGoalIds', null),
-  ]);
-  set({
-    hydrated: true,
-    themeMode,
-    accent,
-    callAlertsEnabled,
-    // Sanitized on the way OUT of storage as well as on the way in from
-    // Firestore, the same self-healing loadSessions() does for the session
-    // log and for the same reason: applyRemoteSettings persists whatever the
-    // remote merge produced, so a catalog entry that predates a tightening of
-    // sanitizeCustomLabels is already sitting in local storage on existing
-    // installs. Validating only at the sync boundary would leave those
-    // installs broken until the next remote pull happened to rewrite the key.
-    // themeMode/accent need no equivalent -- resolveTheme normalizes both on
-    // every render already.
-    customLabels: sanitizeCustomLabels(customLabels),
-    // Same self-healing sanitize-on-the-way-out-of-storage treatment as
-    // customLabels just above, and for the identical reason -- a value
-    // written before sanitizeExcludedTopicKeys existed (or before a tightened
-    // version of it) is already sitting in local storage on existing
-    // installs.
-    excludedTopicKeys: sanitizeExcludedTopicKeys(excludedTopicKeys),
-    boxSettings,
-    settingsUpdatedAt,
-    autoSyncEnabled,
-    ringBaselineWindow,
-    ringSourceKind,
-    ringGoalId,
-    ringShowTopicMix,
-    notificationsEnabled,
-    quietHoursEnabled,
-    quietStart,
-    quietEnd,
-    calendarStreakGoalIds: sanitizeCalendarStreakGoalIds(calendarStreakGoalIds),
+/**
+ * The four global notification prefs, in the shape the reminder planners take
+ * (goals/goalNotificationPlan.ts's NotificationPrefs).
+ *
+ * Read straight off the store rather than threaded through, for the reason
+ * both callers documented independently: no caller of a mutation has any
+ * business knowing about quiet hours. It lives HERE, next to the fields it
+ * projects, because goals/goalNotificationBridge.ts and
+ * store/useScheduleStore.ts each had a byte-identical private copy -- and a
+ * fifth pref added to only one of them would have been a silent behavior
+ * split between goal reminders and session reminders.
+ *
+ * Type-only import of NotificationPrefs: goalNotificationPlan is the pure
+ * planner and imports no store, so this cannot become a cycle.
+ */
+export function readNotificationPrefs(): NotificationPrefs {
+  const s = useSettingsStore.getState();
+  return {
+    enabled: s.notificationsEnabled,
+    quietHoursEnabled: s.quietHoursEnabled,
+    quietStart: s.quietStart,
+    quietEnd: s.quietEnd,
+  };
+}
+
+/**
+ * Subscribes to this store, invoking `onChange` only when `key()` actually
+ * changes. Returns the unsubscribe.
+ *
+ * zustand v5's `subscribe` hands the whole state to every listener, so each
+ * watcher has to do its own change detection or it fires on every unrelated
+ * emission (a theme flip, a box-settings push). Flattening the fields that
+ * matter into one comparable string and comparing that is the idiom every
+ * watcher in this app already converged on -- sync/settingsSyncBridge.ts,
+ * goals/goalNotificationBridge.ts, store/useScheduleStore.ts -- written out
+ * once here instead of three times. What each watcher still owns is the only
+ * part that differs: WHICH fields go into its key.
+ */
+export function watchSettingsKey(key: () => string, onChange: () => void): () => void {
+  let prev = key();
+  return useSettingsStore.subscribe(() => {
+    const next = key();
+    if (next === prev) return; // some other settings field changed
+    prev = next;
+    onChange();
   });
 }
 

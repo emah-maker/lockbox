@@ -15,7 +15,7 @@
 // handed to the OS (iOS silently drops it; Android may deliver it
 // immediately, which is worse -- a reminder for a session you planned last
 // Tuesday arriving now).
-import { formatClockTime } from '../ui/time';
+import { formatClockTime, shortDuration } from '../ui/time';
 import { isInQuietHours, type NotificationPrefs } from '../goals/goalNotificationPlan';
 import { reminderFireMs, scheduledStartMs, type ScheduledSession } from './scheduledSessions';
 
@@ -62,18 +62,6 @@ export interface SessionReminderRequest {
   /** Absolute local epoch ms. Always strictly in the future relative to the
    * `nowMs` this plan was built with. */
   fireAtMs: number;
-}
-
-/** Short "1h 20m" / "45m" phrasing for a reminder body -- a local copy
- * rather than an import of stats/stats.ts's formatDuration, for the same
- * reason goalNotificationPlan.ts keeps its own: that module drags in a
- * dependency chain this leaf deliberately doesn't have. */
-function shortDuration(totalS: number): string {
-  const s = Math.max(0, Math.round(totalS));
-  const h = Math.floor(s / 3600);
-  const m = Math.round((s % 3600) / 60);
-  if (h > 0) return m > 0 ? `${h}h ${m}m` : `${h}h`;
-  return `${Math.max(1, m)}m`;
 }
 
 /** Reminder copy. Says WHEN the session starts rather than "now", because

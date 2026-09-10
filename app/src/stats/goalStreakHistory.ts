@@ -17,7 +17,7 @@ import type { Goal } from '../goals/goals';
 import { goalWindow, isGoalDueOn, GoalWindow } from '../goals/goalProgress';
 import type { LoggedSession } from './sessionHistory';
 import type { CustomLabel } from './customLabels';
-import { windowTotals, isWindowMet } from './goalStreak';
+import { windowTotals, isWindowMet, dueWindowsBackwards } from './goalStreak';
 
 // Same cap and same reasoning as goalStreak.ts's own MAX_STREAK_WINDOWS --
 // kept as an independent constant (not imported) because this one bounds a
@@ -64,19 +64,13 @@ export function computeBestGoalStreak(
   if (goal.archived) return 0;
   let best = 0;
   let current = 0;
-  let cursorMs = nowMs;
-  let dueWindowsChecked = 0;
-  for (let i = 0; i < MAX_BEST_STREAK_CALENDAR_STEPS && dueWindowsChecked < MAX_BEST_STREAK_WINDOWS; i++) {
-    const window = goalWindow(goal.period, cursorMs);
-    const isCurrentWindow = i === 0;
-    if (!isGoalDueOn(goal, window.startMs)) {
-      cursorMs = window.startMs - 1;
-      continue; // off day -- doesn't extend or reset the running count
-    }
-    // Only a DUE window advances the MAX_BEST_STREAK_WINDOWS cap -- see
-    // MAX_BEST_STREAK_CALENDAR_STEPS's own comment.
-    dueWindowsChecked += 1;
-    const met = isWindowMet(goal, windowTotals(goal, sessions, window, labels, excludedTopicKeys));
+  // Same backward walk computeGoalStreak makes, with this file's own two
+  // caps -- see goalStreak.ts's dueWindowsBackwards, and the constants above
+  // for why the caps stay independent.
+  for (const { met, isCurrentWindow } of dueWindowsBackwards(goal, sessions, nowMs, labels, excludedTopicKeys, {
+    maxCalendarSteps: MAX_BEST_STREAK_CALENDAR_STEPS,
+    maxWindows: MAX_BEST_STREAK_WINDOWS,
+  })) {
     if (met) {
       current += 1;
       if (current > best) best = current;
@@ -85,7 +79,6 @@ export function computeBestGoalStreak(
     }
     // An unmet CURRENT window falls through without extending OR resetting
     // the running count, same leniency as computeGoalStreak's own comment.
-    cursorMs = window.startMs - 1;
   }
   return best;
 }

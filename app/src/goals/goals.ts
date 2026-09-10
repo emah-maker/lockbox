@@ -271,19 +271,19 @@ function validateGoalExtras(
  * signature stays entirely unchanged for any existing call site, this is
  * purely additive. `daysOfWeek` here is the caller's raw selection (not yet
  * deduped/sorted); createGoal normalizes it via normalizeDaysOfWeek. */
-export interface GoalCreateExtras {
-  daysOfWeek?: number[];
-  targetSessions?: number;
-  notify?: boolean;
-  notifyAt?: string;
-  /** Every reminder time for the new goal. When supplied, it is the
-   * authority and `notifyAt` above is DERIVED from it (set to the earliest
-   * entry) rather than read -- see Goal.notifyAt's own comment on why that
-   * legacy field keeps being written at all. */
-  notifyTimes?: string[];
-  notifyDays?: number[];
-  notifyOnlyIfBehind?: boolean;
-}
+//
+// Picked from Goal rather than re-declared, so the two can never drift: a
+// field added to Goal but forgotten here would be silently un-settable at
+// creation time, with nothing to catch it. Every field's meaning stays
+// documented once, on Goal itself. The one create-time-only rule, which has
+// no Goal-side equivalent: when `notifyTimes` is supplied it is the
+// AUTHORITY and `notifyAt` is DERIVED from it (set to the earliest entry)
+// rather than read -- see Goal.notifyAt on why that legacy field keeps being
+// written at all.
+export type GoalCreateExtras = Pick<
+  Goal,
+  'daysOfWeek' | 'targetSessions' | 'notify' | 'notifyAt' | 'notifyTimes' | 'notifyDays' | 'notifyOnlyIfBehind'
+>;
 
 /** Appends a new goal, stamping createdAt/updatedAt to `nowMs`. Rejects (via
  * throw, same as createCustomLabel) an invalid topic/period/targetS/

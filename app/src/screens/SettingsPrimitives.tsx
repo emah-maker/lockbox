@@ -9,11 +9,14 @@ import {
   Text,
   StyleSheet,
   ActivityIndicator,
+  TextInput,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../theme/useTheme';
 import { AnimatedPressable } from '../ui/AnimatedPressable';
-import { typeScale, elevation, opacity } from '../theme/tokens';
+import { typeScale, elevation, opacity, hitSlop } from '../theme/tokens';
+import { useTheme as useThemeHook } from '../theme/useTheme';
+import { PRIVACY_POLICY_URL, openExternalUrl } from '../legal/legalLinks';
 
 export function Button({
   label,
@@ -171,12 +174,128 @@ export function Section({
   );
 }
 
+// The App Store Review Guideline 5.1.1(i) privacy-policy link (see
+// legal/legalLinks.ts). One component with two mount points -- the Settings
+// hub's About sheet, which is reachable whether or not anyone is signed in,
+// and the Account page's "Data & privacy" section, which sits next to the
+// plain-language summary of the same policy -- so the label, the URL and the
+// screen-reader wording cannot drift apart between the two places a reviewer
+// (or a user) might look for it.
+export function PrivacyPolicyLink({ color }: { color: ReturnType<typeof useTheme> }) {
+  return (
+    <AnimatedPressable
+      onPress={() => {
+        void openExternalUrl(PRIVACY_POLICY_URL);
+      }}
+      accessibilityRole="link"
+      accessibilityLabel="Privacy Policy"
+      accessibilityHint="Opens the Phone Box privacy policy in your browser"
+      hitSlop={hitSlop.text}
+      style={styles.externalLink}
+    >
+      <Text style={[styles.externalLinkLabel, { color: color.accent }]}>Privacy Policy</Text>
+      <Ionicons name="open-outline" size={14} color={color.accent} />
+    </AnimatedPressable>
+  );
+}
+
+/** The message both number editors show for an unparseable draft. One
+ * string, so the two fields can't drift into phrasing the same rejection
+ * differently. */
+export const WHOLE_NUMBER_ERROR = 'Enter a whole number.';
+
+/** Reads a whole number out of a typed draft, or null when there isn't one
+ * (blank, whitespace, or anything Number() can't finish). Rounds rather than
+ * rejecting a decimal: a numberpad can still produce one via paste, and
+ * "137.4 presses" has an obvious intended reading. */
+export function readWholeNumberDraft(draft: string): number | null {
+  const n = Math.round(Number(draft));
+  if (!draft.trim() || !Number.isFinite(n)) return null;
+  return n;
+}
+
+/**
+ * The open state of a small numeric editor: an optional leading control, a
+ * numberpad field, Set, Cancel, and an error line under it.
+ *
+ * Shared by OverridePressSection's OverrideCustomEntry and
+ * ServoAngleSection's AngleCustomEntry, which had this row, its five styles,
+ * and its parse-and-reject step written out twice. What each still owns is
+ * what actually differs: OverrideCustomEntry clamps to a [min, max] pair,
+ * AngleCustomEntry applies a sign toggle (its `leading`) and clamps to the
+ * servo range -- so `onCommit` stays the caller's.
+ */
+export function NumberEntryRow({
+  draft,
+  onChangeDraft,
+  onCommit,
+  onCancel,
+  error,
+  color,
+  inputLabel,
+  cancelLabel,
+  leading,
+  inputMinWidth = 70,
+}: {
+  draft: string;
+  onChangeDraft: (v: string) => void;
+  onCommit: () => void;
+  onCancel: () => void;
+  error: string | null;
+  color: ReturnType<typeof useThemeHook>;
+  inputLabel?: string;
+  cancelLabel: string;
+  /** Rendered before the field -- AngleCustomEntry's +/- toggle. */
+  leading?: React.ReactNode;
+  inputMinWidth?: number;
+}) {
+  return (
+    <>
+      <View style={styles.numberEntryRow}>
+        {leading}
+        <TextInput
+          value={draft}
+          onChangeText={onChangeDraft}
+          keyboardType="number-pad"
+          autoFocus
+          style={[styles.numberEntryInput, { minWidth: inputMinWidth }, { color: color.text, borderColor: color.textDim }]}
+          accessibilityLabel={inputLabel}
+        />
+        <Button label="Set" onPress={onCommit} color={color} />
+        <AnimatedPressable
+          onPress={onCancel}
+          accessibilityRole="button"
+          accessibilityLabel={cancelLabel}
+          hitSlop={hitSlop.text}
+        >
+          <Text style={{ color: color.textDim }}>Cancel</Text>
+        </AnimatedPressable>
+      </View>
+      {error ? <Text style={[styles.numberEntryError, { color: color.danger }]}>{error}</Text> : null}
+    </>
+  );
+}
+
 export const rowLabelStyle = {
   fontSize: 15,
   flexShrink: 1 as const,
   paddingRight: 12,
   letterSpacing: typeScale.sectionTitle.letterSpacing,
   lineHeight: 20,
+};
+/** The bordered numberpad/text field shared by CustomLabelsSection's
+ * label-name input, account/EmailPasswordFields' email/password inputs, and
+ * NumberEntryRow above -- three byte-identical style objects before this,
+ * two of them carrying a comment pointing at the third. */
+export const textInputStyle = {
+  borderWidth: 1,
+  borderRadius: 10,
+  paddingHorizontal: 12,
+  paddingVertical: 10,
+  fontSize: 15,
+  // lineHeight is left off deliberately -- on Android it mis-centers text
+  // inside a TextInput's padding box.
+  letterSpacing: typeScale.sectionTitle.letterSpacing,
 };
 export const captionStyle = {
   fontSize: 12,
@@ -219,4 +338,14 @@ const styles = StyleSheet.create({
   disclosureLeft: { flexDirection: 'row', alignItems: 'center', gap: 10, flexShrink: 1 },
   disclosureRight: { flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 1, marginLeft: 12 },
   disclosureValue: { fontSize: 14, flexShrink: 1, letterSpacing: typeScale.body.letterSpacing, lineHeight: 18 },
+  numberEntryRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  numberEntryInput: { ...textInputStyle, textAlign: 'center' as const },
+  numberEntryError: captionStyle,
+  externalLink: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start' },
+  externalLinkLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    letterSpacing: typeScale.body.letterSpacing,
+    lineHeight: typeScale.body.lineHeight,
+  },
 });

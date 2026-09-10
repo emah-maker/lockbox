@@ -198,10 +198,10 @@ function labelPickerCtx() {
 
 const STATES = ['notConfigured', 'loading', 'error', 'content'];
 // Was a flat `hidden` swap (an instant snap between states); now the
-// incoming container settles in with .dash__fade (dashboard.css), reusing
-// script.js's waitlist hand-off technique -- remove `hidden`, flush layout
-// so the opacity/translateY start state is committed, then add `is-in` so
-// the transition actually fires instead of jumping straight to the end state.
+// incoming container settles in with .dash__fade (dashboard.css) -- remove
+// `hidden`, flush layout so the opacity/translateY start state is
+// committed, then add `is-in` so the transition actually fires instead of
+// jumping straight to the end state.
 function showState(name) {
   for (const s of STATES) {
     const el = els[s];

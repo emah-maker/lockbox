@@ -19,9 +19,10 @@ import { Sheet } from '../Sheet';
 import { AnimatedPressable } from '../AnimatedPressable';
 import { ThemeColors } from '../../theme/theme';
 import { typeScale } from '../../theme/tokens';
+import { sheetRowStyles } from './sheetRows';
 import { withAlpha } from '../../theme/color';
 import { Goal } from '../../goals/goals';
-import { resolveTopic } from '../../stats/customLabels';
+import { goalTopicDisplay } from '../../goals/goalTopicDisplay';
 import type { CustomLabel } from '../../stats/customLabels';
 import type { ThemeMode } from '../../theme/theme';
 
@@ -58,23 +59,21 @@ export function CalendarStreaksSheet({
           Add a goal (Manage goals, on the Stats tab) to show its streak here.
         </Text>
       ) : (
-        <View style={styles.list}>
+        <View style={sheetRowStyles.list}>
           {goals.map((goal) => {
-            const resolved = goal.topic === null ? null : resolveTopic(goal.topic, customLabels, themeMode);
-            const name = goal.topic === null ? 'All focus time' : resolved?.label ?? 'Deleted label';
-            const swatch = goal.topic === null ? theme.accent : resolved?.color ?? theme.textDim;
+            const { name, swatch } = goalTopicDisplay(goal.topic, customLabels, themeMode, theme.accent, theme.textDim);
             const on = visibleIds.has(goal.id);
             return (
               <AnimatedPressable
                 key={goal.id}
-                style={styles.row}
+                style={sheetRowStyles.row}
                 onPress={() => onToggle(goal.id)}
                 accessibilityRole="switch"
                 accessibilityLabel={`Show ${name} streak on the calendar`}
                 accessibilityState={{ checked: on }}
               >
-                <View style={[styles.dot, { backgroundColor: swatch }]} />
-                <Text style={[styles.rowLabel, { color: theme.text }]} numberOfLines={1}>
+                <View style={[sheetRowStyles.dot, { backgroundColor: swatch }]} />
+                <Text style={[sheetRowStyles.rowLabel, { color: theme.text }]} numberOfLines={1}>
                   {name}
                 </Text>
                 <View
@@ -100,18 +99,9 @@ const styles = StyleSheet.create({
     paddingVertical: 20,
     textAlign: 'center',
   },
-  list: { marginBottom: 4 },
-  // Same 12px vertical padding as LabelPickerSheet.tsx's own row -- lands at
-  // the 44pt minimum touch target for the same reason that file's comment
-  // gives.
-  row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12 },
-  dot: { width: 12, height: 12, borderRadius: 6 },
-  rowLabel: {
-    fontSize: 15,
-    flex: 1,
-    letterSpacing: typeScale.body.letterSpacing,
-    lineHeight: typeScale.body.lineHeight,
-  },
+  // list / row / dot / rowLabel now come from sheetRows.ts -- see that file
+  // for why the 12px row padding in particular had to stop being a number
+  // copied between the two sheets.
   checkbox: {
     width: 22,
     height: 22,

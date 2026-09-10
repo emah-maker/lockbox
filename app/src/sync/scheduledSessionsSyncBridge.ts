@@ -17,8 +17,8 @@
 // store, so the store itself stays free of any Firebase import.
 import { useScheduleStore } from '../store/useScheduleStore';
 import { useSettingsStore } from '../store/useSettingsStore';
-import { getFirebaseAuth } from '../auth/firebase';
 import { pushScheduledSessions, deleteRemoteScheduledSession } from './scheduledSessionsSync';
+import { isSignedIn } from './syncCommon';
 import { registerPushToken, unregisterPushToken } from '../push/pushRegistration';
 import { useAuthStore } from '../auth/useAuthStore';
 import type { ScheduledSession } from '../schedule/scheduledSessions';
@@ -53,14 +53,6 @@ function changedPlans(
   return b.filter((p) => outstanding.has(p.id) || before.get(p.id) !== JSON.stringify(p));
 }
 
-function signedIn(): boolean {
-  try {
-    return !!getFirebaseAuth().currentUser;
-  } catch {
-    return false; // Firebase Auth not initialized yet -- nothing to push to
-  }
-}
-
 /** Call once at app start, after initFirebaseAuth() has resolved. Idempotent. */
 export function startScheduledSessionsSyncBridge(): void {
   if (started) return;
@@ -90,7 +82,7 @@ export function startScheduledSessionsSyncBridge(): void {
     if (writes === prevWrites) return;
     prevWrites = writes;
 
-    if (!signedIn()) return; // local-only while signed out; the next sign-in's full sync catches up
+    if (!isSignedIn()) return; // local-only while signed out; the next sign-in's full sync catches up
     for (const id of gone) void deleteRemoteScheduledSession(id);
     // And only the plans that actually differ, for the same reason: editing
     // ONE plan used to rewrite all of them, re-arming every already-sent
@@ -151,7 +143,7 @@ export function startScheduledSessionsSyncBridge(): void {
   useSettingsStore.subscribe((state) => {
     if (state.notificationsEnabled === prevEnabled) return;
     prevEnabled = state.notificationsEnabled;
-    if (!signedIn()) return;
+    if (!isSignedIn()) return;
     if (state.notificationsEnabled) {
       void registerPushToken();
       return;

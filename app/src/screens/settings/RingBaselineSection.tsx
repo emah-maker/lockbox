@@ -20,7 +20,7 @@ import { View, Text, StyleSheet, Switch } from 'react-native';
 import { useTheme } from '../../theme/useTheme';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import { useGoalsStore } from '../../store/useGoalsStore';
-import { resolveTopic } from '../../stats/customLabels';
+import { goalTopicLabel } from '../../goals/goalTopicDisplay';
 import { Section, Row, rowLabelStyle, captionStyle } from '../SettingsPrimitives';
 import { Chip } from './ChipPicker';
 import {
@@ -37,23 +37,6 @@ const WINDOW_CHIP_LABELS: Record<RingBaselineWindow, string> = {
   year: 'Year',
   all: 'All',
 };
-
-/** Display name for a goal's topic -- same "All focus time" / label /
- * "Deleted label" convention DashboardScreen.tsx's own (unexported)
- * describeGoalTopic uses for the exact same purpose (a goal-highlight
- * caption). Kept as its own small local copy rather than importing
- * DashboardScreen's version (not exported, and DashboardScreen.tsx is a
- * different file's own concern) -- same "each file keeps its own tiny
- * display helper" precedent DashboardScreen's own comment already
- * describes for why IT doesn't import GoalsSection's copy either. */
-function describeGoalTopic(
-  topic: string | null,
-  customLabels: ReturnType<typeof useSettingsStore.getState>['customLabels'],
-  themeMode: ReturnType<typeof useSettingsStore.getState>['themeMode'],
-): string {
-  if (topic === null) return 'All focus time';
-  return resolveTopic(topic, customLabels, themeMode)?.label ?? 'Deleted label';
-}
 
 export function RingBaselineSection({
   color,
@@ -126,7 +109,7 @@ export function RingBaselineSection({
             <View style={styles.chipRow}>
               {activeGoals.map((g) => (
                 <Chip key={g.id} active={ringGoalId === g.id} onPress={() => setRingGoalId(g.id)} color={color}>
-                  {describeGoalTopic(g.topic, customLabels, themeMode)}
+                  {goalTopicLabel(g.topic, customLabels, themeMode)}
                 </Chip>
               ))}
             </View>

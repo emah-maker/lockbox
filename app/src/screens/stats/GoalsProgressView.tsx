@@ -27,7 +27,7 @@ import { useGoalsStore } from '../../store/useGoalsStore';
 import { useTheme } from '../../theme/useTheme';
 import { withAlpha } from '../../theme/color';
 import { formatDuration } from '../../stats/stats';
-import { resolveTopic } from '../../stats/customLabels';
+import { goalTopicDisplay } from '../../goals/goalTopicDisplay';
 import { Goal } from '../../goals/goals';
 import { computeGoalProgress, goalWindow, goalDisplayPercent } from '../../goals/goalProgress';
 import { computeGoalStreak, isGoalOnPace, goalStreakState, GoalStreakState } from '../../stats/goalStreak';
@@ -125,9 +125,7 @@ export function GoalsProgressView({
         const onPace = isGoalOnPace(ratio, met, window, nowMs);
         const streakState = goalStreakState(streak, bestStreak, dueToday, met, onPace);
         const restriction = weekdayRestrictionLabel(goal);
-        const resolved = goal.topic === null ? null : resolveTopic(goal.topic, customLabels, themeMode);
-        const name = goal.topic === null ? 'All focus time' : resolved?.label ?? 'Deleted label';
-        const swatch = goal.topic === null ? c.accent : resolved?.color ?? c.textDim;
+        const { name, swatch } = goalTopicDisplay(goal.topic, customLabels, themeMode, c.accent, c.textDim);
         // Off-day goals get a neutral ring rather than the "behind" warn
         // color -- a Mon/Wed/Fri goal reading amber on a Tuesday would look
         // like it's failing a target it was never scheduled to hit today

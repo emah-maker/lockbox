@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Privacy Policy — Phone Box</title>
+  <meta name="description" content="What the Phone Box app and dashboard store, what stays on your phone, and how to delete your account." />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect x='4' y='2.5' width='16' height='19' rx='3' fill='%231a1a1c' stroke='%23c9cbce' stroke-width='1.8'/%3E%3Crect x='7.5' y='6' width='9' height='9' rx='1.4' fill='%23ef5350'/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Archivo:wght@400;500;600;700&family=Courier+Prime:wght@400;700&family=VT323&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/styles.css" />
+  <link rel="stylesheet" href="css/dashboard.css" />
+  <style>
+    /* Scoped to this page: the site has no long-form prose surface yet, and
+       one legal page does not justify a shared .prose in styles.css. Everything
+       else here reuses the existing .nav / .dash / .card / .footer scaffolding. */
+    .legal { max-width: 68ch; }
+    .legal h2 { margin-top: var(--space-9); font-size: clamp(1.15rem, 1.8vw, 1.35rem); }
+    .legal h2:first-of-type { margin-top: 0; }
+    .legal p, .legal li { color: var(--text-2); line-height: 1.65; }
+    .legal p { margin-top: var(--space-3-5); }
+    .legal ul { margin-top: var(--space-3-5); padding-left: 1.25em; display: grid; gap: var(--space-2); }
+    .legal a { color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
+    .legal__updated { font-family: var(--font-mono); font-size: var(--fs-2xs); color: var(--text-3); margin-top: var(--space-4); }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="nav" id="top">
+    <div class="wrap nav__inner">
+      <a class="brand" href="index.html" aria-label="Phone Box home">
+        <span class="brand__mark" aria-hidden="true">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" role="img" aria-hidden="true">
+            <rect x="4" y="2.5" width="16" height="19" rx="3" stroke="currentColor" stroke-width="1.8"/>
+            <rect x="7.5" y="6" width="9" height="9" rx="1.4" fill="currentColor" opacity="0.85"/>
+            <circle cx="12" cy="18.4" r="1.3" fill="currentColor"/>
+          </svg>
+        </span>
+        <span class="brand__name">Phone&nbsp;Box</span>
+      </a>
+      <button type="button" class="nav__toggle" id="navToggle" aria-expanded="false" aria-controls="navMenu" aria-label="Open menu">
+        <span class="nav__toggle-bars" aria-hidden="true"></span>
+      </button>
+      <div class="nav__menu" id="navMenu">
+        <div class="nav__menu-inner">
+          <nav class="nav__links" aria-label="Primary">
+            <a href="index.html">Home</a>
+            <a href="dashboard.html">Dashboard</a>
+          </nav>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="dash">
+      <div class="wrap">
+        <div class="dash__head">
+          <h1>Privacy Policy</h1>
+          <p class="section-sub">
+            This covers the Phone Box app and this site's dashboard. The short version: the box
+            works without an account, the app works without an account, and nothing leaves your
+            phone unless you choose to sign in.
+          </p>
+          <p class="legal__updated">Last updated: 8 September 2026</p>
+        </div>
+
+        <div class="card legal">
+          <h2>If you never sign in</h2>
+          <p>
+            Signing in is optional. Until you do, the app keeps everything on your device only:
+            your focus session history, focus goals, custom labels, scheduled sessions, app
+            settings, and the box settings you have pushed to your box. None of it is transmitted
+            to us or to anyone else, and we have no way to see it.
+          </p>
+
+          <h2>If you sign in</h2>
+          <p>
+            Signing in creates an account so your data follows you to another phone and appears on
+            the web dashboard. We use Google's Firebase Authentication and Cloud Firestore for
+            this. You can sign in with Google, with Apple, or with an email address and password.
+          </p>
+          <p>Once you are signed in, the following is stored in our database, filed under your account:</p>
+          <ul>
+            <li><strong>Profile</strong> — your email address, display name, and profile photo URL, as provided by whichever sign-in method you chose.</li>
+            <li><strong>Focus sessions</strong> — for each session: when it started, how long it was planned for, how long it actually ran, whether it completed, and the optional label you tagged it with.</li>
+            <li><strong>Focus goals</strong> — the goals you set, their targets, and their reminder schedules.</li>
+            <li><strong>Scheduled sessions</strong> — sessions you planned ahead on the calendar, including the time, an optional label, and your device's time zone, so a reminder fires at the right local time.</li>
+            <li><strong>App settings</strong> — your appearance, alert, notification, and box-behavior preferences.</li>
+            <li><strong>Devices</strong> — an identifier the app generates on each phone you sign in on, used to keep two phones' session histories from colliding. It is not an Apple or Google advertising identifier and not a hardware serial number.</li>
+            <li><strong>Notification tokens</strong> — if you enable reminders that can arrive while the app is closed, a push token for that device, plus which reminders that device has already scheduled locally, so the same reminder does not arrive twice.</li>
+          </ul>
+          <p>
+            If you sign in with Apple and choose to hide your email address, we receive and store
+            only Apple's private relay address. We never receive your real one.
+          </p>
+
+          <h2>What we never collect</h2>
+          <ul>
+            <li><strong>Nothing about your calls.</strong> The app asks iOS only whether <em>a</em> call is ringing, connected, or ended, so it can light up the box. iOS does not give it the number, the contact, or anything else about the call, and none of it is stored or transmitted — not even the fact that a call happened.</li>
+            <li><strong>No location.</strong> The app requests no location permission of any kind. Bluetooth is used solely to talk to your box.</li>
+            <li><strong>No contacts, photos, microphone, camera, health, or calendar data.</strong></li>
+            <li><strong>No analytics, advertising, or tracking.</strong> The app contains no analytics or advertising SDK. We do not track you across other companies' apps or websites, we do not build advertising profiles, and we do not sell or share your data with data brokers.</li>
+            <li><strong>No sign-in credentials.</strong> Your password, if you use one, goes to Firebase Authentication and is never seen or stored by us. Session tokens stay in your device's own secure storage.</li>
+          </ul>
+
+          <h2>Bluetooth</h2>
+          <p>
+            The app connects to your Phone Box over Bluetooth Low Energy to show its lock state and
+            battery level, to send it settings, and to collect the session history it recorded
+            while your phone was locked away. It looks only for Phone Box devices. Bluetooth is
+            not used for positioning, beaconing, or proximity advertising.
+          </p>
+
+          <h2>Who else is involved</h2>
+          <ul>
+            <li><strong>Google</strong> — Firebase Authentication, Cloud Firestore, Firebase Hosting, and Cloud Functions store your account and the data listed above, and serve this site.</li>
+            <li><strong>Google Sign-In</strong> and <strong>Sign in with Apple</strong>, if you use them, to verify who you are. Each gives us only your account identifier, email, and name.</li>
+            <li><strong>Expo's push notification service</strong>, if you enable reminders that arrive while the app is closed, to deliver those notifications to your device.</li>
+          </ul>
+          <p>These are service providers acting on our behalf. There are no other recipients.</p>
+
+          <h2>Deleting your account</h2>
+          <p>
+            You can delete your account from inside the app at any time, under
+            <strong>Settings → Account → Delete account</strong>. It is also available on the
+            dashboard. Deleting removes the account itself and, with it, your cloud profile,
+            settings, focus goals, scheduled sessions, device list, and notification tokens.
+          </p>
+          <p>
+            One exception, stated here because the app states it too: your focus
+            <em>session</em> records are not erased from the database. They live in a deliberately
+            append-only collection, and deleting your account leaves them orphaned — filed under
+            an account identifier that no longer exists and is never reissued, so they can no
+            longer be read by you, by us through the app, or by anyone else. They hold timings and
+            labels only; they carry no name, email, or other identifier.
+          </p>
+          <p>
+            Deleting your account does not touch the copy of your data on your own phone, and it
+            does not affect the box, which never had an account in the first place. To remove the
+            local copy as well, delete the app.
+          </p>
+
+          <h2>How long we keep it</h2>
+          <p>
+            We keep the data above for as long as your account exists. There is no separate
+            retention schedule and no archival copy beyond the automatic backups Google Cloud
+            keeps of the database itself.
+          </p>
+
+          <h2>Children</h2>
+          <p>
+            Phone Box is not directed at children under 13, and we do not knowingly collect data
+            from them. If you believe a child has created an account, contact us and we will
+            delete it.
+          </p>
+
+          <h2>Changes</h2>
+          <p>
+            If this policy changes in a material way, the date at the top of this page changes with
+            it. The app links here rather than embedding a copy, so the version you reach from the
+            app is always the current one.
+          </p>
+
+          <h2>Contact</h2>
+          <p>
+            Questions about this policy, or a request about your data:
+            <a href="mailto:emah@kitchenlab.org">emah@kitchenlab.org</a>.
+          </p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="wrap footer__inner">
+      <div class="footer__brand">
+        <span class="brand__name">Phone&nbsp;Box</span>
+        <p>A phone lockbox I designed and built myself.</p>
+      </div>
+      <nav class="footer__links" aria-label="Footer">
+        <a href="index.html">Home</a>
+        <a href="dashboard.html">Dashboard</a>
+        <a href="privacy.html" aria-current="page">Privacy</a>
+      </nav>
+      <p class="footer__legal">© 2026 Phone Box. A personal project — not a product for sale.</p>
+    </div>
+  </footer>
+
+  <script src="js/nav.js"></script>
+</body>
+</html>

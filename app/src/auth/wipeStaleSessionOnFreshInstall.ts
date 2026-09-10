@@ -10,9 +10,8 @@
 //
 // Must run before Firebase Auth's `initializeAuth()` is ever called -- see
 // firebase.ts's initFirebaseAuth(), which awaits this first.
-import * as SecureStore from 'expo-secure-store';
 import { getJSON, setJSON } from '../storage/storage';
-import { SECURE_STORE_OPTS, FIREBASE_AUTH_SECURE_STORE_KEYS } from './secureStoreKeys';
+import { wipeFirebaseAuthSecureStore } from './secureStoreKeys';
 
 const MARKER_KEY = 'hasRunBefore'; // storage.ts prefixes this with 'phonebox:'
 
@@ -20,17 +19,9 @@ export async function wipeStaleSessionOnFreshInstall(): Promise<void> {
   const hasRunBefore = await getJSON<boolean>(MARKER_KEY, false);
   if (!hasRunBefore) {
     // Proactively wipe any Keychain-resident auth state left over from a
-    // previous install before Firebase Auth even initializes.
-    for (const key of FIREBASE_AUTH_SECURE_STORE_KEYS) {
-      // These key *names* are derived from firebaseConfig.apiKey, not secret
-      // (see secureStoreKeys.ts) -- safe to log if a wipe ever fails, e.g.
-      // after an SDK version drift changes the internal key format this
-      // still assumes (production readiness review, Medium: previously
-      // silent `.catch(() => {})` gave no diagnostic at all).
-      await SecureStore.deleteItemAsync(key, SECURE_STORE_OPTS).catch((e) =>
-        console.warn('[wipeStaleSessionOnFreshInstall] failed to delete', key, e?.message),
-      );
-    }
+    // previous install before Firebase Auth even initializes. Same shared
+    // wipe every sign-out/delete path uses -- see secureStoreKeys.ts.
+    await wipeFirebaseAuthSecureStore('[wipeStaleSessionOnFreshInstall]');
     await setJSON(MARKER_KEY, true);
   }
 }

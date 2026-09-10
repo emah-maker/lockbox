@@ -17,7 +17,7 @@ import { useSettingsStore } from '../store/useSettingsStore';
 import { useTheme } from '../theme/useTheme';
 import { withAlpha } from '../theme/color';
 import { formatDuration } from '../stats/stats';
-import { resolveTopic } from '../stats/customLabels';
+import { goalTopicDisplay, goalTopicLabel } from '../goals/goalTopicDisplay';
 import { Goal, GoalPeriod } from '../goals/goals';
 import { goalWindow, goalDisplayPercent, GoalProgressResult } from '../goals/goalProgress';
 import { goalNotifyTimes } from '../goals/goalReminders';
@@ -77,31 +77,11 @@ function barGeometry(ratio: number): { fillPct: number; targetPct: number | null
   };
 }
 
-/** Display name for a goal's stored topic string. `null` is the "all focus
- * time" goal; anything else goes through resolveTopic so a built-in key, a
- * live custom label, and a one-time free-text tag all render the same way
- * they do everywhere else (see stats/customLabels.ts). resolveTopic returns
- * null only for a since-deleted saved custom label -- a goal aimed at one
- * keeps working (goalProgress.ts matches on the raw id), so it gets an
- * explicit "Deleted label" name rather than an empty row. */
-export function describeTopic(
-  topic: string | null,
-  customLabels: ReturnType<typeof useSettingsStore.getState>['customLabels'],
-  themeMode: ReturnType<typeof useSettingsStore.getState>['themeMode'],
-): string {
-  if (topic === null) return 'All focus time';
-  return resolveTopic(topic, customLabels, themeMode)?.label ?? 'Deleted label';
-}
-
-function topicSwatchColor(
-  topic: string | null,
-  customLabels: ReturnType<typeof useSettingsStore.getState>['customLabels'],
-  themeMode: ReturnType<typeof useSettingsStore.getState>['themeMode'],
-  color: ReturnType<typeof useTheme>,
-): string {
-  if (topic === null) return color.accent;
-  return resolveTopic(topic, customLabels, themeMode)?.color ?? color.textDim;
-}
+/** Re-exported so GoalsSection can name a goal in its delete confirmation
+ * with the same words the row shows. The logic itself is stats/
+ * customLabels.ts's goalTopicLabel -- see its comment for why every goal
+ * surface now shares one copy instead of keeping its own. */
+export { goalTopicLabel as describeTopic };
 
 export function GoalRow({
   goal,
@@ -128,8 +108,7 @@ export function GoalRow({
   const ratio = result?.ratio ?? 0;
   const met = result?.met ?? false;
   const { fillPct, targetPct } = barGeometry(ratio);
-  const name = describeTopic(goal.topic, customLabels, themeMode);
-  const swatch = topicSwatchColor(goal.topic, customLabels, themeMode, color);
+  const { name, swatch } = goalTopicDisplay(goal.topic, customLabels, themeMode, color.accent, color.textDim);
   const barColor = met ? color.accent : swatch;
   // Clamped display percentage -- see goalDisplayPercent's own comment for
   // why this is NOT `Math.round(ratio * 100)` off the unclamped `ratio`

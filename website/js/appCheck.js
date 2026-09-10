@@ -1,17 +1,17 @@
 /* =========================================================================
    appCheck.js -- Firebase App Check (reCAPTCHA v3 provider), wired in right
    after initializeApp on every entry point that talks to Firestore/Auth
-   (login.js, dashboard.js, script.js's waitlist form).
+   (login.js, dashboard.js).
 
    Why this exists: app/firestore.rules' `waitlist/{docId}` rule (see its own
    header comment) is this site's only unauthenticated write path. The
-   create-only rule plus deriving the doc ID from a hash of the email (see
-   script.js's waitlistDocId) caps DUPLICATE signups -- a repeat write
+   create-only rule plus deriving the doc ID from a hash of the email caps
+   DUPLICATE signups -- a repeat write
    becomes an `update`, which the rule denies -- but nothing in Firestore
    rules alone caps DISTINCT addresses. A script calling the Firestore REST
    API directly with random doc IDs and made-up emails can still write as
-   many waitlist docs as it wants; it never has to load this page or run
-   script.js's client-side validation at all. App Check is the primary
+   many waitlist docs as it wants; it never has to go through any
+   client-side validation at all. App Check is the primary
    defence against exactly that: it makes Firestore reject any write that
    doesn't carry a token proving the request came from this site running in
    a real, unautomated browser, which a script-against-the-REST-API
@@ -28,9 +28,8 @@
    reCAPTCHA v3 provider -> copy the site key here) that only the project
    owner can do, and it isn't something this repo can do for itself. Turning
    App Check on in code before that console registration exists would start
-   attaching invalid/absent tokens to every request and could break the live
-   waitlist form and sign-in for every visitor, with no way to fix it from
-   this repo alone. So:
+   attaching invalid/absent tokens to every request and could break sign-in
+   for every visitor, with no way to fix it from this repo alone. So:
      - RECAPTCHA_SITE_KEY defaults to '' below. The ONLY code change needed
        once the owner has registered the site and has a real site key in
        hand is filling in that one constant -- nothing else in this file.
@@ -63,8 +62,7 @@ const RECAPTCHA_SITE_KEY = '';
  * reCAPTCHA script blocked by an ad/tracker blocker -- this logs a warning
  * and returns instead, so a problem here degrades to "no App Check" rather
  * than surfacing through login.js's/dashboard.js's own
- * `init().catch(showError)` as the page's generic error state, or aborting
- * script.js's waitlist submit handler.
+ * `init().catch(showError)` as the page's generic error state.
  */
 export async function initAppCheck(app) {
   if (!RECAPTCHA_SITE_KEY) {

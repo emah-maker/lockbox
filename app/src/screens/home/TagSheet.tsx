@@ -7,9 +7,7 @@
 // Sheet and closes itself once a tag is actually chosen.
 import { Sheet } from '../../ui/Sheet';
 import { TopicPicker } from '../TopicPicker';
-import { useTheme } from '../../theme/useTheme';
 import { useSettingsStore } from '../../store/useSettingsStore';
-import { useStore } from '../../store/useStore';
 
 export function TagSheet({
   visible,
@@ -26,25 +24,16 @@ export function TagSheet({
   themeMode: ReturnType<typeof useSettingsStore.getState>['themeMode'];
   onSelect: (topic: string) => void;
 }) {
-  const theme = useTheme();
-  // Read here rather than threaded through DashboardScreen: the session log
-  // is only used to rank TopicPicker's "Recent" row, which is that
-  // component's own concern, and this sheet already self-supplies `theme`
-  // the same way. excludedTopicKeys is read the identical way, for the
-  // identical reason -- TopicPicker's own excluded-marker affordance is its
-  // concern, not DashboardScreen's.
-  const sessions = useStore((s) => s.sessions);
-  const excludedTopicKeys = useSettingsStore((s) => s.excludedTopicKeys);
+  // theme / sessions / excludedTopicKeys used to be read here and handed
+  // straight to TopicPicker -- the identical three reads DurationSheet was
+  // also making. TopicPicker reads them itself now; see its own comment.
   return (
     <Sheet visible={visible} onClose={onClose} title="Session topic" size="auto">
       <TopicPicker
         heading="What are you focusing on?"
         currentTopic={currentTopic}
         customLabels={customLabels}
-        excludedTopicKeys={excludedTopicKeys}
         themeMode={themeMode}
-        theme={theme}
-        sessions={sessions}
         onSelect={(topic) => {
           onSelect(topic);
           onClose(); // picking a tag is the sheet's whole purpose -- close it immediately rather than making the user dismiss separately

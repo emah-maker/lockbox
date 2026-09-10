@@ -26,12 +26,15 @@
 // way.
 //
 // iOS BUILD REQUIREMENT: remote push needs the `aps-environment` entitlement,
-// which app/plugins/withoutPushEntitlement.js used to strip (that plugin has
-// been removed as part of adding this file). The Apple App ID must have the
-// Push Notifications capability enabled and the provisioning profile
-// regenerated -- see docs/push-notifications.md. Until that is done, iOS
-// builds have no push capability and getExpoPushTokenAsync below simply
-// fails, which this module treats like any other unavailability.
+// and app/plugins/withoutPushEntitlement.js deliberately strips it -- that
+// plugin is still present and still listed in app.json's `plugins`, so on
+// iOS this whole module is dormant by design: getExpoPushTokenAsync below
+// fails without the entitlement and that failure is treated like any other
+// unavailability. Android is unaffected. Turning iOS push on means deleting
+// that plugin AND enabling the Push Notifications capability on the Apple
+// App ID AND regenerating the provisioning profile -- see
+// docs/push-notifications.md and the plugin's own header, which is the
+// authoritative account of the ordering traps involved.
 import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';

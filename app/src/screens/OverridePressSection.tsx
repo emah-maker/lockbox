@@ -5,9 +5,15 @@
 // already sits beside SettingsScreen.tsx for its own feature area, rather
 // than growing that screen file further.
 import React from 'react';
-import { View, Text, StyleSheet, TextInput } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 import { useTheme } from '../theme/useTheme';
-import { Button, rowLabelStyle, captionStyle } from './SettingsPrimitives';
+import {
+  NumberEntryRow,
+  readWholeNumberDraft,
+  WHOLE_NUMBER_ERROR,
+  rowLabelStyle,
+  captionStyle,
+} from './SettingsPrimitives';
 import { AnimatedPressable } from '../ui/AnimatedPressable';
 import { WheelPicker } from '../ui/WheelPicker';
 import { hitSlop, typeScale } from '../theme/tokens';
@@ -106,9 +112,9 @@ export function OverrideCustomEntry({
   }
 
   const commit = () => {
-    const n = Math.round(Number(draft));
-    if (!draft.trim() || !Number.isFinite(n)) {
-      setError('Enter a whole number.');
+    const n = readWholeNumberDraft(draft);
+    if (n === null) {
+      setError(WHOLE_NUMBER_ERROR);
       return;
     }
     onChange(Math.max(min, Math.min(max, n)));
@@ -117,25 +123,15 @@ export function OverrideCustomEntry({
 
   return (
     <View style={{ marginTop: 8, gap: 6 }}>
-      <View style={styles.customRow}>
-        <TextInput
-          value={draft}
-          onChangeText={setDraft}
-          keyboardType="number-pad"
-          autoFocus
-          style={[styles.customInput, { color: color.text, borderColor: color.textDim }]}
-        />
-        <Button label="Set" onPress={commit} color={color} />
-        <AnimatedPressable
-          onPress={() => setOpen(false)}
-          accessibilityRole="button"
-          accessibilityLabel="Cancel custom number entry"
-          hitSlop={hitSlop.text}
-        >
-          <Text style={{ color: color.textDim }}>Cancel</Text>
-        </AnimatedPressable>
-      </View>
-      {error ? <Text style={[styles.subtitle, { color: color.danger }]}>{error}</Text> : null}
+      <NumberEntryRow
+        draft={draft}
+        onChangeDraft={setDraft}
+        onCommit={commit}
+        onCancel={() => setOpen(false)}
+        error={error}
+        color={color}
+        cancelLabel="Cancel custom number entry"
+      />
     </View>
   );
 }
@@ -148,6 +144,4 @@ const styles = StyleSheet.create({
   // Settings row -- still an existing token, not a new magic size.
   overrideWheelText: { ...typeScale.sectionTitle },
   customLink: { fontSize: 13, fontWeight: '600', lineHeight: 17 },
-  customRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  customInput: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15, minWidth: 70, textAlign: 'center' },
 });

@@ -23,7 +23,7 @@ import { useStore } from '../store/useStore';
 import { useTheme } from '../theme/useTheme';
 import { LABEL_SWATCHES, MAX_LABEL_NAME_LENGTH, CustomLabel } from '../stats/customLabels';
 import { TOPIC_KEYS, TOPIC_LABELS, topicColor, TopicKey } from '../stats/topics';
-import { Section, Button } from './SettingsPrimitives';
+import { Section, Button, rowLabelStyle, captionStyle, textInputStyle } from './SettingsPrimitives';
 import { AnimatedPressable } from '../ui/AnimatedPressable';
 import { useReducedMotion, configureLayoutAnimation } from '../ui/useReducedMotion';
 import { hitSlop, typeScale } from '../theme/tokens';
@@ -159,10 +159,52 @@ function BuiltInTopicRow({
         <View style={[styles.swatch, { backgroundColor: swatchColor }]} />
         <Text style={[styles.label, { color: color.text, flex: 1 }]}>{name}</Text>
       </View>
-      {/* Same phrasing/shape as CustomLabelRow's own exclude switch just
-          below in this file -- one feature, two catalogs, so the two rows
-          should read as identical apart from the edit chrome a built-in
-          topic has no use for. */}
+      <CountsTowardTotalsRow
+        name={name}
+        excluded={excluded}
+        onToggle={(next) => onToggleExcluded(topicKey, next)}
+        color={color}
+      />
+    </View>
+  );
+}
+
+/**
+ * The "Counts toward totals & goals" switch and the caption that appears
+ * under it when the answer is no.
+ *
+ * One component, two catalogs -- built-in topics (BuiltinTopicRow above) and
+ * saved custom labels (CustomLabelRow below) -- because it is one feature,
+ * and the two rows should read as identical apart from the edit chrome a
+ * built-in topic has no use for. They were previously the same twenty lines
+ * twice, with a comment on each pointing at the other.
+ *
+ * "Counts toward totals" rather than "Exclude this label": phrased as the
+ * ON-state a user wants to keep for every label they never think about, per
+ * this project's "the common case reads as the affirmative, not a double
+ * negative" convention (see e.g. AlertsSection.tsx's own toggle copy).
+ * Sessions tagged with an excluded label are still logged and still shown
+ * everywhere history renders (SessionListSheet, DaySheet, the topic
+ * breakdown) regardless of this switch -- only the aggregates named in the
+ * caption stop counting them (customLabels.ts's sessionCountsTowardTotals).
+ */
+function CountsTowardTotalsRow({
+  name,
+  excluded,
+  onToggle,
+  color,
+}: {
+  name: string;
+  excluded: boolean;
+  /** Receives the new EXCLUDED value, not the switch's own on/off -- the
+   * switch is inverted (on means counted), and inverting it here rather than
+   * at each call site is what keeps both catalogs' handlers reading the
+   * same way. */
+  onToggle: (excluded: boolean) => void;
+  color: ReturnType<typeof useTheme>;
+}) {
+  return (
+    <>
       <View style={[styles.labelRow, { paddingLeft: 38 }]}>
         <Text
           style={[styles.excludeLabel, { color: excluded ? color.textDim : color.text, flex: 1 }]}
@@ -172,7 +214,7 @@ function BuiltInTopicRow({
         </Text>
         <Switch
           value={!excluded}
-          onValueChange={(on) => onToggleExcluded(topicKey, !on)}
+          onValueChange={(on) => onToggle(!on)}
           accessibilityLabel={`Whether ${name} counts toward totals and goals`}
         />
       </View>
@@ -182,7 +224,7 @@ function BuiltInTopicRow({
           heat map.
         </Text>
       ) : null}
-    </View>
+    </>
   );
 }
 
@@ -291,34 +333,12 @@ function CustomLabelRow({
           <Text style={[styles.rowAction, { color: color.danger }]}>Delete</Text>
         </AnimatedPressable>
       </View>
-      {/* "Counts toward totals" rather than "Exclude this label" -- phrased
-          as the ON-state a user wants to keep for every label they don't
-          think about, per this project's "the common case reads as the
-          affirmative, not a double negative" convention (see e.g.
-          AlertsSection.tsx's own toggle copy). Sessions tagged with this
-          label are still logged and still shown everywhere history renders
-          (SessionListSheet, DaySheet, the topic breakdown below) regardless
-          of this switch -- only the aggregates named here stop counting
-          them (customLabels.ts's sessionCountsTowardTotals). */}
-      <View style={[styles.labelRow, { paddingLeft: 38 }]}>
-        <Text
-          style={[styles.excludeLabel, { color: excluded ? color.textDim : color.text, flex: 1 }]}
-          numberOfLines={1}
-        >
-          Counts toward totals &amp; goals
-        </Text>
-        <Switch
-          value={!excluded}
-          onValueChange={(on) => onToggleExcluded(label.id, !on)}
-          accessibilityLabel={`Whether ${label.name} counts toward totals and goals`}
-        />
-      </View>
-      {excluded ? (
-        <Text style={[styles.subtitle, { color: color.textDim, paddingLeft: 38 }]}>
-          Excluded -- logged and shown, but not counted in focus totals, goal progress, streaks, or the calendar
-          heat map.
-        </Text>
-      ) : null}
+      <CountsTowardTotalsRow
+        name={label.name}
+        excluded={excluded}
+        onToggle={(next) => onToggleExcluded(label.id, next)}
+        color={color}
+      />
     </View>
   );
 }
@@ -357,21 +377,15 @@ function ColorSwatchRow({
 }
 
 const styles = StyleSheet.create({
-  subtitle: { fontSize: 12, marginTop: 2, letterSpacing: typeScale.caption.letterSpacing, lineHeight: typeScale.caption.lineHeight },
-  label: { fontSize: 15, flexShrink: 1, paddingRight: 12, letterSpacing: typeScale.sectionTitle.letterSpacing, lineHeight: 20 },
+  // Both were spelled out here character-for-character identically to
+  // SettingsPrimitives' shared consts -- the same two objects the rest of
+  // Settings already draws from.
+  subtitle: captionStyle,
+  label: rowLabelStyle,
   excludeLabel: { fontSize: 13, flexShrink: 1, paddingRight: 12, letterSpacing: typeScale.caption.letterSpacing, lineHeight: 18 },
   rowAction: { letterSpacing: typeScale.body.letterSpacing, lineHeight: typeScale.body.lineHeight },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   labelRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   swatch: { width: 28, height: 28, borderRadius: 14, borderWidth: 2, borderColor: 'transparent' },
-  textInput: {
-    borderWidth: 1,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 15,
-    // lineHeight is left off deliberately -- on Android it mis-centers text
-    // inside a TextInput's padding box.
-    letterSpacing: typeScale.sectionTitle.letterSpacing,
-  },
+  textInput: textInputStyle,
 });

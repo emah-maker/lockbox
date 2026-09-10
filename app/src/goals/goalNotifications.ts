@@ -22,6 +22,7 @@
 // auth/secureStorePersistence.ts takes for its own optional capability.
 import * as Notifications from 'expo-notifications';
 import { serializeLatest } from '../push/reconcileQueue';
+import { cancelScheduledWithPrefix, scheduleLocalNotifications } from '../push/localNotifications';
 import { Platform } from 'react-native';
 import type { Goal } from './goals';
 import type { CustomLabel } from '../stats/customLabels';
@@ -113,12 +114,14 @@ export async function ensureNotificationSetup(): Promise<void> {
  * every descriptor in this feature uses 0=Sunday..6=Saturday, matching
  * Goal.daysOfWeek. */
 function toNativeTrigger(trigger: GoalNotificationTrigger): Notifications.SchedulableNotificationTriggerInput {
+  // No Android channelId spread on any branch any more: push/
+  // localNotifications.ts attaches it to every trigger it schedules, so the
+  // platform check exists once instead of once per trigger shape.
   if (trigger.kind === 'daily') {
     return {
       type: Notifications.SchedulableTriggerInputTypes.DAILY,
       hour: trigger.hour,
       minute: trigger.minute,
-      ...(Platform.OS === 'android' ? { channelId: ANDROID_CHANNEL_ID } : {}),
     };
   }
   if (trigger.kind === 'weekly') {
@@ -127,7 +130,6 @@ function toNativeTrigger(trigger: GoalNotificationTrigger): Notifications.Schedu
       weekday: trigger.weekday + 1,
       hour: trigger.hour,
       minute: trigger.minute,
-      ...(Platform.OS === 'android' ? { channelId: ANDROID_CHANNEL_ID } : {}),
     };
   }
   return {
@@ -135,7 +137,6 @@ function toNativeTrigger(trigger: GoalNotificationTrigger): Notifications.Schedu
     day: trigger.day,
     hour: trigger.hour,
     minute: trigger.minute,
-    ...(Platform.OS === 'android' ? { channelId: ANDROID_CHANNEL_ID } : {}),
   };
 }
 
@@ -178,28 +179,6 @@ export async function getGoalNotificationPermission(): Promise<'granted' | 'deni
   }
 }
 
-/** Cancels every notification this feature has ever scheduled (any
- * identifier starting with NOTIF_ID_PREFIX) -- never anything else the app,
- * or the OS, might have scheduled. Degrades to a no-op on any native-module
- * failure: if notifications aren't available here, nothing was scheduled in
- * the first place, so there's nothing to clean up either. */
-async function cancelAllGoalNotifications(): Promise<void> {
-  try {
-    const scheduled = await Notifications.getAllScheduledNotificationsAsync();
-    const ours = scheduled.filter((n) => n.identifier.startsWith(NOTIF_ID_PREFIX));
-    await Promise.all(
-      ours.map((n) =>
-        Notifications.cancelScheduledNotificationAsync(n.identifier).catch(() => {
-          // One stale identifier failing to cancel shouldn't stop the rest --
-          // the next full reconcile will try again anyway.
-        }),
-      ),
-    );
-  } catch {
-    // No native module / nothing ever scheduled.
-  }
-}
-
 /** Defaults matching NotificationPrefs' own "unrestricted" reading, so a
  * caller that doesn't care about global prefs (or a test) can still call
  * syncGoalNotifications with just an array, exactly as before. */
@@ -237,7 +216,9 @@ export const syncGoalNotifications = serializeLatest(async function syncGoalNoti
   progressById: Map<string, GoalProgressSnapshot> = new Map(),
   customLabels: CustomLabel[] = [],
 ): Promise<void> {
-  await cancelAllGoalNotifications();
+  // Cancels only this feature's own identifiers -- never a session
+  // reminder, never anything else the app or OS holds.
+  await cancelScheduledWithPrefix(NOTIF_ID_PREFIX);
 
   const requests = planGoalNotifications(goals, prefs, progressById, customLabels);
   if (requests.length === 0) return;
@@ -249,21 +230,18 @@ export const syncGoalNotifications = serializeLatest(async function syncGoalNoti
   const granted = await requestGoalNotificationPermission();
   if (!granted) return;
 
-  await Promise.all(
-    requests.map((r) =>
-      Notifications.scheduleNotificationAsync({
-        identifier: r.identifier,
-        content: {
-          title: r.title,
-          body: r.body,
-          ...(Platform.OS === 'android' ? { channelId: ANDROID_CHANNEL_ID } : {}),
-        },
-        trigger: toNativeTrigger(r.trigger),
-      }).catch(() => {
-        // One goal's trigger failing to schedule (e.g. a platform rejecting
-        // a particular combination) shouldn't take down every other goal's
-        // reminder -- each request is independent.
-      }),
-    ),
+  // Which requests landed is not tracked here, unlike sessionReminders:
+  // goal reminders have no server-side counterpart whose duplicate this
+  // would need to suppress. Per-request failures are swallowed inside
+  // scheduleLocalNotifications, so one goal's trigger being rejected can't
+  // take down every other goal's reminder.
+  await scheduleLocalNotifications(
+    requests.map((r) => ({
+      identifier: r.identifier,
+      title: r.title,
+      body: r.body,
+      trigger: toNativeTrigger(r.trigger),
+    })),
+    ANDROID_CHANNEL_ID,
   );
 });

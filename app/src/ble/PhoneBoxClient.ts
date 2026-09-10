@@ -54,7 +54,10 @@ export class PhoneBoxClient {
   private manager = new BleManager({
     restoreStateIdentifier: 'phonebox-central',
     restoreStateFunction: (restoredState: BleRestoredState | null) => {
-      if (restoredState?.connectedPeripherals?.length) {
+      // __DEV__-gated for the same reason App.tsx's capability probe is:
+      // a restoration callback firing is expected behavior, not a fault, so
+      // it has no business writing to a release build's log.
+      if (__DEV__ && restoredState?.connectedPeripherals?.length) {
         console.log(
           '[PhoneBoxClient] BLE state restored:',
           restoredState.connectedPeripherals.map((p) => p.id),
