@@ -162,9 +162,10 @@ interface AuthState {
    * FIRST (proving recent presence before anything irreversible runs),
    * then cascade-deletes what firestore.rules permits, then deletes the
    * Firebase Auth user itself, then clears local account state. A cancelled
-   * or failed re-auth aborts the whole flow untouched. See
-   * firestoreSync.ts's deleteAllUserData for the one documented exception
-   * (session docs are orphaned, not purged, by design), and this file's
+   * or failed re-auth aborts the whole flow untouched. "What firestore.rules
+   * permits" now includes the session log, but only because deleteAllUserData
+   * deletes the parent user doc first to open that window -- see its docblock
+   * before reordering anything in this flow. See also this file's
    * AccountDataWipedError for the one abnormal outcome (data wiped, Auth
    * user deletion itself then failed).
    *

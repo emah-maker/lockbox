@@ -43,7 +43,9 @@ Verified on 2026-09-10 unless noted.
 | Privacy policy live and matching the in-app link | Done — HTTP 200, byte-identical to `website/privacy.html` |
 | In-app privacy link, privacy manifest, release logging | Done — 2026-09-08 compliance pass |
 | Sign in with Apple present (Guideline 4.8) | Done — `usesAppleSignIn: true`, alongside Google and email/password |
-| Existing test suites | Green — 208 root, 1017 app |
+| Account deletion purges session history (5.1.1(v)) | Done — needs a rules deploy to take effect, see step 5b |
+| Debug panels hidden from a release build | Done — call diagnostics is behind a long-press, 2026-09-10 |
+| Existing test suites | Green — 1067 app, 51 Firestore rules |
 | **Everything below** | **Not started** |
 
 ## What still needs to be done
@@ -112,6 +114,25 @@ A password manager. Not `docs/` (tracked), not a new file in the tree — and no
 is not automatically kept off the builder even when git ignores it.
 
 Nothing in this repo can recover the account. Whoever submits the next build needs these.
+
+### 5b. Deploy the Firestore rules — BEFORE the build, not after
+
+```sh
+firebase deploy --only firestore:rules --project phonebox-d14b7
+```
+
+`app/firestore.rules` ships separately from the app binary, and this repo has no CI for
+it, so the deployed ruleset regularly lags git. Two things in this build need the current
+one:
+
+- **Account deletion now purges session history** (Guideline 5.1.1(v)). Sessions are
+  deletable only while `users/{uid}` is absent, and `deleteAllUserData` deletes that doc
+  first to open the window. Against a stale ruleset the sweep is denied — tolerated, not
+  fatal (the sweep is wrapped and logs `[sync] session history not purged on account
+  deletion`), but the account silently keeps its history and the guideline gap is back.
+- Any earlier rules change not yet pushed. Check before assuming: reading the live ruleset
+  needs `firebase login --reauth` first — the stored credentials were expired as of
+  2026-09-10.
 
 ### 6. Build and upload
 
@@ -184,12 +205,14 @@ curl -sS -o /dev/null -w "%{http_code}\n" https://phonebox-d14b7.web.app/privacy
 
 Read these before starting. Most are one-way doors.
 
-1. **A bad seed is permanent.** `app/firestore.rules`' sessions block ends
-   `allow delete: if false` — deliberate append-only integrity, not an oversight. Nobody,
-   including the owner, can delete a session document. If you change
+1. **A bad seed can only be undone by deleting the whole account.** `app/firestore.rules`'
+   sessions block permits a delete only while `users/{uid}` is absent — deliberate
+   append-only integrity, not an oversight. No running app, including the owner's, can
+   remove a session document; the sole exception is `deleteAllUserData`, which removes the
+   parent doc first precisely to open that window. So a bad seed is fixable, but only by
+   burning the account (and per trap 6, a deleted uid is never reissued). If you change
    `scripts/lib/demo-seed-data.js`, rehearse against the emulators first (command in
-   `docs/app-store/testflight-external-testing.md`) or be ready to burn the account and
-   make another.
+   `docs/app-store/testflight-external-testing.md`).
 
 2. **The seeded deviceId must stay `unknown-device`.** `sync/sessionMerge.ts`'s
    `sessionDocId` is `` `${deviceId}_${startedAt}_${actualS}` ``, and
@@ -253,10 +276,11 @@ Read these before starting. Most are one-way doors.
 ## Out of scope
 
 - **Do not relax `app/firestore.rules` to make any of this easier.** The append-only
-  sessions rule is load-bearing. There is a separate open question about it — account
-  deletion orphans session documents rather than erasing them, flagged in the 2026-09-08
-  pass as the one residual Guideline 5.1.1(v) risk. Decide that on its own merits, not as a
-  side effect of shipping a build.
+  sessions rule is load-bearing, and its one exception is deliberately as narrow as it can
+  be: sessions are deletable only while `users/{uid}` is absent, a state nothing but
+  `deleteAllUserData` produces. That window is what closed the residual Guideline 5.1.1(v)
+  risk flagged in the 2026-09-08 pass (deletion used to orphan session documents rather
+  than erase them). Widening it reopens that and lets a stolen client token erase history.
 - **iOS remote push** (trap 4). Dormant by design.
 - **App Store release.** This is TestFlight external testing only. Guideline 2.2 means the
   full review guidelines apply to the beta, but the store listing, screenshots and pricing

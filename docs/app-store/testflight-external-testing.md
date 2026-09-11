@@ -335,7 +335,8 @@ step 7.
 ## Out of scope
 
 Do not relax `app/firestore.rules` to make seeding easier. The append-only sessions rule is
-load-bearing, and there is a separate open question about it — account deletion orphans
-session documents rather than erasing them, flagged in the 2026-09-08 pass as the one
-residual Guideline 5.1.1(v) risk. Decide that on its own merits, not as a side effect of
-this work.
+load-bearing: sessions are deletable only while `users/{uid}` is absent, which is a state
+only `deleteAllUserData` produces. That narrow window is what closed the residual
+Guideline 5.1.1(v) risk flagged in the 2026-09-08 pass (account deletion used to orphan
+session documents rather than erase them). Widening it would reopen that, and would also
+let a stolen client token erase real history.

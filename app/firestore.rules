@@ -60,7 +60,26 @@ service cloud.firestore {
                           || (request.resource.data.topic is string && request.resource.data.topic.size() <= 200))
                       && request.resource.data.topicUpdatedAt is int
                       && request.resource.data.topicUpdatedAt > (('topicUpdatedAt' in resource.data) ? resource.data.topicUpdatedAt : -1);
-        allow delete: if false; // integrity: a session can be relabeled, never erased, even by the owner
+        // Append-only for anything a running app can do: users/{uid} exists for
+        // the whole life of a signed-in account, so this is `false` in every
+        // normal circumstance and a stolen client token still cannot
+        // retroactively erase real history.
+        //
+        // The one window where it opens is account deletion, which removes the
+        // parent user doc FIRST (firestoreSync.ts's deleteAllUserData) and then
+        // sweeps the sessions. That is what makes App Store Review Guideline
+        // 5.1.1(v) -- delete the account AND its data -- satisfiable without a
+        // privileged Cloud Function, which this client-only design has nowhere
+        // to run.
+        //
+        // Costs one document access call for the whole sweep rather than one
+        // per session: every delete in a batch calls exists() on the same
+        // users/{uid} path, and cached accesses do not count against the
+        // 20-per-batch limit. sessions.test.ts pins that with a >20 batch,
+        // because the only accounts that would break if it were ever false
+        // are the ones with enough history to exceed it.
+        allow delete: if isOwner(uid)
+                      && !exists(/databases/$(database)/documents/users/$(uid));
       }
 
       match /settings/app {
