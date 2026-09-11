@@ -215,7 +215,7 @@ export const useStore = create<AppState>((set, get) => {
     }).catch(() => {});
   };
 
-  const handleStatus = (status: Status) =>
+  const handleStatus = (status: Status) => {
     set((state) => {
       const freshRun = status.st === 'running' && state.status?.st !== 'running';
       // The box's own pre-session tag picker (now fed the app's synced
@@ -268,6 +268,21 @@ export const useStore = create<AppState>((set, get) => {
         pendingBoxTopic: freshRun ? null : state.pendingBoxTopic,
       };
     });
+    // The box pushes this notify about once a second while connected
+    // (Box-code/lib/lock_ble.py's _push_outbound), and under the
+    // bluetooth-central background mode iOS resumes this app to deliver it.
+    // That makes it the one dependable heartbeat of CPU time we get while the
+    // phone is shut in the box -- and so the only place a call that started
+    // ringing during a suspension can still be noticed. The background-wake
+    // RFC's premise that bluetooth-central "keeps the app alive" (and that
+    // Tier 1 therefore needs no wake path) is not how iOS behaves: it wakes
+    // the app per BLE event, it does not keep it resident.
+    //
+    // Deliberately after set(), so checkNow's getBoxState() sees this status
+    // and not the previous one -- the freshRun tick where the box has just
+    // gone 'running' is precisely when a call starts counting as alertable.
+    void monitor.checkNow();
+  };
 
   const afterConnected = async () => {
     reconnectAttempts = 0; // a real connection succeeded -- the next drop starts backoff fresh

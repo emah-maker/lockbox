@@ -318,7 +318,7 @@ shapes the design.
 
 | Capability | iOS reality | Use for greenlist |
 |---|---|---|
-| Detect that *a* call is ringing (no caller ID) | `CXCallObserver` reports call state (incoming/connected/ended) even in background; it does **not** expose the caller's number (privacy) | "Someone is calling" **alert-through** — buzz/screen on the box, no identity filter |
+| Detect that *a* call is ringing (no caller ID) | `CXCallObserver` reports call state (incoming/connected/ended) while the app is *running*, foreground or background -- **not while iOS has it suspended, which corrects the original "even in background" claim here** (see the correction note in `ios-background-wake-and-call-notification-architecture.md` §4.1; the app polls `CXCallObserver.calls` on each BLE wake instead). It does **not** expose the caller's number (privacy) | "Someone is calling" **alert-through** — buzz/screen on the box, no identity filter |
 | Identify a specific incoming **cellular** caller | **Not available** to third-party apps. `CallDirectory`/`Live Caller ID Lookup` extensions only feed labels to Apple's Phone app; they are never told about a live call | ❌ cannot per-contact filter a normal cellular call |
 | True per-contact greenlist | **Route the call through the app as VoIP** (`PushKit` + `CallKit`): the app places/receives the call, so it knows the caller and can act | ✅ reliable per-contact greenlist **and** a reliable background wake |
 | Background wake to reach the box | `PushKit` VoIP push wakes the app reliably; far more dependable than CoreBluetooth **state restoration**, which is known to fire inconsistently | ✅ use PushKit as the trigger, then connect BLE to signal the box |

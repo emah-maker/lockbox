@@ -19,6 +19,7 @@ import { useGoalsStore } from './src/store/useGoalsStore';
 import { useScheduleStore, startSessionReminderWatch } from './src/store/useScheduleStore';
 import { useTheme } from './src/theme/useTheme';
 import { isCallObserverAvailable } from './modules/call-observer';
+import { hydrateCallDiagnostics } from './src/calls/callDiagnostics';
 import { getLaunchReason, onBackgroundWake } from './modules/background-wake';
 import { useAuthStore } from './src/auth/useAuthStore';
 import { startSettingsSyncBridge } from './src/sync/settingsSyncBridge';
@@ -82,6 +83,11 @@ export default function App() {
     // instead of StatusStrip privately recording its own copy.
     useBatteryStore.getState().hydrate();
     startBatterySampling();
+
+    // Call-path instrumentation. Hydrated (not awaited) so the tick counters
+    // survive a process kill -- see app/src/calls/callDiagnostics.ts for why
+    // this path needs measuring at all rather than just logging.
+    void hydrateCallDiagnostics();
 
     // Account sign-in/sync (docs/rfcs/google-signin-cross-device-sync-architecture.md
     // §2.5, §4.3, §6). useAuthStore.init() runs wipeStaleSessionOnFreshInstall()

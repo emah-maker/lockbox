@@ -196,10 +196,18 @@ JS bundle boots → App.tsx reads getLaunchReason()
 
 - **Tier 1 (already stubbed, unchanged by this design):** `CXCallObserver` via
   `app/modules/call-observer/ios/CallObserverModule.swift` → `CallMonitor.ts` → any
-  incoming call alerts the box (no identity). Stays exactly as-is; it needs none of the
-  foundation's new plumbing because `CXCallObserver` already fires in the background
-  without a special wake path (the app just needs to be alive, which
-  `bluetooth-central` background mode already keeps it, per the existing design).
+  incoming call alerts the box (no identity).
+  **CORRECTION (2026-09-10): the parenthetical below was wrong, and it was the reason
+  Tier 1 never worked in real use.** `bluetooth-central` does not keep the app alive --
+  it *wakes* the app per BLE event and lets iOS suspend it again in between. A suspended
+  app receives no `CXCallObserver` delegate callback, and the missed transition is never
+  replayed, so with the phone shut in the box (i.e. always) the ring was observed by
+  nobody. Tier 1 now also polls `CXCallObserver.calls`, a snapshot rather than a
+  transition, on every box status notify (~1/s) -- see `CallMonitor.checkNow` and
+  `CallObserverModule.swift`'s header. Original claim, kept for the record: "it needs
+  none of the foundation's new plumbing because `CXCallObserver` already fires in the
+  background without a special wake path (the app just needs to be alive, which
+  `bluetooth-central` background mode already keeps it, per the existing design)."
 - **Tier 2 (new, this design):** true per-contact identity via VoIP/PushKit + CallKit.
 
 ### 4.2 Contact permission and greenlist storage

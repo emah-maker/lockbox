@@ -18,6 +18,7 @@ type CallObserverEvents = {
 
 declare class CallObserverModule extends NativeModule<CallObserverEvents> {
   isAvailable(): boolean;
+  getCurrentCalls(): CallEvent[];
 }
 
 // requireNativeModule throws if the native module isn't linked (e.g. running in
@@ -38,4 +39,25 @@ export function addCallListener(listener: (e: CallEvent) => void): EventSubscrip
     return { remove() {} } as EventSubscription;
   }
   return nativeModule.addListener('onCall', listener);
+}
+
+/** Every call iOS knows about right now, as a snapshot rather than a
+ * transition -- the only half of this module that still reports anything
+ * after iOS has suspended and resumed the app. See CallObserverModule.swift's
+ * header for why that matters and app/src/calls/CallMonitor.ts for who polls
+ * it.
+ *
+ * The `?.()` is not paranoia: a reloaded JS bundle can be newer than the
+ * dev-client binary it is running against, and that older binary has an
+ * isAvailable() but no getCurrentCalls(). Degrade to "no calls known" rather
+ * than throwing, exactly as isCallObserverAvailable() does. */
+export function getCurrentCalls(): CallEvent[] {
+  try {
+    return nativeModule?.getCurrentCalls?.() ?? [];
+  } catch {
+    // Keeps this a total function. Its caller (CallMonitor.checkNow) is fired
+    // and forgotten from the BLE status handler, so anything thrown here
+    // would surface as an unhandled rejection rather than a missed alert.
+    return [];
+  }
 }

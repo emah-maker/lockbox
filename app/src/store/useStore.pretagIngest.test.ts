@@ -106,6 +106,9 @@ jest.mock('../calls/CallMonitor', () => ({
     available = false;
     start = jest.fn();
     stop = jest.fn();
+    // handleStatus calls this on every box status notify now -- see
+    // CallMonitor.checkNow for why the alert can't rely on the event alone.
+    checkNow = jest.fn();
   },
 }));
 
