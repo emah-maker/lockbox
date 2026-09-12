@@ -6,7 +6,7 @@
 // TopicRows follows for its inline/sheet split.
 import React, { useEffect, useRef } from 'react';
 import { Animated } from 'react-native';
-import { Feather } from '@expo/vector-icons';
+import Feather from '@expo/vector-icons/Feather';
 import { GoalPeriod } from '../../goals/goals';
 import { springs } from '../../theme/tokens';
 

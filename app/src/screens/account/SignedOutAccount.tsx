@@ -11,7 +11,7 @@
 // to prove ownership of a conflicting account.
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useAuthStore } from '../../auth/useAuthStore';
 import { signInErrorMessage } from '../../auth/accountDisplay';
 import type { AuthProviderKind } from '../../auth/accountLinking';

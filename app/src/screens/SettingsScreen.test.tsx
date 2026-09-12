@@ -76,7 +76,8 @@ jest.mock('firebase/auth', () => ({
 // own font-loaded check outside a real native runtime -- stood in with plain
 // string components, the same "icons are opaque leaves" treatment this suite
 // gives everything it doesn't otherwise care about rendering.
-jest.mock('@expo/vector-icons', () => ({ Ionicons: 'Ionicons', Feather: 'Feather', MaterialIcons: 'MaterialIcons' }));
+jest.mock('@expo/vector-icons/Feather', () => 'Feather');
+jest.mock('@expo/vector-icons/Ionicons', () => 'Ionicons');
 
 import SettingsScreen from './SettingsScreen';
 

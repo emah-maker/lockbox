@@ -7,7 +7,7 @@
 // -- there is no single-Modal alternative without Sheet itself supporting
 // nested content panes, which its contract doesn't).
 import { View, Text, StyleSheet } from 'react-native';
-import { Feather } from '@expo/vector-icons';
+import Feather from '@expo/vector-icons/Feather';
 import { Sheet } from '../Sheet';
 import { AnimatedPressable } from '../AnimatedPressable';
 import { ThemeColors } from '../../theme/theme';

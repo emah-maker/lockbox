@@ -11,7 +11,7 @@
 // last-sign-in dates straight off useAuthStore's AccountUser.
 import React from 'react';
 import { View, Text, StyleSheet, Alert } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useAuthStore } from '../../auth/useAuthStore';
 import type { AuthProviderKind } from '../../auth/accountLinking';
 import {

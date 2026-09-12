@@ -27,7 +27,7 @@
 // -- which would just rebuild the wall of controls this replaces.
 import React from 'react';
 import { View, Text, StyleSheet, Animated, Easing } from 'react-native';
-import { Feather } from '@expo/vector-icons';
+import Feather from '@expo/vector-icons/Feather';
 import { useTheme } from '../theme/useTheme';
 import { withAlpha } from '../theme/color';
 import { AnimatedPressable } from './AnimatedPressable';

@@ -18,7 +18,8 @@ import { resolveTheme } from '../../theme/theme';
 // Same stand-in AboutSection.test.tsx/SettingsScreen.test.tsx use: jest-expo's
 // expo-font mock trips over @expo/vector-icons' own font-loaded check outside
 // a real native runtime.
-jest.mock('@expo/vector-icons', () => ({ Ionicons: 'Ionicons', Feather: 'Feather', MaterialIcons: 'MaterialIcons' }));
+jest.mock('@expo/vector-icons/Feather', () => 'Feather');
+jest.mock('@expo/vector-icons/Ionicons', () => 'Ionicons');
 
 const theme = resolveTheme('dark', 'mint');
 

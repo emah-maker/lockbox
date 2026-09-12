@@ -15,7 +15,7 @@
 // around goalProgress.ts's computeGoalProgress).
 import { useState } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import { Feather } from '@expo/vector-icons';
+import Feather from '@expo/vector-icons/Feather';
 import { Sheet } from '../../ui/Sheet';
 import { AnimatedPressable } from '../../ui/AnimatedPressable';
 import { LabelPickerSheet } from '../../ui/calendar/LabelPickerSheet';

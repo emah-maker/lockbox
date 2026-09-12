@@ -23,7 +23,7 @@
 // full row of text, so the affordance costs no extra vertical space here.
 import { useState } from 'react';
 import { View, Text, StyleSheet, StyleProp, ViewStyle } from 'react-native';
-import { Feather } from '@expo/vector-icons';
+import Feather from '@expo/vector-icons/Feather';
 import * as Haptics from 'expo-haptics';
 import { useTheme } from '../../theme/useTheme';
 import { withAlpha } from '../../theme/color';

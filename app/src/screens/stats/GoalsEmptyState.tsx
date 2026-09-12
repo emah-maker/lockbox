@@ -14,7 +14,7 @@
 // action); changing Button's sizing for this one caller would ripple into
 // every other row that uses it.
 import { View, Text, StyleSheet } from 'react-native';
-import { Feather } from '@expo/vector-icons';
+import Feather from '@expo/vector-icons/Feather';
 import { useTheme } from '../../theme/useTheme';
 import { withAlpha } from '../../theme/color';
 import { AnimatedPressable } from '../../ui/AnimatedPressable';

@@ -11,7 +11,7 @@ import {
   ActivityIndicator,
   TextInput,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useTheme } from '../theme/useTheme';
 import { AnimatedPressable } from '../ui/AnimatedPressable';
 import { typeScale, elevation, opacity, hitSlop } from '../theme/tokens';

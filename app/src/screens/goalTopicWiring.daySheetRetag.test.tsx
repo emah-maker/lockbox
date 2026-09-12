@@ -27,7 +27,8 @@ jest.mock('expo-haptics', () => ({ selectionAsync: jest.fn() }));
 // Same stand-in GoalForm.test.tsx uses -- an opaque leaf as far as this test
 // is concerned, and jest-expo's font-loaded check trips over the real
 // @expo/vector-icons module outside a native runtime.
-jest.mock('@expo/vector-icons', () => ({ Feather: 'Feather', Ionicons: 'Ionicons', MaterialIcons: 'MaterialIcons' }));
+jest.mock('@expo/vector-icons/Feather', () => 'Feather');
+jest.mock('@expo/vector-icons/Ionicons', () => 'Ionicons');
 
 const theme = resolveTheme('dark', 'mint');
 const SAFE_AREA_FRAME = { x: 0, y: 0, width: 320, height: 640 };

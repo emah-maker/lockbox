@@ -27,7 +27,8 @@ import type { Goal } from '../goals/goals';
 import { resolveTheme } from '../theme/theme';
 
 jest.mock('expo-haptics', () => ({ selectionAsync: jest.fn() }));
-jest.mock('@expo/vector-icons', () => ({ Feather: 'Feather', Ionicons: 'Ionicons', MaterialIcons: 'MaterialIcons' }));
+jest.mock('@expo/vector-icons/Feather', () => 'Feather');
+jest.mock('@expo/vector-icons/Ionicons', () => 'Ionicons');
 
 const theme = resolveTheme('dark', 'mint');
 const SAFE_AREA_FRAME = { x: 0, y: 0, width: 320, height: 640 };

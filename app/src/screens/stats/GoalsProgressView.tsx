@@ -20,7 +20,8 @@
 import React, { useEffect, useRef } from 'react';
 import { Animated, View, Text, StyleSheet, ScrollView } from 'react-native';
 import * as Haptics from 'expo-haptics';
-import { Feather, Ionicons } from '@expo/vector-icons';
+import Feather from '@expo/vector-icons/Feather';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useStore } from '../../store/useStore';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import { useGoalsStore } from '../../store/useGoalsStore';

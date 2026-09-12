@@ -54,7 +54,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, StyleSheet, Animated, Easing, PanResponder, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
-import { Feather } from '@expo/vector-icons';
+import Feather from '@expo/vector-icons/Feather';
 import { useStore } from '../store/useStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useGoalsStore } from '../store/useGoalsStore';

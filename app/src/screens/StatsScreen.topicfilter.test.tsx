@@ -62,7 +62,8 @@ jest.mock('firebase/auth', () => ({
   deleteUser: jest.fn(),
   reauthenticateWithCredential: jest.fn(),
 }));
-jest.mock('@expo/vector-icons', () => ({ Ionicons: 'Ionicons', Feather: 'Feather', MaterialIcons: 'MaterialIcons' }));
+jest.mock('@expo/vector-icons/Feather', () => 'Feather');
+jest.mock('@expo/vector-icons/Ionicons', () => 'Ionicons');
 
 import StatsScreen from './StatsScreen';
 import { useStore } from '../store/useStore';

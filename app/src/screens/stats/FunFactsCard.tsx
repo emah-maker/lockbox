@@ -23,7 +23,7 @@
 // selected, and Trend/Topic's shared budget never shrinks out from under
 // them.
 import { View, Text, StyleSheet } from 'react-native';
-import { Feather } from '@expo/vector-icons';
+import Feather from '@expo/vector-icons/Feather';
 import { useTheme } from '../../theme/useTheme';
 import { withAlpha } from '../../theme/color';
 import { formatDuration } from '../../stats/stats';

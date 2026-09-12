@@ -23,7 +23,8 @@ import type { IdleRingState } from './idleRingState';
 // because AnimatedPressable/BatteryBadge pull in @expo/vector-icons'
 // font-loaded check, which trips jest-expo's expo-font mock outside a real
 // native runtime.
-jest.mock('@expo/vector-icons', () => ({ Ionicons: 'Ionicons', Feather: 'Feather', MaterialIcons: 'MaterialIcons' }));
+jest.mock('@expo/vector-icons/Feather', () => 'Feather');
+jest.mock('@expo/vector-icons/Ionicons', () => 'Ionicons');
 
 // Every tree this file mounts, unmounted in afterEach. FocusHero starts a
 // 220ms opacity timing on mount; it stops that on unmount, but only if

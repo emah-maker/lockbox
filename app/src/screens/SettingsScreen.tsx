@@ -20,7 +20,7 @@
 // `settingsSection` intent rather than scrolling to an inline section.
 import React from 'react';
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useStore } from '../store/useStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useGoalsStore } from '../store/useGoalsStore';

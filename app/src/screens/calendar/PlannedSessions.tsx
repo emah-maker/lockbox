@@ -19,7 +19,7 @@
 // load-bearing rather than cosmetic.
 import React from 'react';
 import { View, Text, StyleSheet, Alert } from 'react-native';
-import { Feather } from '@expo/vector-icons';
+import Feather from '@expo/vector-icons/Feather';
 import { AnimatedPressable } from '../../ui/AnimatedPressable';
 import { SessionReminderForm, leadLabel } from './SessionReminderForm';
 import { useScheduleStore } from '../../store/useScheduleStore';

@@ -36,7 +36,8 @@ jest.mock('expo-haptics', () => ({ selectionAsync: jest.fn() }));
 // This form reaches an icon through ui/FormDisclosure's chevron, which is
 // what collapses its optional field groups -- an opaque leaf as far as this
 // test is concerned, which only ever asks a WheelPicker for its index.
-jest.mock('@expo/vector-icons', () => ({ Ionicons: 'Ionicons', Feather: 'Feather', MaterialIcons: 'MaterialIcons' }));
+jest.mock('@expo/vector-icons/Feather', () => 'Feather');
+jest.mock('@expo/vector-icons/Ionicons', () => 'Ionicons');
 
 const theme = resolveTheme('dark', 'mint');
 

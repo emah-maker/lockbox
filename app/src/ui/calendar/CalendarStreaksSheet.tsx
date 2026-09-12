@@ -14,7 +14,7 @@
 // or useGoalsStore itself, so it can't drift from whatever CalendarScreen.tsx
 // decided "visible" means.
 import { View, Text, StyleSheet } from 'react-native';
-import { Feather } from '@expo/vector-icons';
+import Feather from '@expo/vector-icons/Feather';
 import { Sheet } from '../Sheet';
 import { AnimatedPressable } from '../AnimatedPressable';
 import { ThemeColors } from '../../theme/theme';

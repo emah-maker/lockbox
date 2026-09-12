@@ -6,7 +6,7 @@
 // dumb, memo-friendly leaf.
 import { View, Text, StyleSheet } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { AnimatedPressable } from '../AnimatedPressable';
 import { ThemeColors } from '../../theme/theme';
 import { withAlpha } from '../../theme/color';

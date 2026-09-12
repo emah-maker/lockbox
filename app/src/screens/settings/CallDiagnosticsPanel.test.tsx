@@ -8,7 +8,8 @@ import type { CallDiagnostics } from '../../calls/callDiagnostics';
 // -> expo-font, which resolves expo-asset (not installed here). Same stand-in
 // as SettingsScreen.test.tsx and screens.smoke.test.tsx use, for the same
 // reason: icons are opaque leaves to a suite that never renders them.
-jest.mock('@expo/vector-icons', () => ({ Ionicons: 'Ionicons', Feather: 'Feather', MaterialIcons: 'MaterialIcons' }));
+jest.mock('@expo/vector-icons/Feather', () => 'Feather');
+jest.mock('@expo/vector-icons/Ionicons', () => 'Ionicons');
 
 const diag = (over: Partial<CallDiagnostics> = {}): CallDiagnostics => ({
   ticks: 0,

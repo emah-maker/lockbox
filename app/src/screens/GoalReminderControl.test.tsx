@@ -33,7 +33,8 @@ import { resolveTheme } from '../theme/theme';
 // outside a real native runtime, and this control's icon-free chain
 // doesn't need a real one for anything this file checks.
 jest.mock('expo-haptics', () => ({ selectionAsync: jest.fn() }));
-jest.mock('@expo/vector-icons', () => ({ Ionicons: 'Ionicons', Feather: 'Feather', MaterialIcons: 'MaterialIcons' }));
+jest.mock('@expo/vector-icons/Feather', () => 'Feather');
+jest.mock('@expo/vector-icons/Ionicons', () => 'Ionicons');
 
 const theme = resolveTheme('dark', 'mint');
 
