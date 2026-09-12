@@ -43,7 +43,7 @@ Verified on 2026-09-10 unless noted.
 | Privacy policy live and matching the in-app link | Done — HTTP 200, byte-identical to `website/privacy.html` |
 | In-app privacy link, privacy manifest, release logging | Done — 2026-09-08 compliance pass |
 | Sign in with Apple present (Guideline 4.8) | Done — `usesAppleSignIn: true`, alongside Google and email/password |
-| Account deletion purges session history (5.1.1(v)) | Done — needs a rules deploy to take effect, see step 5b |
+| Account deletion purges session history (5.1.1(v)) | Done — rules deployed 2026-09-11 04:21 UTC, live ruleset byte-identical to git |
 | Debug panels hidden from a release build | Done — call diagnostics is behind a long-press, 2026-09-10 |
 | Existing test suites | Green — 1067 app, 51 Firestore rules |
 | **Everything below** | **Not started** |
@@ -120,6 +120,10 @@ Nothing in this repo can recover the account. Whoever submits the next build nee
 ```sh
 firebase deploy --only firestore:rules --project phonebox-d14b7
 ```
+
+**Verified done on 2026-09-12**: live ruleset `d2390c4d`, deployed 2026-09-11 04:21 UTC,
+byte-identical to `app/firestore.rules` at `0fb77ae`. Re-check before any *later* build —
+this is a standing step, not a one-off.
 
 `app/firestore.rules` ships separately from the app binary, and this repo has no CI for
 it, so the deployed ruleset regularly lags git. Two things in this build need the current
