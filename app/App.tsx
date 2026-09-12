@@ -7,8 +7,9 @@
 import React, { useEffect, useRef } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+import * as SplashScreen from 'expo-splash-screen';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
-import { Feather } from '@expo/vector-icons';
+import Feather from '@expo/vector-icons/Feather';
 import DashboardScreen from './src/screens/DashboardScreen';
 import StatsScreen from './src/screens/StatsScreen';
 import CalendarScreen from './src/screens/CalendarScreen';
@@ -50,6 +51,22 @@ const SCREENS: Record<Tab, React.ComponentType> = {
   settings: SettingsScreen,
 };
 
+// Hold the launch image until the persisted theme is in hand. useTheme()
+// reads themeMode/accent out of useSettingsStore, which hydrates
+// asynchronously, so rendering before that lands shows a frame of the
+// DEFAULT theme first -- a light flash in front of a dark-mode user. The
+// splash covers exactly that gap, which is also why it is worth holding at
+// all rather than letting it auto-hide.
+//
+// Called at module scope, not in an effect: auto-hide fires as soon as the
+// root view mounts, which is earlier than any effect here can run.
+void SplashScreen.preventAutoHideAsync().catch(() => {
+  // Already hidden, or no splash on this platform. Nothing to hold.
+});
+
+/** Longest the splash may stay up if hydration never settles. */
+const SPLASH_MAX_HOLD_MS = 3000;
+
 export default function App() {
   const tab = useNav((s) => s.tab);
   const setTab = useNav((s) => s.setTab);
@@ -57,6 +74,19 @@ export default function App() {
   const themeMode = useSettingsStore((s) => s.themeMode);
   const theme = useTheme();
   const reducedMotion = useReducedMotion();
+  const settingsHydrated = useSettingsStore((s) => s.hydrated);
+
+  useEffect(() => {
+    if (settingsHydrated) {
+      void SplashScreen.hideAsync().catch(() => {});
+      return;
+    }
+    // hydrate() swallows its own storage errors, but if it ever failed to
+    // settle at all, a splash held forever reads as a hang with no way out.
+    // Uncover regardless after this long; a theme flash beats a dead launch.
+    const timer = setTimeout(() => void SplashScreen.hideAsync().catch(() => {}), SPLASH_MAX_HOLD_MS);
+    return () => clearTimeout(timer);
+  }, [settingsHydrated]);
 
   useEffect(() => {
     // one-time capability log so a dev build surfaces missing native linkage

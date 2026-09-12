@@ -90,7 +90,16 @@
       ],
       "expo-apple-authentication",
       "expo-font",
-      "./plugins/withoutPushEntitlement"
+      "./plugins/withoutPushEntitlement",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/icon.png",
+          "imageWidth": 220,
+          "resizeMode": "contain",
+          "backgroundColor": "#1a1a1c"
+        }
+      ]
     ],
     "android": {
       "permissions": [
