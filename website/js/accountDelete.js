@@ -9,11 +9,21 @@
    module already has in hand.
 
    The delete cascade mirrors app/src/sync/firestoreSync.ts's
-   deleteAllUserData byte-for-byte (same subcollections, same batch chunk
-   size, same Firestore-data-before-Auth-user ordering -- see
-   account-spec.md §4): Firestore data must go first, while still
-   authenticated as this uid, because an owner-scoped rule can't authorize a
-   delete once the Auth user performing it no longer exists.
+   deleteAllUserData step for step (same subcollections in the same order,
+   same batch chunk size, same parent-doc-first ordering, same
+   permitted-to-fail sessions sweep -- see account-spec.md §4). Two
+   orderings are load-bearing here and neither is obvious from the body:
+
+     - Firestore data goes before the Auth user, while still authenticated as
+       this uid, because an owner-scoped rule can't authorize a delete once
+       the Auth user performing it no longer exists.
+     - users/{uid} goes before its own subcollections, because firestore.rules
+       permits a session delete only while that parent doc is absent. Deleting
+       it last -- as this file did back when sessions were merely orphaned --
+       would leave every session permanently undeletable by anyone.
+
+   tests/contracts/deleteCascade.test.js pins this file against the app's
+   copy, since the two never import from each other and nothing else does.
    ========================================================================= */
 import {
   GoogleAuthProvider,
@@ -33,10 +43,15 @@ import { friendlyErrorMessage, isIgnorableAuthError, logAuthError } from './auth
 
 const DELETE_CONFIRM_WORD = 'DELETE';
 const BATCH_LIMIT = 500; // Firestore's per-batch write cap -- mirrors firestoreSync.ts's deleteAllUserData
-// The same subcollections deleteAllUserData wipes, in the same order -- see
-// firestore.rules: each of these is `allow delete: if isOwner`, while
-// sessions is `allow delete: if false` and is deliberately excluded
-// (retained-but-orphaned by design; the confirm copy below says so).
+// The same subcollections deleteAllUserData wipes unconditionally, in the
+// same order -- see firestore.rules: each of these is `allow delete: if
+// isOwner`, so a denial on one of them is a real fault and must not be
+// swallowed.
+//
+// sessions is not in this list, and is no longer excluded from the cascade
+// either: it is swept separately at the end of deleteFirestoreData, because
+// its rule is narrower (`isOwner` AND the parent user doc absent) and,
+// uniquely, its failure is tolerated. See that call for why.
 //
 // pushTokens and scheduledSessions were added to the app's list when
 // server-pushed reminders landed, and this copy was missed -- its comment
@@ -50,26 +65,53 @@ const BATCH_LIMIT = 500; // Firestore's per-batch write cap -- mirrors firestore
 // agree, since nothing else does.
 const DELETABLE_SUBCOLLECTIONS = ['settings', 'devices', 'goals', 'pushTokens', 'scheduledSessions'];
 
-/** Cascade-deletes everything firestore.rules permits, chunked to Firestore's
- * per-batch write limit (defensive -- one account's data is expected to stay
- * far under it). */
-async function deleteFirestoreData(db, uid) {
-  for (const sub of DELETABLE_SUBCOLLECTIONS) {
-    const snap = await getDocs(collection(db, 'users', uid, sub));
-    let batch = writeBatch(db);
-    let count = 0;
-    for (const d of snap.docs) {
-      batch.delete(d.ref);
-      count += 1;
-      if (count === BATCH_LIMIT) {
-        await batch.commit();
-        batch = writeBatch(db);
-        count = 0;
-      }
+/** Enumerate one subcollection under users/{uid} and delete every document in
+ * it. Firestore has no cascade-delete, so each is swept explicitly. Chunked to
+ * Firestore's per-batch write limit (defensive -- one account's data is
+ * expected to stay far under it). */
+async function deleteSubcollection(db, uid, sub) {
+  const snap = await getDocs(collection(db, 'users', uid, sub));
+  let batch = writeBatch(db);
+  let count = 0;
+  for (const d of snap.docs) {
+    batch.delete(d.ref);
+    count += 1;
+    if (count === BATCH_LIMIT) {
+      await batch.commit();
+      batch = writeBatch(db);
+      count = 0;
     }
-    if (count > 0) await batch.commit();
   }
+  if (count > 0) await batch.commit();
+}
+
+/** Cascade-deletes everything firestore.rules permits, in the order the rules
+ * require -- see this file's header for why that order is not cosmetic. */
+async function deleteFirestoreData(db, uid) {
+  // FIRST, and load-bearing rather than tidy: firestore.rules permits a
+  // session delete only while this doc is absent, and nothing but this path
+  // ever produces that state. Deleting it last would leave every session
+  // permanently undeletable by anyone.
   await deleteDoc(doc(db, 'users', uid));
+  for (const sub of DELETABLE_SUBCOLLECTIONS) {
+    await deleteSubcollection(db, uid, sub);
+  }
+  // Sessions go last, and are the one sweep permitted to fail.
+  //
+  // firestore.rules is deployed separately from this page, so the dashboard
+  // can be live before the ruleset that lets it purge sessions is. Then these
+  // deletes come back permission-denied, and letting that throw would abandon
+  // the flow with users/{uid} already gone and the Auth user still alive:
+  // strictly worse than the orphaning this replaced, and on the one path a
+  // user cannot retry from a clean state. Swallowing it degrades to exactly
+  // the old behaviour instead, and the warning is the signal that
+  // `firebase deploy --only firestore:rules` is overdue. Every other
+  // subcollection above still fails loudly.
+  try {
+    await deleteSubcollection(db, uid, 'sessions');
+  } catch (e) {
+    console.warn('[account] session history not purged on account deletion:', e instanceof Error ? e.message : e);
+  }
 }
 
 /** Picks one already-linked provider to re-authenticate with when Firebase
@@ -133,15 +175,20 @@ export function buildDeleteConfirm(user, els, ctx, onCancel) {
   box.className = 'acct__confirm';
 
   const warning = document.createElement('p');
-  // Copy pinned to account-spec.md §4 -- identical guarantees to the app's
-  // native Alert (AccountSection.tsx's handleDeleteAccount), including the
-  // orphaned-sessions caveat, which is easy to forget precisely because
-  // firestore.rules makes it invisible (the delete just silently no-ops).
+  // Copy pinned to account-spec.md §4. The orphaned-sessions caveat this
+  // used to carry is gone because the behaviour is: deleteFirestoreData above
+  // now purges session history too, which is the point of App Store Review
+  // Guideline 5.1.1(v) -- the account AND its data -- and a session's topic is
+  // free text somebody typed.
+  //
+  // Stated flatly rather than hedged on the sessions sweep being permitted to
+  // fail: that is a rules-deploy-lag detail a reader cannot act on, and the
+  // promise the product makes is the unhedged one. If the sweep is denied it
+  // logs (see deleteFirestoreData) -- the fix is to deploy the rules, not to
+  // soften this sentence.
   warning.textContent = 'This permanently deletes your account and its cloud data: profile, settings, '
-    + 'custom labels, focus goals, and linked devices. Your session history stays in the cloud but is '
-    + 'orphaned -- Firestore keeps session records undeletable for integrity, so they are retained but '
-    + 'no longer linked to a live account. The physical Phone Box and anything stored locally on this '
-    + 'phone are not affected. This cannot be undone.';
+    + 'custom labels, focus goals, linked devices, and your session history. The physical Phone Box and '
+    + 'anything stored locally on this phone are not affected. This cannot be undone.';
   box.appendChild(warning);
 
   const input = document.createElement('input');
