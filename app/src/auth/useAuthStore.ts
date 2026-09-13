@@ -345,7 +345,32 @@ const AUTH_INIT_ERROR = "Couldn't start sign-in. Check your connection and try a
 // "check your connection" wording, which would send a user chasing the
 // wrong problem.
 function initErrorMessageFor(e: any): string {
-  return e?.name === 'FirebaseConfigError' ? SIGN_IN_NOT_CONFIGURED_MESSAGE : AUTH_INIT_ERROR;
+  return e?.name === 'FirebaseConfigError'
+    ? SIGN_IN_NOT_CONFIGURED_MESSAGE
+    : `${AUTH_INIT_ERROR} ${initFailureTag(e)}`;
+}
+
+/** The stall stage, plus the error's name/code when there was an error at all,
+ * appended to AUTH_INIT_ERROR's user-facing text.
+ *
+ * This is deliberately shown rather than only logged. describeInitError below
+ * has always composed the same diagnostic, but only for console.warn -- which
+ * is unreadable on an internal-distribution or TestFlight build from a Windows
+ * machine, the only kind this project's owner can produce. Without it every
+ * cause of a failed init is the same sentence on screen ("check your
+ * connection"), including the causes that have nothing to do with the network,
+ * so a report from the device cannot distinguish them and the bug gets chased
+ * by rebuilding rather than by reading.
+ *
+ * Safe to render under design doc §5 checklist item 3, which forbids surfacing
+ * a raw error payload, token or credential: `name` and `code` are short
+ * identifier strings, and `message` -- the one field that can be long, or (for
+ * FirebaseConfigError) is explicitly documented as never-show -- is left to
+ * describeInitError and the console. */
+function initFailureTag(e: any): string {
+  const stage = getAuthInitStage();
+  const kind = [e?.name, e?.code].filter(Boolean).join('/');
+  return kind ? `(stage: ${stage}, ${kind})` : `(stage: ${stage})`;
 }
 
 /** name/code/message plus the stage it died at -- deliberately these fields
@@ -442,7 +467,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         `[useAuthStore] Firebase Auth did not start within ${AUTH_INIT_TIMEOUT_MS}ms ` +
           `(stalled at stage: ${getAuthInitStage()}); releasing the sign-in gate.`,
       );
-      set({ ready: true, initError: AUTH_INIT_ERROR });
+      // Shown, not just logged, for the reason initFailureTag documents: the
+      // console this warning goes to is not reachable on the build types this
+      // project ships. There is no error object on this path -- nothing threw,
+      // the callback simply never came -- so the tag carries the stage alone,
+      // which is exactly the distinction the comment above says matters.
+      set({ ready: true, initError: `${AUTH_INIT_ERROR} ${initFailureTag(null)}` });
     }, AUTH_INIT_TIMEOUT_MS);
     const lastSyncedAt = await getJSON<number | null>(LAST_SYNCED_KEY, null).catch(() => null);
     set({ lastSyncedAt });
