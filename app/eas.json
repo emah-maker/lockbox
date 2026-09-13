@@ -6,20 +6,24 @@
   "build": {
     "development": {
       "developmentClient": true,
-      "distribution": "internal"
+      "distribution": "internal",
+      "environment": "development"
     },
     "development-release": {
       "distribution": "internal",
+      "environment": "development",
       "ios": {
         "buildConfiguration": "Release"
       }
     },
     "preview": {
-      "distribution": "internal"
+      "distribution": "internal",
+      "environment": "preview"
     },
     "production": {
       "distribution": "store",
       "autoIncrement": true,
+      "environment": "production",
       "ios": {
         "image": "macos-tahoe-26.5-xcode-26.6"
       }
