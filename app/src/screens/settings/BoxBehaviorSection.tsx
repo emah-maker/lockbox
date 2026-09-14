@@ -39,16 +39,34 @@ export function BoxBehaviorSection({
   conn,
   boxSettings,
   pushBoxSettings,
+  demoMode,
 }: {
   color: ReturnType<typeof useTheme>;
   conn: Conn;
   boxSettings: Settings;
   pushBoxSettings: (patch: Partial<Settings>) => void;
+  /** Whether these values came from the simulated box (ble/DemoBoxClient.ts)
+   * rather than a real one. Wording only -- every control below behaves
+   * identically either way, and does round-trip to the demo box. */
+  demoMode: boolean;
 }) {
   return (
     <Section
       title="Box behavior"
-      subtitle={conn !== 'connected' ? 'Showing last-known values -- connect to change live' : undefined}
+      // Said outright rather than left to be inferred: in demo mode these
+      // are the SIMULATED box's values, and a reader who takes them for
+      // their own box's would draw the wrong conclusion about a physical
+      // lock -- "allow open from this phone" most of all. They are shown
+      // rather than hidden because they are what the box you are actually
+      // connected to is doing; they are not written over the real box's
+      // saved mirror (see useSettingsStore's setBoxSettings).
+      subtitle={
+        demoMode
+          ? "Simulated box -- your real box keeps its own settings"
+          : conn !== 'connected'
+            ? 'Showing last-known values -- connect to change live'
+            : undefined
+      }
       color={color}
     >
       <Row label="Auto-open when done" color={color}>

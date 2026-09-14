@@ -236,15 +236,24 @@ failure modes that look like a sync bug and aren't.
 
 **What to Test**:
 
-> This beta does not need the Phone Box hardware. Sign in with the account in the review
-> notes to see synced focus history, goals, stats and the calendar, then try: tagging and
-> re-tagging a past session from the Calendar tab, creating and editing a focus goal,
-> scheduling a session, switching theme and accent in Settings, and signing out and back in
-> to confirm everything syncs back. If you do have a box, the Home tab's connect flow and
-> the live session ring are the parts to exercise.
+> This beta does not need the Phone Box hardware. To exercise the box features without it,
+> tap **"No box? Try demo mode"** on the Home tab (it sits under the ring whenever no box is
+> connected), or go to **Settings → Demo mode** and turn on "Use a simulated box". Either
+> way the app then runs against a simulated box, with no Bluetooth and no sign-in needed.
 >
-> Known and expected without hardware: the Home tab shows a "Connect your box" state. That
-> is not a failure.
+> With demo mode on, run a full session from the Home tab: tap the ring to pick a duration,
+> tap Close, and the simulated box starts the countdown a few seconds later. Demo locks run
+> faster than real time, so a 5-minute session finishes in about a minute. When it does,
+> Home's today total and topic split move, and the session itself is listed — labelled DEMO
+> — in the Stats tab and in that day's cell on the Calendar tab. Tap Open to end one early.
+>
+> Also worth trying, with or without demo mode: sign in with the account in the review notes
+> to see synced focus history, goals, stats and the calendar, then tag and re-tag a past
+> session from the Calendar tab, create and edit a focus goal, schedule a session, switch
+> theme and accent in Settings, and sign out and back in to confirm everything syncs back.
+>
+> Known and expected with demo mode off (the default) and no box present: the Home tab shows
+> a "Connect your box" state. That is not a failure.
 
 **Privacy Policy URL**: `https://phonebox-d14b7.web.app/privacy.html`
 
@@ -268,9 +277,21 @@ answered.
 
 **Notes**:
 
-> Phone Box is the companion app for a physical Bluetooth focus lockbox. The reviewer will
-> not have that hardware, so the "Connect your box" state on the Home tab is expected and is
-> not a failure.
+> Phone Box is the companion app for a physical Bluetooth focus lockbox. To review the
+> lock-session features without that hardware, turn on demo mode: the Home tab offers
+> **"No box? Try demo mode"** directly under the ring whenever no box is connected, and the
+> same switch is at **Settings → Demo mode → "Use a simulated box"**.
+>
+> With it on, the complete lifecycle works from the Home tab with no Bluetooth and no
+> sign-in: tap the ring to pick a duration, tap Close, and the simulated box starts the
+> countdown itself a few seconds later (on real hardware that is the LOCK button on the box).
+> Demo locks run faster than real time, so a 5-minute session finishes in about a minute.
+> Home's today total and topic split move as soon as it does; the session itself is listed
+> in the Stats tab and in that day's cell on the Calendar tab, labelled DEMO in both. Open
+> ends one early. A banner across the top of every screen shows for as long as demo mode is
+> on, and no session demo mode records is ever uploaded to an account. With demo mode off,
+> which is the default, the Home tab shows a "Connect your box" state; without the hardware
+> that is expected and is not a failure.
 >
 > Everything else in the app is fully exercisable without the box: sign in with the account
 > above to see synced focus-session history, goals, stats and the calendar. The account is

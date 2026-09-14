@@ -63,6 +63,9 @@ export function FocusHero({
   onCycleRingSource,
   onPressIdle,
   onPressTag,
+  demoMode,
+  offerDemoMode,
+  onStartDemoMode,
 }: {
   status: Status | null;
   connected: boolean;
@@ -100,6 +103,22 @@ export function FocusHero({
   /** Opens the retag sheet. Only meaningful, and only wired up by
    * DashboardScreen, while a session is running. */
   onPressTag: () => void;
+  /** Whether the box on the other end is the simulated one
+   * (ble/DemoBoxClient.ts). This component stays presentational -- it is
+   * used for WORDING only, never to change which state is shown, because
+   * two of the captions below are instructions about a physical object the
+   * person holding the phone may not have. */
+  demoMode: boolean;
+  /** Whether the no-box state should invite the user into demo mode.
+   * Decided by DashboardScreen, which has the connection history this
+   * component deliberately doesn't -- see its own comment for the rule.
+   * Kept as a prop rather than derived from `connected` here because "not
+   * connected this instant" and "there is no box here" are different
+   * questions, and only the second one should produce the offer. */
+  offerDemoMode: boolean;
+  /** Turns demo mode on from the no-box state. See that branch's own
+   * comment for why this affordance exists at all. */
+  onStartDemoMode: () => void;
 }) {
   const theme = useTheme();
   const reducedMotion = useReducedMotion();
@@ -174,10 +193,22 @@ export function FocusHero({
     detail = status.set > 0 ? `of ${formatDuration(status.set)}` : null;
   } else if (!connected) {
     headline = 'Connect your box';
-    caption = 'Connect to preview and start a session';
+    // In demo mode this state is a sub-second gap while the simulated box
+    // attaches (it is always "in range"), so it should not read as an
+    // instruction to go find hardware.
+    caption = demoMode ? 'Reconnecting to the simulated box' : 'Connect to preview and start a session';
   } else if (closed) {
     headline = 'Closed';
-    caption = 'Press LOCK on the box to start';
+    // "Press LOCK on the box" is the truth with real hardware -- a countdown
+    // can only be started at the box, with the phone already inside it -- and
+    // it is exactly the wrong thing to say to someone who has no box. App
+    // Review reached the 2.1(a) rejection by being told the app needed
+    // hardware they did not have; putting that sentence on the critical path
+    // of the feature built to answer that rejection would re-create it from
+    // the inside. The demo box presses its own LOCK a beat later
+    // (DEMO_LOCK_PRESS_TICKS), so here it says so instead. The `closed` state
+    // itself still shows -- it is a real state and worth seeing.
+    caption = demoMode ? 'The simulated box is starting the session' : 'Press LOCK on the box to start';
   } else if (idleRing.source === 'empty') {
     headline = 'Tap to schedule a session';
     caption = done ? 'Session complete -- set up your next one' : 'No focus time yet today';
@@ -350,6 +381,33 @@ export function FocusHero({
           </View>
         ) : running ? (
           <Text style={[styles.topicHint, { color: theme.textDim }]}>Tap to tag this session</Text>
+        ) : !connected && offerDemoMode ? (
+          // The way OUT of the screen that caused the 2.1(a) rejection, on
+          // that screen. "Connect your box" with no box present is a dead
+          // end, and demo mode was reachable only by reading the App Store
+          // review notes and navigating to Settings -- which makes the whole
+          // remedy depend on a reviewer following instructions, after Apple
+          // has already reported being unable to access part of the app.
+          // Here the dead end offers its own exit; the notes then confirm the
+          // path rather than being the only copy of it.
+          //
+          // Rendered in the topic pill's own already-reserved row, so it
+          // costs no layout: this row is empty in exactly the state that
+          // needs it. Deliberately NOT solved by defaulting demo mode on,
+          // which would ship every tester an app full of invented sessions
+          // -- and `offerDemoMode` is what keeps it from being shown to
+          // someone who owns a box and is simply mid-reconnect.
+          <AnimatedPressable
+            onPress={onStartDemoMode}
+            accessibilityRole="button"
+            accessibilityLabel="No box? Try demo mode"
+            accessibilityHint="Runs the app against a simulated box so you can start a session without the hardware"
+            style={[styles.demoCta, { backgroundColor: theme.accent }]}
+          >
+            <Text style={[styles.demoCtaText, { color: theme.accentText }]} numberOfLines={1}>
+              No box? Try demo mode
+            </Text>
+          </AnimatedPressable>
         ) : null}
       </View>
     </Animated.View>
@@ -376,5 +434,9 @@ const styles = StyleSheet.create({
   topicRow: { marginTop: 14, minHeight: 28, justifyContent: 'center' },
   topicPill: { paddingVertical: 6, paddingHorizontal: 14, borderRadius: 16 },
   topicPillText: { ...typeScale.label },
+  // Same box as topicPill above, on purpose -- it stands in the same row and
+  // must not change the hero's height when it appears.
+  demoCta: { paddingVertical: 6, paddingHorizontal: 14, borderRadius: 16 },
+  demoCtaText: { ...typeScale.label, fontWeight: '700' },
   topicHint: { ...typeScale.label },
 });

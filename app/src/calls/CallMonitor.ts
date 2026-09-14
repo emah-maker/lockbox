@@ -36,11 +36,18 @@ import {
   CallEvent,
 } from '../../modules/call-observer';
 import { recordTick, recordCallEvent, CallDiagKind } from './callDiagnostics';
-import { PhoneBoxClient } from '../ble/PhoneBoxClient';
+import type { BoxClient } from '../ble/BoxClient';
 import type { BoxState } from '../ble/protocol';
 
 export interface CallMonitorOptions {
-  client: PhoneBoxClient;
+  /** The live box client, fetched on every use rather than captured at
+   * construction. useStore swaps the client out when demo mode is toggled
+   * (ble/DemoBoxClient.ts), and a monitor holding the instance it was built
+   * with would keep asking a torn-down client whether it was connected --
+   * `connected` would read false forever and call alert-through would
+   * silently stop working, with nothing on screen to say so. Typed as the
+   * BoxClient interface, not PhoneBoxClient, for the same reason. */
+  getClient: () => BoxClient;
   // live box state getter so we only alert while the box is locked
   getBoxState: () => BoxState;
   // user toggle: alert the box when calls come in during a lock
@@ -162,7 +169,7 @@ export class CallMonitor {
       this.logOnce(e.uuid, 'skipped', `box is ${this.opts.getBoxState()}, not locked`);
       return;
     }
-    if (!this.opts.client.connected) {
+    if (!this.opts.getClient().connected) {
       this.logOnce(e.uuid, 'skipped', 'box not connected');
       return;
     }
@@ -173,7 +180,7 @@ export class CallMonitor {
     // otherwise pass the has() check above and alert the same call twice.
     this.alerted.add(e.uuid);
     try {
-      await this.opts.client.alertCall(label);
+      await this.opts.getClient().alertCall(label);
       this.opts.onAlertSent?.(label);
       this.logOnce(e.uuid, 'alert-sent', label);
     } catch {

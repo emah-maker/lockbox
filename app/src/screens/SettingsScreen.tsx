@@ -37,6 +37,7 @@ import { AppearanceSection, appearanceSummary } from './settings/AppearanceSecti
 import { AlertsSection, alertsSummary } from './settings/AlertsSection';
 import { NotificationsSection, notificationsSummary } from './settings/NotificationsSection';
 import { RingBaselineSection, ringBaselineSummary } from './settings/RingBaselineSection';
+import { DemoModeSection, demoModeSummary } from './settings/DemoModeSection';
 import { AboutSection, aboutSummary } from './settings/AboutSection';
 import { typeScale, elevation, radius } from '../theme/tokens';
 import { withAlpha } from '../theme/color';
@@ -50,6 +51,7 @@ type SheetKey =
   | 'alerts'
   | 'notifications'
   | 'ringBaseline'
+  | 'demo'
   | 'about';
 
 export default function SettingsScreen() {
@@ -60,6 +62,7 @@ export default function SettingsScreen() {
   const conn = useStore((s) => s.conn);
   const callDetectionAvailable = useStore((s) => s.callDetectionAvailable);
   const lastAlert = useStore((s) => s.lastAlert);
+  const setDemoMode = useStore((s) => s.setDemoMode);
 
   const boxSettings = useSettingsStore((s) => s.boxSettings);
   const themeMode = useSettingsStore((s) => s.themeMode);
@@ -73,6 +76,9 @@ export default function SettingsScreen() {
   const quietHoursEnabled = useSettingsStore((s) => s.quietHoursEnabled);
   const ringBaselineWindow = useSettingsStore((s) => s.ringBaselineWindow);
   const setRingBaselineWindow = useSettingsStore((s) => s.setRingBaselineWindow);
+  // The persisted flag lives here; flipping it goes through useStore's
+  // setDemoMode above, which also swaps the BLE client -- see that action.
+  const demoMode = useSettingsStore((s) => s.demoModeEnabled);
   const authUser = useAuthStore((s) => s.user);
   const goalCount = useGoalsStore((s) => s.goals.filter((g) => !g.archived).length);
 
@@ -125,6 +131,7 @@ export default function SettingsScreen() {
   const alertsValue = alertsSummary(callAlertsEnabled);
   const notificationsValue = notificationsSummary(notificationsEnabled, quietHoursEnabled);
   const ringBaselineValue = ringBaselineSummary(ringBaselineWindow);
+  const demoModeValue = demoModeSummary(demoMode);
 
   return (
     <>
@@ -165,6 +172,18 @@ export default function SettingsScreen() {
           <Divider color={c} />
           <DisclosureRow label="Focus ring" value={ringBaselineValue} onPress={() => setSheet('ringBaseline')} color={c} />
           <Divider color={c} />
+          {/* Sits in the hub's ordinary list rather than tucked inside
+              another sheet: App Review has to find this from a one-line
+              note, and an icon marks it as the row that changes what the
+              whole app is talking to. See DemoModeSection's header. */}
+          <DisclosureRow
+            label="Demo mode"
+            value={demoModeValue}
+            onPress={() => setSheet('demo')}
+            color={c}
+            icon={<Ionicons name="flask-outline" size={20} color={demoMode ? c.warn : c.textDim} />}
+          />
+          <Divider color={c} />
           <DisclosureRow label="About" value={aboutSummary()} onPress={() => setSheet('about')} color={c} />
         </View>
       </ScrollView>
@@ -202,7 +221,13 @@ export default function SettingsScreen() {
       </Sheet>
 
       <Sheet visible={sheet === 'box'} onClose={closeSheet} size="large">
-        <BoxBehaviorSection color={c} conn={conn} boxSettings={boxSettings} pushBoxSettings={pushBoxSettings} />
+        <BoxBehaviorSection
+          color={c}
+          conn={conn}
+          boxSettings={boxSettings}
+          pushBoxSettings={pushBoxSettings}
+          demoMode={demoMode}
+        />
       </Sheet>
 
       <Sheet visible={sheet === 'appearance'} onClose={closeSheet} size="auto">
@@ -240,6 +265,10 @@ export default function SettingsScreen() {
         dragBodyToDismiss={false}
       >
         <NotificationsSection color={c} onWheelActiveChange={onWheelActiveChange} />
+      </Sheet>
+
+      <Sheet visible={sheet === 'demo'} onClose={closeSheet} size="auto">
+        <DemoModeSection color={c} demoMode={demoMode} setDemoMode={setDemoMode} />
       </Sheet>
 
       <Sheet visible={sheet === 'about'} onClose={closeSheet} size="auto">

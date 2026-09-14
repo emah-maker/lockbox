@@ -56,6 +56,15 @@ export const SYNCABLE_SETTINGS_DEFAULTS: SyncableSettings = {
   excludedTopicKeys: [],
 };
 
+/** The box-settings mirror on its own, outside the full hydration below.
+ * Demo mode mirrors the SIMULATED box's settings for display without ever
+ * writing them (see useSettingsStore's setBoxSettings `persist` option), so
+ * leaving demo mode needs a way to put the user's real, on-disk values back
+ * in front of them. */
+export async function loadBoxSettings(): Promise<Settings> {
+  return getJSON<Settings>('boxSettings', DEFAULT_BOX_SETTINGS);
+}
+
 /** `calendarStreakGoalIds`'s sanitize-on-the-way-out-of-storage step -- the
  * same belt-and-suspenders treatment customLabels/excludedTopicKeys get from
  * sanitizeCustomLabels/sanitizeExcludedTopicKeys, needed here for a sharper
@@ -111,9 +120,12 @@ const SETTINGS_HYDRATORS = {
     sanitizeExcludedTopicKeys(
       await getJSON<string[]>('excludedTopicKeys', SYNCABLE_SETTINGS_DEFAULTS.excludedTopicKeys),
     ),
-  boxSettings: () => getJSON<Settings>('boxSettings', DEFAULT_BOX_SETTINGS),
+  boxSettings: () => loadBoxSettings(),
   settingsUpdatedAt: () => getJSON<number>('settingsUpdatedAt', 0),
   autoSyncEnabled: () => getJSON<boolean>('autoSyncEnabled', true),
+  // Off by default: a normal install has a real box, and demo mode has to be
+  // something someone chose. See useSettingsStore's own field comment.
+  demoModeEnabled: () => getJSON<boolean>('demoModeEnabled', false),
   ringBaselineWindow: () => getJSON<RingBaselineWindow>('ringBaselineWindow', 'week'),
   ringSourceKind: () => getJSON<RingSourceKind>('ringSourceKind', 'auto'),
   ringGoalId: () => getJSON<string | null>('ringGoalId', null),

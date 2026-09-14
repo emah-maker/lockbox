@@ -110,6 +110,8 @@ export default function DashboardScreen() {
   const openBox = useStore((st) => st.openBox);
   const tagCurrentSession = useStore((st) => st.tagCurrentSession);
   const setPendingBoxTopic = useStore((st) => st.setPendingBoxTopic);
+  const setDemoMode = useStore((st) => st.setDemoMode);
+  const rememberedBox = useStore((st) => st.rememberedBox);
   const remoteUnlockOn = useSettingsStore((st) => !!st.boxSettings.unlk);
   const themeMode = useSettingsStore((st) => st.themeMode);
   const customLabels = useSettingsStore((st) => st.customLabels);
@@ -118,6 +120,10 @@ export default function DashboardScreen() {
   const ringSourceKind = useSettingsStore((st) => st.ringSourceKind);
   const ringGoalId = useSettingsStore((st) => st.ringGoalId);
   const ringShowTopicMix = useSettingsStore((st) => st.ringShowTopicMix);
+  // Read for wording only -- FocusHero's no-box and closed captions are both
+  // instructions about physical hardware, and neither is true of a simulated
+  // box. Nothing else on this screen branches on it.
+  const demoMode = useSettingsStore((st) => st.demoModeEnabled);
   // Tap-to-cycle on the hero's own source chip writes straight back to the
   // same per-device setting Settings > Focus ring edits -- one piece of
   // state, so the two surfaces can never disagree about which source is
@@ -239,6 +245,20 @@ export default function DashboardScreen() {
   });
 
   const connected = conn === 'connected';
+  // Whether to offer demo mode on the hero's no-box state. Deliberately not
+  // just `!connected`: that is true during every scan, every connect and
+  // every reconnect gap, so a user whose box is across the room would be
+  // told to try the fake one while the app is actively reaching for theirs
+  // -- the wrong offer at the wrong moment, and an invitation that is
+  // permanently on screen reads as chrome rather than as a way out.
+  //
+  // So a device that already remembers a box (useStore's rememberedBox)
+  // only gets the offer once an attempt has actually FAILED. A device that
+  // has never connected to anything gets it unconditionally, including
+  // through the ~10s scan that is never going to find a box -- that is App
+  // Review's case, and it is the one this whole mode exists for, so it must
+  // not be the case that has to wait.
+  const offerDemoMode = !demoMode && (!rememberedBox || conn === 'error');
   const canClose = connected && (status?.st === 'idle' || status?.st === 'done');
   const canOpen = connected && (status?.st === 'running' || status?.st === 'closed');
 
@@ -342,6 +362,13 @@ export default function DashboardScreen() {
     Haptics.selectionAsync().catch(() => {});
     setTagSheetOpen(true);
   };
+  // Offered from the hero's own no-box state -- see FocusHero's demo CTA for
+  // why that screen, of all screens, is where this belongs. Fire-and-forget
+  // with a catch, same convention as every other box action here.
+  const startDemoMode = () => {
+    Haptics.selectionAsync().catch(() => {});
+    void setDemoMode(true).catch(() => {});
+  };
 
   return (
     <View style={s.screen}>
@@ -385,6 +412,9 @@ export default function DashboardScreen() {
         onCycleRingSource={() => setRingSourceKind(nextRingSourceKind(ringSourceKind))}
         onPressIdle={openDurationSheet}
         onPressTag={openTagSheet}
+        demoMode={demoMode}
+        offerDemoMode={offerDemoMode}
+        onStartDemoMode={startDemoMode}
       />
 
       {/* No remote Lock-start here -- starting a countdown has to happen

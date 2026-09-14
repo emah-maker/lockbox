@@ -74,6 +74,12 @@ export interface HistoryIntakeDeps {
   onTopicConsumed: (topic: string) => void;
   /** Tell the box the batch was handled, by its ORIGINAL entry count. */
   ack: (count: number) => Promise<unknown>;
+  /** Whether the box that produced this batch was the demonstration-mode
+   * fake (ble/DemoBoxClient.ts). Stamped onto each session on the way into
+   * the durable log -- see LoggedSession.demo for why the provenance has to
+   * be recorded here, at the only point it is still knowable, rather than
+   * inferred later from whether the toggle happens to be on. */
+  demo?: boolean;
 }
 
 // The box queues every finished session in RAM (see Box-code/lib/lock_log.py
@@ -120,7 +126,9 @@ export function handleHistoryEntries(entries: HistoryEntry[], deps: HistoryIntak
         deps.onTopicConsumed(pending.topic);
       }
     }
-    return logged;
+    // Only set when true, so an ordinary session serialises exactly as it
+    // always has -- same treatment buildLoggedSessions gives approxStart.
+    return deps.demo ? logged.map((s) => ({ ...s, demo: true as const })) : logged;
   }).then((logged) => {
     // Ack by the original entry count once handled, whether or not any of
     // them were durably logged -- see Box-code/lib/lock_log.py's

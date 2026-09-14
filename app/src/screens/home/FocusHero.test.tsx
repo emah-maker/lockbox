@@ -17,6 +17,7 @@ import TestRenderer, { act } from 'react-test-renderer';
 import { Text } from 'react-native';
 import { FocusHero } from './FocusHero';
 import type { IdleRingState } from './idleRingState';
+import type { Status } from '../../ble/protocol';
 
 // Icons/haptics are opaque leaves as far as this test is concerned -- same
 // stand-in GoalForm.test.tsx/SettingsScreen.test.tsx use, needed here
@@ -40,13 +41,26 @@ afterEach(() => {
   mounted.length = 0;
 });
 
-function renderHero(idleRing: IdleRingState, todayFocusS: number) {
+/** `over` exists for the hardware-wording cases below, which are the only
+ * ones that care about anything other than the ring: every goal-window test
+ * above renders the same connected, idle, non-demo hero. */
+function renderHero(
+  idleRing: IdleRingState,
+  todayFocusS: number,
+  over: {
+    status?: Status | null;
+    connected?: boolean;
+    demoMode?: boolean;
+    offerDemoMode?: boolean;
+    onStartDemoMode?: () => void;
+  } = {},
+) {
   let tree: TestRenderer.ReactTestRenderer;
   act(() => {
     tree = TestRenderer.create(
       <FocusHero
-        status={null}
-        connected
+        status={over.status ?? null}
+        connected={over.connected ?? true}
         currentTopic={null}
         customLabels={[]}
         themeMode="dark"
@@ -57,6 +71,9 @@ function renderHero(idleRing: IdleRingState, todayFocusS: number) {
         onCycleRingSource={() => {}}
         onPressIdle={() => {}}
         onPressTag={() => {}}
+        demoMode={over.demoMode ?? false}
+        offerDemoMode={over.offerDemoMode ?? true}
+        onStartDemoMode={over.onStartDemoMode ?? (() => {})}
       />,
     );
   });
@@ -141,5 +158,68 @@ describe('goal-window detail caption', () => {
     // comparison = 1200/2 = 600s (10m) -> 10m past.
     const tree = renderHero({ progress: 2, source: 'rollingAverage' }, 1200);
     expect(findText(tree, '10m past 10m')).toHaveLength(1);
+  });
+});
+
+// The two states that say something about a physical object, and the App
+// Store Review Guideline 2.1(a) rejection behind them: a reviewer with no
+// box was "unable to successfully access all or part of the app". Demo mode
+// is the remedy, and neither of these states may undercut it -- one by
+// instructing someone to press a button they do not have, the other by
+// dead-ending with no route to the remedy at all.
+describe('states that talk about hardware', () => {
+  const emptyRing: IdleRingState = { progress: 0, source: 'empty' };
+  const closedStatus: Status = { st: 'closed', rem: 0, set: 300, bat: 87, tp: '', fw: 'demo' };
+
+  /** The outermost pressable carrying `label`, or null when nothing does.
+   * First-of-findAll rather than the list itself: AnimatedPressable renders
+   * the same props down a short stack of nodes, so a count assertion would
+   * be pinning an implementation detail of that component. */
+  const pressableFor = (tree: TestRenderer.ReactTestRenderer, label: string) =>
+    tree.root.findAll((n) => typeof n.props?.onPress === 'function' && n.props?.accessibilityLabel === label)[0] ??
+    null;
+
+  it('does not tell a demo user to press a button on a box they do not have', () => {
+    const tree = renderHero(emptyRing, 0, { status: closedStatus, demoMode: true });
+
+    expect(findText(tree, 'Press LOCK on the box to start')).toHaveLength(0);
+    expect(findText(tree, 'The simulated box is starting the session')).toHaveLength(1);
+    // The state itself still shows -- `closed` is real and worth seeing.
+    expect(findText(tree, 'Closed')).toHaveLength(1);
+  });
+
+  it('still says press LOCK when the box is a real one', () => {
+    const tree = renderHero(emptyRing, 0, { status: closedStatus, demoMode: false });
+
+    expect(findText(tree, 'Press LOCK on the box to start')).toHaveLength(1);
+  });
+
+  it('offers a way into demo mode from the no-box dead end', () => {
+    const onStartDemoMode = jest.fn();
+    const tree = renderHero(emptyRing, 0, { connected: false, onStartDemoMode });
+
+    expect(findText(tree, 'Connect your box')).toHaveLength(1);
+    const cta = pressableFor(tree, 'No box? Try demo mode');
+    expect(cta).not.toBeNull();
+
+    act(() => cta!.props.onPress());
+    expect(onStartDemoMode).toHaveBeenCalledTimes(1);
+  });
+
+  // `offerDemoMode` false is what DashboardScreen computes for a device that
+  // already remembers a box and is mid-scan or mid-reconnect -- and for demo
+  // mode already being on. Someone reaching for the box they own must not be
+  // told to try the fake one.
+  it('drops the offer when the caller says this is not a no-box situation', () => {
+    const tree = renderHero(emptyRing, 0, { connected: false, offerDemoMode: false });
+
+    expect(findText(tree, 'Connect your box')).toHaveLength(1);
+    expect(pressableFor(tree, 'No box? Try demo mode')).toBeNull();
+  });
+
+  it('keeps the offer out of the way of a connected box', () => {
+    const tree = renderHero(emptyRing, 0, { connected: true });
+
+    expect(pressableFor(tree, 'No box? Try demo mode')).toBeNull();
   });
 });

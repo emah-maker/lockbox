@@ -10,7 +10,7 @@
 import { CallMonitor } from './CallMonitor';
 import { addCallListener, getCurrentCalls, CallEvent } from '../../modules/call-observer';
 import { recordTick, recordCallEvent } from './callDiagnostics';
-import type { PhoneBoxClient } from '../ble/PhoneBoxClient';
+import type { BoxClient } from '../ble/BoxClient';
 import type { BoxState } from '../ble/protocol';
 
 jest.mock('../../modules/call-observer', () => ({
@@ -53,10 +53,10 @@ function setup(overrides: { boxState?: BoxState; enabled?: boolean; connected?: 
       return cfg.connected;
     },
     alertCall,
-  } as unknown as PhoneBoxClient;
+  } as unknown as BoxClient;
   const onAlertSent = jest.fn();
   const monitor = new CallMonitor({
-    client,
+    getClient: () => client,
     getBoxState: () => cfg.boxState,
     isEnabled: () => cfg.enabled,
     onAlertSent,

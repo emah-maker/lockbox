@@ -58,6 +58,29 @@ async function currentDeviceId(): Promise<string> {
   return (await getJSON<string | null>(LAST_DEVICE_KEY, null)) ?? 'unknown-device';
 }
 
+/**
+ * Sessions produced by demonstration mode (ble/DemoBoxClient.ts) never leave
+ * this device.
+ *
+ * This is the one seam that enforces it, rather than teaching each screen to
+ * filter: demo sessions are supposed to show up in Home's history, Stats,
+ * the calendar and goal progress -- that is what a reviewer is being shown --
+ * they are just not supposed to reach anyone's account. Uploading one is
+ * irreversible: firestore.rules' sessions block allows a delete only while
+ * `users/{uid}` is absent, a window only account deletion opens, so a fake
+ * session in an account's history is in its stats forever. It would land
+ * hardest on the App Review demo account itself, which is seeded to tell a
+ * specific story about goals met and in progress (scripts/lib/
+ * demo-seed-data.js) that a few demo locks could push past its targets.
+ *
+ * Keyed on the session's own durable flag, not on whether demo mode happens
+ * to be switched on right now -- the upload that matters is the one that
+ * runs on the next sign-in, long after the toggle went back off.
+ */
+function isDemoSession(s: Pick<LoggedSession, 'demo'>): boolean {
+  return !!s.demo;
+}
+
 /** Additive-union merge of session history, deduped by deterministic doc ID (§4.2). */
 export async function syncSessions(uid: string, guard: () => void): Promise<void> {
   const db = getDb();
@@ -126,11 +149,18 @@ export async function syncSessions(uid: string, guard: () => void): Promise<void
   markSessionsSeen(stored);
   useStore.getState().setSessions(stored);
 
+  // Filtered here rather than out of `localSessions` before the merge: the
+  // merged list is what gets written back over local storage a few lines
+  // up, so dropping demo sessions on the way IN would delete them off the
+  // device the moment someone signed in. They stay local and stay visible;
+  // they just never become upload candidates.
+  const uploadable = toUpload.filter(({ session }) => !isDemoSession(session));
+
   // Idempotent set() at each deterministic ID -- re-running after a crash or
   // retry never creates a duplicate. Chunked to Firestore's batch limit.
-  for (let i = 0; i < toUpload.length; i += BATCH_LIMIT) {
+  for (let i = 0; i < uploadable.length; i += BATCH_LIMIT) {
     const batch = writeBatch(db);
-    for (const { id, session } of toUpload.slice(i, i + BATCH_LIMIT)) {
+    for (const { id, session } of uploadable.slice(i, i + BATCH_LIMIT)) {
       batch.set(doc(db, 'users', uid, 'sessions', id), sessionPayload(session));
     }
     await batch.commit();
@@ -179,13 +209,14 @@ async function pushTopicRetags(uid: string, retags: SessionRetag[]): Promise<voi
  * (syncSessions, run on the next sign-in/syncNow) catches up.
  */
 export async function pushNewSessions(sessions: LoggedSession[]): Promise<void> {
-  if (!sessions.length) return;
+  const real = sessions.filter((s) => !isDemoSession(s));
+  if (!real.length) return;
   const target = pushTarget();
   if (!target) return;
   const db = getDb();
   const deviceId = await currentDeviceId();
   const batch = writeBatch(db);
-  for (const s of sessions) {
+  for (const s of real) {
     batch.set(doc(db, 'users', target.uid, 'sessions', sessionDocId(deviceId, s)), sessionPayload(s));
   }
   await batch.commit();
@@ -201,10 +232,15 @@ export async function pushNewSessions(sessions: LoggedSession[]): Promise<void> 
  * not this path).
  */
 export async function pushSessionRetag(
-  target: Pick<LoggedSession, 'startedAt' | 'plannedS' | 'actualS'>,
+  target: Pick<LoggedSession, 'startedAt' | 'plannedS' | 'actualS' | 'demo'>,
   topic: string | undefined,
   topicUpdatedAt: number,
 ): Promise<void> {
+  // A demo session has no remote doc to update -- it was never uploaded --
+  // so this would be an updateDoc against a nonexistent path that rejects
+  // with not-found and gets swallowed by the caller's catch. Retagging one
+  // from the Calendar tab is an ordinary thing for a reviewer to try.
+  if (isDemoSession(target)) return;
   const owner = pushTarget();
   if (!owner) return;
   const deviceId = await currentDeviceId();

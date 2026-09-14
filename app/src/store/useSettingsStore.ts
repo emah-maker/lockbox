@@ -22,6 +22,7 @@ import {
 import {
   DEFAULT_BOX_SETTINGS,
   SYNCABLE_SETTINGS_DEFAULTS,
+  loadBoxSettings,
   loadPersistedSettings,
   type SyncableSettings,
 } from './settingsPersistence';
@@ -59,6 +60,21 @@ interface SettingsState {
   // preference the user set for this device back to its default. The
   // manual "Sync now" button is never gated by this -- see useAuthStore.
   autoSyncEnabled: boolean;
+  // Local-only per-device preference: whether this installation talks to the
+  // fake box (ble/DemoBoxClient.ts) instead of the radio. Off by default,
+  // and deliberately NOT __DEV__-gated -- the whole point is that the store
+  // build App Review runs is the build that has it (see
+  // docs/handoff/demo-mode-handoff.md).
+  //
+  // Same category as autoSyncEnabled just above, and for a sharper version
+  // of the same reason: "this phone is currently pretending to have a box"
+  // is a fact about this device in this moment, not about the user's
+  // account. Syncing it would turn demo mode on for a second phone that
+  // does have a box sitting next to it. Explicitly NOT a SyncableSettings
+  // field and NOT touched by resetSyncableSettings/applyRemoteSettings, so
+  // signing in or out does not silently flip it either way -- which also
+  // matters because demo mode has to work while signed out at all.
+  demoModeEnabled: boolean;
   // Local-only per-device VIEW preference (Home ring, screens/home/
   // idleRingState.ts + settings/RingBaselineSection.tsx): which window's
   // best day the Home hero ring compares today's focus time against when no
@@ -147,8 +163,26 @@ interface SettingsState {
   setThemeMode: (mode: ThemeMode) => void;
   setAccent: (accent: AccentKey) => void;
   setCallAlertsEnabled: (on: boolean) => void;
-  setBoxSettings: (patch: Partial<Settings>) => void;
+  /** `options.persist === false` mirrors the values for DISPLAY without
+   * writing them to disk -- demo mode's simulated box (ble/DemoBoxClient.ts).
+   * Its settings have to be visible (otherwise Home warns that Open will not
+   * release a box the demo will happily open), but this mirror is the
+   * per-physical-box record of the user's REAL box, and `unlk` in particular
+   * ships off there deliberately. Overwriting it would leave someone who
+   * tried demo mode and never reconnected hardware reading "allow open from
+   * this phone" as ON for a box where it is OFF. */
+  setBoxSettings: (patch: Partial<Settings>, options?: { persist?: boolean }) => void;
+  /** Puts the real box's on-disk mirror back in front of the user -- called
+   * when demo mode is switched off, since what is in memory at that point is
+   * the simulated box's unpersisted copy. */
+  reloadBoxSettings: () => Promise<void>;
   setAutoSyncEnabled: (on: boolean) => void;
+  /** Persists the demo-mode flag. Swapping the actual BLE client over is
+   * useStore's setDemoMode -- call that, not this, from UI: this store has
+   * no way to tear a live connection down, and a flag that disagrees with
+   * which client is installed is exactly the state neither side can
+   * recover from. */
+  setDemoModeEnabled: (on: boolean) => void;
   setRingBaselineWindow: (w: RingBaselineWindow) => void;
   setRingSourceKind: (k: RingSourceKind) => void;
   setRingGoalId: (id: string | null) => void;
@@ -257,6 +291,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   boxSettings: DEFAULT_BOX_SETTINGS,
   settingsUpdatedAt: 0,
   autoSyncEnabled: true,
+  demoModeEnabled: false,
   ringBaselineWindow: 'week',
   ringSourceKind: 'auto',
   ringGoalId: null,
@@ -317,12 +352,17 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     setJSON('settingsUpdatedAt', settingsUpdatedAt);
   },
 
-  setBoxSettings: (patch) => {
+  setBoxSettings: (patch, options) => {
     // Deliberately not part of settingsUpdatedAt/sync -- boxSettings is the
     // per-physical-box BLE mirror, not account-level state (§3.1).
     const next = { ...get().boxSettings, ...patch };
     set({ boxSettings: next });
+    if (options?.persist === false) return; // see this action's own interface comment
     setJSON('boxSettings', next);
+  },
+
+  reloadBoxSettings: async () => {
+    set({ boxSettings: await loadBoxSettings() });
   },
 
   setAutoSyncEnabled: (on) => {
@@ -330,6 +370,13 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     // setBoxSettings above -- see this field's own interface comment.
     set({ autoSyncEnabled: on });
     setJSON('autoSyncEnabled', on);
+  },
+
+  setDemoModeEnabled: (on) => {
+    // Deliberately not part of settingsUpdatedAt/sync, same reasoning as
+    // setAutoSyncEnabled above -- see this field's own interface comment.
+    set({ demoModeEnabled: on });
+    setJSON('demoModeEnabled', on);
   },
 
   setRingBaselineWindow: (w) => {

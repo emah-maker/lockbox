@@ -10,8 +10,6 @@ import {
   parseStatus,
   parseHistoryEntries,
   parseSettings,
-  Status,
-  HistoryEntry,
   Settings,
   cmdStart,
   cmdSetDuration,
@@ -24,20 +22,21 @@ import {
   cmdSetLabels,
   cmdSetPendingTopic,
 } from './protocol';
+// ClientCallbacks was declared in this file until a second implementation of
+// the same surface existed; it lives in BoxClient.ts now, next to the
+// interface it is part of, and is imported back here rather than re-exported
+// -- nothing outside this file ever imported it from here.
+import type { BoxClient, ClientCallbacks } from './BoxClient';
 
 const b64 = (s: string) => Buffer.from(s, 'utf8').toString('base64');
 const fromB64 = (s: string | null) => (s ? Buffer.from(s, 'base64').toString('utf8') : '');
 
-export interface ClientCallbacks {
-  onStatus?: (s: Status) => void;
-  // Sessions the box finished while no phone was connected -- see
-  // Box-code/lib/lock_log.py. Fires at most once per connection since the
-  // box clears its queue as soon as it pushes this notify.
-  onHistory?: (entries: HistoryEntry[]) => void;
-  onDisconnect?: () => void;
-}
-
-export class PhoneBoxClient {
+// `implements BoxClient` is not decoration: this class is no longer the only
+// thing useStore can be holding (see ble/DemoBoxClient.ts), and without the
+// clause a method whose shape drifts away from the contract would only be
+// caught at the one assignment in useStore -- or, if that assignment were
+// ever widened, not at all.
+export class PhoneBoxClient implements BoxClient {
   // restoreStateIdentifier/restoreStateFunction opt this BleManager into iOS
   // CoreBluetooth state restoration (see
   // docs/rfcs/ios-background-wake-and-call-notification-architecture.md §3.2,

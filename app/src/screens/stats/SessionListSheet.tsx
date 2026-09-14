@@ -65,7 +65,9 @@ export function SessionListSheet({
             style={[styles.row, { borderColor: withAlpha(c.textDim, 0.18) }]}
             onPress={() => onOpenCalendarDay(dayKey(s.startedAt))}
             accessibilityRole="button"
-            accessibilityLabel={`Session on ${date.toLocaleDateString()}, ${formatDuration(s.actualS)}, view in Calendar`}
+            accessibilityLabel={`${s.demo ? 'Demo session' : 'Session'} on ${date.toLocaleDateString()}, ${formatDuration(
+              s.actualS,
+            )}, view in Calendar`}
           >
             <View style={[styles.swatch, { backgroundColor: resolved?.color ?? withAlpha(c.textDim, 0.4) }]} />
             <View style={styles.rowBody}>
@@ -80,6 +82,13 @@ export function SessionListSheet({
               <Text style={[styles.rowOutcome, { color: s.outcome === 'completed' ? c.success : c.warn }]}>
                 {s.outcome === 'completed' ? 'Completed' : 'Overridden'}
               </Text>
+              {/* Produced by the simulated box -- see the same marker in
+                  calendar/DaySheet.tsx for why it is keyed on the session's
+                  own durable flag rather than on whether demo mode is
+                  currently on. These rows are reached from a trend bar or a
+                  topic total, which is precisely where an invented session
+                  would otherwise be silently inflating a number. */}
+              {s.demo ? <Text style={[styles.rowDemo, { color: c.warn }]}>DEMO</Text> : null}
             </View>
           </AnimatedPressable>
           {onRetag ? (
@@ -113,4 +122,5 @@ const styles = StyleSheet.create({
   rowEnd: { alignItems: 'flex-end' },
   rowDuration: { fontSize: 14, fontWeight: '700' },
   rowOutcome: { ...typeScale.caption, marginTop: 2 },
+  rowDemo: { fontSize: 10, fontWeight: '800', letterSpacing: 0.6, lineHeight: 13, marginTop: 1 },
 });

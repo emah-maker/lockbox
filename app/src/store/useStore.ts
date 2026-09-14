@@ -15,6 +15,8 @@
 // (periodic background fetch) for a job that's really "stay connected".
 import { create } from 'zustand';
 import { PhoneBoxClient } from '../ble/PhoneBoxClient';
+import { DemoBoxClient } from '../ble/DemoBoxClient';
+import type { BoxClient } from '../ble/BoxClient';
 import { CallMonitor } from '../calls/CallMonitor';
 import type { Status, HistoryEntry, BoxState, Settings } from '../ble/protocol';
 import { getJSON, setJSON } from '../storage/storage';
@@ -67,6 +69,16 @@ interface AppState {
   // tagCurrentSession), while pendingBoxTopic is the *forward* suggestion
   // sent to the box before any session -- running or not -- exists yet.
   pendingBoxTopic: string | null;
+  /** Whether this device has a remembered box (LAST_DEVICE_KEY) -- i.e. has
+   * ever completed a connection to one. Not a connection state: it stays
+   * true across drops, disconnects and relaunches, and nothing clears it.
+   *
+   * Exposed because "not connected right now" and "there is no box here"
+   * are different questions, and Home's demo-mode invitation has to answer
+   * the second one. The key itself is this store's (it is written in
+   * afterConnected below), so the flag belongs here rather than being
+   * re-read from storage by a screen. */
+  rememberedBox: boolean;
   // Whether the native CXCallObserver module is actually linked into this build
   // (false in Expo Go, Android, or if the module failed to link) -- surfaced so
   // the "alert box on incoming calls" toggle doesn't silently do nothing.
@@ -83,6 +95,13 @@ interface AppState {
   closeBox: () => Promise<void>;
   openBox: () => Promise<void>;
   setAutoConnect: (on: boolean) => void;
+  /** Turns the no-hardware demonstration mode on or off: swaps which client
+   * this store talks to (ble/DemoBoxClient.ts) and reconnects through it.
+   * The flag itself is persisted in useSettingsStore as a device-local
+   * preference -- this action is only the connection half, which is why it
+   * lives here rather than there. See ble/DemoBoxClient.ts's header for why
+   * demo mode exists at all. */
+  setDemoMode: (on: boolean) => Promise<void>;
   pushBoxSettings: (patch: Partial<Settings>) => Promise<void>;
   /** Best-effort push of the app's custom-label catalog to the box (pairs
    * with the box's own pre-session tag picker) -- see protocol.ts's
@@ -111,11 +130,39 @@ interface AppState {
   setSessions: (sessions: LoggedSession[]) => void;
 }
 
-const client = new PhoneBoxClient();
+// The real radio. Still constructed once at module load: its BleManager owns
+// the iOS CoreBluetooth state-restoration identifier (see PhoneBoxClient),
+// which has to exist from the first moment of the process, demo mode or not.
+const realClient = new PhoneBoxClient();
+// Built the first time demo mode is actually switched on, so an install that
+// never touches it never carries a second box object holding state.
+let demoClient: DemoBoxClient | null = null;
+/**
+ * The client this store is talking to right now (see ble/BoxClient.ts).
+ *
+ * A `let`, and deliberately READ rather than captured at every call site
+ * below -- that is what makes the demo-mode swap total rather than partial.
+ * A scheduleReconnect timer armed before the swap and firing after it runs
+ * connect() against whichever client is installed at that moment, so it
+ * cannot drag the real radio back while demo mode is on; the swap clears
+ * that timer anyway (applyDemoMode), but the binding is what makes it safe
+ * even if one slipped through. CallMonitor reads it through an accessor for
+ * the identical reason -- see calls/CallMonitor.ts's getClient.
+ */
+let client: BoxClient = realClient;
+
+/** Whether the box on the other end is the fake one. Read at intake time so
+ * every session this store records carries where it came from -- see
+ * handleHistory below, and sync/sessionsSync.ts for what that flag buys. */
+const inDemoMode = () => client !== realClient;
 
 export const useStore = create<AppState>((set, get) => {
   const monitor = new CallMonitor({
-    client,
+    // An accessor, not the instance: demo mode swaps `client` out from under
+    // everything, and a monitor holding the object it was built with would
+    // go on asking a disconnected client whether it was connected -- call
+    // alerts would silently stop working after the first toggle.
+    getClient: () => client,
     getBoxState: (): BoxState => get().status?.st ?? 'idle',
     isEnabled: () => useSettingsStore.getState().callAlertsEnabled,
     onAlertSent: (label) => set({ lastAlert: label }),
@@ -138,6 +185,24 @@ export const useStore = create<AppState>((set, get) => {
       clearTimeout(reconnectTimer);
       reconnectTimer = null;
     }
+  };
+
+  /** Installs the client demo mode calls for. Does NOT disconnect anything
+   * -- the caller owns that ordering (setDemoMode below tears the outgoing
+   * client down first, init() runs before anything is connected at all),
+   * because a swap performed while a scan or a lock is in flight is the same
+   * hazard two overlapping connect() calls are: whichever client is
+   * installed second finishes a handshake the store has already moved on
+   * from. Clearing the reconnect timer here is belt-and-braces on top of
+   * that -- see `client`'s own comment at the top of this file. */
+  const applyDemoMode = (on: boolean) => {
+    clearReconnectTimer();
+    if (!on) {
+      client = realClient;
+      return;
+    }
+    if (!demoClient) demoClient = new DemoBoxClient();
+    client = demoClient;
   };
 
   const scheduleReconnect = () => {
@@ -172,6 +237,14 @@ export const useStore = create<AppState>((set, get) => {
       onTopicConsumed: (topic) =>
         set((state) => (state.currentTopic === topic ? { currentTopic: null } : {})),
       ack: (count) => client.ackHistory(count),
+      // Marked at the one point where it is still knowable which box
+      // produced this batch. It rides into the durable log as
+      // LoggedSession.demo and is what keeps a demo session off Firestore
+      // (sync/sessionsSync.ts) -- forever, not just while the toggle
+      // happens to be on, which matters because firestore.rules' sessions
+      // block allows no delete: anything that reaches an account's history
+      // is in its stats permanently.
+      demo: inDemoMode(),
     });
 
   // The user report this fixes: "goals do not update with the topic". A
@@ -288,10 +361,17 @@ export const useStore = create<AppState>((set, get) => {
     reconnectAttempts = 0; // a real connection succeeded -- the next drop starts backoff fresh
     set({ conn: 'connected' });
     monitor.start();
-    if (client.deviceId) setJSON(LAST_DEVICE_KEY, client.deviceId);
+    if (client.deviceId) {
+      setJSON(LAST_DEVICE_KEY, client.deviceId);
+      set({ rememberedBox: true });
+    }
     try {
       const s = await client.readSettings();
-      if (s) useSettingsStore.getState().setBoxSettings(s);
+      // Mirrored for display but never written to disk while the box on the
+      // other end is the simulated one -- that mirror is the user's record
+      // of their REAL box (see setBoxSettings' own comment). setDemoMode
+      // puts the on-disk copy back when demo mode is switched off.
+      if (s) useSettingsStore.getState().setBoxSettings(s, { persist: !inDemoMode() });
     } catch {
       // box didn't answer the settings read; the mirror keeps its last value
     }
@@ -319,15 +399,21 @@ export const useStore = create<AppState>((set, get) => {
     sessions: [],
     currentTopic: null,
     pendingBoxTopic: null,
+    rememberedBox: false,
     callDetectionAvailable: monitor.available,
 
     init: async () => {
-      const [autoConnect, sessions] = await Promise.all([
+      const [autoConnect, sessions, lastDeviceId] = await Promise.all([
         getJSON<boolean>(AUTO_CONNECT_KEY, true),
         loadSessions(),
+        getJSON<string | null>(LAST_DEVICE_KEY, null),
         useSettingsStore.getState().hydrate(),
       ]);
-      set({ autoConnect, sessions, initialized: true });
+      // After hydrate() above, so the persisted flag is actually in hand --
+      // and before the autoconnect below, so a relaunch in demo mode never
+      // reaches for the radio at all.
+      applyDemoMode(useSettingsStore.getState().demoModeEnabled);
+      set({ autoConnect, sessions, rememberedBox: !!lastDeviceId, initialized: true });
       if (autoConnect) get().connect();
     },
 
@@ -343,61 +429,112 @@ export const useStore = create<AppState>((set, get) => {
       if (get().conn === 'connecting' || get().conn === 'connected' || get().conn === 'scanning') return;
       clearReconnectTimer();
       userDisconnected = false;
+      // The client this attempt belongs to. Every call below goes through
+      // `owner` rather than the live `client` binding, and every await is
+      // followed by an `abandoned()` check, because demo mode can swap the
+      // store onto a different client while this attempt is still in flight.
+      const owner = client;
+      /** Whether this attempt has been called off: the user asked to
+       * disconnect, or the store has moved on to a different client and this
+       * attempt now speaks for a connection nobody is watching.
+       *
+       * The second case is the likeliest sequence there is. autoConnect
+       * fires a scan at launch; PhoneBoxClient.scanForBox arms a 10s timeout
+       * that nothing cancels; a second later the user taps Home's "No box?
+       * Try demo mode", which is exactly what that button sits there to
+       * invite. Ten seconds on, the abandoned scan rejects -- and without
+       * this the catch below would set `conn: 'error'` over a demo box that
+       * is connected and mid-countdown, which disables Open and Close
+       * (DashboardScreen derives both from `connected`) until a reconnect
+       * backoff healed it. `userDisconnected` cannot stand in for this:
+       * setDemoMode deliberately clears it, because the connection replacing
+       * this one is a real connection that must be allowed to proceed. */
+      const abandoned = () => userDisconnected || owner !== client;
       const cb = {
-        onStatus: handleStatus,
-        onHistory: handleHistory,
+        // Inert once this attempt has been superseded. The notify
+        // subscriptions go down with the connection, but a frame already in
+        // flight when the swap happened would otherwise write the old box's
+        // state over the new one's.
+        onStatus: (s: Status) => {
+          if (owner !== client) return;
+          handleStatus(s);
+        },
+        onHistory: (entries: HistoryEntry[]) => {
+          if (owner !== client) return;
+          handleHistory(entries);
+        },
         onDisconnect: () => {
+          // A disconnect event for a client the store has since swapped away
+          // from is stale. The real client's native onDisconnected fires
+          // some time AFTER cancelDeviceConnection resolves, so a demo-mode
+          // toggle performed on a live BLE connection can land this callback
+          // once the demo box is already connected -- where it would flip
+          // `conn` back to idle out from under a connection that is fine and
+          // arm a reconnect for it. Same "this session has been superseded"
+          // guard PhoneBoxClient's own onDisconnected keeps against a stale
+          // Device (see its closeSession comment), one layer up. In every
+          // non-swap case `owner` IS `client` and this changes nothing.
+          if (owner !== client) return;
           set({ conn: 'idle', status: null });
           scheduleReconnect();
         },
       };
       try {
         set({ conn: 'scanning', error: null });
-        await client.waitForPoweredOn();
-        // Each of the checks below guards against disconnect() having run
-        // while we were awaiting the previous step (user taps Disconnect
-        // mid-scan/mid-connect, or a manual disconnect races an
-        // auto-reconnect). Without them we'd carry on connecting/scanning
-        // and could land back on "Connected" right after the user asked to
-        // stop -- see PhoneBoxClient.disconnect()'s pendingDeviceId for the
-        // other half of this fix.
-        if (userDisconnected) return;
+        await owner.waitForPoweredOn();
+        // Each of the checks below guards against this attempt having been
+        // called off while we were awaiting the previous step -- see
+        // `abandoned` above for both ways that happens. Without them we'd
+        // carry on connecting/scanning and could land back on "Connected"
+        // right after the user asked to stop -- see
+        // PhoneBoxClient.disconnect()'s pendingDeviceId for the other half
+        // of this fix.
+        if (abandoned()) return;
 
         const lastDeviceId = await getJSON<string | null>(LAST_DEVICE_KEY, null);
-        if (userDisconnected) return;
+        if (abandoned()) return;
         if (lastDeviceId) {
           set({ conn: 'connecting' });
           try {
-            await client.connectById(lastDeviceId, cb, CONNECT_TIMEOUT_MS);
-            if (userDisconnected) {
-              await client.disconnect();
+            await owner.connectById(lastDeviceId, cb, CONNECT_TIMEOUT_MS);
+            if (abandoned()) {
+              await owner.disconnect();
               return;
             }
             await afterConnected();
             return;
           } catch {
-            if (userDisconnected) return;
+            if (abandoned()) return;
             // remembered box isn't reachable directly (out of range, OS forgot
             // the peripheral) -- fall through to a normal scan below
             set({ conn: 'scanning' });
           }
         }
-        if (userDisconnected) return;
-        const device = await client.scanForBox();
-        if (userDisconnected) return;
+        if (abandoned()) return;
+        const device = await owner.scanForBox();
+        // A scan that SUCCEEDS after the swap is the same hazard as one that
+        // fails, and needs its own check here rather than only after the
+        // connect below. Routing the call through `owner` already means a
+        // real peripheral can never be handed to the demo client -- but
+        // carrying on would still establish a second, real connection and
+        // run afterConnected() over a healthy demo one, re-reading settings
+        // and restarting the call monitor for a box nobody asked for.
+        if (abandoned()) return;
         set({ conn: 'connecting' });
-        await client.connect(device, cb, CONNECT_TIMEOUT_MS);
-        if (userDisconnected) {
-          await client.disconnect();
+        await owner.connect(device, cb, CONNECT_TIMEOUT_MS);
+        if (abandoned()) {
+          await owner.disconnect();
           return;
         }
         await afterConnected();
       } catch (e: any) {
         // disconnect() already put us back to 'idle' and stopped any
-        // reconnect -- don't let this attempt's (possibly
-        // cancellation-induced) rejection overwrite that with a spurious
-        // error state or re-arm a reconnect timer the user just cancelled.
-        if (userDisconnected) return;
+        // reconnect, and a swap has already installed a connection of its
+        // own -- don't let this attempt's rejection (possibly
+        // cancellation-induced, possibly just ten seconds late) overwrite
+        // either with a spurious error state, or arm a reconnect against a
+        // connection that is fine.
+        if (abandoned()) return;
         set({ conn: 'error', error: e?.message ?? 'Connection failed' });
         scheduleReconnect();
       }
@@ -456,6 +593,30 @@ export const useStore = create<AppState>((set, get) => {
       clearReconnectTimer();
     },
 
+    setDemoMode: async (on) => {
+      if (useSettingsStore.getState().demoModeEnabled === on) return;
+      // Force the OUTGOING client down first, through the store's own
+      // disconnect() so userDisconnected/monitor/reconnect bookkeeping all
+      // land -- a swap performed on top of a live scan or a running lock
+      // leaves the abandoned client's in-flight work to resolve into a store
+      // that has already moved on. Ordering matters: this runs before
+      // applyDemoMode, so it tears down the client that is actually live.
+      await get().disconnect();
+      useSettingsStore.getState().setDemoModeEnabled(on);
+      applyDemoMode(on);
+      // What is in the box-settings mirror right now is the simulated box's
+      // unpersisted copy; put the real box's saved values back before
+      // anything renders them. Ordered before connect() so a real box that
+      // answers its settings read still gets the last word.
+      if (!on) await useSettingsStore.getState().reloadBoxSettings();
+      // Switching demo mode ON always connects -- the demo box is always in
+      // range, and a reviewer who flips the toggle should find a box, not a
+      // Connect button. Switching it OFF hands the decision back to the
+      // user's own auto-connect preference (connect() resets the
+      // userDisconnected flag disconnect() just set either way).
+      if (on || get().autoConnect) await get().connect();
+    },
+
     // Optimistically mirrors the patch into useSettingsStore immediately, then
     // writes it to the box if connected. If the write fails the mirror stays
     // ahead of the box; the next connect()'s readSettings() reconciles it.
@@ -465,7 +626,11 @@ export const useStore = create<AppState>((set, get) => {
     // handlers) never awaited or caught this promise, so that was an
     // unhandled rejection (production readiness review, Medium).
     pushBoxSettings: async (patch) => {
-      useSettingsStore.getState().setBoxSettings(patch);
+      // Same non-persisting treatment as afterConnected's read, from the
+      // other direction: a toggle flipped while looking at the simulated box
+      // is a change to the simulated box, and must not be written over the
+      // real one's saved values either.
+      useSettingsStore.getState().setBoxSettings(patch, { persist: !inDemoMode() });
       if (!client.connected) return;
       const next = useSettingsStore.getState().boxSettings;
       await client.writeSettings(next).catch(() => {});

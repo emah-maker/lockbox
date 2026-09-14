@@ -155,7 +155,9 @@ export function DaySheet({
                     style={styles.sessionTopic}
                     onPress={() => setTaggingSession(s)}
                     accessibilityRole="button"
-                    accessibilityLabel={resolved ? `Tagged: ${resolved.label}. Tap to change.` : 'Untagged. Tap to tag this session.'}
+                    accessibilityLabel={`${s.demo ? 'Demo session. ' : ''}${
+                      resolved ? `Tagged: ${resolved.label}. Tap to change.` : 'Untagged. Tap to tag this session.'
+                    }`}
                     // A 12px caption inside a 6px-padded row -- ~15px tall,
                     // and it is the only way to retag a past session.
                     hitSlop={{ top: 14, bottom: 14, left: 6, right: 6 }}
@@ -169,11 +171,26 @@ export function DaySheet({
                       <Text style={[styles.sessionTopicLabel, { color: theme.accent }]}>Tag</Text>
                     )}
                   </AnimatedPressable>
-                  <Text
-                    style={[styles.sessionOutcome, { color: s.outcome === 'completed' ? theme.accent : theme.warn }]}
-                  >
-                    {s.outcome === 'completed' ? 'Completed' : 'Ended early'}
-                  </Text>
+                  <View style={styles.sessionEnd}>
+                    <Text
+                      style={[styles.sessionOutcome, { color: s.outcome === 'completed' ? theme.accent : theme.warn }]}
+                    >
+                      {s.outcome === 'completed' ? 'Completed' : 'Ended early'}
+                    </Text>
+                    {/* A session the simulated box produced (see
+                        ble/DemoBoxClient.ts). Marked HERE, not just while
+                        demo mode happens to be switched on: demo sessions
+                        stay in the local log after the toggle goes off, and
+                        an invented session sitting unlabelled among real
+                        ones -- counting toward this day's total, the heat
+                        map and goal progress -- is indistinguishable from
+                        focus time that actually happened. LoggedSession.demo
+                        already records which is which; not saying so would
+                        be the app knowing and declining to tell. */}
+                    {s.demo ? (
+                      <Text style={[styles.sessionDemo, { color: theme.warn }]}>DEMO</Text>
+                    ) : null}
+                  </View>
                 </View>
               );
             })
@@ -252,11 +269,20 @@ const styles = StyleSheet.create({
     letterSpacing: typeScale.caption.letterSpacing,
     lineHeight: typeScale.caption.lineHeight,
   },
+  // Same 90 the outcome text already claimed, now on a wrapper so the demo
+  // marker can stack under it without the row's other columns moving.
+  sessionEnd: { width: 90, alignItems: 'flex-end' },
   sessionOutcome: {
     fontSize: 12,
     width: 90,
     textAlign: 'right',
     letterSpacing: typeScale.caption.letterSpacing,
     lineHeight: typeScale.caption.lineHeight,
+  },
+  sessionDemo: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+    lineHeight: 13,
   },
 });

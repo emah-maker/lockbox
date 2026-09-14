@@ -43,6 +43,21 @@ export interface LoggedSession extends SessionRecord {
    * reject it if it tried). appendSessions is the only reader; see its own
    * comment for why a guessed timestamp cannot be deduped like a real one. */
   approxStart?: boolean;
+  /** True when this session was produced by the demonstration-mode fake box
+   * (ble/DemoBoxClient.ts) rather than a real one. Local-only bookkeeping,
+   * exactly like `approxStart` above and by the same mechanism -- nothing
+   * names it in sync/sessionsSync.ts's sessionPayload, and firestore.rules'
+   * `hasOnly` allow-list would refuse it if anything did.
+   *
+   * It exists because "local-only" has to outlive the toggle. Demo sessions
+   * stay in the durable log (that is the point -- the reviewer watches them
+   * land in Home, Stats and the calendar), so switching demo mode back off
+   * and later signing in would otherwise hand the full local log to
+   * syncSessions and upload them. firestore.rules' sessions block allows a
+   * delete only while `users/{uid}` is absent, so anything that reaches an
+   * account is in its stats permanently. Stamped once at intake
+   * (ble/historyIntake.ts); read in sync/sessionsSync.ts. */
+  demo?: boolean;
 }
 
 /** Loads the durable session log, pruning (and persisting the prune of) any
