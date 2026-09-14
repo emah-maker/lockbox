@@ -33,6 +33,15 @@ export function SignInMethodsSection({ color }: { color: ReturnType<typeof useTh
   const linkProvider = useAuthStore((s) => s.linkProvider);
   const unlinkProvider = useAuthStore((s) => s.unlinkProvider);
   const linkEmailPassword = useAuthStore((s) => s.linkEmailPassword);
+  // A link that failed during SIGN-IN, before this section existed on screen
+  // (useAuthStore's handleProviderSignIn). The user completed the
+  // cross-provider prompt, the link then didn't happen, and the component
+  // that would have shown it -- SignedOutAccount -- was being unmounted at
+  // that exact moment, so nothing said so. Rendered in this section's one
+  // error slot below because the remedy is the Link button on the very next
+  // row. `error` (this section's own actions) wins when both are set: it is
+  // the newer, and the one the user just caused.
+  const linkError = useAuthStore((s) => s.linkError);
 
   const [busyProvider, setBusyProvider] = React.useState<AuthProviderKind | null>(null);
   const [error, setError] = React.useState<string | null>(null);
@@ -132,7 +141,9 @@ export function SignInMethodsSection({ color }: { color: ReturnType<typeof useTh
         ))}
       </View>
 
-      {error ? <Text style={[styles.subtitle, { color: color.danger }]}>{error}</Text> : null}
+      {(error ?? linkError) ? (
+        <Text style={[styles.subtitle, { color: color.danger }]}>{error ?? linkError}</Text>
+      ) : null}
 
       {linked.map((provider) =>
         eligibleToUnlink ? (

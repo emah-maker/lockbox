@@ -22,9 +22,17 @@ export function useAppleAuthAvailable(): boolean {
 
   React.useEffect(() => {
     let cancelled = false;
-    AppleAuthentication.isAvailableAsync().then((isAvailable) => {
-      if (!cancelled) setAvailable(isAvailable);
-    });
+    // .catch, not a bare .then: isAvailableAsync() rejects outright (rather
+    // than resolving false) when the native module isn't linked into the
+    // build at all -- Expo Go, or a dev client built before
+    // expo-apple-authentication was added. Unhandled, that surfaces as a red
+    // RN warning box over the Account page about a promise nobody awaited,
+    // for a condition whose correct answer is simply "no Apple button here".
+    AppleAuthentication.isAvailableAsync()
+      .catch(() => false)
+      .then((isAvailable) => {
+        if (!cancelled) setAvailable(isAvailable);
+      });
     return () => {
       cancelled = true;
     };

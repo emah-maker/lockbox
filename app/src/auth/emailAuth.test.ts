@@ -277,3 +277,56 @@ describe('deleteUserAccount', () => {
     warn.mockRestore();
   });
 });
+
+// The address that reaches Firebase is trimmed, on every path that takes one.
+//
+// EmailPasswordFields.ts's isValidEmail() tests `email.trim()` but every
+// caller submitted the raw field value, so a leading/trailing space -- an iOS
+// autofill, a paste, or the space bar sitting next to return on the email
+// keyboard -- passed this app's own validation and came back from Firebase as
+// auth/invalid-email, which accountDisplay.ts renders as "Enter a valid email
+// address." about an address that looks perfectly valid on screen. Retyping
+// it produces the same space and the same dead end.
+//
+// Asserted per entry point rather than once on the helper (which isn't
+// exported): the bug was four call sites, and normalizing three of them is
+// the same bug on the fourth. Password arguments are deliberately passed
+// through untouched -- a space is a legal password character, and trimming
+// one would lock out an account that has it.
+describe('email normalization', () => {
+  const PADDED = '  user@example.com  ';
+  const CLEAN = 'user@example.com';
+
+  it('trims the address before signInWithEmailAndPassword', async () => {
+    mockSignIn.mockResolvedValue({ user: { uid: 'u1' } });
+
+    await signInWithEmail(PADDED, ' pw ');
+
+    expect(mockSignIn).toHaveBeenCalledWith(expect.anything(), CLEAN, ' pw ');
+  });
+
+  it('trims the address before createUserWithEmailAndPassword', async () => {
+    mockCreateUser.mockResolvedValue({ user: { uid: 'u2' } });
+
+    await createAccountWithEmail(PADDED, 'pw123456');
+
+    expect(mockCreateUser).toHaveBeenCalledWith(expect.anything(), CLEAN, 'pw123456');
+  });
+
+  it('trims the address before sendPasswordResetEmail', async () => {
+    mockSendPasswordResetEmail.mockResolvedValue(undefined);
+
+    await sendPasswordReset(PADDED);
+
+    expect(mockSendPasswordResetEmail).toHaveBeenCalledWith(expect.anything(), CLEAN);
+  });
+
+  it('trims the address before building the credential a link uses', async () => {
+    mockCredential.mockReturnValue({ providerId: 'password' });
+    mockLinkWithCredential.mockResolvedValue({ user: { uid: 'u3' } });
+
+    await linkEmailToCurrentUser({ uid: 'u3' } as any, PADDED, 'pw123456');
+
+    expect(mockCredential).toHaveBeenCalledWith(CLEAN, 'pw123456');
+  });
+});

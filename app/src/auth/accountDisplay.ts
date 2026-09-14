@@ -110,11 +110,19 @@ export function formatShortDate(isoString: string | null): string | null {
  * "cancel" -- same convention, and same null return, as signInErrorMessage.
  */
 export function providerActionErrorMessage(
-  e: { code?: string; message?: string } | null | undefined,
+  e: { code?: string; name?: string; message?: string } | null | undefined,
   fallback: string,
 ): string | null {
   const message = typeof e?.message === 'string' ? e.message : '';
   if (/cancel/i.test(message)) return null;
+  // Before the no-`.code` fallthrough at the bottom, which would otherwise
+  // render this error's `message` -- the one message in this codebase
+  // explicitly documented as never-show (firebase.ts's FirebaseConfigError:
+  // a paragraph of env-var names and 'expo start -c' instructions). It
+  // reaches here via linkProvider('google') -> googleAuth.ts's
+  // ensureConfigured, which throws it when the Google client IDs are still
+  // placeholders. Same name-based branch signInErrorMessage below already has.
+  if (e?.name === 'FirebaseConfigError') return SIGN_IN_NOT_CONFIGURED_MESSAGE;
 
   const code = e?.code;
   if (code === 'auth/credential-already-in-use' || code === 'auth/email-already-in-use') {
@@ -152,6 +160,12 @@ const SIGN_IN_ERROR_MESSAGES: Record<string, string> = {
   'auth/network-request-failed': 'No connection. Check your network and try again.',
   'auth/too-many-requests': 'Too many attempts. Try again later.',
   'auth/user-disabled': 'This account has been disabled.',
+  // The provider is switched off in Firebase console -> Authentication ->
+  // Sign-in method. Named rather than left to the generic "Please try again",
+  // which invites a user to retry something that cannot start working: this
+  // is a console setting on a project only its operator can reach, and
+  // website/js/authErrors.js already names it for the same reason.
+  'auth/operation-not-allowed': "That sign-in method isn't enabled for this app yet.",
   // Email/password-specific codes (emailAuth.ts). This Firebase project has
   // Email Enumeration Protection enabled (see accountLinking.ts's header for
   // the same constraint on fetchSignInMethodsForEmail), which is why
@@ -195,6 +209,10 @@ export function signInErrorMessage(
 ): string | null {
   if (!e) return null;
   if (e.name === 'AccountExistsError') return null;
+  // useAuthStore.requireFirebaseAuth already wrote this exact sentence into
+  // `initError`, which SignedOutAccount renders on its own line -- see that
+  // function's comment. Returning the message here too printed it twice.
+  if (e.name === 'AuthInitReportedError') return null;
   const message = typeof e.message === 'string' ? e.message : '';
   if (/cancel/i.test(message)) return null;
   if (e.name === 'FirebaseConfigError') return SIGN_IN_NOT_CONFIGURED_MESSAGE;
@@ -209,3 +227,49 @@ export function signInErrorMessage(
   // credential-free string that's safe to show as-is.
   return message || 'Could not sign in. Please try again.';
 }
+
+/** Firestore (not Auth) error codes -> authored copy, for syncErrorMessage
+ * below. Separate table from SIGN_IN_ERROR_MESSAGES because these are bare
+ * codes off a FirestoreError ('permission-denied'), not Auth's 'auth/'-prefixed
+ * ones, and they can't collide. Same three codes website/js/authErrors.js
+ * carries -- worded for a phone rather than the operator's dashboard, which
+ * can afford to print a `firebase deploy` command. */
+const SYNC_ERROR_MESSAGES: Record<string, string> = {
+  'permission-denied': "This account doesn't have access to its cloud data yet. Your stats are safe on this phone.",
+  unauthenticated: 'Your sign-in expired before syncing. Sign out and back in to retry.',
+  unavailable: "Couldn't reach the server. Your stats are safe on this phone and will sync later.",
+};
+
+/**
+ * Authored, credential-free text for a failed syncNow() -- the sync-time
+ * member of this file's error-mapping family (signInErrorMessage,
+ * providerActionErrorMessage).
+ *
+ * useAuthStore.syncNow used to store `e.message` directly, and both
+ * SyncStatusSection and SignedOutAccount render `syncError` verbatim, so the
+ * Firestore SDK's own words went straight onto the Account page: "Missing or
+ * insufficient permissions." for a rules change not yet deployed (this repo
+ * has shipped that state before), "Failed to get document because the client
+ * is offline." for no network. autoSyncEnabled defaults to true and the auth
+ * listener fires syncNow() on sign-in, so that lands seconds after signing
+ * in, where it reads as the sign-in itself having half-failed.
+ *
+ * Deliberately never returns null: unlike a cancelled sign-in there is no
+ * "the user did this on purpose" case here -- a sync either worked or it
+ * didn't, and the caller's slot is a status line, not a transient alert.
+ */
+export function syncErrorMessage(e: { code?: string; message?: string } | null | undefined): string {
+  const code = e?.code;
+  return (code && SYNC_ERROR_MESSAGES[code]) || SYNC_FAILED_MESSAGE;
+}
+
+/** The fallback, and -- unlike signInErrorMessage/providerActionErrorMessage,
+ * which pass an uncoded error's `message` through as "one of our own static
+ * strings" -- the answer for EVERY unrecognized error here, coded or not.
+ * That passthrough is safe for those two because this codebase really does
+ * throw authored Errors on the sign-in and link paths. It throws none on the
+ * sync path: firestoreSync.ts's one own error (LocalDataSuperseded) is caught
+ * and returns early, so anything uncoded arriving here is a JS runtime error,
+ * and "undefined is not an object (evaluating 'd.settings')" is not a thing
+ * to put in front of someone. */
+const SYNC_FAILED_MESSAGE = 'Could not sync. Your stats are safe on this phone.';

@@ -249,3 +249,101 @@ describe('sign-in retries a failed init', () => {
     expect(getFirebaseAuth).toHaveBeenCalled();
   });
 });
+
+// The watchdog in init() releases the sign-in GATE when auth never starts. It
+// cannot un-hang the sign-in itself -- and before these two cases it actually
+// made that failure worse, by turning visibly-dead buttons into live-looking
+// ones that accept a tap and then never come back.
+describe('a sign-in tap is time-bounded too', () => {
+  it('fails with a shown error instead of hanging forever when init never settles', async () => {
+    // initFirebaseAuth() memoizes its promise, so a call that neither
+    // resolves nor rejects is handed to every later caller as well. The
+    // sign-in path awaited it with no bound, and SignedOutAccount only clears
+    // `busy` in its `finally` -- so the spinner ran and every button on the
+    // page stayed disabled until the app was force-quit, with nothing shown
+    // and nothing logged.
+    mockInitFirebaseAuth.mockReturnValue(new Promise(() => {}));
+    const store = freshStore();
+
+    store.getState().init();
+    await Promise.resolve();
+    jest.advanceTimersByTime(10_000); // the init watchdog releases the gate
+    expect(store.getState().ready).toBe(true);
+
+    const signIn = store.getState().signInWithGoogle();
+    const rejects = expect(signIn).rejects.toThrow(/Couldn't start sign-in/);
+    await Promise.resolve();
+    jest.advanceTimersByTime(10_000); // and now the sign-in's own bound
+    await rejects;
+
+    // The provider's native picker must never have opened: there was no
+    // Firebase session for its credential to land in.
+    expect(mockSignInWithGoogle).not.toHaveBeenCalled();
+    expect(store.getState().initError).toMatch(/Couldn't start sign-in/);
+  });
+
+  it('leaves no stray timer behind when auth starts normally', async () => {
+    // The bound arms a timer on every sign-in attempt. Left uncleared on the
+    // success path it would keep the RN timer queue (and a Jest run) alive
+    // past the work it belongs to.
+    mockInitFirebaseAuth.mockResolvedValue(undefined);
+    mockOnAuthStateChanged.mockImplementation((_auth: any, cb: any) => {
+      cb(null);
+      return () => {};
+    });
+    mockSignInWithGoogle.mockResolvedValue({ uid: 'u1', providerData: [] });
+    const store = freshStore();
+
+    await store.getState().init();
+    jest.advanceTimersByTime(10_000); // drain init()'s own watchdog first
+    const before = jest.getTimerCount();
+
+    await store.getState().signInWithGoogle();
+
+    expect(jest.getTimerCount()).toBe(before);
+  });
+});
+
+describe('the auth-state listener is only claimed once it actually attached', () => {
+  it('still attaches on a retry after the first registration threw', async () => {
+    // `authListenerAttached` used to be set BEFORE onAuthStateChanged was
+    // called. If that registration threw, the flag stayed true with no
+    // listener anywhere: the first failure surfaced (init()'s catch), but
+    // every retry afterwards took the early `return` and reported SUCCESS.
+    // The sign-in then ran for real -- Firebase genuinely authenticated the
+    // user -- and nothing was left to tell this store about it. `user` stayed
+    // null, the Account page stayed signed-out, and no error was shown
+    // anywhere: tapping "Sign in with Google" simply did nothing, forever.
+    mockInitFirebaseAuth.mockResolvedValue(undefined);
+    mockOnAuthStateChanged.mockImplementationOnce(() => {
+      throw new Error('INTERNAL ASSERTION FAILED');
+    });
+    const store = freshStore();
+
+    await store.getState().init();
+    expect(store.getState().initError).toBeTruthy(); // the failure is reported, once
+
+    const user = {
+      uid: 'u1',
+      email: null,
+      displayName: null,
+      photoURL: null,
+      emailVerified: false,
+      metadata: {},
+      providerData: [{ providerId: 'google.com' }],
+    };
+    mockOnAuthStateChanged.mockImplementation((_auth: any, cb: any) => {
+      cb(user);
+      return () => {};
+    });
+    mockSignInWithGoogle.mockResolvedValue({ uid: 'u1', providerData: [] });
+
+    await store.getState().signInWithGoogle();
+
+    // The whole point: the retry re-registered, so the signed-in user
+    // actually reached the store.
+    expect(mockOnAuthStateChanged).toHaveBeenCalledTimes(2);
+    expect(store.getState().user?.uid).toBe('u1');
+    expect(store.getState().initError).toBeNull();
+  });
+});

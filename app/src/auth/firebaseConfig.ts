@@ -73,3 +73,45 @@ export const GOOGLE_WEB_CLIENT_ID =
 // plugin's URL scheme -- a separate, human, manual step).
 export const GOOGLE_IOS_CLIENT_ID =
   process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID ?? 'REPLACE_ME_GOOGLE_IOS_CLIENT_ID.apps.googleusercontent.com';
+
+/**
+ * findInvalidFirebaseConfigKeys' counterpart for the two Google Sign-In
+ * client IDs above -- deliberately a SEPARATE function rather than more keys
+ * in that one.
+ *
+ * initFirebaseAuth()'s config gate calls findInvalidFirebaseConfigKeys and
+ * fails ALL of auth when it returns anything, which is right for the six
+ * firebaseConfig fields (nothing signs in without them) and wrong for these
+ * two: Apple and email/password sign-in work perfectly on a build that never
+ * configured Google, so folding these in would take down two working
+ * providers over a third one's missing var. googleAuth.ts's ensureConfigured
+ * calls this instead, at the point of use, so only the Google button fails.
+ *
+ * That gap is not hypothetical: preview and production builds shipped with
+ * every EXPO_PUBLIC_* still at its REPLACE_ME_* default until 2026-09-13.
+ * Note the cause, because the obvious guess is wrong -- app/.env DOES reach
+ * the builder (the repo-root .easignore re-includes /app for exactly this
+ * reason, and `eas build:inspect --stage archive` shows the file in the
+ * upload). What decides the value is the EAS *environment* a build profile
+ * maps to, and `production`/`preview` had no variables in them at all while
+ * `development` did. app/eas.json now names an environment on every profile
+ * so that mapping cannot regress silently. The six Firebase ones were
+ * caught by the gate and reported as "Sign-in isn't configured on this
+ * build."; these two were not checked anywhere, so once the Firebase vars
+ * were fixed a placeholder audience here reached GoogleSignin.configure()
+ * intact and surfaced only as the native module's opaque DEVELOPER_ERROR.
+ *
+ * Takes `ids` as a parameter for the same reason findInvalidFirebaseConfigKeys
+ * does -- see its docblock on babel-preset-expo's transform-time inlining.
+ */
+export function findInvalidGoogleSignInKeys(
+  ids: { webClientId: string; iosClientId: string } = {
+    webClientId: GOOGLE_WEB_CLIENT_ID,
+    iosClientId: GOOGLE_IOS_CLIENT_ID,
+  },
+): string[] {
+  const missing: string[] = [];
+  if (isPlaceholderValue(ids.webClientId)) missing.push('EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID');
+  if (isPlaceholderValue(ids.iosClientId)) missing.push('EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID');
+  return missing;
+}

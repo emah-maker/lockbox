@@ -72,8 +72,36 @@ export class SecureStorePersistence implements AuthPersistenceImpl {
 
   // JSON.stringify on the way in, JSON.parse on the way out: `value` is the
   // user record object, and SecureStore stores strings only.
+  //
+  // Must never reject, for a different reason than _get's below. Firebase
+  // awaits this inside directlySetCurrentUser(), which is on the path of
+  // every signInWithCredential/signInWithEmailAndPassword call (verified
+  // against the installed firebase@10.14.1's PersistenceUserManager.
+  // setCurrentUser -> persistence._set). A rejection there therefore comes
+  // back out of the sign-in call itself -- so a user who authenticated
+  // perfectly, and whom Firebase has already accepted, is told the sign-in
+  // FAILED. Worse, the thrown error is a SecureStore one with no `.code`, so
+  // accountDisplay.ts's signInErrorMessage falls through to its "this is our
+  // own static string, safe to show" branch and renders the raw Keychain
+  // message verbatim (design doc §5 checklist item 3).
+  //
+  // Reachable without anything being corrupt: SECURE_STORE_OPTS pins
+  // keychainAccessible to WHEN_UNLOCKED_THIS_DEVICE_ONLY, so any write while
+  // the device is locked fails -- and this app runs locked, in the
+  // background, off its BLE connection, where Firebase's proactive token
+  // refresh writes through here on its own schedule.
+  //
+  // Degrading costs the persisted session (the user signs in again next cold
+  // start) against costing them the sign-in they just completed. Logged, so
+  // "signed in, signed out again after a restart" is diagnosable rather than
+  // silent -- key names only, never `value`, which is the session itself.
   async _set(key: string, value: unknown): Promise<void> {
-    await SecureStore.setItemAsync(secureStoreKey(key), JSON.stringify(value), SECURE_STORE_OPTS);
+    const storeKey = secureStoreKey(key);
+    try {
+      await SecureStore.setItemAsync(storeKey, JSON.stringify(value), SECURE_STORE_OPTS);
+    } catch (e: any) {
+      console.warn('[secureStorePersistence] write failed for', storeKey, e?.message);
+    }
   }
 
   // Must never reject. Firebase calls _get from initializeCurrentUser(), and a
@@ -111,8 +139,19 @@ export class SecureStorePersistence implements AuthPersistenceImpl {
     }
   }
 
+  // Same no-reject rule as _set above, same call path: Firebase awaits this
+  // through removeCurrentUser() whenever the current user becomes null. This
+  // one does NOT weaken the sign-out wipe -- every sign-out path also calls
+  // secureStoreKeys.ts's wipeFirebaseAuthSecureStore() explicitly on the same
+  // keys, which is the wipe §2.4 actually relies on; this is the SDK's own
+  // bookkeeping copy of it.
   async _remove(key: string): Promise<void> {
-    await SecureStore.deleteItemAsync(secureStoreKey(key), SECURE_STORE_OPTS);
+    const storeKey = secureStoreKey(key);
+    try {
+      await SecureStore.deleteItemAsync(storeKey, SECURE_STORE_OPTS);
+    } catch (e: any) {
+      console.warn('[secureStorePersistence] delete failed for', storeKey, e?.message);
+    }
   }
 
   _addListener(): void {} // single-tab RN app: no cross-tab sync needed

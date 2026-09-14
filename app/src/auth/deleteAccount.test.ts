@@ -418,17 +418,25 @@ describe('deleteAccount on a password-only account', () => {
 // own pending state directly, rather than needing a real conflict first).
 describe('sign-in completes a pending cross-provider link for ANY candidate provider', () => {
   const fakeCredential = { providerId: 'google.com', signInMethod: 'oauth' } as any;
+  // The address the conflict was raised about. The signed-in user fixtures
+  // below must carry it too: being a candidate PROVIDER is necessary but no
+  // longer sufficient -- handleProviderSignIn also checks that the account
+  // that just signed in is the one the prompt named, or a stashed credential
+  // could be linked onto a bystander's account on a shared phone. See
+  // ownsPendingLink in useAuthStore.ts. These two cases are about provider
+  // membership, so they hold the account constant and vary only the provider.
+  const CONFLICT_EMAIL = 'a@b.com';
 
   function pendingLinkFor(
     attemptedProvider: 'google' | 'apple' | 'password',
     candidateProviders: Array<'google' | 'apple' | 'password'>,
   ) {
-    return { attemptedProvider, candidateProviders, email: 'a@b.com', credential: fakeCredential };
+    return { attemptedProvider, candidateProviders, email: CONFLICT_EMAIL, credential: fakeCredential };
   }
 
   it('completes the link when Apple signs in and Apple is a candidate (the original conflict was a Google attempt)', async () => {
     mockGetPendingLink.mockReturnValue(pendingLinkFor('google', ['apple', 'password']));
-    const signedInUser = { uid: 'apple-user' };
+    const signedInUser = { uid: 'apple-user', email: CONFLICT_EMAIL };
     mockSignInWithApple.mockResolvedValue(signedInUser);
     const { useAuthStore } = storeSignedIn();
 
@@ -444,7 +452,7 @@ describe('sign-in completes a pending cross-provider link for ANY candidate prov
 
   it('completes the link when signing in with email/password and password is a candidate (the original conflict was a Google attempt)', async () => {
     mockGetPendingLink.mockReturnValue(pendingLinkFor('google', ['apple', 'password']));
-    const signedInUser = { uid: 'password-user' };
+    const signedInUser = { uid: 'password-user', email: CONFLICT_EMAIL };
     mockSignInWithEmail.mockResolvedValue(signedInUser);
     const { useAuthStore } = storeSignedIn();
 
@@ -456,6 +464,34 @@ describe('sign-in completes a pending cross-provider link for ANY candidate prov
     // membership in the whole list instead.
     expect(mockCompletePendingLink).toHaveBeenCalledWith(signedInUser);
     expect(mockClearPendingLink).not.toHaveBeenCalled(); // see the Apple case's note above
+  });
+
+  it('reports a failed link without failing the sign-in it followed', async () => {
+    // doSignIn() has already succeeded by this point, so a linkWithCredential
+    // failure is not a sign-in failure. Rethrowing it made signInWithApple
+    // reject for a sign-in that WORKED: SignedOutAccount logged it as
+    // 'sign-in failed:' and wrote the message into its own state at the exact
+    // moment AccountSection swapped that component out for the signed-in view
+    // (`user` is set by then), so it rendered to nobody. The link silently
+    // did not happen and nothing anywhere said so. It now lands in
+    // `linkError`, which the signed-in Sign-in methods section renders --
+    // next to the Link button that is the remedy.
+    mockGetPendingLink.mockReturnValue(pendingLinkFor('google', ['apple', 'password']));
+    mockSignInWithApple.mockResolvedValue({ uid: 'apple-user', email: CONFLICT_EMAIL });
+    const linkFailure: any = new Error('Firebase: Error (auth/credential-already-in-use).');
+    linkFailure.code = 'auth/credential-already-in-use';
+    mockCompletePendingLink.mockRejectedValue(linkFailure);
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const { useAuthStore } = storeSignedIn();
+
+    await expect(useAuthStore.getState().signInWithApple()).resolves.toBeUndefined();
+
+    const shown = useAuthStore.getState().linkError;
+    expect(shown).toBeTruthy();
+    // Authored copy, never the SDK's own words (design doc §5 checklist item 3).
+    expect(shown).not.toMatch(/Firebase: Error/);
+    expect(useAuthStore.getState().pendingLink).toBeNull(); // the prompt is done either way
+    warn.mockRestore();
   });
 
   it('does NOT complete the link when the provider signing in is the one that originally conflicted (not a candidate), and dismisses the stale credential instead', async () => {

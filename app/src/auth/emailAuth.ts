@@ -30,6 +30,30 @@ import {
 } from './authSession';
 
 /**
+ * Strips surrounding whitespace before the address reaches Firebase.
+ *
+ * EmailPasswordFields.ts's isValidEmail() already tests `email.trim()`, but
+ * every caller then submitted the UNTRIMMED field value -- so " me@x.com "
+ * (an iOS autofill/paste, or the space bar sitting next to return on the
+ * email keyboard) passed this app's own validation and was rejected by
+ * Firebase with auth/invalid-email, which accountDisplay.ts maps back to
+ * "Enter a valid email address." A dead end by construction: the field on
+ * screen looks exactly like the address the error says is invalid, and
+ * retyping it the same way fails the same way.
+ *
+ * Normalizing here rather than at the four call sites because this is the
+ * module that actually hands the address to Firebase -- the one place no
+ * current or future caller can route around. Trim only, deliberately not
+ * lowercase: Firebase already matches addresses case-insensitively, and
+ * website/js/emailAuthForm.js -- the same flow on the other client -- has
+ * always done exactly `.trim()`, so this keeps the two in step rather than
+ * inventing a third behavior.
+ */
+function normalizeEmail(email: string): string {
+  return email.trim();
+}
+
+/**
  * Signs in with an existing email/password account.
  *
  * Deliberately NOT routed through accountLinking.ts's
@@ -53,7 +77,7 @@ import {
  * how that sign-in got there.
  */
 export async function signInWithEmail(email: string, password: string): Promise<User> {
-  const result = await signInWithEmailAndPassword(getFirebaseAuth(), email, password);
+  const result = await signInWithEmailAndPassword(getFirebaseAuth(), normalizeEmail(email), password);
   // `password` falls out of scope here -- used once, never persisted.
   return result.user;
 }
@@ -69,7 +93,7 @@ export async function signInWithEmail(email: string, password: string): Promise<
  * website/js/emailAuthForm.js's identical best-effort send and comment).
  */
 export async function createAccountWithEmail(email: string, password: string): Promise<User> {
-  const result = await createUserWithEmailAndPassword(getFirebaseAuth(), email, password);
+  const result = await createUserWithEmailAndPassword(getFirebaseAuth(), normalizeEmail(email), password);
   await sendEmailVerification(result.user).catch((e: any) =>
     console.warn('[emailAuth] createAccountWithEmail: sendEmailVerification failed', e?.message),
   );
@@ -86,7 +110,7 @@ export async function createAccountWithEmail(email: string, password: string): P
  * emailAuthForm.js's identical handling and comment).
  */
 export async function sendPasswordReset(email: string): Promise<void> {
-  await sendPasswordResetEmail(getFirebaseAuth(), email);
+  await sendPasswordResetEmail(getFirebaseAuth(), normalizeEmail(email));
 }
 
 /**
@@ -106,7 +130,7 @@ export async function sendPasswordReset(email: string): Promise<void> {
  */
 export async function linkEmailToCurrentUser(user: User, email: string, password: string): Promise<User> {
   // `password` falls out of scope here -- used once, never persisted.
-  return linkCredentialToUser(user, EmailAuthProvider.credential(email, password));
+  return linkCredentialToUser(user, EmailAuthProvider.credential(normalizeEmail(email), password));
 }
 
 /**

@@ -210,3 +210,62 @@ describe('FIREBASE_AUTH_SECURE_STORE_KEYS', () => {
     expect(written).toBe(secureStoreKey(FIREBASE_USER_KEY));
   });
 });
+
+// Fault 4's counterpart on the write side. _get was hardened; _set and
+// _remove were not, and they fail on the same device conditions.
+//
+// SECURE_STORE_OPTS pins keychainAccessible to
+// WHEN_UNLOCKED_THIS_DEVICE_ONLY, so a write while the device is locked
+// fails -- and this app runs locked and in the background off its BLE
+// connection, which is exactly when Firebase's proactive token refresh
+// writes through here.
+describe('SecureStorePersistence write failures do not break the caller', () => {
+  it('does not reject _set when the Keychain write fails', async () => {
+    // Firebase awaits _set inside directlySetCurrentUser(), which is on the
+    // path of every signInWithCredential/signInWithEmailAndPassword call
+    // (PersistenceUserManager.setCurrentUser -> persistence._set, verified
+    // against the installed firebase@10.14.1). A rejection here therefore
+    // came back out of the SIGN-IN: a user Firebase had already accepted was
+    // told it failed. And because a SecureStore error carries no `.code`,
+    // accountDisplay.ts's signInErrorMessage fell through to its "our own
+    // static string, safe to show" branch and rendered the raw Keychain
+    // message on screen (design doc §5 checklist item 3).
+    //
+    // Losing the persisted session costs one sign-in at the next cold start.
+    // Rejecting costs the sign-in the user just completed.
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    (SecureStore.setItemAsync as jest.Mock).mockRejectedValueOnce(new Error('keychain locked'));
+
+    await expect(persistence._set(FIREBASE_USER_KEY, { uid: 'u' })).resolves.toBeUndefined();
+
+    // Degraded, not silent -- "signed in, then signed out again after a
+    // restart" has to be diagnosable.
+    expect(warn).toHaveBeenCalled();
+    // Key name only. `value` is the session itself and must never be logged.
+    expect(warn.mock.calls[0].join(' ')).not.toContain('uid');
+    warn.mockRestore();
+  });
+
+  it('does not reject _remove when the Keychain delete fails', async () => {
+    // Reached through removeCurrentUser() whenever the current user becomes
+    // null. This one does not weaken the §2.4 wipe: every sign-out path also
+    // calls wipeFirebaseAuthSecureStore() explicitly on the same keys.
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    (SecureStore.deleteItemAsync as jest.Mock).mockRejectedValueOnce(new Error('keychain locked'));
+
+    await expect(persistence._remove(FIREBASE_USER_KEY)).resolves.toBeUndefined();
+
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it('still writes and still deletes when the Keychain is healthy', async () => {
+    // The guards must not turn a working adapter into a no-op: a session
+    // that can be stored is still stored, and still removable.
+    await persistence._set(FIREBASE_USER_KEY, { uid: 'u' });
+    expect(backing.has(secureStoreKey(FIREBASE_USER_KEY))).toBe(true);
+
+    await persistence._remove(FIREBASE_USER_KEY);
+    expect(backing.has(secureStoreKey(FIREBASE_USER_KEY))).toBe(false);
+  });
+});

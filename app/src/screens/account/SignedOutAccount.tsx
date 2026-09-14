@@ -150,6 +150,17 @@ export function SignedOutAccount({ color, ready }: { color: ReturnType<typeof us
         Back up your stats and settings, and sync them to another phone. Optional -- the box works
         fully without this.
       </Text>
+      {/* Every control below is gated on `ready`, which only flips once
+          Firebase Auth reports its initial state -- up to useAuthStore's 10s
+          watchdog, and on a cold start with a stored session it is not
+          instant. Without this line that window is three dead grey buttons
+          and no explanation, which is indistinguishable from the thing being
+          broken; it is the shape of the report this whole flow keeps
+          generating. Suppressed once initError is set, which says the same
+          thing with more information. */}
+      {!ready && !initError ? (
+        <Text style={[styles.subtitle, { color: color.textDim }]}>Starting sign-in...</Text>
+      ) : null}
       {initError ? <Text style={[styles.subtitle, { color: color.danger }]}>{initError}</Text> : null}
       {syncError ? <Text style={[styles.subtitle, { color: color.danger }]}>{syncError}</Text> : null}
       {signInError ? <Text style={[styles.subtitle, { color: color.danger }]}>{signInError}</Text> : null}

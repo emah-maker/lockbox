@@ -52,7 +52,13 @@ import {
   type AuthProviderKind,
   type PendingAccountLink,
 } from './accountLinking';
-import { toProviderKinds, canUnlink, SIGN_IN_NOT_CONFIGURED_MESSAGE } from './accountDisplay';
+import {
+  toProviderKinds,
+  canUnlink,
+  syncErrorMessage,
+  providerActionErrorMessage,
+  SIGN_IN_NOT_CONFIGURED_MESSAGE,
+} from './accountDisplay';
 import { runMigrationAndSync, deleteAllUserData, beginAccountDeletion, endAccountDeletion } from '../sync/firestoreSync';
 import { clearLocalAccountData } from '../sync/localDataOwner';
 import { unregisterPushToken } from '../push/pushRegistration';
@@ -129,6 +135,14 @@ interface AuthState {
   // still the signed-in user.
   syncingUid: string | null;
   syncError: string | null;
+  /** Set when a sign-in succeeded but the cross-provider link it was meant to
+   * complete then failed (handleProviderSignIn below). Its own field rather
+   * than syncError or a thrown error: the user IS signed in, so this is not a
+   * sign-in failure, and the place to say so is the signed-in Account page's
+   * Sign-in methods section -- which is also where the remedy (the "Link
+   * Google"/"Link Apple" button) lives. Cleared on sign-out and by the next
+   * link/unlink action. */
+  linkError: string | null;
   lastSyncedAt: number | null;
   /** Set when a sign-in attempt hit auth/account-exists-with-different-credential:
    * surfaces "sign in with one of your other providers to link" to
@@ -274,7 +288,7 @@ async function clearSignedInState(set: (partial: Partial<AuthState>) => void): P
   // its own update or it keeps showing the previous account's sessions until
   // the next BLE history event or an app restart.
   useStore.getState().setSessions([]);
-  set({ user: null, lastSyncedAt: null, syncError: null });
+  set({ user: null, lastSyncedAt: null, syncError: null, linkError: null });
   // A credential stashed by an earlier conflict is now both moot and unsafe
   // to keep -- without this it survived sign-out entirely, ready for the NEXT
   // person to sign in on this device to have it silently linked onto their
@@ -304,6 +318,36 @@ function dismissPendingLink(set: (partial: Partial<AuthState>) => void): void {
   set({ pendingLink: null });
 }
 
+/** Whether the account that just signed in is the one the pending conflict
+ * was actually about.
+ *
+ * candidateProviders answers "is this one of the METHODS we asked for", which
+ * was the only thing checked -- and a method is not an identity. On a shared
+ * phone: A taps Google, hits the conflict, and leaves the prompt up naming
+ * a@example.com. B then signs in with their own email/password. 'password' is
+ * a candidate, so A's stashed Google credential was linked onto B's account,
+ * and A could afterwards sign in with one tap AS B. accountLinking.ts's header
+ * states that a credential is only ever linked "once the user has proven
+ * ownership"; proving you hold *some* account by *some* listed method is not
+ * that proof. This is the check that makes the sentence true.
+ *
+ * Fails closed on a missing email on either side. The two are always both
+ * present in the legitimate case -- Firebase only raises
+ * account-exists-with-different-credential when it matched an existing
+ * account BY email, so the account the user then signs into carries that same
+ * address -- which leaves no honest reason to link when either is unknown.
+ * Nothing is lost by refusing: the user is signed in, and the Account page's
+ * "Link Google" action performs the same link deliberately, on an account
+ * they are demonstrably already inside.
+ */
+function ownsPendingLink(pending: PendingAccountLink, user: User): boolean {
+  if (!pending.email || !user.email) return false;
+  // Case-insensitively: Firebase stores the address as registered, so the
+  // conflict's customData.email and the signed-in user's can differ in case
+  // alone for one and the same account.
+  return pending.email.trim().toLowerCase() === user.email.trim().toLowerCase();
+}
+
 /** Shared by signInWithGoogle/signInWithApple/signInWithEmail below: runs the
  * provider's own sign-in, and if it succeeds while a link conflict was
  * pending and this provider is one of its candidateProviders (i.e. this
@@ -320,8 +364,26 @@ async function handleProviderSignIn(
     const user = await doSignIn();
     const pending = getPendingLink();
     set({ pendingLink: null });
-    if (pending && pending.candidateProviders.includes(provider)) {
-      await completePendingLink(user); // consumes and clears the stashed credential itself
+    if (pending && pending.candidateProviders.includes(provider) && ownsPendingLink(pending, user)) {
+      try {
+        await completePendingLink(user); // consumes and clears the stashed credential itself
+      } catch (e: any) {
+        // Reported, not rethrown. doSignIn() already SUCCEEDED -- the user is
+        // signed in -- so letting this out of signInWithGoogle/Apple/Email
+        // made a sign-in that worked look like one that failed: the caller
+        // logged it as 'sign-in failed', and the message it produced was
+        // written into SignedOutAccount's own state at the exact moment
+        // AccountSection swaps that component out for the signed-in view
+        // (`user` is set by then), so it rendered to nobody. The link
+        // silently did not happen and nothing anywhere said so.
+        console.warn('[useAuthStore] pending link failed after sign-in:', e?.code ?? e?.name ?? e?.message ?? e);
+        // `?? LINK_FAILED` because providerActionErrorMessage returns null for
+        // a user-initiated cancel -- correct where a picker was open, but
+        // there is no picker on this path, so a null here would mean the
+        // link quietly failed with nothing on screen: the exact outcome this
+        // block exists to end.
+        set({ linkError: providerActionErrorMessage(e, LINK_FAILED_MESSAGE) ?? LINK_FAILED_MESSAGE });
+      }
     } else {
       // Not a candidate (or nothing pending): there is no link to complete,
       // but any stashed credential must still go rather than be left for a
@@ -337,6 +399,12 @@ async function handleProviderSignIn(
     throw e;
   }
 }
+
+/** Shown on the signed-in Account page when a sign-in completed but the
+ * cross-provider link it was meant to finish did not -- see
+ * handleProviderSignIn's catch. Points at Sign-in methods, the section that
+ * renders this and also carries the Link buttons that are the remedy. */
+const LINK_FAILED_MESSAGE = "Couldn't finish linking your accounts. You can add that sign-in method below.";
 
 const AUTH_INIT_ERROR = "Couldn't start sign-in. Check your connection and try again.";
 // A FirebaseConfigError (firebase.ts) means the build itself is missing/has
@@ -402,21 +470,65 @@ const AUTH_INIT_TIMEOUT_MS = 10_000;
  * every auth change would fire syncNow() twice. */
 let authListenerAttached = false;
 
+/** Rejects `promise` if it hasn't settled within AUTH_INIT_TIMEOUT_MS.
+ *
+ * init()'s watchdog above releases the sign-in GATE when auth never starts,
+ * but it cannot un-hang the sign-in itself: initFirebaseAuth() memoizes its
+ * promise, so a call that never settles (a SecureStore/Keychain read that
+ * neither resolves nor rejects -- the same hang the watchdog exists for) is
+ * handed to every later caller too. requireFirebaseAuth below then awaits it
+ * forever, and SignedOutAccount's `busy` flag -- only cleared in its
+ * `finally` -- keeps every button on the page disabled and spinning until
+ * the app is force-quit. The watchdog made that WORSE, not better: before
+ * it, the buttons were at least visibly dead from the start; now they look
+ * live, accept the tap, and then hang with no error.
+ *
+ * The timer is always cleared, including on the success path -- a stray 10s
+ * timer per sign-in attempt would otherwise keep a Jest run (and the RN
+ * timer queue) alive past the work it belongs to.
+ */
+function withAuthInitTimeout(promise: Promise<void>): Promise<void> {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      const e = new Error(`Firebase Auth did not start within ${AUTH_INIT_TIMEOUT_MS}ms.`);
+      e.name = 'AuthInitTimeoutError'; // initFailureTag surfaces this name on screen
+      reject(e);
+    }, AUTH_INIT_TIMEOUT_MS);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 /** startFirebaseAuth() for the sign-in path: same retry, but any failure
  * surfaces as this file's one generic, credential-free string rather than a
  * raw SDK message (design doc §5 checklist item 3 -- SignedOutAccount renders
- * `e.message` verbatim). The underlying error is logged, not shown. */
+ * `e.message` verbatim). The underlying error is logged, not shown.
+ *
+ * Time-bounded, unlike init()'s own call -- see withAuthInitTimeout above for
+ * why a sign-in tap must never inherit a never-settling init. */
 async function requireFirebaseAuth(
   set: (partial: Partial<AuthState>) => void,
   get: () => AuthState,
 ): Promise<void> {
   try {
-    await startFirebaseAuth(set, get);
+    await withAuthInitTimeout(startFirebaseAuth(set, get));
   } catch (e: any) {
     console.warn('[useAuthStore] Firebase Auth init failed on sign-in:', describeInitError(e));
     const message = initErrorMessageFor(e);
     set({ initError: message });
-    throw new Error(message);
+    // Named so SignedOutAccount can suppress it. This failure is ALREADY on
+    // screen via the `initError` set on the line above, which the page
+    // renders as its own line; throwing the identical string then had
+    // signInErrorMessage pass it through (no `.code`, so it takes the "our
+    // own static string" branch) into a SECOND red line saying exactly the
+    // same sentence. One problem, printed twice, reading like two. The throw
+    // itself has to stay -- it's what stops the caller from proceeding to the
+    // provider flow -- so the name is what tells the screen not to print it
+    // again. Same "already represented elsewhere in the UI" reasoning as
+    // AccountExistsError, which pendingLink carries.
+    const reported = new Error(message);
+    reported.name = 'AuthInitReportedError';
+    throw reported;
   }
 }
 
@@ -426,7 +538,17 @@ async function startFirebaseAuth(
 ): Promise<void> {
   await initFirebaseAuth();
   if (authListenerAttached) return;
-  authListenerAttached = true;
+  // Set AFTER the registration below actually returns, never before. Claiming
+  // it first meant that if getFirebaseAuth() or onAuthStateChanged threw --
+  // the SDK in a state where `auth` is somehow still null, a Fast Refresh
+  // reset, an internal assertion -- the flag stayed true with no listener
+  // ever attached. The throw propagates the first time (init()'s catch shows
+  // an error), but every retry after that takes the `return` above and
+  // reports SUCCESS: the sign-in then runs, Firebase really does authenticate
+  // the user, and nothing is left to tell this store about it. `user` stays
+  // null forever, the Account page stays signed-out, and there is no error
+  // anywhere -- the sign-in silently does nothing. Attaching first means a
+  // failure stays a failure, and stays retryable.
   onAuthStateChanged(getFirebaseAuth(), (u) => {
     set({ ready: true, initError: null, user: u ? toAccountUser(u) : null });
     // autoSyncEnabled (useSettingsStore) gates ONLY this automatic call --
@@ -437,6 +559,7 @@ async function startFirebaseAuth(
       get().syncNow(); // fire-and-forget: migration/sync never blocks the UI
     }
   });
+  authListenerAttached = true;
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
@@ -446,6 +569,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   syncing: false,
   syncingUid: null,
   syncError: null,
+  linkError: null,
   lastSyncedAt: null,
   pendingLink: null,
 
@@ -685,9 +809,17 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       }
     } catch (e: any) {
       if (get().user?.uid === uid) {
-        // Generic message only -- never interpolate e's full payload in case
-        // a future error type ever carries more than a plain string message.
-        set({ syncError: typeof e?.message === 'string' ? e.message : 'Sync failed' });
+        // Through accountDisplay's mapper, like every other error this file
+        // puts on screen. `e.message` used to go straight into `syncError`,
+        // which SyncStatusSection and SignedOutAccount both render verbatim,
+        // so Firestore's own words landed on the Account page: "Missing or
+        // insufficient permissions." for a rules change not yet deployed,
+        // "Failed to get document because the client is offline." for no
+        // network. autoSyncEnabled defaults to true and the auth listener
+        // fires syncNow() on sign-in, so that arrived seconds after signing
+        // in and read as the sign-in having half-worked.
+        console.warn('[useAuthStore] syncNow failed:', e?.code ?? e?.name ?? e?.message ?? e);
+        set({ syncError: syncErrorMessage(e) });
       }
     } finally {
       if (get().syncingUid === uid) set({ syncing: false, syncingUid: null });
@@ -695,6 +827,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   linkProvider: async (provider) => {
+    // Clears the sign-in-time link failure this action is the remedy for --
+    // in the store, not in SignInMethodsSection's local `error`, because that
+    // is where it lives. Same shape as the sign-in actions clearing syncError.
+    set({ linkError: null });
     const auth = getFirebaseAuth();
     const current = auth.currentUser;
     if (!current) return;
@@ -720,6 +856,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   linkEmailPassword: async (email, password) => {
+    set({ linkError: null }); // see linkProvider's note
     const auth = getFirebaseAuth();
     const current = auth.currentUser;
     if (!current) return;
@@ -737,6 +874,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   unlinkProvider: async (provider) => {
+    set({ linkError: null }); // see linkProvider's note
     const auth = getFirebaseAuth();
     const current = auth.currentUser;
     if (!current) return;

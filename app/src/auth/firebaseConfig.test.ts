@@ -13,7 +13,7 @@
 // process.env.EXPO_PUBLIC_* at transform time, and Jest's transform cache
 // means a re-require under a different process.env does not actually observe
 // the new value the way a real rebuild would.
-import { firebaseConfig, findInvalidFirebaseConfigKeys } from './firebaseConfig';
+import { firebaseConfig, findInvalidFirebaseConfigKeys, findInvalidGoogleSignInKeys } from './firebaseConfig';
 
 type Config = typeof firebaseConfig;
 
@@ -70,5 +70,62 @@ describe('findInvalidFirebaseConfigKeys', () => {
     // Whatever this test run's actual env produces -- just proving the
     // default parameter wires up to the real export, not a hardcoded value.
     expect(findInvalidFirebaseConfigKeys()).toEqual(findInvalidFirebaseConfigKeys(firebaseConfig));
+  });
+});
+
+// The same check for the two Google Sign-In client IDs, which the gate above
+// deliberately does NOT cover.
+//
+// findInvalidFirebaseConfigKeys is what initFirebaseAuth() calls, and a
+// non-empty result there fails ALL of auth. Folding these two in would mean a
+// build that simply never configured Google could not sign in with Apple or
+// email either -- so googleAuth.ts's ensureConfigured() calls this separately,
+// at the point of use, and only the Google button fails.
+//
+// The gap this closes shipped: EAS uploads app/.env for the development
+// profile only, so preview/production builds carried REPLACE_ME_* for every
+// EXPO_PUBLIC_* var. The six Firebase ones were caught and reported as
+// "Sign-in isn't configured on this build."; these two were checked nowhere,
+// so a placeholder audience reached GoogleSignin.configure() intact and the
+// only symptom was the native module's opaque DEVELOPER_ERROR.
+describe('findInvalidGoogleSignInKeys', () => {
+  const REAL_IDS = {
+    webClientId: '123456789012-abcdef.apps.googleusercontent.com',
+    iosClientId: '123456789012-ghijkl.apps.googleusercontent.com',
+  };
+
+  it('flags both ids on a fresh checkout with no .env', () => {
+    expect(
+      findInvalidGoogleSignInKeys({
+        webClientId: 'REPLACE_ME_GOOGLE_WEB_CLIENT_ID.apps.googleusercontent.com',
+        iosClientId: 'REPLACE_ME_GOOGLE_IOS_CLIENT_ID.apps.googleusercontent.com',
+      }).sort(),
+    ).toEqual(['EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID', 'EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID']);
+  });
+
+  it('returns nothing once both are real-looking values', () => {
+    expect(findInvalidGoogleSignInKeys(REAL_IDS)).toEqual([]);
+  });
+
+  it('flags only the one that is still a placeholder', () => {
+    expect(
+      findInvalidGoogleSignInKeys({ ...REAL_IDS, webClientId: 'REPLACE_ME_GOOGLE_WEB_CLIENT_ID.apps.googleusercontent.com' }),
+    ).toEqual(['EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID']);
+  });
+
+  it('flags a blank id exactly like a placeholder one', () => {
+    // Same transform-time inlining trap firebaseConfig's own blank-value test
+    // covers: "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID=" bakes in "", which `??`
+    // never falls back on.
+    expect(findInvalidGoogleSignInKeys({ ...REAL_IDS, iosClientId: '' })).toEqual([
+      'EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID',
+    ]);
+  });
+
+  it('does not affect the Firebase config gate, which must stay Google-agnostic', () => {
+    // The whole point of the split: a config with every Firebase field real
+    // still passes the gate that initFirebaseAuth() consults, regardless of
+    // what the Google ids are, so Apple and email sign-in stay available.
+    expect(findInvalidFirebaseConfigKeys(REAL_CONFIG)).toEqual([]);
   });
 });

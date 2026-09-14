@@ -16,7 +16,8 @@
 // onward, persisted only through secureStorePersistence (§2.2).
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import { GoogleAuthProvider, type AuthCredential, type User } from 'firebase/auth';
-import { GOOGLE_WEB_CLIENT_ID, GOOGLE_IOS_CLIENT_ID } from './firebaseConfig';
+import { GOOGLE_WEB_CLIENT_ID, GOOGLE_IOS_CLIENT_ID, findInvalidGoogleSignInKeys } from './firebaseConfig';
+import { FirebaseConfigError } from './firebase';
 import {
   signInWithProviderCredential,
   linkCredentialToUser,
@@ -28,6 +29,19 @@ import {
 let configured = false;
 function ensureConfigured(): void {
   if (configured) return;
+  // Before configure(), not after: GoogleSignin.configure() accepts a
+  // REPLACE_ME_* audience without complaint and the build only fails much
+  // later, inside the native picker, as a bare DEVELOPER_ERROR with nothing
+  // naming the cause. initFirebaseAuth()'s own gate can't catch this -- it
+  // checks the six firebaseConfig fields, and these two are deliberately not
+  // among them (see findInvalidGoogleSignInKeys for why folding them in
+  // would break Apple and email sign-in on a Google-less build). Thrown as
+  // FirebaseConfigError so accountDisplay.ts's signInErrorMessage/
+  // providerActionErrorMessage already map it, by name, to "Sign-in isn't
+  // configured on this build." -- which is the truth, and unlike
+  // DEVELOPER_ERROR it says so.
+  const missing = findInvalidGoogleSignInKeys();
+  if (missing.length > 0) throw new FirebaseConfigError(missing);
   GoogleSignin.configure({
     webClientId: GOOGLE_WEB_CLIENT_ID, // required on both platforms: the idToken audience Firebase expects
     iosClientId: GOOGLE_IOS_CLIENT_ID,
