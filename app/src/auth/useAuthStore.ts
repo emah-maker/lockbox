@@ -463,6 +463,44 @@ function describeInitError(e: any): string {
 // for a moment and nothing else.
 const AUTH_INIT_TIMEOUT_MS = 10_000;
 
+// Bounds for the three Firestore-backed steps BELOW sign-in: the sync, the
+// account-deletion wipe, and sign-out's push-token cleanup.
+//
+// They need bounds for a reason a try/catch cannot cover. The Firestore JS
+// SDK resolves a write only once the backend acknowledges it -- offline, the
+// local mutation applies instantly and the returned promise simply stays
+// pending. It never rejects, so every `catch` around these is dead code on
+// exactly the network where it is needed, and the `finally` that clears the
+// button's spinner never runs either. The result is not a slow operation; it
+// is a permanently disabled control with no error and no way back short of
+// force-quitting.
+//
+// Only the sign-in path was bounded before this (withAuthInitTimeout), which
+// left the app easy to get into and impossible to get out of.
+//
+// Generous rather than tight: a real sync on a slow connection is allowed to
+// take its time, since the failure being prevented is infinite, not slow.
+const SYNC_TIMEOUT_MS = 30_000;
+const DELETE_WIPE_TIMEOUT_MS = 30_000;
+// Shorter, because sign-out does not depend on it -- see its call site.
+const PUSH_CLEANUP_TIMEOUT_MS = 5_000;
+
+/** Rejects `promise` with a named error if it hasn't settled within `ms`. */
+function withTimeout<T>(promise: Promise<T>, ms: number, name: string, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      const e = new Error(message);
+      e.name = name;
+      reject(e);
+    }, ms);
+  });
+  // The timer is always cleared, including on the success path -- a stray
+  // timer per call would otherwise keep a Jest run (and the RN timer queue)
+  // alive past the work it belongs to.
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 /** Registered exactly once, by whichever of init() or a sign-in retry first
  * gets initFirebaseAuth() to resolve. The unsubscribe onAuthStateChanged
  * returns is deliberately never called (the listener lives as long as the
@@ -488,15 +526,12 @@ let authListenerAttached = false;
  * timer queue) alive past the work it belongs to.
  */
 function withAuthInitTimeout(promise: Promise<void>): Promise<void> {
-  let timer: ReturnType<typeof setTimeout>;
-  const timeout = new Promise<never>((_resolve, reject) => {
-    timer = setTimeout(() => {
-      const e = new Error(`Firebase Auth did not start within ${AUTH_INIT_TIMEOUT_MS}ms.`);
-      e.name = 'AuthInitTimeoutError'; // initFailureTag surfaces this name on screen
-      reject(e);
-    }, AUTH_INIT_TIMEOUT_MS);
-  });
-  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+  return withTimeout(
+    promise,
+    AUTH_INIT_TIMEOUT_MS,
+    'AuthInitTimeoutError', // initFailureTag surfaces this name on screen
+    `Firebase Auth did not start within ${AUTH_INIT_TIMEOUT_MS}ms.`,
+  );
 }
 
 /** startFirebaseAuth() for the sign-in path: same retry, but any failure
@@ -676,8 +711,24 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     // account's reminders -- on a shared or resold device, the worst leak
     // this feature could produce. Best-effort, and never a reason to block a
     // sign-out (push/pushRegistration.ts swallows its own failures).
+    // Still awaited, not fired and forgotten: the delete is authorized by the
+    // credential this line is about to destroy, so letting sign-out race ahead
+    // would sometimes revoke it before the write lands -- which is the leak
+    // above, reintroduced. Bounded instead, so an unreachable Firestore costs
+    // PUSH_CLEANUP_TIMEOUT_MS rather than the whole sign-out. Swallowed for
+    // the same reason the comment above gives: nothing here is worth trapping
+    // a user in a session they asked to leave.
     const signingOutUid = auth.currentUser?.uid;
-    if (signingOutUid) await unregisterPushToken(signingOutUid);
+    if (signingOutUid) {
+      await withTimeout(
+        unregisterPushToken(signingOutUid),
+        PUSH_CLEANUP_TIMEOUT_MS,
+        'PushCleanupTimeoutError',
+        `Push-token cleanup did not finish within ${PUSH_CLEANUP_TIMEOUT_MS}ms.`,
+      ).catch((e) => {
+        console.warn('[useAuthStore] signOut: push-token cleanup skipped:', (e as Error)?.message ?? e);
+      });
+    }
     if (providers.includes('apple')) await signOutAppleFully();
     if (providers.includes('password')) await signOutEmailFully();
     if (providers.includes('google') || providers.length === 0) await signOutGoogleFully();
@@ -770,7 +821,19 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       // picker/sheet -- see reauthenticateForDeletion's own comment.
       await deleteWithReauthRetry(reauthenticateForDeletion);
       // Step 2: only now wipe Firestore -- reauth already succeeded.
-      await deleteAllUserData(user.uid);
+      //
+      // Bounded, because this is the step Guideline 5.1.1(v) invites a
+      // reviewer to exercise and it is a chain of Firestore deletes. Timing
+      // out leaves a partly-wiped account, which deleteAllUserData is
+      // explicitly built to survive: it removes users/{uid} first, so a retry
+      // re-enters the same window and finishes the sweep. Better a "please
+      // try again" the user can act on than a spinner that never ends.
+      await withTimeout(
+        deleteAllUserData(user.uid),
+        DELETE_WIPE_TIMEOUT_MS,
+        'DeleteWipeTimeoutError',
+        `Account data wipe did not finish within ${DELETE_WIPE_TIMEOUT_MS}ms.`,
+      );
       // Step 3: only after the wipe succeeds, remove the Auth user itself.
       try {
         await deleteUserAccount();
@@ -798,7 +861,19 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     if (get().syncingUid === uid) return;
     set({ syncing: true, syncingUid: uid, syncError: null });
     try {
-      await runMigrationAndSync(uid);
+      // Bounded because `syncing` gates more than a label: SyncStatusSection
+      // disables its own button on it, and DangerZoneSection disables Sign
+      // out. autoSyncEnabled defaults true and the auth listener fires
+      // syncNow() on sign-in, so an unbounded sync that never settles means
+      // the FIRST sign-in on a device permanently greys out the way back out
+      // of it. The catch below turns this into the same on-screen sentence as
+      // any other sync failure.
+      await withTimeout(
+        runMigrationAndSync(uid),
+        SYNC_TIMEOUT_MS,
+        'SyncTimeoutError',
+        `Sync did not finish within ${SYNC_TIMEOUT_MS}ms.`,
+      );
       const now = Date.now();
       // Apply the result only if `uid` is still the signed-in user -- a
       // stale call for a since-signed-out (or since-switched) uid must not

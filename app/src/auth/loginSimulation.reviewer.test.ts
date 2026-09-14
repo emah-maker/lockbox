@@ -85,15 +85,24 @@ afterEach(() => {
  * The promise is deliberately left dangling rather than awaited -- awaiting a
  * promise that never settles is how a test hangs instead of failing.
  */
+/** Microtask hops needed to let a settled promise propagate through the
+ * store. Generous rather than exact: useAuthStore's timeout bound wraps
+ * these in Promise.race(...).finally(...), so the number of hops is an
+ * implementation detail of code under test and not worth pinning. */
+const DRAIN_TICKS = 30;
+async function drain(): Promise<void> {
+  for (let i = 0; i < DRAIN_TICKS; i++) await Promise.resolve();
+}
+
 async function settlesWithin10Minutes(run: () => Promise<unknown>): Promise<boolean> {
   let settled = false;
   void run().then(
     () => { settled = true; },
     () => { settled = true; },
   );
-  for (let i = 0; i < 5; i++) await Promise.resolve();
+  await drain();
   jest.advanceTimersByTime(10 * 60_000);
-  for (let i = 0; i < 5; i++) await Promise.resolve();
+  await drain();
   return settled;
 }
 
@@ -187,7 +196,7 @@ describe('a clean install, a reviewer, and one set of demo credentials', () => {
 
 // --- Controls that must release afterwards ---------------------------------
 describe('after signing in, the page still has to let go', () => {
-  it.failing('signs out even when the push-token cleanup never comes back', async () => {
+  it('signs out even when the push-token cleanup never comes back', async () => {
     // signOut() awaits unregisterPushToken FIRST, and that is a Firestore
     // deleteDoc. The Firestore JS SDK resolves a write only once the server
     // acknowledges it: offline, the local mutation applies immediately and
@@ -202,13 +211,14 @@ describe('after signing in, the page still has to let go', () => {
     const { store } = await coldStart(makeUser('uid-1', DEMO_EMAIL, ['password']));
 
     const settled = await settlesWithin10Minutes(() => store.getState().signOut());
-    // Precise symptom: still signed in, because auth.signOut() sits AFTER the
-    // await that is hanging. The page is not mid-sign-out, it has not started.
-    expect(store.getState().user).not.toBeNull();
+    // The cleanup is bounded now, so sign-out gets past it and actually runs:
+    // settled AND signed out, rather than settled-but-still-signed-in (which
+    // would mean the await had merely been dropped) or never settling at all.
     expect(settled).toBe(true);
+    expect(store.getState().user).toBeNull();
   });
 
-  it.failing('stops showing "Syncing..." when the sync never comes back', async () => {
+  it('stops showing "Syncing..." when the sync never comes back', async () => {
     // `syncing` is what disables BOTH SyncStatusSection's "Sync now" and
     // DangerZoneSection's "Sign out". runMigrationAndSync is Firestore reads
     // and writes with no time bound of its own, and useSettingsStore's
@@ -221,18 +231,18 @@ describe('after signing in, the page still has to let go', () => {
     const { store } = await coldStart(null);
 
     await store.getState().signInWithEmail(DEMO_EMAIL, DEMO_PASSWORD);
-    for (let i = 0; i < 5; i++) await Promise.resolve();
+    await drain();
     expect(store.getState().syncing).toBe(true); // correct so far
 
     jest.advanceTimersByTime(10 * 60_000);
-    for (let i = 0; i < 5; i++) await Promise.resolve();
+    await drain();
 
     // Observed: still true after ten simulated minutes. There is no watchdog
     // on syncNow at all -- only the sign-in path is time-bounded.
     expect(store.getState().syncing).toBe(false);
   });
 
-  it.failing('finishes a deletion rather than spinning when the Firestore wipe never comes back', async () => {
+  it('finishes a deletion rather than spinning when the Firestore wipe never comes back', async () => {
     // Same class as the two above, on the flow Guideline 5.1.1(v) requires:
     // deleteAllUserData is a chain of deleteDoc calls, and DangerZoneSection's
     // `busy` is cleared only in a `finally`.
@@ -348,11 +358,11 @@ describe('the automatic sync a sign-in triggers', () => {
     const { store } = await coldStart(null);
 
     await store.getState().signInWithEmail(DEMO_EMAIL, DEMO_PASSWORD);
-    for (let i = 0; i < 5; i++) await Promise.resolve();
+    await drain();
     expect(store.getState().syncing).toBe(true); // Sign out greyed out from here
 
     finish!();
-    for (let i = 0; i < 5; i++) await Promise.resolve();
+    await drain();
     expect(store.getState().syncing).toBe(false); // and live again once it lands
   });
 
@@ -364,7 +374,7 @@ describe('the automatic sync a sign-in triggers', () => {
     const { store } = await coldStart(null);
 
     const { threw } = await tapSignIn(() => store.getState().signInWithEmail(DEMO_EMAIL, DEMO_PASSWORD));
-    for (let i = 0; i < 5; i++) await Promise.resolve();
+    await drain();
 
     expect(threw).toBeNull();
     expect(store.getState().user).toMatchObject({ email: DEMO_EMAIL });
