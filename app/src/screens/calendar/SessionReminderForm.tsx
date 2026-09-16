@@ -21,7 +21,8 @@ import React from 'react';
 import { View, Text, TextInput, StyleSheet } from 'react-native';
 import { Sheet } from '../../ui/Sheet';
 import { FormDisclosure } from '../../ui/FormDisclosure';
-import { WheelPicker } from '../../ui/WheelPicker';
+import { ClockWheels } from '../../ui/ClockWheels';
+import { useWheelScrollLock } from '../../ui/WheelPicker';
 import { AnimatedPressable } from '../../ui/AnimatedPressable';
 import { Button } from '../SettingsPrimitives';
 import { TopicChip, TopicChoiceChips } from '../GoalTopicChips';
@@ -41,22 +42,8 @@ import {
 } from '../../schedule/scheduledSessions';
 import { spacing, typeScale } from '../../theme/tokens';
 
-// Same 5-minute grid every other minute wheel in this app snaps to (the
-// dashboard's lock duration, the goal target, the goal reminder time) --
-// re-derived here rather than imported from GoalReminderControl.tsx, which
-// is a form component, not a shared constants module.
-const MINUTE_STEP = 5;
-const MINUTE_VALUES = Array.from({ length: 60 / MINUTE_STEP }, (_, i) => i * MINUTE_STEP);
-const MINUTE_LABELS = MINUTE_VALUES.map((m) => String(m).padStart(2, '0'));
-const HOUR_LABELS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'));
-
 const DEFAULT_TIME = '09:00';
 const DEFAULT_LEAD = 10;
-
-// Matches DurationSheet.tsx's SCROLL_LOCK_SAFETY_MS -- long enough that a
-// real wheel drag never trips it, short enough that a dropped release isn't
-// felt as a frozen screen. See wheelSafetyTimer below.
-const WHEEL_LOCK_SAFETY_MS = 600;
 
 // Durations offered as chips instead of a third and fourth WheelPicker.
 // A planned session's length is a rough intention picked from a handful of
@@ -65,25 +52,6 @@ const WHEEL_LOCK_SAFETY_MS = 600;
 // Free-form lengths remain possible where they matter: the box's actual
 // timer is set at the box (see DurationSheet.tsx).
 const DURATION_OPTIONS_S = [15 * 60, 25 * 60, 30 * 60, 45 * 60, 60 * 60, 90 * 60, 120 * 60];
-
-function parseTime(value: string): { hour: number; minuteIndex: number } {
-  const match = /^(\d{2}):(\d{2})$/.exec(value);
-  const hour = match ? Math.min(23, parseInt(match[1], 10)) : 9;
-  const minute = match ? parseInt(match[2], 10) : 0;
-  // Snaps an off-grid minute onto the nearest wheel stop, the same
-  // defensive snap GoalReminderControl.tsx applies -- a plan could have been
-  // written by a future surface with a finer step, and the wheel still has
-  // to land somewhere valid.
-  const minuteIndex = MINUTE_VALUES.reduce(
-    (best, v, i) => (Math.abs(v - minute) < Math.abs(MINUTE_VALUES[best] - minute) ? i : best),
-    0,
-  );
-  return { hour, minuteIndex };
-}
-
-function formatTime(hour: number, minute: number): string {
-  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
-}
 
 /** "At the start time" / "10 min before" / "1 hour before" -- shared by the
  * chips themselves and by the collapsed summary, so the two can never
@@ -139,35 +107,14 @@ export function SessionReminderForm({
   // time opens by default because it is the one field with no useful
   // default -- everything else has a sensible one the summary already shows.
   const [open, setOpen] = React.useState<OpenGroup>('time');
-  const [wheelActive, setWheelActive] = React.useState(false);
-  // Every release path below (onDragEnd, onTouchEnd/-Cancel, toggle) depends
-  // on an event actually arriving. This timer is the backstop for when one
-  // doesn't -- realistically, the app being backgrounded mid-drag by an
-  // incoming call or a control-center swipe, where RN makes no promise of a
-  // synthetic touch-end. Without it a single dropped release leaves this
-  // `size="large"` sheet scrollEnabled={false} for good, with Save/Cancel
-  // below the fold and unreachable: the "the time picker froze the screen"
-  // report. Mirrors DurationSheet.tsx's lock/unlock pair, which is why this
-  // is the only wheel-in-sheet call site that lacked one.
-  const wheelSafetyTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-  const clearWheelSafetyTimer = () => {
-    if (wheelSafetyTimer.current) {
-      clearTimeout(wheelSafetyTimer.current);
-      wheelSafetyTimer.current = null;
-    }
-  };
-  const lockSheetScroll = () => {
-    setWheelActive(true);
-    clearWheelSafetyTimer();
-    wheelSafetyTimer.current = setTimeout(() => setWheelActive(false), WHEEL_LOCK_SAFETY_MS);
-  };
-  const unlockSheetScroll = () => {
-    clearWheelSafetyTimer();
-    setWheelActive(false);
-  };
-  React.useEffect(() => clearWheelSafetyTimer, []);
+  // The outer-scroll lock, shared with every other WheelPicker-in-a-sheet
+  // call site -- see useWheelScrollLock in WheelPicker.tsx. This file used to
+  // hand-roll it with a single 600ms backstop, which any drag longer than
+  // 600ms tripped mid-drag: the sheet's scroll came back under a live finger
+  // AND the flip re-rendered the wheels, stalling their own scroll animation.
+  // That was the "the time picker freezes" report.
+  const { wheelActive, setWheelActive } = useWheelScrollLock();
 
-  const { hour, minuteIndex } = parseTime(time);
   const choices = allLabelChoices(customLabels, themeMode, excludedTopicKeys);
   const resolvedTopic = topic ? resolveTopic(topic, customLabels, themeMode) : null;
   // An edit whose plan targets a since-deleted custom label: keep that id
@@ -181,7 +128,7 @@ export function SessionReminderForm({
     // own onDragEnd, which would otherwise leave the sheet permanently
     // unscrollable (the stuck-lock class of bug WheelPicker's
     // onDragStart/onDragEnd contract exists to prevent).
-    unlockSheetScroll();
+    setWheelActive(false);
     setOpen((current) => (current === group ? null : group));
   };
 
@@ -224,36 +171,13 @@ export function SessionReminderForm({
           onToggle={() => toggle('time')}
           color={color}
         >
-          <View
-            style={styles.wheelRow}
-            onTouchStart={() => lockSheetScroll()}
-            onTouchEnd={() => unlockSheetScroll()}
-            onTouchCancel={() => unlockSheetScroll()}
-          >
-            {/* Same three-way gesture handoff GoalForm's own wheels use:
-                onTouchStart claims the gesture early, onTouchEnd/-Cancel
-                release it for a tap that never became a drag, and onDragEnd
-                is the guaranteed release once a wheel captures the drag.
-                styles.wheelRow's alignSelf:'center' is load-bearing for the
-                same reason it is there -- see GoalForm.tsx's long comment on
-                the touch-capturing dead margin a merely-centered row leaves. */}
-            <WheelPicker
-              labels={HOUR_LABELS}
-              selectedIndex={hour}
-              onChange={(i) => setTime(formatTime(i, MINUTE_VALUES[minuteIndex]))}
-              onDragStart={() => lockSheetScroll()}
-              onDragEnd={() => unlockSheetScroll()}
-              accessibilityLabel="Session start time, hour"
-            />
-            <WheelPicker
-              labels={MINUTE_LABELS}
-              selectedIndex={minuteIndex}
-              onChange={(i) => setTime(formatTime(hour, MINUTE_VALUES[i]))}
-              onDragStart={() => lockSheetScroll()}
-              onDragEnd={() => unlockSheetScroll()}
-              accessibilityLabel="Session start time, minute"
-            />
-          </View>
+          <ClockWheels
+            value={time}
+            onChange={setTime}
+            onWheelActiveChange={setWheelActive}
+            accessibilityPrefix="Session start time"
+            fallback={DEFAULT_TIME}
+          />
         </FormDisclosure>
 
         {/* Not a disclosure: six small chips are already a one-line answer,
@@ -419,9 +343,6 @@ const styles = StyleSheet.create({
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   chip: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 16, borderWidth: 1.5 },
   chipText: { ...typeScale.label },
-  // alignSelf:'center' is the fix, not justifyContent -- see the wheelRow
-  // View's own comment above, and GoalForm.tsx's longer version of it.
-  wheelRow: { flexDirection: 'row', justifyContent: 'center', alignSelf: 'center', gap: spacing.sm },
   input: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, ...typeScale.body },
   actions: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs },
 });

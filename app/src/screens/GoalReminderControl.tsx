@@ -26,45 +26,26 @@ import { View, Text, StyleSheet, Switch } from 'react-native';
 import { useTheme } from '../theme/useTheme';
 import { withAlpha } from '../theme/color';
 import { AnimatedPressable } from '../ui/AnimatedPressable';
-import { WheelPicker } from '../ui/WheelPicker';
+import { ClockWheels, CLOCK_MINUTE_STEP } from '../ui/ClockWheels';
+import { WheelLockPhase } from '../ui/WheelPicker';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { MAX_NOTIFY_TIMES, notifyTimeToMinutes } from '../goals/goalReminders';
 import { isInQuietHours } from '../goals/goalNotificationPlan';
-import { formatClockTime } from '../ui/time';
+import { formatClock24, formatClockTime } from '../ui/time';
 import { WeekdayChips } from './GoalFormExtras';
 import { hitSlop, spacing, typeScale } from '../theme/tokens';
 
-// 24h clock wheels for the reminder time -- distinct from GoalForm.tsx's own
-// PERIOD_MAX_HOURS-derived hour wheel, which counts a DURATION, not a
-// time-of-day; the two are unrelated ranges that happen to both be "hours".
-const CLOCK_HOUR_LABELS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'));
-// Reuses this app's one 5-minute step convention (the Dashboard's
-// lock-duration wheel, GoalForm's own target minutes) so every minute wheel
-// in the app snaps to the same grid.
-const NOTIFY_MINUTE_STEP = 5;
-const NOTIFY_MINUTE_VALUES = Array.from({ length: 60 / NOTIFY_MINUTE_STEP }, (_, i) => i * NOTIFY_MINUTE_STEP);
-const NOTIFY_MINUTE_LABELS = NOTIFY_MINUTE_VALUES.map((m) => String(m).padStart(2, '0'));
+// The reminder-time picker -- hour + minute wheels and an AM/PM selector --
+// is ui/ClockWheels.tsx, shared with the quiet-hours boundaries and a planned
+// session's start time. The wheel indices, the 12-hour conversion and the
+// off-grid minute snap all live there; what is left here is the draft-time
+// list logic below, which is this file's actual subject.
+//
+// The step is still needed here: nextAvailableDraftTime walks the day on the
+// same grid the wheel snaps to, so a seeded draft always lands on a reachable
+// stop.
+const NOTIFY_MINUTE_STEP = CLOCK_MINUTE_STEP;
 const DEFAULT_NOTIFY_AT = '09:00';
-
-/** Parses 'HH:MM' into wheel indices, snapping an off-grid minute (one
- * written by the website dashboard, which has no 5-minute step) onto the
- * nearest wheel stop -- the same defensive snap GoalForm's target wheels
- * apply to a dashboard-written targetS. Falls back to DEFAULT_NOTIFY_AT for
- * a missing/malformed value so the wheels always have a valid position. */
-function parseTime(value: string | undefined): { hour: number; minuteIndex: number } {
-  const match = /^(\d{2}):(\d{2})$/.exec(value ?? DEFAULT_NOTIFY_AT);
-  const hour = match ? Math.min(23, parseInt(match[1], 10)) : 9;
-  const minute = match ? parseInt(match[2], 10) : 0;
-  const minuteIndex = NOTIFY_MINUTE_VALUES.reduce(
-    (best, v, i) => (Math.abs(v - minute) < Math.abs(NOTIFY_MINUTE_VALUES[best] - minute) ? i : best),
-    0,
-  );
-  return { hour, minuteIndex };
-}
-
-function formatTime(hour: number, minute: number): string {
-  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
-}
 
 const MINUTES_PER_DAY = 24 * 60;
 
@@ -103,11 +84,11 @@ export function nextAvailableDraftTime(times: string[]): string {
   const taken = new Set(times);
   const latestMinutes = notifyTimeToMinutes(times[times.length - 1]) ?? 0;
   for (let m = latestMinutes + 60; m < MINUTES_PER_DAY; m += NOTIFY_MINUTE_STEP) {
-    const candidate = formatTime(Math.floor(m / 60), m % 60);
+    const candidate = formatClock24(Math.floor(m / 60), m % 60);
     if (!taken.has(candidate)) return candidate;
   }
   for (let m = 0; m < MINUTES_PER_DAY; m += NOTIFY_MINUTE_STEP) {
-    const candidate = formatTime(Math.floor(m / 60), m % 60);
+    const candidate = formatClock24(Math.floor(m / 60), m % 60);
     if (!taken.has(candidate)) return candidate;
   }
   return DEFAULT_NOTIFY_AT;
@@ -140,7 +121,7 @@ export function GoalReminderControl({
   onTimesChange: (times: string[]) => void;
   onDaysChange: (days: number[] | undefined) => void;
   onOnlyIfBehindChange: (value: boolean) => void;
-  onWheelActiveChange: (active: boolean) => void;
+  onWheelActiveChange: (active: boolean, phase?: WheelLockPhase) => void;
   color: ReturnType<typeof useTheme>;
 }) {
   // `null` = the picker is closed. A number = editing the time at that
@@ -162,8 +143,6 @@ export function GoalReminderControl({
   const quietHoursEnabled = useSettingsStore((s) => s.quietHoursEnabled);
   const quietStart = useSettingsStore((s) => s.quietStart);
   const quietEnd = useSettingsStore((s) => s.quietEnd);
-
-  const { hour, minuteIndex } = parseTime(draft);
 
   // Clears a stale collision message the instant the user actually changes
   // the wheel -- otherwise "You already have a reminder at that time"
@@ -312,41 +291,13 @@ export function GoalReminderControl({
 
           {editingIndex !== null ? (
             <View style={styles.picker}>
-              <View
-                style={styles.wheelRow}
-                onTouchStart={() => onWheelActiveChange(true)}
-                onTouchEnd={() => onWheelActiveChange(false)}
-                onTouchCancel={() => onWheelActiveChange(false)}
-              >
-                {/* Same three-way gesture handoff GoalForm's target wheels
-                    use: onTouchStart claims the gesture early, onTouchEnd/
-                    -Cancel release it for a tap that never became a drag,
-                    and onDragEnd is the guaranteed release once a wheel
-                    actually captures the drag. Also same fix as GoalForm's
-                    wheelRow (see that file's own comment): styles.wheelRow
-                    below sets alignSelf: 'center' so this touch-capturing
-                    View shrinks to the two wheels' own footprint instead of
-                    stretching to styles.picker's full column width -- a
-                    touch in what would otherwise be dead margin now falls
-                    through to the Sheet's outer scroll instead of silently
-                    disabling it for a drag no wheel ever captures. */}
-                <WheelPicker
-                  labels={CLOCK_HOUR_LABELS}
-                  selectedIndex={hour}
-                  onChange={(i) => changeDraft(formatTime(i, NOTIFY_MINUTE_VALUES[minuteIndex]))}
-                  onDragStart={() => onWheelActiveChange(true)}
-                  onDragEnd={() => onWheelActiveChange(false)}
-                  accessibilityLabel="Reminder time, hour"
-                />
-                <WheelPicker
-                  labels={NOTIFY_MINUTE_LABELS}
-                  selectedIndex={minuteIndex}
-                  onChange={(i) => changeDraft(formatTime(hour, NOTIFY_MINUTE_VALUES[i]))}
-                  onDragStart={() => onWheelActiveChange(true)}
-                  onDragEnd={() => onWheelActiveChange(false)}
-                  accessibilityLabel="Reminder time, minute"
-                />
-              </View>
+              <ClockWheels
+                value={draft}
+                onChange={changeDraft}
+                onWheelActiveChange={onWheelActiveChange}
+                accessibilityPrefix="Reminder time"
+                fallback={DEFAULT_NOTIFY_AT}
+              />
               <View style={styles.pickerActions}>
                 <AnimatedPressable
                   onPress={commitDraft}
@@ -439,9 +390,6 @@ const styles = StyleSheet.create({
   removeGlyph: { fontSize: 16, lineHeight: 20, fontWeight: '700' },
   addChip: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 16, borderWidth: 1.5, borderStyle: 'dashed' },
   picker: { gap: spacing.sm },
-  // alignSelf: 'center' is the fix (see the wheelRow View's own comment
-  // above); justifyContent is kept only as a no-op once alignSelf is set.
-  wheelRow: { flexDirection: 'row', justifyContent: 'center', alignSelf: 'center', gap: 8 },
   pickerActions: { flexDirection: 'row', gap: 8, justifyContent: 'center' },
   pickerBtn: { paddingVertical: 8, paddingHorizontal: 16, borderRadius: 12, borderWidth: 1.5 },
   pickerBtnText: { ...typeScale.label, fontWeight: '600' },

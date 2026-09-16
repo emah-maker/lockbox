@@ -14,9 +14,9 @@
 // These drive the real component through react-test-renderer and assert on
 // the exact sequence of scrollTo() calls, since that ordering *is* the bug.
 import React from 'react';
-import { ScrollView } from 'react-native';
+import { Animated, ScrollView, Text } from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
-import { WheelPicker, WHEEL_ITEM_SIZE } from './WheelPicker';
+import { WheelLockPhase, WheelPicker, WHEEL_ITEM_SIZE, useWheelScrollLock } from './WheelPicker';
 
 jest.mock('expo-haptics', () => ({ selectionAsync: jest.fn() }));
 
@@ -408,5 +408,367 @@ describe('the resync effect does not race its own scroll', () => {
     });
 
     expect(scrolledOffsets()).toEqual([5 * WHEEL_ITEM_SIZE, 7 * WHEEL_ITEM_SIZE]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The animation itself: "the wheel's scrolling animation freezes."
+//
+// Every fix above this line hardened the GESTURE path -- the imperative
+// scrollTo calls, the busy/correcting flags, the dropped lifecycle events.
+// None of them touched the actual cause of the stall a user sees while
+// dragging, which was that the per-item Animated graphs (subtract + two
+// interpolations) and the Animated.event scroll handler were being rebuilt in
+// the render body on EVERY render. Under useNativeDriver those are native
+// nodes attached by identity, so each render detached the old graph and
+// attached a new one -- and RN's deferred cleanup then ran
+// __restoreDefaultValues() on the OLD node after the new one was already
+// attached, resetting that view's opacity/transform to its static style.
+// That is the stall-then-jump.
+//
+// Re-renders mid-drag are not an edge case here, they are how the call sites
+// work: onDragStart itself flips the enclosing sheet's scroll-lock state, so
+// the rebuild landed at the exact moment a drag began.
+//
+// These tests assert the invariant by COUNTING node construction, because
+// that is the thing that must not happen again: re-inlining the
+// interpolations would restore the original bug while leaving every other
+// test in this file green.
+describe('the animated graph is not rebuilt by a re-render', () => {
+  // Stable, like every real call site's (HOUR_12_LABELS is module-level,
+  // ClockWheels memoizes its minute labels, DashboardScreen's are consts).
+  function Repainter({ labels = LABELS }: { labels?: string[] }) {
+    // A parent that re-renders WheelPicker without changing its value --
+    // exactly what the scroll-lock flip does at every call site.
+    const [n, setN] = React.useState(0);
+    return (
+      <>
+        <Text accessibilityLabel="repaint" onPress={() => setN((x) => x + 1)}>
+          {n}
+        </Text>
+        <WheelPicker labels={labels} selectedIndex={3} onChange={() => {}} accessibilityLabel="test wheel" />
+      </>
+    );
+  }
+
+  let subtract: jest.SpyInstance;
+  let event: jest.SpyInstance;
+
+  /** Spies armed BEFORE the mount, so the mount's own construction is
+   * counted -- that count is the baseline every assertion below is relative
+   * to. */
+  function renderRepainter(labels?: string[]) {
+    subtract = jest.spyOn(Animated, 'subtract');
+    event = jest.spyOn(Animated, 'event');
+    let tree: TestRenderer.ReactTestRenderer;
+    act(() => {
+      tree = TestRenderer.create(<Repainter labels={labels} />);
+    });
+    mounted.push(tree!);
+    const repaint = () => {
+      const hit = tree!.root.findAll((x) => x.props?.accessibilityLabel === 'repaint' && x.props?.onPress)[0];
+      act(() => hit.props.onPress());
+    };
+    const relabel = (next: string[]) => act(() => tree!.update(<Repainter labels={next} />));
+    const scrollView = tree!.root.findAll((n) => n.props?.snapToInterval === WHEEL_ITEM_SIZE)[0];
+    return { tree: tree!, repaint, relabel, props: () => scrollView.props };
+  }
+
+  afterEach(() => {
+    subtract?.mockRestore();
+    event?.mockRestore();
+  });
+
+  it('builds exactly one item graph per label at mount', () => {
+    renderRepainter();
+    expect(subtract).toHaveBeenCalledTimes(LABELS.length);
+    expect(event).toHaveBeenCalledTimes(1);
+  });
+
+  it('builds no new graphs when the parent re-renders it mid-value', () => {
+    const { repaint } = renderRepainter();
+    subtract.mockClear();
+    event.mockClear();
+
+    repaint();
+    repaint();
+    repaint();
+
+    // The whole fix, in one assertion: three re-renders, zero rebuilt nodes.
+    expect(subtract).not.toHaveBeenCalled();
+    expect(event).not.toHaveBeenCalled();
+  });
+
+  it('builds no new graphs across a full drag-and-settle', () => {
+    const { repaint, props } = renderRepainter();
+    subtract.mockClear();
+
+    act(() => props().onScrollBeginDrag(scrollEvent(120)));
+    repaint(); // the lock flip a real call site performs right here
+    act(() => props().onScrollEndDrag(scrollEvent(160)));
+    act(() => props().onMomentumScrollEnd(scrollEvent(160)));
+
+    expect(subtract).not.toHaveBeenCalled();
+  });
+
+  it('does not rebuild for a new labels array of the same length', () => {
+    // Identity changes, geometry does not -- what a call site deriving its
+    // labels inline produces on every single render.
+    const { relabel } = renderRepainter();
+    subtract.mockClear();
+
+    relabel([...LABELS]);
+    expect(subtract).not.toHaveBeenCalled();
+  });
+
+  // The Animated.subtract count above covers itemStyles, which is the memo
+  // the scroll ANIMATION depends on. These two cover the other half: under a
+  // null allowlist RN's AnimatedProps keys non-style props by IDENTITY, so a
+  // single inline object literal or inline labels.map() in the render body
+  // re-creates the whole AnimatedProps -- and with it the native scroll
+  // event's detach/attach -- however stable the handler itself is. Asserted
+  // on prop identity because that IS the composite key RN compares.
+  it('hands the scroll view the same contentContainerStyle across re-renders', () => {
+    const { repaint, props } = renderRepainter();
+    const before = props().contentContainerStyle;
+    repaint();
+    expect(props().contentContainerStyle).toBe(before);
+  });
+
+  it('hands the scroll view the same children array across re-renders', () => {
+    const { repaint, props } = renderRepainter();
+    const before = props().children;
+    repaint();
+    expect(props().children).toBe(before);
+  });
+
+  it('keeps each item view identical across re-renders', () => {
+    // The consequence of the children memo, stated in terms of what is
+    // actually animated: re-rendering must not hand any item a new element,
+    // and therefore not a new style object either.
+    const { repaint, props } = renderRepainter();
+    const before = (props().children as { props: { style: unknown } }[]).map((c) => c.props.style);
+    repaint();
+    const after = (props().children as { props: { style: unknown } }[]).map((c) => c.props.style);
+    expect(after).toHaveLength(LABELS.length);
+    after.forEach((style, i) => expect(style).toBe(before[i]));
+  });
+
+  it('still rebuilds when the wheel geometry actually changes', () => {
+    // The memo must not be stale-wrong: a different number of items is a
+    // different graph, and GoalForm swaps its hour labels outright when the
+    // goal period changes.
+    const { relabel } = renderRepainter();
+    subtract.mockClear();
+
+    relabel([...LABELS, '10', '11']);
+    expect(subtract).toHaveBeenCalledTimes(LABELS.length + 2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The other half of the freeze: the outer-scroll lock.
+//
+// A WheelPicker inside a same-axis ScrollView needs that ancestor to stop
+// scrolling for the duration of a drag (see the onDragStart/onDragEnd prop
+// comments). Five files hand-rolled that lock, and all five armed ONE flat
+// 600ms backstop from whichever signal arrived first -- so any drag lasting
+// longer than 600ms tripped it MID-DRAG, handing the ancestor's scroll back
+// under a live finger and re-rendering the wheels while they were moving.
+//
+// Nothing tested it, in any of the five copies. These do.
+describe('useWheelScrollLock', () => {
+  /** The hook's setter, captured out of the render so the test can call it
+   * with the (active, phase) pair a real wheel row passes -- no RN prop has
+   * that signature to smuggle it through. */
+  let setLock: (active: boolean, phase?: WheelLockPhase) => void;
+
+  function Harnessed() {
+    const { wheelActive, setWheelActive } = useWheelScrollLock();
+    setLock = setWheelActive;
+    return (
+      <Text accessibilityLabel="lock" accessibilityState={{ selected: wheelActive }}>
+        {String(wheelActive)}
+      </Text>
+    );
+  }
+
+  function renderLock() {
+    let tree: TestRenderer.ReactTestRenderer;
+    act(() => {
+      tree = TestRenderer.create(<Harnessed />);
+    });
+    mounted.push(tree!);
+    const node = () => tree!.root.findAll((n) => n.props?.accessibilityLabel === 'lock')[0];
+    return {
+      tree: tree!,
+      set: (active: boolean, phase?: WheelLockPhase) => act(() => setLock(active, phase)),
+      locked: () => node().props.accessibilityState.selected as boolean,
+    };
+  }
+
+  it('holds the lock for a drag far longer than the tap window', () => {
+    // The exact regression: 600ms into a real scrub, all five copies unlocked.
+    const { set, locked } = renderLock();
+    set(true, 'drag');
+    expect(locked()).toBe(true);
+    act(() => jest.advanceTimersByTime(1500));
+    expect(locked()).toBe(true);
+    act(() => jest.advanceTimersByTime(1500));
+    expect(locked()).toBe(true);
+  });
+
+  it('releases a tap-phase lock on the short window', () => {
+    // A touch that never becomes a drag is normally released by the row's own
+    // onTouchEnd; this is the backstop for one of those being dropped.
+    const { set, locked } = renderLock();
+    set(true, 'touch');
+    act(() => jest.advanceTimersByTime(601));
+    expect(locked()).toBe(false);
+  });
+
+  it('defaults to the tap window when no phase is given', () => {
+    const { set, locked } = renderLock();
+    set(true);
+    act(() => jest.advanceTimersByTime(601));
+    expect(locked()).toBe(false);
+  });
+
+  it('a second touch during a drag does not shorten the drag window', () => {
+    // A second finger landing on the wheel row calls (true, 'touch') while a
+    // drag is live. Re-arming the short window there would re-create the
+    // mid-drag unlock this hook exists to remove.
+    const { set, locked } = renderLock();
+    set(true, 'drag');
+    set(true, 'touch');
+    act(() => jest.advanceTimersByTime(1500));
+    expect(locked()).toBe(true);
+  });
+
+  it('still releases eventually, so a dropped release cannot wedge a sheet', () => {
+    // The whole reason the backstop is finite: the app backgrounded mid-drag
+    // by an incoming call fires no synthetic touch-end, and a permanently
+    // scrollEnabled={false} sheet puts Save/Cancel out of reach.
+    const { set, locked } = renderLock();
+    set(true, 'drag');
+    act(() => jest.advanceTimersByTime(4001));
+    expect(locked()).toBe(false);
+  });
+
+  it('releases immediately when told to, and stays released', () => {
+    const { set, locked } = renderLock();
+    set(true, 'drag');
+    set(false);
+    expect(locked()).toBe(false);
+    act(() => jest.advanceTimersByTime(5000));
+    expect(locked()).toBe(false);
+  });
+
+  it('re-locks with a fresh drag window after a release', () => {
+    const { set, locked } = renderLock();
+    set(true, 'drag');
+    set(false);
+    set(true, 'drag');
+    act(() => jest.advanceTimersByTime(1500));
+    expect(locked()).toBe(true);
+  });
+
+  it('cancels its backstop on unmount', () => {
+    // SettingsScreen's own copy needed a bug fix for exactly this: switching
+    // tabs mid-drag left the timer armed, and it fired setWheelActive(false)
+    // on an unmounted screen 600ms later.
+    //
+    // Asserted on the pending-timer count, not on a React warning: React
+    // dropped the "setState on an unmounted component" warning in 18.3, so a
+    // console.error assertion here cannot fail whether the cleanup exists or
+    // not. The armed timer is the thing the cleanup is actually responsible
+    // for, and it is directly observable.
+    const { tree, set } = renderLock();
+    set(true, 'drag');
+    expect(jest.getTimerCount()).toBeGreaterThan(0);
+
+    act(() => tree.unmount());
+    mounted.length = 0;
+    expect(jest.getTimerCount()).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The caller's lock is released even when the gesture never ends.
+//
+// A native pan recognizer that is CANCELLED rather than ended invokes neither
+// onScrollEndDrag nor onMomentumScrollEnd -- so onDragEnd never fired, and
+// the enclosing sheet stayed scrollEnabled={false} until the CALLER's own
+// backstop rescued it. That backstop has to be long (useWheelScrollLock's
+// 4000ms drag window) so a legitimate long scrub can't trip it, which made it
+// a poor rescuer. This component's own watchdog knows sooner.
+//
+// The pair of tests matters as much as either alone: firing from the watchdog
+// unconditionally would release a SIBLING wheel's live drag, because a paired
+// row (hours + minutes) shares one lock.
+describe('onDragEnd for a gesture that never ends', () => {
+  function renderWithDragSpy() {
+    const onDragEnd = jest.fn();
+    const onDragStart = jest.fn();
+    let tree: TestRenderer.ReactTestRenderer;
+    act(() => {
+      tree = TestRenderer.create(
+        <WheelPicker
+          labels={LABELS}
+          selectedIndex={3}
+          onChange={() => {}}
+          onDragStart={onDragStart}
+          onDragEnd={onDragEnd}
+          accessibilityLabel="test wheel"
+        />,
+      );
+    });
+    mounted.push(tree!);
+    const sv = tree!.root.findAll((n) => n.props?.snapToInterval === WHEEL_ITEM_SIZE)[0];
+    return { onDragStart, onDragEnd, props: () => sv.props };
+  }
+
+  it('releases the lock when a drag gets no end event at all', () => {
+    const { onDragEnd, props } = renderWithDragSpy();
+    act(() => props().onScrollBeginDrag(scrollEvent(120)));
+    expect(onDragEnd).not.toHaveBeenCalled();
+
+    // The cancelled gesture: nothing else ever arrives.
+    act(() => jest.advanceTimersByTime(4001));
+    expect(onDragEnd).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not release twice when the finger lifted normally', () => {
+    // A fast flick defers its settle to onMomentumScrollEnd, and arms the
+    // 900ms backstop in case that event is dropped. onDragEnd has already
+    // fired at that point -- firing again from the backstop would release
+    // whatever drag is live 900ms later, i.e. the paired wheel's.
+    const { onDragEnd, props } = renderWithDragSpy();
+    act(() => props().onScrollBeginDrag(scrollEvent(120)));
+    act(() => props().onScrollEndDrag(scrollEvent(150, 1.2)));
+    expect(onDragEnd).toHaveBeenCalledTimes(1);
+
+    act(() => jest.advanceTimersByTime(2000));
+    expect(onDragEnd).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not release twice for a slow release either', () => {
+    const { onDragEnd, props } = renderWithDragSpy();
+    act(() => props().onScrollBeginDrag(scrollEvent(120)));
+    act(() => props().onScrollEndDrag(scrollEvent(160)));
+    act(() => props().onMomentumScrollEnd(scrollEvent(160)));
+    act(() => jest.advanceTimersByTime(5000));
+    expect(onDragEnd).toHaveBeenCalledTimes(1);
+  });
+
+  it('releases each fresh gesture on its own', () => {
+    const { onDragEnd, props } = renderWithDragSpy();
+    act(() => props().onScrollBeginDrag(scrollEvent(120)));
+    act(() => props().onScrollEndDrag(scrollEvent(160)));
+    expect(onDragEnd).toHaveBeenCalledTimes(1);
+
+    act(() => props().onScrollBeginDrag(scrollEvent(160)));
+    act(() => props().onScrollEndDrag(scrollEvent(200)));
+    expect(onDragEnd).toHaveBeenCalledTimes(2);
   });
 });

@@ -42,14 +42,10 @@ import { GoalForm, GoalFormValues } from './GoalForm';
 import { Sheet } from '../ui/Sheet';
 import { useReducedMotion, configureLayoutAnimation } from '../ui/useReducedMotion';
 import { useNowMs } from '../ui/useNowMs';
+import { WheelLockPhase, useWheelScrollLock } from '../ui/WheelPicker';
 import { typeScale } from '../theme/tokens';
 import { GoalsEmptyState } from './stats/GoalsEmptyState';
 import { GoalRow, describeTopic } from './GoalRow';
-
-// Matches DurationSheet.tsx's SCROLL_LOCK_SAFETY_MS -- long enough that a
-// real wheel drag never trips it, short enough that a dropped release isn't
-// felt as a frozen screen. See onFormWheelActiveChange below.
-const WHEEL_LOCK_SAFETY_MS = 600;
 
 export function GoalsSection({
   color,
@@ -72,7 +68,7 @@ export function GoalsSection({
   autoOpenCreate,
 }: {
   color: ReturnType<typeof useTheme>;
-  onWheelActiveChange: (active: boolean) => void;
+  onWheelActiveChange: (active: boolean, phase?: WheelLockPhase) => void;
   /** Set by StatsScreen's ManageSheet when this section is reached via
    * GoalsProgressView's empty-state "Start adding goals" CTA rather than its
    * ordinary "Manage goals" button (see ManageSheet.tsx's own comment) --
@@ -113,37 +109,24 @@ export function GoalsSection({
   // caller's. Also forwarded to `onWheelActiveChange` (see that prop's own
   // comment) so an existing caller keeps seeing the identical signal it
   // always has.
-  const [formWheelActive, setFormWheelActive] = React.useState(false);
-  // The safety timer is not optional here, it's the whole point: this lock is
-  // released only by a wheel's onDragEnd (or closeForm). If a single gesture's
-  // release is ever dropped -- the app backgrounded mid-drag by an incoming
-  // call or a control-center swipe is the realistic case, since RN doesn't
-  // guarantee a synthetic touch-end then -- `formWheelActive` sticks true and
-  // this Sheet stays scrollEnabled={false} forever. That's a `size="large"`
-  // form whose Save/Cancel sit below the wheels, so the user is left unable to
-  // scroll to either: the "the time picker froze the screen" report. The
-  // forwarded parent flag can't cover this, because the parent's own timer
-  // (SettingsScreen/StatsScreen) guards the parent's OUTER sheet, never this
-  // nested one. Mirrors DurationSheet.tsx's lock/unlock pair.
-  const wheelSafetyTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-  const clearWheelSafetyTimer = () => {
-    if (wheelSafetyTimer.current) {
-      clearTimeout(wheelSafetyTimer.current);
-      wheelSafetyTimer.current = null;
-    }
+  // The backstop this lock needs is not optional, it's the whole point: the
+  // lock is released only by a wheel's onDragEnd (or closeForm). If a single
+  // gesture's release is ever dropped -- the app backgrounded mid-drag by an
+  // incoming call, where RN promises no synthetic touch-end -- the flag
+  // sticks true and this Sheet stays scrollEnabled={false} forever. That's a
+  // `size="large"` form whose Save/Cancel sit below the wheels, so the user
+  // can't scroll to either. The forwarded parent flag can't cover it, because
+  // the parent's own lock (SettingsScreen/StatsScreen) guards the parent's
+  // OUTER sheet, never this nested one -- hence two locks, not one.
+  const { wheelActive: formWheelActive, setWheelActive: setFormWheelActive } = useWheelScrollLock();
+  // Both locks move together, and both now get the gesture phase: the flat
+  // 600ms window this used to arm fired in the middle of any longer drag,
+  // which re-enabled the sheet's scroll under a live finger AND re-rendered
+  // the wheels mid-drag. See useWheelScrollLock.
+  const onFormWheelActiveChange = (active: boolean, phase?: WheelLockPhase) => {
+    setFormWheelActive(active, phase);
+    onWheelActiveChange(active, phase);
   };
-  const onFormWheelActiveChange = (active: boolean) => {
-    setFormWheelActive(active);
-    onWheelActiveChange(active);
-    clearWheelSafetyTimer();
-    if (active) {
-      wheelSafetyTimer.current = setTimeout(() => {
-        setFormWheelActive(false);
-        onWheelActiveChange(false);
-      }, WHEEL_LOCK_SAFETY_MS);
-    }
-  };
-  React.useEffect(() => clearWheelSafetyTimer, []);
 
   // Archived goals are tombstones, not removals (see Goal.archived in
   // goals.ts) -- filtered out here so a "deleted" goal never renders while
@@ -183,9 +166,8 @@ export function GoalsSection({
     configureLayoutAnimation(reducedMotion);
     setError(null);
     setFormOpen(false);
-    clearWheelSafetyTimer(); // this release is definitive; no backstop needed
-    setFormWheelActive(false);
-    onWheelActiveChange(false);
+    // Definitive release -- the form (and its wheels) are going away.
+    onFormWheelActiveChange(false);
   };
 
   // Fires openForm(null) on `autoOpenCreate`'s false->true edge, not merely

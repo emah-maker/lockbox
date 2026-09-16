@@ -32,6 +32,7 @@ import { WeekdayChips, SessionTargetControl, weekdaySummary } from './GoalFormEx
 import { GoalReminderControl } from './GoalReminderControl';
 import { ALL_TOPICS_ID, orphanLabel, TopicChip, TopicChoiceChips } from './GoalTopicChips';
 import { spacing } from '../theme/tokens';
+import { WheelLockPhase } from '../ui/WheelPicker';
 
 /** Which group is expanded. `null` -- nothing open -- is the resting state,
  * including on mount: a new goal's required fields are already visible above
@@ -83,7 +84,7 @@ export function GoalFormGroups({
   customLabels: ReturnType<typeof useSettingsStore.getState>['customLabels'];
   themeMode: ReturnType<typeof useSettingsStore.getState>['themeMode'];
   color: ReturnType<typeof useTheme>;
-  onWheelActiveChange: (active: boolean) => void;
+  onWheelActiveChange: (active: boolean, phase?: WheelLockPhase) => void;
 }) {
   const [openGroup, setOpenGroup] = React.useState<OpenGroup>(null);
 

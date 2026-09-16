@@ -41,6 +41,7 @@ import { DemoModeSection, demoModeSummary } from './settings/DemoModeSection';
 import { AboutSection, aboutSummary } from './settings/AboutSection';
 import { typeScale, elevation, radius } from '../theme/tokens';
 import { withAlpha } from '../theme/color';
+import { useWheelScrollLock } from '../ui/WheelPicker';
 
 type SheetKey =
   | 'account'
@@ -91,27 +92,14 @@ export default function SettingsScreen() {
   // has for GoalsSection (see its own onWheelActiveChange comment), needed
   // again here since both sections are mounted inside this screen's own
   // sheets. One piece of state serves both: only one sheet is ever open.
-  const [wheelActive, setWheelActive] = React.useState(false);
-  const wheelSafetyTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-  const onWheelActiveChange = (active: boolean) => {
-    if (wheelSafetyTimer.current) {
-      clearTimeout(wheelSafetyTimer.current);
-      wheelSafetyTimer.current = null;
-    }
-    setWheelActive(active);
-    if (active) {
-      wheelSafetyTimer.current = setTimeout(() => setWheelActive(false), 600);
-    }
-  };
-  // Bug fix: this timer used to outlive the screen -- switching tabs away
-  // from Settings mid-drag (GoalsSection's target wheels, NotificationsSection's
-  // quiet-hours wheels) left it armed, and it fired setWheelActive(false) on
-  // an already-unmounted SettingsScreen 600ms later. Same cleanup StatsScreen
-  // already has for its own identical wheelSafetyTimer -- this one was simply
-  // missing it.
-  React.useEffect(() => () => {
-    if (wheelSafetyTimer.current) clearTimeout(wheelSafetyTimer.current);
-  }, []);
+  //
+  // The lock's own backstop timer used to be hand-rolled here with a flat
+  // 600ms window, which any drag longer than that tripped MID-DRAG: the
+  // sheet's scroll came back under a live finger, and the state flip
+  // re-rendered the wheels. useWheelScrollLock picks the window from the
+  // gesture phase instead, and owns the unmount cleanup this copy needed a
+  // bug fix to get. See its comment in WheelPicker.tsx.
+  const { wheelActive, setWheelActive: onWheelActiveChange } = useWheelScrollLock();
 
   // Deep links (Stats/Calendar navigating here via useNav) land on a
   // specific sheet instead of a scroll position, since there's no longer a

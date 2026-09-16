@@ -28,36 +28,25 @@ import { useTheme } from '../../theme/useTheme';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import { getGoalNotificationPermission, requestGoalNotificationPermission } from '../../goals/goalNotifications';
 import { Section, Row, rowLabelStyle, captionStyle, Button } from '../SettingsPrimitives';
-import { WheelPicker } from '../../ui/WheelPicker';
+import { ClockWheels } from '../../ui/ClockWheels';
+import { WheelLockPhase } from '../../ui/WheelPicker';
 import { formatClockTime } from '../../ui/time';
 import { spacing } from '../../theme/tokens';
 
-const HOUR_LABELS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'));
-// Quiet-hours boundaries snap to the same 5-minute grid every other minute
-// wheel in this app uses (the Dashboard's lock duration, a goal's target, a
-// reminder time), so the app never has two different minute conventions.
-const MINUTE_VALUES = Array.from({ length: 12 }, (_, i) => i * 5);
-const MINUTE_LABELS = MINUTE_VALUES.map((m) => String(m).padStart(2, '0'));
-
 type PermissionState = 'granted' | 'denied' | 'undetermined' | 'unavailable' | 'checking';
 
-function parse(value: string): { hour: number; minuteIndex: number } {
-  const m = /^(\d{2}):(\d{2})$/.exec(value);
-  const hour = m ? Math.min(23, parseInt(m[1], 10)) : 0;
-  const minute = m ? parseInt(m[2], 10) : 0;
-  const minuteIndex = MINUTE_VALUES.reduce(
-    (best, v, i) => (Math.abs(v - minute) < Math.abs(MINUTE_VALUES[best] - minute) ? i : best),
-    0,
-  );
-  return { hour, minuteIndex };
-}
+// A quiet-hours boundary that hasn't been set yet reads as midnight, not as
+// the 9am a reminder time defaults to -- the one thing the local parse() this
+// file used to own did differently from the other two copies, and the reason
+// ClockWheels takes `fallback` as a prop instead of hardcoding one.
+const QUIET_HOURS_FALLBACK = '00:00';
 
-function format(hour: number, minute: number): string {
-  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
-}
-
-/** One labelled hour+minute wheel pair. Both quiet-hours boundaries need
- * exactly this, so it's a local component rather than the same JSX twice. */
+/** One labelled time-of-day picker. Both quiet-hours boundaries need exactly
+ * this, so it's a local component rather than the same JSX twice.
+ *
+ * The wheels themselves (and the 24h -> AM/PM change, and the wheel row's
+ * touch/drag handoff with the enclosing Sheet) all live in ui/ClockWheels.tsx
+ * now; what's left here is the label and the value plumbing. */
 function TimeWheels({
   label,
   value,
@@ -68,47 +57,21 @@ function TimeWheels({
   label: string;
   value: string;
   onChange: (next: string) => void;
-  onWheelActiveChange: (active: boolean) => void;
+  onWheelActiveChange: (active: boolean, phase?: WheelLockPhase) => void;
   color: ReturnType<typeof useTheme>;
 }) {
-  const { hour, minuteIndex } = parse(value);
   return (
     <View style={styles.wheelBlock}>
       <Text style={[styles.label, { color: color.textDim }]}>
         {label}: {formatClockTime(value)}
       </Text>
-      {/* wheelRow's alignSelf: 'center' (below) is load-bearing -- same fix
-          as GoalForm.tsx's own Target wheelRow (see that file's comment for
-          the full mechanism): without it this touch-capturing View
-          stretches to styles.wheelBlock's full column width, leaving a dead
-          margin either side of the two centered wheels that still claims
-          (and, on release, releases) the enclosing Sheet's scroll lock
-          without any wheel ever capturing the drag -- read as "hard to
-          scroll on the sides of the quiet-hours wheels", the same report as
-          the goal form's Target wheels. */}
-      <View
-        style={styles.wheelRow}
-        onTouchStart={() => onWheelActiveChange(true)}
-        onTouchEnd={() => onWheelActiveChange(false)}
-        onTouchCancel={() => onWheelActiveChange(false)}
-      >
-        <WheelPicker
-          labels={HOUR_LABELS}
-          selectedIndex={hour}
-          onChange={(i) => onChange(format(i, MINUTE_VALUES[minuteIndex]))}
-          onDragStart={() => onWheelActiveChange(true)}
-          onDragEnd={() => onWheelActiveChange(false)}
-          accessibilityLabel={`${label}, hour`}
-        />
-        <WheelPicker
-          labels={MINUTE_LABELS}
-          selectedIndex={minuteIndex}
-          onChange={(i) => onChange(format(hour, MINUTE_VALUES[i]))}
-          onDragStart={() => onWheelActiveChange(true)}
-          onDragEnd={() => onWheelActiveChange(false)}
-          accessibilityLabel={`${label}, minute`}
-        />
-      </View>
+      <ClockWheels
+        value={value}
+        onChange={onChange}
+        onWheelActiveChange={onWheelActiveChange}
+        accessibilityPrefix={label}
+        fallback={QUIET_HOURS_FALLBACK}
+      />
     </View>
   );
 }
@@ -120,8 +83,11 @@ export function NotificationsSection({
   color: ReturnType<typeof useTheme>;
   /** Forwarded to the enclosing Sheet's `scrollEnabled`, the same "outer
    * scroll yields to an inner wheel drag" contract every other
-   * WheelPicker-inside-a-Sheet call site in this app uses. */
-  onWheelActiveChange: (active: boolean) => void;
+   * WheelPicker-inside-a-Sheet call site in this app uses. Implement it with
+   * useWheelScrollLock (WheelPicker.tsx) so the `phase` is honored -- a
+   * caller that ignores it re-enables its own scroll in the middle of any
+   * drag longer than 600ms. */
+  onWheelActiveChange: (active: boolean, phase?: WheelLockPhase) => void;
 }) {
   const enabled = useSettingsStore((s) => s.notificationsEnabled);
   const setEnabled = useSettingsStore((s) => s.setNotificationsEnabled);
@@ -245,7 +211,4 @@ const styles = StyleSheet.create({
   label: rowLabelStyle,
   caption: captionStyle,
   wheelBlock: { gap: spacing.xs, marginTop: spacing.xs },
-  // alignSelf: 'center' is the fix (see the wheelRow View's own comment
-  // above); justifyContent is kept only as a no-op once alignSelf is set.
-  wheelRow: { flexDirection: 'row', justifyContent: 'center', alignSelf: 'center', gap: 8 },
 });

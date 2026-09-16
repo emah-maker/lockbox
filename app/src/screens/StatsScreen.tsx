@@ -62,6 +62,7 @@ import { SessionListSheet } from './stats/SessionListSheet';
 import { LabelPickerSheet } from '../ui/calendar/LabelPickerSheet';
 import { allLabelChoices, resolveTopic } from '../stats/customLabels';
 import { ManageSheet } from './stats/ManageSheet';
+import { useWheelScrollLock } from '../ui/WheelPicker';
 
 const TOP_N = 5;
 const TIME_WINDOW_KEY = 'statsTimeWindow';
@@ -133,19 +134,10 @@ export default function StatsScreen() {
   // scrollEnabled hand-off DashboardScreen/the old inline GoalsSection here
   // used, just now scoped to the sheet instead of this screen's own
   // (removed) ScrollView drag.
-  const [wheelActive, setWheelActive] = useState(false);
-  const wheelSafetyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const onWheelActiveChange = (active: boolean) => {
-    if (wheelSafetyTimer.current) {
-      clearTimeout(wheelSafetyTimer.current);
-      wheelSafetyTimer.current = null;
-    }
-    setWheelActive(active);
-    if (active) wheelSafetyTimer.current = setTimeout(() => setWheelActive(false), 600);
-  };
-  useEffect(() => () => {
-    if (wheelSafetyTimer.current) clearTimeout(wheelSafetyTimer.current);
-  }, []);
+  // The backstop window is picked from the gesture phase rather than a flat
+  // 600ms -- see useWheelScrollLock in WheelPicker.tsx for why a flat one
+  // fired in the middle of any longer drag.
+  const { wheelActive, setWheelActive: onWheelActiveChange } = useWheelScrollLock();
 
   // Per-device view preference -- deliberately not part of useSettingsStore's
   // SyncableSettings, since which period is selected shouldn't follow the

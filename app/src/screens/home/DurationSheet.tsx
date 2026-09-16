@@ -19,17 +19,11 @@
 // onDragEnd not firing -- cheap insurance, kept even though WheelPicker's
 // own edge-bounce (the original trigger for a stuck onDragEnd) is gone now
 // that WheelPicker sets bounces={false}.
-import { useEffect, useRef, useState } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Sheet } from '../../ui/Sheet';
-import { WheelPicker } from '../../ui/WheelPicker';
+import { WheelPicker, useWheelScrollLock } from '../../ui/WheelPicker';
 import { TopicPicker } from '../TopicPicker';
 import { useSettingsStore } from '../../store/useSettingsStore';
-
-// Matches DashboardScreen's old pickerSafetyTimer duration -- no real
-// drag+settle takes anywhere near this long, so a stuck flag always means
-// the paired re-enable was lost, not a still-legitimate drag.
-const SCROLL_LOCK_SAFETY_MS = 600;
 
 export function DurationSheet({
   visible,
@@ -61,24 +55,13 @@ export function DurationSheet({
   // theme / sessions / excludedTopicKeys used to be read here purely to hand
   // to TopicPicker -- the identical three reads TagSheet was also making.
   // TopicPicker reads them itself now; see its own comment.
-  const [sheetScrollEnabled, setSheetScrollEnabled] = useState(true);
-  const safetyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const lockSheetScroll = () => {
-    setSheetScrollEnabled(false);
-    if (safetyTimer.current) clearTimeout(safetyTimer.current);
-    safetyTimer.current = setTimeout(() => setSheetScrollEnabled(true), SCROLL_LOCK_SAFETY_MS);
-  };
-  const unlockSheetScroll = () => {
-    if (safetyTimer.current) {
-      clearTimeout(safetyTimer.current);
-      safetyTimer.current = null;
-    }
-    setSheetScrollEnabled(true);
-  };
-  useEffect(() => () => {
-    if (safetyTimer.current) clearTimeout(safetyTimer.current);
-  }, []);
+  // The lock/unlock pair the rest of this app's wheel call sites cite as the
+  // reference version -- now the shared hook, so the reference and the copies
+  // can't drift. Its backstop window is chosen from the gesture phase: the
+  // flat 600ms this file used to arm fired in the middle of any longer drag,
+  // handing the sheet's scroll back under a live finger and re-rendering the
+  // wheels while they were being dragged. See useWheelScrollLock.
+  const { wheelActive, setWheelActive } = useWheelScrollLock();
 
   return (
     <Sheet
@@ -86,7 +69,7 @@ export function DurationSheet({
       onClose={onClose}
       title="Set lock duration"
       size="auto"
-      scrollEnabled={sheetScrollEnabled}
+      scrollEnabled={!wheelActive}
       // Wheels in the body -- see Sheet.tsx's dragBodyToDismiss.
       dragBodyToDismiss={false}
     >
@@ -99,16 +82,16 @@ export function DurationSheet({
           labels={hourLabels}
           selectedIndex={hoursIndex}
           onChange={onHoursIndexChange}
-          onDragStart={lockSheetScroll}
-          onDragEnd={unlockSheetScroll}
+          onDragStart={() => setWheelActive(true, 'drag')}
+          onDragEnd={() => setWheelActive(false)}
           accessibilityLabel="Lock duration, hours"
         />
         <WheelPicker
           labels={minuteLabels}
           selectedIndex={minutesIndex}
           onChange={onMinutesIndexChange}
-          onDragStart={lockSheetScroll}
-          onDragEnd={unlockSheetScroll}
+          onDragStart={() => setWheelActive(true, 'drag')}
+          onDragEnd={() => setWheelActive(false)}
           accessibilityLabel="Lock duration, minutes"
         />
       </View>

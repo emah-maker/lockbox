@@ -9,7 +9,7 @@
 // since the interaction (drag, momentum-snap, VoiceOver increment/decrement)
 // is identical either way and only the scroll axis changes.
 import * as Haptics from 'expo-haptics';
-import { useEffect, useReducer, useRef } from 'react';
+import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import {
   Animated,
   NativeScrollEvent,
@@ -167,6 +167,21 @@ export function WheelPicker({
   const [, forceResync] = useReducer((n: number) => n + 1, 0);
 
   const busyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Whether the CURRENT gesture has already fired onDragEnd. Reset at
+  // onScrollBeginDrag, set by every path that releases -- so endBusy below
+  // can tell "the finger lifted and I already told the caller" from "no end
+  // event ever arrived", and only speak up in the second case. Without it,
+  // the ordinary dropped-momentum path (where onScrollEndDrag has already
+  // released) fired a SECOND onDragEnd up to 900ms later, which on a paired
+  // wheel row (hours + minutes share one lock) lands as a release of
+  // whichever sibling drag is live by then.
+  const dragEndFiredRef = useRef(false);
+
+  const fireDragEnd = () => {
+    if (dragEndFiredRef.current) return;
+    dragEndFiredRef.current = true;
+    onDragEnd?.();
+  };
 
   const cancelCorrecting = () => {
     correctingRef.current = false;
@@ -216,9 +231,23 @@ export function WheelPicker({
   // guard and force the render the resync effect needs, so the wheel catches
   // up to whatever selectedIndex it was ignoring while wedged -- the same
   // deferred-not-dropped handoff endCorrecting() does for correctingRef.
+  //
+  // Releases the caller's lock too, because this is the only thing that runs
+  // when a native gesture is CANCELLED rather than ended: cancellation
+  // invokes neither onScrollEndDrag nor onMomentumScrollEnd, so onDragEnd
+  // never fired and the lock would be left for the CALLER's backstop to
+  // rescue -- and that backstop has to be long (see useWheelScrollLock's
+  // BUSY_MAX_DRAG_MS window) precisely so a legitimate long scrub can't trip
+  // it. Releasing here bounds the cancelled case to this component's own
+  // watchdog, which is the thing that actually knows the gesture is over.
+  //
+  // Routed through fireDragEnd so it speaks ONLY for a gesture that never
+  // ended: see dragEndFiredRef for why a second release is not harmless on a
+  // paired wheel row.
   const endBusy = () => {
     if (!isBusyRef.current) return;
     clearBusy();
+    fireDragEnd();
     forceResync();
   };
 
@@ -298,12 +327,85 @@ export function WheelPicker({
     scrollToIndex(selectedIndex, true);
   });
 
-  const onScroll = Animated.event(
-    [{ nativeEvent: { contentOffset: horizontal ? { x: scrollPos } : { y: scrollPos } } }],
-    { useNativeDriver: true },
+  // Memoized so the native scroll subscription survives a re-render.
+  //
+  // With useNativeDriver an Animated.event is attached to the native scroll
+  // view by node id, and RN's AnimatedProps memo keys non-style props by
+  // IDENTITY -- so a fresh handler every render meant detaching and
+  // re-attaching that subscription every render. The detach/attach pair is
+  // queued into one NativeAnimatedHelper batch, so it drops no scroll frames
+  // on its own; the cost it was actually paying is below, in itemStyles,
+  // whose graphs were being torn down in the same swap.
+  //
+  // Memoizing this handler alone does NOT hold, which is why contentContainer
+  // and children are memoized alongside it: they are keyed by identity too,
+  // so one inline object literal or one inline labels.map() is enough to make
+  // the whole composite key unequal and recreate AnimatedProps regardless of
+  // how stable this handler is.
+  const onScroll = useMemo(
+    () =>
+      Animated.event([{ nativeEvent: { contentOffset: horizontal ? { x: scrollPos } : { y: scrollPos } } }], {
+        useNativeDriver: true,
+      }),
+    [horizontal, scrollPos],
+  );
+
+  const contentContainerStyle = useMemo(
+    () => (horizontal ? { paddingHorizontal: PAD } : { paddingVertical: PAD }),
+    [horizontal, PAD],
   );
 
   const maxOffset = (labels.length - 1) * itemSize;
+
+  // One Animated style per item, built once per wheel GEOMETRY (how many
+  // items, how tall) and never rebuilt for a mere re-render.
+  //
+  // Same mechanism as onScroll above, and the more visible half of the same
+  // bug. Each of these is a native animated node graph -- subtract, then two
+  // interpolations -- attached to one Animated.View. Building them inline in
+  // the render body handed every item a brand-new graph on every render, and
+  // Animated tears the old one down and attaches the new one, which for a
+  // 24-item hour wheel is 72 node swaps. Mid-drag renders are not an edge
+  // case here; they are how the call sites work:
+  //   - the enclosing sheet's scroll-lock state flipping (ClockWheels.tsx and
+  //     useWheelScrollLock below),
+  //   - a paired wheel's onChange (dragging hours rewrites the minute value),
+  //   - forceResync() from either backstop.
+  // So the swap reliably happened WHILE a finger was moving, and the frames
+  // spent detached are frames where the items don't move: a stall, then a
+  // snap to wherever the scroll had got to. That is the freeze this wheel's
+  // many earlier gesture-responder fixes never touched, because it was never
+  // a gesture bug at all.
+  //
+  // Keyed on labels.LENGTH rather than `labels`: the label strings are drawn
+  // by the Text below and have no bearing on the geometry, while the array
+  // identity changes on every render at any call site that derives its labels
+  // inline (NotificationsSection's minute labels used to be exactly that).
+  const itemCount = labels.length;
+  const itemStyles = useMemo(
+    () =>
+      Array.from({ length: itemCount }, (_, i) => {
+        const distance = Animated.subtract(scrollPos, i * itemSize);
+        const inputRange = [-itemSize * 2, -itemSize, 0, itemSize, itemSize * 2];
+        return {
+          opacity: distance.interpolate({
+            inputRange,
+            outputRange: [0.25, 0.55, 1, 0.55, 0.25],
+            extrapolate: 'clamp',
+          }),
+          transform: [
+            {
+              scale: distance.interpolate({
+                inputRange,
+                outputRange: [0.82, 0.92, 1, 0.92, 0.82],
+                extrapolate: 'clamp',
+              }),
+            },
+          ],
+        };
+      }),
+    [itemCount, itemSize, scrollPos],
+  );
 
   const commit = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const pos = horizontal ? e.nativeEvent.contentOffset.x : e.nativeEvent.contentOffset.y;
@@ -351,6 +453,28 @@ export function WheelPicker({
       onChange(index);
     }
   };
+
+  // The item views, memoized for the same identity reason as onScroll above:
+  // an inline labels.map() is a new array every render, which alone is enough
+  // to invalidate AnimatedProps' composite key and undo itemStyles' whole
+  // point. Depends on everything actually rendered here and nothing else --
+  // note itemStyles is itself memoized, so it does not re-trigger this.
+  const items = useMemo(
+    () =>
+      labels.map((label, i) => (
+        <Animated.View
+          key={`${label}-${i}`}
+          style={[
+            styles.item,
+            horizontal ? { width: itemSize, height: '100%' } : { height: itemSize },
+            itemStyles[i],
+          ]}
+        >
+          <Text style={[styles.itemText, itemTextStyle, { color: theme.text }]}>{label}</Text>
+        </Animated.View>
+      )),
+    [labels, horizontal, itemSize, itemStyles, itemTextStyle, theme.text],
+  );
 
   // VoiceOver/TalkBack's increment/decrement gestures on an "adjustable"
   // element -- the accessible equivalent of a one-step drag. Scrolls the
@@ -419,7 +543,7 @@ export function WheelPicker({
         // fight instead of only guarding around it after the fact.
         bounces={false}
         overScrollMode="never"
-        contentContainerStyle={horizontal ? { paddingHorizontal: PAD } : { paddingVertical: PAD }}
+        contentContainerStyle={contentContainerStyle}
         // INITIAL parking position only -- deliberately frozen at its mount
         // value, never recomputed from the live `selectedIndex`. RN forwards
         // this straight through to the native scroll view as an ordinary prop
@@ -444,6 +568,7 @@ export function WheelPicker({
         scrollEventThrottle={16}
         onScrollBeginDrag={() => {
           beginBusy(BUSY_MAX_DRAG_MS);
+          dragEndFiredRef.current = false; // a fresh gesture gets a fresh release
           // A new touch supersedes any correction still in flight from the
           // last one; cancel rather than end it, since this drag will drive
           // the next commit anyway and forcing a resync render mid-gesture
@@ -465,7 +590,7 @@ export function WheelPicker({
           // often several hundred ms -- and any gesture landing on the rest
           // of the screen during that window did nothing, reading as the
           // picker/screen intermittently "glitching" or going unresponsive.
-          onDragEnd?.();
+          fireDragEnd();
           const velocity = horizontal ? e.nativeEvent.velocity?.x : e.nativeEvent.velocity?.y;
           if (Math.abs(velocity ?? 0) > DRAG_SETTLE_VELOCITY) {
             // Handing this settle to onMomentumScrollEnd -- which is exactly
@@ -479,31 +604,7 @@ export function WheelPicker({
           commit(e);
         }}
       >
-        {labels.map((label, i) => {
-          const distance = Animated.subtract(scrollPos, i * itemSize);
-          const opacity = distance.interpolate({
-            inputRange: [-itemSize * 2, -itemSize, 0, itemSize, itemSize * 2],
-            outputRange: [0.25, 0.55, 1, 0.55, 0.25],
-            extrapolate: 'clamp',
-          });
-          const scale = distance.interpolate({
-            inputRange: [-itemSize * 2, -itemSize, 0, itemSize, itemSize * 2],
-            outputRange: [0.82, 0.92, 1, 0.92, 0.82],
-            extrapolate: 'clamp',
-          });
-          return (
-            <Animated.View
-              key={`${label}-${i}`}
-              style={[
-                styles.item,
-                horizontal ? { width: itemSize, height: '100%' } : { height: itemSize },
-                { opacity, transform: [{ scale }] },
-              ]}
-            >
-              <Text style={[styles.itemText, itemTextStyle, { color: theme.text }]}>{label}</Text>
-            </Animated.View>
-          );
-        })}
+        {items}
       </Animated.ScrollView>
       {/* Center highlight, Apple Clock-style -- a band across the wheel when
           vertical, a band down it when horizontal -- drawn once per wheel
@@ -520,6 +621,96 @@ export function WheelPicker({
       />
     </View>
   );
+}
+
+/** Which half of the gesture handoff is asking for the lock. A bare touch on
+ * a wheel row may never become a drag, so it gets a short backstop; a drag
+ * this wheel has actually captured gets a long one. See useWheelScrollLock. */
+export type WheelLockPhase = 'touch' | 'drag';
+
+// Backstop for the PRE-drag window. A touch that lands on a wheel row and
+// never becomes a drag is released by the row's own onTouchEnd/-Cancel, so
+// this only has to cover one of those being dropped -- it can stay short.
+const LOCK_TAP_SETTLE_MS = 600;
+
+/**
+ * The outer-scroll lock every WheelPicker-in-a-scroller call site needs:
+ * `wheelActive` drives the enclosing ScrollView's `scrollEnabled`, so an
+ * ancestor sharing the wheel's scroll axis yields while a wheel is being
+ * dragged (see this component's own onDragStart/onDragEnd comments for why
+ * that handoff has to exist at all).
+ *
+ * Hoisted out of the three hand-rolled copies that had it -- SettingsScreen,
+ * home/DurationSheet, calendar/SessionReminderForm -- because all three had
+ * the SAME defect, and fixing it in one of them would only have left the
+ * other two wrong: they armed a single 600ms backstop from whichever signal
+ * arrived first, so any drag lasting longer than 600ms tripped it MID-DRAG.
+ * Two things then went wrong at once, and both of them read as freezing:
+ *
+ *   1. The ancestor's scrollEnabled came back under a live finger, so the
+ *      ancestor could steal the rest of the gesture -- the wheel stopped
+ *      following the drag and the sheet moved instead.
+ *   2. The state flip re-rendered the wheels mid-drag, which (before the
+ *      memoization above) rebuilt their native animated graphs and stalled
+ *      the item scale/opacity animation outright.
+ *
+ * The fix is to pick the backstop from the phase: LOCK_TAP_SETTLE_MS while a
+ * touch might still be a tap, BUSY_MAX_DRAG_MS once a wheel reports a real
+ * drag -- the same figure this component uses for its own drag watchdog, and
+ * long enough that a genuine scrub can't reach it. Still finite, so a dropped
+ * release (the app backgrounded mid-drag by an incoming call, where RN
+ * promises no synthetic touch-end) cannot leave a sheet unscrollable for
+ * good, which is what the backstop was for.
+ */
+export function useWheelScrollLock(): {
+  /** Feed straight to the enclosing ScrollView's `scrollEnabled` as `!wheelActive`. */
+  wheelActive: boolean;
+  /** The `onWheelActiveChange(active, phase)` callback to hand to wheel rows. */
+  setWheelActive: (active: boolean, phase?: WheelLockPhase) => void;
+} {
+  const [wheelActive, setActive] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Which window the armed backstop belongs to. Needed because a 'touch' can
+  // arrive while a 'drag' is already live -- a second finger landing on the
+  // wheel row -- and re-arming the short window there would resurrect exactly
+  // the mid-drag unlock this hook exists to remove. A phase only ever
+  // escalates; it is cleared on release.
+  const phaseRef = useRef<WheelLockPhase | null>(null);
+
+  const clear = () => {
+    if (timer.current) {
+      clearTimeout(timer.current);
+      timer.current = null;
+    }
+  };
+  // Must not outlive the component: a backstop firing after unmount sets
+  // state on a dead tree.
+  useEffect(() => clear, []);
+
+  const setWheelActive = (active: boolean, phase: WheelLockPhase = 'touch') => {
+    if (!active) {
+      clear();
+      phaseRef.current = null;
+      setActive(false);
+      return;
+    }
+    // Already holding the long window -- leave it alone. Re-arming it from a
+    // second touch would restart a 4s watchdog that is already running, and
+    // re-arming the SHORT one would cut the live drag's guard to 600ms.
+    if (phaseRef.current === 'drag' && phase === 'touch') {
+      setActive(true);
+      return;
+    }
+    clear();
+    phaseRef.current = phase;
+    setActive(true);
+    timer.current = setTimeout(() => {
+      phaseRef.current = null;
+      setActive(false);
+    }, phase === 'drag' ? BUSY_MAX_DRAG_MS : LOCK_TAP_SETTLE_MS);
+  };
+
+  return { wheelActive, setWheelActive };
 }
 
 const styles = StyleSheet.create({

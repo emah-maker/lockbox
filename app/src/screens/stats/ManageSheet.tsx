@@ -26,6 +26,7 @@
 import { View } from 'react-native';
 import { useTheme } from '../../theme/useTheme';
 import { GoalsSection } from '../GoalsSection';
+import { WheelLockPhase } from '../../ui/WheelPicker';
 
 // No ScrollView here -- ui/Sheet.tsx's own body already scrolls (see its
 // header comment: "the sheet never grows the underlying screen"), and
@@ -39,7 +40,7 @@ export function ManageSheet({
   initialCreate,
 }: {
   color: ReturnType<typeof useTheme>;
-  onWheelActiveChange: (active: boolean) => void;
+  onWheelActiveChange: (active: boolean, phase?: WheelLockPhase) => void;
   /** See this file's header -- forwarded verbatim to GoalsSection's own
    * `autoOpenCreate`. */
   initialCreate?: boolean;

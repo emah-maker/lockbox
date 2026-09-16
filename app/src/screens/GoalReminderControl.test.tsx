@@ -138,17 +138,22 @@ function pressEditChip(tree: TestRenderer.ReactTestRenderer, index: number) {
   act(() => hits[index].props.onPress());
 }
 
-/** The picker's own commit ("Add "/"Update ") button, located by its fill
- * color (styles.pickerBtn + {backgroundColor: color.accent, ...}) rather
- * than by its label text, which embeds the same locale-dependent formatted
- * time chipEditLabels avoids. The Cancel button next to it never sets
- * backgroundColor, so this is unambiguous. */
+/** The picker's own commit button, located by the FIXED half of its own
+ * label -- the 'Add'/'Update' verb -- rather than by its accent fill.
+ *
+ * The fill is no longer unique: ui/ClockWheels.tsx's AM/PM segments are
+ * accent-filled when selected too, and render above this button, so a
+ * color-only search now finds the period toggle first. The verb is the right
+ * anchor anyway: it is this button's identity, and unlike the formatted time
+ * beside it ('Add 9:00 AM') it carries no locale dependence, which is the
+ * thing chipEditLabels avoids asserting on. Cancel is excluded by
+ * construction, since its label is neither verb. */
 function pressCommit(tree: TestRenderer.ReactTestRenderer) {
   const hits = tree.root.findAll(
     (n) =>
       typeof n.props?.onPress === 'function' &&
-      Array.isArray(n.props?.style) &&
-      n.props.style.some((s: unknown) => !!s && typeof s === 'object' && (s as { backgroundColor?: string }).backgroundColor === theme.accent),
+      n.props?.accessibilityRole === 'button' &&
+      n.findAll((c) => String(c.type) === 'Text' && /^(Add|Update)$/.test(textOf(c).trim().split(' ')[0])).length > 0,
   );
   expect(hits.length).toBeGreaterThan(0);
   act(() => hits[0].props.onPress());

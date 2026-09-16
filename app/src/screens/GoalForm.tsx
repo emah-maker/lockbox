@@ -62,7 +62,7 @@ import {
 } from '../goals/goalTargetParts';
 import { Button } from './SettingsPrimitives';
 import { AnimatedPressable } from '../ui/AnimatedPressable';
-import { WheelPicker } from '../ui/WheelPicker';
+import { WheelLockPhase, WheelPicker } from '../ui/WheelPicker';
 import { GoalFormGroups } from './GoalFormGroups';
 import { goalNotifyTimes } from '../goals/goalReminders';
 import { typeScale } from '../theme/tokens';
@@ -97,6 +97,12 @@ const MINUTE_LABELS = MINUTE_VALUES.map((m) => `${String(m).padStart(2, '0')}m`)
 // still uses (its Hours wheel IS the whole period, same as before the
 // Days-wheel split).
 const HOUR_OF_DAY_LABELS = Array.from({ length: 24 }, (_, i) => `${i}h`);
+// The single-stop wheels a clamp collapses to, and the empty one a hidden
+// wheel gets. Module constants rather than inline literals so their identity
+// is stable across renders too -- see the useMemo on dayLabels below.
+const EMPTY_LABELS: string[] = [];
+const CLAMPED_HOUR_LABELS = ['0h'];
+const CLAMPED_MINUTE_LABELS = ['00m'];
 function hourLabelsFor(period: GoalPeriod): string[] {
   return Array.from({ length: PERIOD_MAX_HOURS[period] + 1 }, (_, i) => `${i}h`);
 }
@@ -178,7 +184,7 @@ function GoalForm({
    * Sheet's `scrollEnabled` prop, the same "outer scroll yields to an inner
    * wheel drag" contract DurationSheet.tsx already applies for the
    * identical WheelPicker-inside-Sheet situation. */
-  onWheelActiveChange: (active: boolean) => void;
+  onWheelActiveChange: (active: boolean, phase?: WheelLockPhase) => void;
 }) {
   const [topicId, setTopicId] = React.useState<string>(initial?.topic ?? ALL_TOPICS_ID);
   const [period, setPeriod] = React.useState<GoalPeriod>(initial?.period ?? 'daily');
@@ -240,9 +246,22 @@ function GoalForm({
   // just gets a goal that refuses to save and a message to work backwards
   // from, which is precisely what shrinking the wheels exists to avoid.
   const atMaxHours = !showDaysWheel && hours >= PERIOD_MAX_HOURS[period];
-  const dayLabels = showDaysWheel ? dayLabelsFor(period) : [];
-  const hourLabels = showDaysWheel ? (atMaxDays ? ['0h'] : HOUR_OF_DAY_LABELS) : hourLabelsFor(period);
-  const minuteLabels = atMaxDays || atMaxHours ? ['00m'] : MINUTE_LABELS;
+  // Memoized because WheelPicker keys its memoized item views on the `labels`
+  // ARRAY, and hourLabelsFor/dayLabelsFor build a fresh one per call -- so
+  // calling them inline here handed all three wheels a new array identity on
+  // every render of this form, which is every keystroke in the name field.
+  // That misses WheelPicker's `items` memo and re-creates its ScrollView's
+  // AnimatedProps each time. (The wheels' own scroll ANIMATION was never at
+  // risk: its itemStyles memo is keyed on the labels' LENGTH, which these
+  // only change when the period or a clamp actually changes.) The clamped
+  // one-item arrays are literals rather than consts for the same reason --
+  // see CLAMPED_HOUR/CLAMPED_MINUTE below.
+  const dayLabels = React.useMemo(() => (showDaysWheel ? dayLabelsFor(period) : EMPTY_LABELS), [showDaysWheel, period]);
+  const hourLabels = React.useMemo(
+    () => (showDaysWheel ? (atMaxDays ? CLAMPED_HOUR_LABELS : HOUR_OF_DAY_LABELS) : hourLabelsFor(period)),
+    [showDaysWheel, atMaxDays, period],
+  );
+  const minuteLabels = atMaxDays || atMaxHours ? CLAMPED_MINUTE_LABELS : MINUTE_LABELS;
   // Three wheels at WheelPicker's own 90pt default would need 286pt of row
   // (3*90 + 2*8 gap), which overflows a 320pt-wide device once the sheet's
   // horizontal padding is taken out. Two wheels keep the default.
@@ -340,7 +359,7 @@ function GoalForm({
       <Text style={[styles.formLabel, { color: color.textDim }]}>Target</Text>
       <View
         style={styles.wheelRow}
-        onTouchStart={() => onWheelActiveChange(true)}
+        onTouchStart={() => onWheelActiveChange(true, 'touch')}
         onTouchEnd={() => onWheelActiveChange(false)}
         onTouchCancel={() => onWheelActiveChange(false)}
       >
@@ -371,7 +390,7 @@ function GoalForm({
             selectedIndex={Math.min(days, dayLabels.length - 1)}
             onChange={setDaysClamped}
             crossAxisSize={wheelWidth}
-            onDragStart={() => onWheelActiveChange(true)}
+            onDragStart={() => onWheelActiveChange(true, 'drag')}
             onDragEnd={() => onWheelActiveChange(false)}
             accessibilityLabel="Goal target, days"
           />
@@ -381,7 +400,7 @@ function GoalForm({
           selectedIndex={Math.min(hours, hourLabels.length - 1)}
           onChange={setHoursClamped}
           crossAxisSize={wheelWidth}
-          onDragStart={() => onWheelActiveChange(true)}
+          onDragStart={() => onWheelActiveChange(true, 'drag')}
           onDragEnd={() => onWheelActiveChange(false)}
           accessibilityLabel="Goal target, hours"
         />
@@ -390,7 +409,7 @@ function GoalForm({
           selectedIndex={Math.max(0, MINUTE_VALUES.indexOf(minutes))}
           onChange={(i) => setMinutes(MINUTE_VALUES[i])}
           crossAxisSize={wheelWidth}
-          onDragStart={() => onWheelActiveChange(true)}
+          onDragStart={() => onWheelActiveChange(true, 'drag')}
           onDragEnd={() => onWheelActiveChange(false)}
           accessibilityLabel="Goal target, minutes"
         />
