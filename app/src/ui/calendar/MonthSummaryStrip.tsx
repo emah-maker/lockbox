@@ -6,11 +6,19 @@ import { View, Text, StyleSheet } from 'react-native';
 import { ThemeColors } from '../../theme/theme';
 import { typeScale } from '../../theme/tokens';
 import { formatDuration } from '../../stats/stats';
+import { dayKeyToDate } from '../../stats/sessionHistory';
 import { MonthSummary } from '../../screens/calendar/monthGrid';
 
 export function MonthSummaryStrip({ summary, theme }: { summary: MonthSummary; theme: ThemeColors }) {
+  // dayKeyToDate, not `new Date(key)`: bestDayKey is a dayKey, which
+  // sessionHistory.ts builds out of a LOCAL getFullYear/getMonth/getDate, and
+  // `new Date('2026-03-01')` is the one Date constructor that reads a bare
+  // date-only string back as UTC midnight. West of UTC that instant is the
+  // previous local evening, so this named the day BEFORE the busiest one --
+  // and when the best day was the 1st, a date that isn't even in the month
+  // the strip sits under. Same local parse DaySheet.tsx's title uses.
   const bestDayLabel = summary.bestDayKey
-    ? new Date(summary.bestDayKey).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+    ? dayKeyToDate(summary.bestDayKey).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
     : '--';
 
   return (

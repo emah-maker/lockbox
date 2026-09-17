@@ -19,12 +19,35 @@ export const CHAR = {
 } as const;
 
 // ----- box -> app payloads -----
-export type BoxState = 'idle' | 'closed' | 'running' | 'done';
+// Every value Box-code/lib/lock_controller_states.py can assign to
+// `self.state`, because ble_status_json passes that attribute to
+// encode_status VERBATIM (lock_controller_ble.py) -- this union is not a
+// subset the app gets to choose, it is the firmware's own state machine.
+//
+// 'picking' and 'confirming' are the two PRE-session screens: the box's own
+// tag picker (go_picking, opened by the LOCK tap) and the CONFIRM/CHANGE
+// screen for a topic the app pushed ahead of time (go_confirming). Both are
+// entered from 'idle' OR from 'closed' -- the box remembers which in
+// `_picking_from` and the wire does not carry it -- so neither state tells
+// the app whether the latch is currently engaged. Neither is a session:
+// nothing is counting down, and the firmware ignores both the `lock` and
+// `unlock` opcodes while in them (apply_ble_command's state gates), as well
+// as `notify_call` (which gates on `self.state not in ("running","closed")`).
+//
+// They were missing here until they turned out to be reachable for an
+// unbounded length of time -- the tag picker has no timeout -- and every
+// status frame sent while one was up was rejected by parseStatus below and
+// silently dropped by PhoneBoxClient's monitor, freezing the app's whole
+// Status (state, battery, configured duration) at its last pre-LOCK values.
+export type BoxState = 'idle' | 'closed' | 'running' | 'done' | 'picking' | 'confirming';
 
 // The runtime half of BoxState, so parseStatus can actually enforce the union
 // rather than casting whatever string arrived into it. Keep in lockstep with
-// Box-code/lib/lock_controller.py's own state names.
-const BOX_STATES: readonly string[] = ['idle', 'closed', 'running', 'done'];
+// Box-code/lib/lock_controller_states.py's own state names -- and with
+// useStore.ts's BOX_STATE_LABELS, which is a total Record<BoxState, string>
+// precisely so the compiler makes the next addition here impossible to
+// forget on the display side.
+const BOX_STATES: readonly BoxState[] = ['idle', 'closed', 'running', 'done', 'picking', 'confirming'];
 
 // Hard cap on the topic id echoed back in Status.tp, and on the version
 // string. 200 mirrors stats/customLabels.ts's MAX_TOPIC_LENGTH (itself
@@ -153,10 +176,16 @@ export function parseStatus(json: string): Status | null {
     // every state machine downstream (useStore's freshRun detection,
     // CallMonitor's LOCKED check, the Home hero's whole rendering), and a
     // string this build has never heard of was previously cast straight into
-    // BoxState -- so the type said the value was one of four things while the
-    // value was anything at all. Rejecting the frame is right rather than
+    // BoxState -- so the type claimed a member of the union while the value
+    // was anything at all. Rejecting the frame is right rather than
     // defaulting: a status whose state can't be read carries no information
     // any of those consumers can use, and the box re-notifies on a cadence.
+    //
+    // The flip side, and the reason BOX_STATES must stay EXHAUSTIVE rather
+    // than merely "the states the app cares about": a real firmware state
+    // left out of it isn't one bad frame, it is every frame for as long as
+    // the box stays in that state -- the app stops hearing about battery and
+    // duration too, not just the state it chose to ignore. See BoxState.
     if (!BOX_STATES.includes(d.st)) return null;
     return {
       st: d.st as BoxState,
@@ -297,6 +326,14 @@ export const encodeTime = (epochSeconds: number) => String(Math.floor(epochSecon
 
 // An "important call" alert. The nonce forces a distinct write each time so the
 // box re-fires the on-screen notification even for the same caller.
+//
+// "Each time" includes across app launches, not just within one: the box
+// compares against the last value it saw (lock_ble.py's `_last_alert`),
+// which is set at boot and survives every disconnect, while a GATT
+// characteristic holds its last written value regardless of who wrote it.
+// A nonce that starts from the same number in every process therefore
+// produces a payload the box has already dismissed. See
+// PhoneBoxClient.alertCall, which is the only caller.
 export const encodeAlert = (nonce: number, label: string) => `${nonce}|${label}`;
 
 // Acks a `history` batch once the app has durably persisted it (see

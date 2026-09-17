@@ -6,6 +6,12 @@
 // drift). Run with `npm test` from the repo root (node --test).
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+// For the text-form suite at the bottom of this file -- goalsPanel.js cannot
+// be imported under `node --test` (it reaches the Firebase SDK through
+// goals.js), so it is asserted on as source text instead.
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 import {
   makeGoalId,
   createGoal,
@@ -25,9 +31,11 @@ import {
   MAX_TARGET_SESSIONS,
   ARCHIVED_GOAL_PRUNE_MS,
 } from '../../website/js/goals.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // The window/progress math is its own module now, mirroring the app's
 // goals.ts / goalProgress.ts split. Same functions, same cases below.
-import { goalWindow, isGoalDueOn, computeGoalProgress } from '../../website/js/goalProgress.js';
+import { goalWindow, isGoalDueOn, computeGoalProgress, goalDisplayPercent } from '../../website/js/goalProgress.js';
 
 describe('makeGoalId', () => {
   it('generates a "goal:"-prefixed id well within MAX_GOAL_ID_LENGTH', () => {
@@ -101,6 +109,50 @@ describe('createGoal', () => {
     for (let i = 0; i < MAX_GOALS; i += 1) goals = createGoal(goals, null, 'daily', 3600, 1000 + i);
     assert.equal(goals.length, MAX_GOALS);
     assert.throws(() => createGoal(goals, null, 'daily', 3600));
+  });
+
+  // The cap counts LIVE goals. Archived entries are tombstones
+  // pruneArchivedGoals keeps for 30 days so an archive can propagate through
+  // mergeGoals' LWW union -- counting them meant a user whose visible list
+  // was empty stayed locked out for a month. Ported from the app twin's own
+  // cases in app/src/goals/goals.test.ts, which had the identical bug.
+  it('still accepts a new goal when every existing one is archived', () => {
+    let goals = [];
+    for (let i = 0; i < MAX_GOALS; i += 1) goals = createGoal(goals, null, 'daily', 3600, 1000 + i);
+    goals = goals.map((g) => ({ ...g, archived: true }));
+
+    const after = createGoal(goals, null, 'daily', 3600, 9000);
+
+    assert.equal(after.filter((g) => !g.archived).length, 1);
+    // And the array itself stays within the cap: firestore.rules refuses
+    // goals.size() > 20, so an over-long array would fail the sync on every retry.
+    assert.equal(after.length, MAX_GOALS);
+  });
+
+  it('evicts the stalest tombstone, never a live goal', () => {
+    let goals = [];
+    for (let i = 0; i < MAX_GOALS; i += 1) goals = createGoal(goals, null, 'daily', 3600, 1000 + i);
+    // Archive all but the newest, so exactly one live goal remains.
+    goals = goals.map((g, i) => (i === MAX_GOALS - 1 ? g : { ...g, archived: true }));
+    const stalestId = goals[0].id;
+    const liveId = goals[MAX_GOALS - 1].id;
+
+    const after = createGoal(goals, null, 'daily', 3600, 9000);
+
+    assert.ok(!after.some((g) => g.id === stalestId), 'stalest tombstone should be gone');
+    assert.ok(after.some((g) => g.id === liveId), 'the live goal must survive');
+    assert.equal(after.length, MAX_GOALS);
+  });
+
+  it('leaves an under-cap list untouched and unreordered', () => {
+    let goals = [];
+    for (let i = 0; i < 3; i += 1) goals = createGoal(goals, null, 'daily', 3600, 1000 + i);
+    const before = goals.map((g) => g.id);
+
+    const after = createGoal(goals, null, 'daily', 3600, 9000);
+
+    assert.deepEqual(after.slice(0, 3).map((g) => g.id), before);
+    assert.equal(after.length, 4);
   });
 
   describe('flexible-goals extension fields', () => {
@@ -198,6 +250,53 @@ describe('updateGoal', () => {
       const goals = createGoal([], null, 'daily', 3600, 1000);
       assert.throws(() => updateGoal(goals, goals[0].id, { notifyAt: 'bad' }));
       assert.throws(() => updateGoal(goals, goals[0].id, { targetSessions: -1 }));
+    });
+
+    // The whole-array setDoc in dashboard.js's writeGoals runs against a
+    // getFirestore(app) instance with ignoreUndefinedProperties OFF, so an
+    // `undefined`-VALUED key -- as opposed to an absent one -- makes the
+    // write throw "Unsupported field value: undefined" in the browser before
+    // it ever reaches the network. Every goal without the flexible-goals
+    // extension fields (i.e. every weekly/monthly goal, and every daily one
+    // with the reminder toggle off) went through this path, so Edit -> Save
+    // failed and the edit was discarded. createGoal and sanitizeRemoteGoals
+    // already build their objects with `...(x !== undefined ? { x } : {})`
+    // conditional spreads for exactly this reason; updateGoal assigned all
+    // four unconditionally. Asserted as "no key anywhere holds undefined"
+    // rather than naming the four fields, so a fifth extension field added
+    // later can't reintroduce this silently.
+    const undefinedValuedKeys = (goal) => Object.keys(goal).filter((k) => goal[k] === undefined);
+
+    it('omits an unset extension field rather than writing undefined, which Firestore rejects', () => {
+      // A plain weekly goal -- none of the four extension fields set.
+      const weekly = createGoal([], 'work', 'weekly', 3600, 1000);
+      assert.deepEqual(undefinedValuedKeys(updateGoal(weekly, weekly[0].id, { targetS: 7200 }, 2000)[0]), []);
+
+      // A plain daily goal with the reminder toggle off -- the same shape
+      // goalsPanel.js's edit form submits (every extension field mapped to
+      // an explicit null "clear").
+      const daily = createGoal([], null, 'daily', 3600, 1000);
+      const saved = updateGoal(
+        daily,
+        daily[0].id,
+        { topic: null, period: 'daily', targetS: 3600, daysOfWeek: null, targetSessions: null, notify: false, notifyAt: null },
+        2000,
+      );
+      assert.deepEqual(undefinedValuedKeys(saved[0]), []);
+    });
+
+    // The other half of the same fix: conditional spreads alone would be
+    // WRONG here, because updateGoal builds on `...current` rather than from
+    // scratch the way createGoal does -- skipping the key when the new value
+    // is undefined would silently leave the goal's OLD value in place, so
+    // clearing a field would no longer clear it. The key has to be deleted.
+    it('deletes -- not merely skips -- an extension field the patch clears', () => {
+      const goals = createGoal([], null, 'daily', 3600, 1000, { daysOfWeek: [1, 2], targetSessions: 3, notifyAt: '09:00' });
+      const cleared = updateGoal(goals, goals[0].id, { daysOfWeek: null, targetSessions: null, notifyAt: null }, 2000)[0];
+      assert.ok(!('daysOfWeek' in cleared), 'daysOfWeek should be removed, not left at its old value');
+      assert.ok(!('targetSessions' in cleared), 'targetSessions should be removed, not left at its old value');
+      assert.ok(!('notifyAt' in cleared), 'notifyAt should be removed, not left at its old value');
+      assert.deepEqual(undefinedValuedKeys(cleared), []);
     });
 
     // The phone owns the multi-time reminder schedule (Goal.notifyTimes) and
@@ -740,5 +839,67 @@ describe('computeGoalProgress -- session-count target and combined `met`', () =>
     const p = computeGoalProgress([goal({ targetS: 1000 })], [session(NOW, 1000)], NOW)[0];
     assert.equal(p.met, true);
     assert.equal(p.sessionsMet, undefined);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Ported from app/src/goals/goalProgress.test.ts's suite of the same name.
+// goalsPanel.js's row used to print its own `Math.round(ratio * 100)` off the
+// deliberately-unclamped `ratio`, so a 1h daily goal with 1h48m logged read
+// "180%" -- in the visible readout AND in the track's aria-label -- beside a
+// bar barGeometry had already saturated at full. Every app surface
+// (GoalRow.tsx, GoalsProgressView.tsx, useHomeGoalRing.ts) routes through
+// goalDisplayPercent precisely so the label cannot disagree with the bar.
+// ---------------------------------------------------------------------------
+describe('goalDisplayPercent', () => {
+  it('caps an over-target ratio at 100, matching an already-full bar', () => {
+    assert.equal(goalDisplayPercent(6480 / 3600), 100); // 1h48m of a 1h goal -- read "180%"
+    assert.equal(goalDisplayPercent(26100 / 1500), 100); // the app's own 7h15m-of-25m case
+  });
+
+  it('reports 100 exactly at target', () => {
+    assert.equal(goalDisplayPercent(1), 100);
+  });
+
+  it('reports 0 for zero progress', () => {
+    assert.equal(goalDisplayPercent(0), 0);
+  });
+
+  it('clamps a negative ratio to 0 rather than printing a negative percent', () => {
+    assert.equal(goalDisplayPercent(-0.5), 0);
+  });
+
+  it('guards a non-finite ratio, showing 0 rather than NaN%/Infinity%', () => {
+    assert.equal(goalDisplayPercent(NaN), 0);
+    assert.equal(goalDisplayPercent(Infinity), 0);
+    assert.equal(goalDisplayPercent(-Infinity), 0);
+  });
+
+  it('leaves every under-target reading byte-identical to the old Math.round', () => {
+    assert.equal(goalDisplayPercent(15 / 25), 60);
+    assert.equal(goalDisplayPercent(0.615), 62); // still plain rounding, not floor
+  });
+});
+
+// The clamp only helps if the row actually calls it. goalsPanel.js is read as
+// TEXT -- it reaches the Firebase SDK through goals.js, which the default ESM
+// loader refuses to import from `https://www.gstatic.com/...`.
+describe('goalsPanel row percent', () => {
+  const panel = readFileSync(
+    path.join(__dirname, '..', '..', 'website', 'js', 'goalsPanel.js'),
+    'utf8',
+  );
+
+  it('derives the row percent from goalDisplayPercent, not its own Math.round', () => {
+    assert.ok(panel.includes('goalDisplayPercent(ratio)'), 'row should clamp via goalDisplayPercent');
+    assert.ok(!panel.includes('Math.round(ratio * 100)'), 'the unclamped derivation should be gone');
+  });
+
+  // One `percent` feeds both the visible readout and the track's aria-label,
+  // so a screen-reader user and a sighted user cannot be told different
+  // numbers. Asserted so a future edit does not re-split them.
+  it('uses that one clamped value for both the visible readout and the aria-label', () => {
+    assert.ok(panel.includes('${percent} percent'), 'aria-label should use the shared percent');
+    assert.ok(panel.includes('${percent}%'), 'visible readout should use the shared percent');
   });
 });

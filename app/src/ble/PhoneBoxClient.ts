@@ -65,7 +65,21 @@ export class PhoneBoxClient implements BoxClient {
     },
   });
   private device: Device | null = null;
-  private alertNonce = 0;
+  // Seeded from the wall clock, NOT from 0, and that is a correctness
+  // requirement rather than tidiness -- see alertCall() below for the whole
+  // story. The short version: the box drops an alert payload identical to
+  // the last one it saw, and its memory of that survives both a reconnect
+  // and this app's process, so a counter that restarts at 0 on every launch
+  // re-sends a payload the box has already decided to ignore.
+  //
+  // Milliseconds since the epoch is the cheapest thing on hand that is
+  // strictly larger on every subsequent launch (a relaunch would have to
+  // happen inside the same millisecond to collide, and the previous process
+  // would have had to send exactly the matching number of alerts). No
+  // persistence, no async hydration to race the first alert of a launch --
+  // which matters because a state-restoration cold launch can start
+  // alerting before anything has had a chance to read storage.
+  private alertNonce = Date.now();
   // The device id of a connect() / connectById() call that's still awaiting
   // the native connect promise, i.e. before it has landed in `this.device`.
   // Without this, disconnect() called while a connection attempt is in
@@ -126,26 +140,50 @@ export class PhoneBoxClient implements BoxClient {
     });
   }
 
-  /** Scan for the first box advertising our service UUID. */
+  /** Scan for the first box advertising our service UUID.
+   *
+   * Both scan calls return promises -- react-native-ble-plx documents each
+   * as rejecting "if the operation is impossible to perform" -- and both
+   * were invoked bare. That cost this method its only honest failure
+   * report: a scan that could not START at all (Android with the runtime
+   * BLUETOOTH_SCAN permission not granted, which is the everyday version of
+   * this) produced an unhandled rejection and then, ten seconds later, the
+   * timeout's "No PhoneBox found in range". Which is not what happened, and
+   * sends the user looking for the box instead of at their permissions.
+   *
+   * The two are treated differently on purpose. A failed START is the
+   * result, so it rejects this promise. A failed STOP is cleanup of
+   * something already decided -- the box was found, or the timeout won --
+   * so it is swallowed rather than allowed to overturn an outcome, or
+   * escape (which on Node 24 and on Hermes with no handler is not a
+   * warning; it takes the process down). */
   scanForBox(timeoutMs = 10000): Promise<Device> {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
-        this.manager.stopDeviceScan();
+        this.manager.stopDeviceScan().catch(() => {});
         reject(new Error('No PhoneBox found in range'));
       }, timeoutMs);
-      this.manager.startDeviceScan([SERVICE_UUID], null, (error, device) => {
-        if (error) {
+      this.manager
+        .startDeviceScan([SERVICE_UUID], null, (error, device) => {
+          if (error) {
+            clearTimeout(timer);
+            this.manager.stopDeviceScan().catch(() => {});
+            reject(error);
+            return;
+          }
+          if (device) {
+            clearTimeout(timer);
+            this.manager.stopDeviceScan().catch(() => {});
+            resolve(device);
+          }
+        })
+        .catch((e) => {
+          // Nothing to stop -- it never started. Cancelling the timeout is
+          // the point: without it the caller waits out the full window for
+          // an answer that already exists, and then gets the wrong one.
           clearTimeout(timer);
-          this.manager.stopDeviceScan();
-          reject(error);
-          return;
-        }
-        if (device) {
-          clearTimeout(timer);
-          this.manager.stopDeviceScan();
-          resolve(device);
-        }
-      });
+          reject(e);
+        });
     });
   }
 
@@ -185,7 +223,48 @@ export class PhoneBoxClient implements BoxClient {
     }
   }
 
+  /** Everything after the native connect promise resolves: discovery,
+   * subscriptions, clock sync.
+   *
+   * The whole body is wrapped, because by the time ANY of it can fail the
+   * caller's `device.connect()` has already taken a real GATT link out of
+   * the OS, and only cancelDeviceConnection gives it back. This used to
+   * guard just the syncTime call at the bottom, which left the very first
+   * step -- discoverAllServicesAndCharacteristics, the one most likely to
+   * reject on a flaky link -- able to abandon a live connection:
+   * `this.device` was still null and connect()'s `finally` had already
+   * cleared pendingDeviceId, so disconnect() had no id to cancel and the
+   * link simply stayed up, unreachable and unknown to this object.
+   *
+   * "Unreachable" is literal, and is why this is worth a wrapper rather
+   * than a retry. The store flips to 'error' and starts its reconnect
+   * ladder, but a connected peripheral stops advertising, so scanForBox
+   * cannot find it, and connectById on a peripheral the OS still considers
+   * connected rejects with DeviceAlreadyConnected (203). Every rung of the
+   * ladder fails the same way until someone power-cycles the box. */
   private async afterConnect(d: Device, cb: ClientCallbacks): Promise<void> {
+    try {
+      await this.afterConnectInner(d, cb);
+    } catch (e) {
+      // Tear the half-built session back down so "connect failed" means
+      // disconnected -- rather than the opposite of what the caller has
+      // just been told: `connected` true, notify monitors live and still
+      // firing onStatus/onHistory into a UI that believes there is no
+      // connection, and a user-tapped retry stacking a second live session
+      // on top of it.
+      this.closeSession();
+      if (this.device === d) this.device = null;
+      try {
+        await this.manager.cancelDeviceConnection(d.id);
+      } catch {
+        // Already gone -- whatever stalled the handshake may well have been
+        // the link dropping in the first place.
+      }
+      throw e;
+    }
+  }
+
+  private async afterConnectInner(d: Device, cb: ClientCallbacks): Promise<void> {
     await d.discoverAllServicesAndCharacteristics();
     // Whatever session this one is replacing does not get to keep listening.
     // Its own onDisconnected can't do this for us -- by the time it fires,
@@ -241,30 +320,12 @@ export class PhoneBoxClient implements BoxClient {
         }),
       );
     }
-    // push the current wall clock so the box can date future history/schedules
-    try {
-      await this.syncTime();
-    } catch (e) {
-      // This rejection propagates out of connect()/connectById(), and every
-      // caller (useStore's connect/autoconnect) reads that as "the connection
-      // failed" -- re-enabling Connect, surfacing an error. Everything above
-      // is already committed by this point though, so without this the client
-      // was left in the opposite state from what the caller had just been
-      // told: `connected` true, both notify monitors live and still firing
-      // onStatus/onHistory into a UI that believes there is no connection,
-      // and a user-tapped retry stacking a second live session on top of it.
-      // Tear the half-built session back down so "connect failed" means
-      // disconnected.
-      this.closeSession();
-      if (this.device === d) this.device = null;
-      try {
-        await this.manager.cancelDeviceConnection(d.id);
-      } catch {
-        // Already gone -- the radio stall that failed syncTime may well have
-        // been the link dropping in the first place.
-      }
-      throw e;
-    }
+    // push the current wall clock so the box can date future history/schedules.
+    // A rejection here propagates out of connect()/connectById(), and every
+    // caller (useStore's connect/autoconnect) reads that as "the connection
+    // failed" -- re-enabling Connect, surfacing an error. afterConnect's
+    // catch above is what makes that true of the client as well as the UI.
+    await this.syncTime();
   }
 
   /** The connected device's id, for remembering "the box" across app launches. */
@@ -310,9 +371,36 @@ export class PhoneBoxClient implements BoxClient {
   }
 
   /** Tell the box an important call is ringing -> it alerts (or, if the box's
-   * "unlock when called" setting is on, unlocks) -- see lock_controller.notify_call. */
+   * "unlock when called" setting is on, unlocks) -- see lock_controller.notify_call.
+   *
+   * The nonce is the whole reason this write is heard at all. `alert` is a
+   * GATT characteristic, so it retains whatever was last written to it, and
+   * the box acts on it only when the value CHANGED (lock_ble.py
+   * _drain_inbound: `if alert and alert != self._last_alert`). Since iOS
+   * gives a third-party app no caller identity, the label is the constant
+   * 'Call' for every call there will ever be -- so without a varying prefix
+   * the second call of a session is a no-op write.
+   *
+   * It used to wrap modulo 100000 from a per-process 0, which made the FIRST
+   * alert of every launch the identical string "1|Call". The box's
+   * `_last_alert` is initialised once at boot and deliberately not cleared
+   * in _on_connected (only `_last_history` is), so it still held "1|Call"
+   * from the previous launch and ignored the write. That is not a rare
+   * sequence: it is precisely the case CoreBluetooth state restoration is
+   * configured for at the top of this file -- iOS terminates the
+   * backgrounded app while the phone is shut in the box, then cold-launches
+   * it for a BLE event, and the first call after that gets no alert.
+   * Nothing retries it either; CallMonitor un-marks a call only when the
+   * write is REJECTED, and this write succeeds -- the box simply discards
+   * it. Now it counts up from a wall-clock seed, so it is monotonic across
+   * processes as well as within one.
+   *
+   * The firmware-side other half is resetting `_last_alert` in
+   * PhoneBoxBLE._on_connected, which would also cover an app whose clock
+   * went backwards between launches. Neither half needs the other to work;
+   * this one is sufficient on its own for a box already in the field. */
   alertCall(label: string) {
-    this.alertNonce = (this.alertNonce + 1) % 100000;
+    this.alertNonce += 1;
     return this.write(CHAR.alert, encodeAlert(this.alertNonce, label));
   }
 
@@ -368,6 +456,30 @@ export class PhoneBoxClient implements BoxClient {
     const targets = [this.device?.id, this.pendingDeviceId].filter(
       (id, i, all): id is string => !!id && all.indexOf(id) === i,
     );
+    // Torn down here, synchronously, and not left to the native
+    // onDisconnected callback that eventually fires for the same device.
+    //
+    // That callback is asynchronous and its latency is the OS's business,
+    // so until it landed this object went on claiming `connected === true`
+    // with both notify monitors still subscribed to a link it had just
+    // asked to be cancelled. Both halves of that are visible to the
+    // caller: useStore guards every command on `client.connected`
+    // (startLock/closeBox/openBox/pushBoxSettings), so writes were still
+    // attempted down a dying link; and a status frame already in flight
+    // still reached onStatus, landing AFTER useStore.disconnect()'s
+    // `set({ conn: 'idle', status: null })` and putting a live countdown
+    // back on a screen the user had just disconnected from.
+    //
+    // Suppressing the eventual cb.onDisconnect() is intended rather than a
+    // side effect: closeSession() unsubscribes it, and afterConnect's
+    // handler would in any case see `this.device !== d` and return. The
+    // caller does not lose the notification it needs, because the caller
+    // is the one that asked -- useStore.disconnect() sets its own
+    // disconnected state and stops the call monitor itself. This is only
+    // the deliberate path; a link that drops on its own still runs that
+    // handler and still reports it.
+    this.closeSession();
+    this.device = null;
     for (const id of targets) {
       try {
         await this.manager.cancelDeviceConnection(id);

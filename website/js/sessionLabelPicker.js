@@ -20,22 +20,17 @@ import {
   doc,
   deleteField,
 } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
-import { resolveTopic, allLabelChoices, TOPIC_KEYS } from './focusStats.js';
+import { resolveTopic, allLabelChoices } from './focusStats.js';
 import { clear } from './dom.js';
 
-
-/** True when `topic` is a raw one-time free-text tag -- typed via the app's
- * TopicPicker "Type a label for this session..." field -- rather than a
- * built-in key, a live custom-label id, or a deleted custom-label id (which
- * stays "Untagged" here, matching resolveTopic's own null-on-not-found
- * behavior). focusStats.js's resolveTopic has no such fallback (it is
- * out of scope to change), so this reclassifies the same cases locally
- * against its exported TOPIC_KEYS instead. */
-export function isOneTimeTag(topic, customLabels) {
-  if (!topic) return false;
-  if (topic.startsWith('custom:')) return false;
-  return !TOPIC_KEYS.includes(topic);
-}
+// This module used to carry its own `isOneTimeTag` -- a local
+// re-classification of the same three cases resolveTopic already walks --
+// because focusStats.js's resolveTopic ended at the catalog lookup and
+// returned null for a one-time free-text tag. That gap turned out to be a
+// real bug rather than a quirk to work around (the same null also dropped
+// those sessions out of every dashboard stat), so resolveTopic now reports
+// the case itself via `isOneTime` and the duplicate is gone. The three chip
+// states below are unchanged; only where the answer comes from moved.
 
 /** Builds the swap container for one session's label. `ctx` is rebuilt
  * fresh by the caller (dashboard.js's renderCalDayList/renderSessionsTable)
@@ -71,7 +66,10 @@ export function createLabelPicker(session, ctx) {
 
   function renderChip() {
     const resolved = resolveTopic(session.topic, ctx.customLabels, ctx.themeMode);
-    const oneTime = !resolved && isOneTimeTag(session.topic, ctx.customLabels);
+    // A one-time tag IS a resolution now, so it must be tested BEFORE the
+    // generic `resolved` branch below -- otherwise it falls into that branch
+    // and renders as an ordinary filled chip, losing the "typed once" cue.
+    const oneTime = !!resolved && resolved.isOneTime;
 
     const btn = document.createElement('button');
     btn.type = 'button';
@@ -80,14 +78,7 @@ export function createLabelPicker(session, ctx) {
     // so even "Untagged" reads as a clickable control.
     btn.className = 'dash__chip dash__chip-btn';
 
-    if (resolved) {
-      btn.style.background = resolved.color;
-      btn.style.color = resolved.textColor;
-      btn.style.border = 'none';
-      btn.textContent = resolved.label;
-      btn.title = resolved.label;
-      btn.setAttribute('aria-label', `Change label, currently ${resolved.label}`);
-    } else if (oneTime) {
+    if (oneTime) {
       // A raw string typed once in the app, never added to the catalog --
       // shown as-typed (not "Untagged") so the two are distinguishable.
       btn.style.background = 'transparent';
@@ -96,6 +87,13 @@ export function createLabelPicker(session, ctx) {
       btn.textContent = session.topic;
       btn.title = `One-time tag (typed in the app): "${session.topic}"`;
       btn.setAttribute('aria-label', `Change label, currently a one-time tag: ${session.topic}`);
+    } else if (resolved) {
+      btn.style.background = resolved.color;
+      btn.style.color = resolved.textColor;
+      btn.style.border = 'none';
+      btn.textContent = resolved.label;
+      btn.title = resolved.label;
+      btn.setAttribute('aria-label', `Change label, currently ${resolved.label}`);
     } else {
       btn.style.background = 'transparent';
       btn.style.color = 'var(--text-2)';
@@ -112,7 +110,7 @@ export function createLabelPicker(session, ctx) {
 
   function renderSelect() {
     const resolved = resolveTopic(session.topic, ctx.customLabels, ctx.themeMode);
-    const oneTime = !resolved && isOneTimeTag(session.topic, ctx.customLabels);
+    const oneTime = !!resolved && resolved.isOneTime;
 
     const select = document.createElement('select');
     select.className = 'dash__chip-select';
@@ -143,7 +141,33 @@ export function createLabelPicker(session, ctx) {
     select.value = session.topic || '';
 
     select.addEventListener('change', () => commit(select.value || undefined, select));
-    select.addEventListener('blur', () => renderChip());
+    select.addEventListener('blur', () => {
+      // Ignore the blur commit() causes itself. Disabling a focused
+      // <select> unfocuses it, and the browser fires `blur` for that just
+      // like it would for the user clicking away -- measured in Chromium:
+      // not synchronously, and not on the next macrotask either, but by the
+      // following animation frame. An updateDoc round-trip spans many
+      // frames, so it always landed mid-write.
+      //
+      // Unguarded it re-entered renderChip(), which mounts a fresh chip over
+      // this <select>: the `--saving` class commit() had just set went with
+      // the detached node, and the replacement chip read `session.topic`,
+      // which commit() does not update until AFTER its await -- so a save in
+      // progress looked exactly like a save that never happened, and on a
+      // slow connection invited the user to try again.
+      //
+      // Keyed on `disabled` rather than a separate isCommitting flag
+      // because that IS the state, held in one place instead of two that can
+      // disagree: commit() is the only thing that ever disables this control
+      // (asserted in tests/website/panelGuards.test.js), and it always
+      // renders the final state itself -- a rebuilt table on success, an
+      // explicit renderChip() on failure. A flag would additionally have to
+      // be cleared at exactly the right moment; clear it in a `finally` and
+      // the still-pending blur arrives just after, wiping out the error
+      // chip the catch had only just drawn.
+      if (select.disabled) return;
+      renderChip();
+    });
     select.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
         e.stopPropagation();

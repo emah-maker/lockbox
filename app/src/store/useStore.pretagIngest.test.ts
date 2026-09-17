@@ -382,4 +382,70 @@ describe('a pre-session topic pick that finishes as a logged session', () => {
     expect(sessions).toHaveLength(2);
     expect(sessions[1].topic).toBeUndefined();
   });
+
+  // The same two-sessions-one-tag hazard as the race test above, but with
+  // the delivery order the BOX actually uses. lock_ble.py's _push_outbound
+  // assigns `status` first and `history` second in a single pass, so on a
+  // reconnect the freshRun tick arrives BEFORE the queued batch it should
+  // have deferred to -- the opposite of the order that test fires them in,
+  // and the one the refresh cannot fix by waiting on withPendingTopicLock.
+  //
+  // Nothing about the tick itself says which session the stored tag belongs
+  // to: `onDisconnect` nulls `status`, so reconnecting into a session that
+  // has been running for a minute looks exactly like a session that just
+  // started. What distinguishes them is the box's own elapsed report
+  // (`set - rem`), and that is what the refresh now consults.
+  it('does not move a tag from the session that earned it onto the untagged one running at reconnect', async () => {
+    await connectBox();
+
+    const pickAt = Date.parse('2026-01-15T09:00:00.000Z');
+    jest.spyOn(Date, 'now').mockReturnValue(pickAt);
+    useStore.getState().tagCurrentSession('reading');
+    await Promise.resolve();
+
+    // Session A, tagged, watched starting: the box reports one second
+    // served, so this tick is the run genuinely beginning.
+    const startedAtA = pickAt + 5_000;
+    const actualSA = 1800;
+    const endedAtA = startedAtA + actualSA * 1000;
+    (Date.now as jest.Mock).mockReturnValue(startedAtA);
+    mockCaptured.onStatus!(status({ st: 'running', tp: '', rem: 1799, set: 1800 }));
+    await drain();
+
+    // The phone leaves the room. A finishes unobserved and its entry sits
+    // in the box's own queue (lock_log.py), unacked.
+    await useStore.getState().disconnect();
+
+    // Back later, in the middle of a DIFFERENT session the user started
+    // without tagging anything.
+    const startedAtB = endedAtA + 60_000;
+    const actualSB = 900;
+    const reconnectAt = startedAtB + 60_000;
+    await connectBox();
+    (Date.now as jest.Mock).mockReturnValue(reconnectAt);
+    // set - rem = 60s served: this run did not just start, and the stored
+    // tag predates it by the whole of session A.
+    mockCaptured.onStatus!(status({ st: 'running', tp: '', rem: 840, set: 900 }));
+    await drain();
+
+    // Re-stamping the tag with `now` here is what moved it: `now` is past
+    // A's [startedAt - 120s, endedAt + 5s] window, so A's entry -- arriving
+    // moments later in the same push -- no longer matches its own tag.
+    const afterTick = await getJSON<PendingTopicTag | null>(PENDING_TOPIC_KEY, null);
+    expect(afterTick).toEqual({ topic: 'reading', at: startedAtA });
+
+    await deliverHistory([{ p: 1800, a: actualSA, c: 1, t: Math.floor(endedAtA / 1000) }]);
+    expect(useStore.getState().sessions).toHaveLength(1);
+    expect(useStore.getState().sessions[0].topic).toBe('reading');
+
+    // ...and B, which nobody tagged, stays untagged.
+    const endedAtB = startedAtB + actualSB * 1000;
+    (Date.now as jest.Mock).mockReturnValue(endedAtB);
+    await deliverHistory([{ p: 900, a: actualSB, c: 1, t: Math.floor(endedAtB / 1000) }]);
+
+    const sessions = useStore.getState().sessions;
+    expect(sessions).toHaveLength(2);
+    expect(sessions.find((s) => s.actualS === actualSA)!.topic).toBe('reading');
+    expect(sessions.find((s) => s.actualS === actualSB)!.topic).toBeUndefined();
+  });
 });

@@ -9,13 +9,41 @@
 // anything weaker than one: an id the service omitted, a request that failed,
 // a delivery error that was not about the registration. See expoPush.ts's
 // header for why acceptance and delivery are two different answers.
-import { getFirestore } from 'firebase-admin/firestore';
+import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { logger } from 'firebase-functions';
 import { fetchExpoReceipts, type PushResult } from './expoPush';
 import type { PushTokenDoc } from './reminders';
 
-const db = getFirestore();
+/**
+ * The Firestore handle, asked for per call rather than held in a module-scope
+ * `const db = getFirestore()`.
+ *
+ * It WAS that const, and that made the whole backend undeployable. index.ts
+ * imports this file -- for recordTickets, and to re-export collectPushReceipts
+ * -- at the top of its own body, above its `initializeApp()`; an import runs
+ * the imported module to completion before any of the importing module's own
+ * statements, so `getFirestore()` fired here while no app existed yet and
+ * threw `app/no-app` with index.ts still half-loaded. Firebase LOADS that
+ * entry point to discover what to deploy, so the blast radius was all three
+ * jobs rather than this one, and the only symptom was a deploy dying in
+ * function discovery. Nothing local saw it coming: the types are correct so
+ * `tsc` passes either way, and the ordering does not exist until something
+ * actually requires index.ts -- which, until index.test.ts, nothing did.
+ *
+ * A plain function and not a memoized getter, because there is nothing left to
+ * memoize: firebase-admin caches the Firestore service on the app itself, so
+ * every call after the first hands back the same instance. All this buys is
+ * that the lookup happens when a handler runs -- by which point initializeApp()
+ * has certainly been called -- instead of during import. That is also why this
+ * is the fix rather than moving index.ts's `initializeApp()` above its
+ * imports: an import order is a thing a later edit, or a formatter, can
+ * silently undo, whereas a handle that is never taken early cannot be taken
+ * early by accident.
+ */
+function db(): Firestore {
+  return getFirestore();
+}
 
 const REGION = 'us-central1';
 
@@ -77,10 +105,10 @@ export async function recordTickets(
   if (pending.length === 0) return;
 
   try {
-    const batch = db.batch();
+    const batch = db().batch();
     const now = Date.now();
     for (const r of pending) {
-      batch.set(db.collection(TICKETS).doc(r.ticketId!), {
+      batch.set(db().collection(TICKETS).doc(r.ticketId!), {
         uid,
         tokenId: byToken.get(r.token),
         token: r.token,
@@ -112,7 +140,7 @@ export const collectPushReceipts = onSchedule(
   },
   async () => {
     const nowMs = Date.now();
-    const snap = await db
+    const snap = await db()
       .collection(TICKETS)
       .where('createdAt', '<=', nowMs - RECEIPT_DELAY_MS)
       .orderBy('createdAt')
@@ -198,7 +226,7 @@ async function findOrphanedTickets(pending: Map<string, TicketDoc>): Promise<str
   const orphaned: string[] = [];
   for (const [uid, entries] of byUid) {
     try {
-      const snap = await db.collection('users').doc(uid).collection('pushTokens').get();
+      const snap = await db().collection('users').doc(uid).collection('pushTokens').get();
       const live = new Set(snap.docs.map((d) => d.id));
       for (const { ticketId, tokenId } of entries) {
         if (!live.has(tokenId)) orphaned.push(ticketId);
@@ -216,7 +244,7 @@ async function findOrphanedTickets(pending: Map<string, TicketDoc>): Promise<str
  * check is the point rather than a nicety.
  */
 async function deleteTokenIfUnchanged(ticket: TicketDoc): Promise<boolean> {
-  const ref = db.collection('users').doc(ticket.uid).collection('pushTokens').doc(ticket.tokenId);
+  const ref = db().collection('users').doc(ticket.uid).collection('pushTokens').doc(ticket.tokenId);
   try {
     const snap = await ref.get();
     if (!snap.exists) return false;
@@ -231,8 +259,8 @@ async function deleteTokenIfUnchanged(ticket: TicketDoc): Promise<boolean> {
 
 async function deleteTickets(ids: string[]): Promise<void> {
   for (let i = 0; i < ids.length; i += 500) {
-    const batch = db.batch();
-    for (const id of ids.slice(i, i + 500)) batch.delete(db.collection(TICKETS).doc(id));
+    const batch = db().batch();
+    for (const id of ids.slice(i, i + 500)) batch.delete(db().collection(TICKETS).doc(id));
     try {
       await batch.commit();
     } catch (e) {

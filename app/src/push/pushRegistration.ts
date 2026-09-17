@@ -38,7 +38,7 @@
 import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
-import { doc, setDoc, deleteDoc } from 'firebase/firestore';
+import { doc, setDoc, getDoc, deleteDoc } from 'firebase/firestore';
 import { getDb, getFirebaseAuth } from '../auth/firebase';
 import { getJSON } from '../storage/storage';
 import { getGoalNotificationPermission } from '../goals/goalNotifications';
@@ -64,6 +64,23 @@ const MAX_REPORTED_COVERAGE = 50;
  * Firestore write. In-memory only; a fresh app run rewrites it once. */
 let lastCoverageKey: string | null = null;
 
+/** What this run knows about whether this device's token document actually
+ * EXISTS, and whose it is. `null` means "not established yet". The uid is
+ * part of it because a sign-out and sign-in swap which document the answer
+ * is even about.
+ *
+ * reportLocalCoverage needs this, and the notification master switch is not
+ * a substitute for it: the switch being ON says the user wants reminders,
+ * not that this device ever became a push target. On iOS it never does --
+ * plugins/withoutPushEntitlement.js strips `aps-environment`, so
+ * getExpoPushTokenAsync always fails -- while local reminders, and so
+ * coverage reports, keep working normally. A coverage merge against a
+ * document that isn't there is a CREATE carrying neither `transport` nor
+ * `token`, which app/firestore.rules denies, once per reconcile, forever.
+ * In-memory only, and deliberately: it caches an answer, not a fact worth
+ * persisting across runs. */
+let tokenDocPresence: { uid: string; exists: boolean } | null = null;
+
 async function deviceId(): Promise<string> {
   return (await getJSON<string | null>(LAST_DEVICE_KEY, null)) ?? FALLBACK_DEVICE_ID;
 }
@@ -86,6 +103,34 @@ function currentUid(): string | null {
 function easProjectId(): string | undefined {
   const extra = Constants.expoConfig?.extra as { eas?: { projectId?: string } } | undefined;
   return extra?.eas?.projectId;
+}
+
+/**
+ * Whether users/{uid}/pushTokens/{deviceId} exists -- from the cache above
+ * once this run has an answer, otherwise by one read.
+ *
+ * A read rather than merely "did THIS run call registerPushToken
+ * successfully", which would be free. On a warm start the document is
+ * usually already there from a previous run, and registerPushToken's rewrite
+ * of it races the first reconcile: a run-local flag would answer "no
+ * document", skip a coverage report that was both legal and needed, and hand
+ * the server a device that appears to cover nothing -- which is its cue to
+ * push every reminder here. One read per run, and only on runs that get as
+ * far as reporting coverage, is the cheaper mistake.
+ *
+ * Throws only if the read itself fails; the caller treats that as "don't
+ * know", not as "no document".
+ */
+async function tokenDocExists(uid: string, id: string): Promise<boolean> {
+  if (tokenDocPresence?.uid === uid) return tokenDocPresence.exists;
+  const snap = await getDoc(doc(getDb(), 'users', uid, 'pushTokens', id));
+  // Re-check AFTER the await, not just before it: registerPushToken may have
+  // created the document while this read was in flight, and its `true` is
+  // then the more recent fact -- committing a snapshot taken before that
+  // write would silence this device's coverage for the rest of the run.
+  // (Same shape as useScheduleStore.hydrate's own post-await re-check.)
+  if (tokenDocPresence?.uid !== uid) tokenDocPresence = { uid, exists: snap.exists() };
+  return tokenDocPresence.exists;
 }
 
 /**
@@ -145,6 +190,10 @@ export async function registerPushToken(): Promise<void> {
       // call below, and the two must not clobber each other).
       { merge: true },
     );
+    // This device is now a push target, so a coverage merge has somewhere to
+    // land. Recorded here rather than left for reportLocalCoverage to
+    // discover, so the common path costs no read at all.
+    tokenDocPresence = { uid, exists: true };
   } catch {
     // No native module, permission revoked between the check and the call,
     // no push capability in this build, offline, or a denied write. Nothing
@@ -177,6 +226,11 @@ export async function reportLocalCoverage(coverage: ReminderCoverage): Promise<v
   // merge that tries to CREATE one carrying only these two lists, which the
   // rules reject for having no `transport` or `token` -- a denied round trip
   // on every plan edit, for a device that is deliberately not a push target.
+  //
+  // This check is necessary but NOT sufficient, which is what the existence
+  // check further down is for: the switch can be on while the document
+  // still doesn't exist. Kept here anyway because it is free, and because it
+  // is the one case where the absence is intentional rather than incidental.
   if (!useSettingsStore.getState().notificationsEnabled) return;
 
   const capped = coverage.scheduled.slice(0, MAX_REPORTED_COVERAGE);
@@ -186,17 +240,32 @@ export async function reportLocalCoverage(coverage: ReminderCoverage): Promise<v
 
   try {
     const id = await deviceId();
+    // Not merely pointless without a token document, but DENIED. setDoc with
+    // { merge: true } is an upsert: against a document that doesn't exist it
+    // is evaluated as a CREATE carrying exactly these three fields, and the
+    // pushTokens rule reads `transport` off a map that hasn't got one, which
+    // raises -- and a rules error evaluates to deny. So the write can never
+    // land; it can only cost a permission-denied round trip and an SDK
+    // console error, on every reconcile, for as long as the app runs. That
+    // is the steady state on iOS, where this module is dormant by design
+    // (see this file's header) but the reconciles carry on regardless.
+    if (!(await tokenDocExists(uid, id))) return;
     await setDoc(
       doc(getDb(), 'users', uid, 'pushTokens', id),
       { localReminderIds: capped, suppressedReminderIds: suppressed, updatedAt: Date.now() },
       { merge: true },
     );
+    // Only after a write that actually happened. A skipped or failed report
+    // must stay un-recorded, or the next reconcile would treat the same
+    // coverage as already delivered and never send the first real one.
     lastCoverageKey = key;
   } catch {
-    // Best-effort. A coverage report that doesn't land means the backend may
-    // push something this device also shows locally -- a duplicate
-    // notification, which is the failure mode this whole mechanism is
-    // deliberately biased toward over a missing one.
+    // Best-effort, and that now includes a failed existence read (offline,
+    // most likely) -- which leaves the answer unknown, so nothing is cached
+    // and the next reconcile tries again. A coverage report that doesn't
+    // land means the backend may push something this device also shows
+    // locally -- a duplicate notification, which is the failure mode this
+    // whole mechanism is deliberately biased toward over a missing one.
   }
 }
 
@@ -211,8 +280,15 @@ export async function unregisterPushToken(uid: string): Promise<void> {
   try {
     const id = await deviceId();
     await deleteDoc(doc(getDb(), 'users', uid, 'pushTokens', id));
+    // Provably gone, so the next coverage report can skip its write without
+    // spending a read to find that out.
+    tokenDocPresence = { uid, exists: false };
   } catch {
-    // Signed out already, offline, or never registered.
+    // Signed out already, offline, or never registered. Whether the document
+    // survived is genuinely unknown after this -- an offline delete leaves
+    // it in place -- so drop the cached answer rather than assert either
+    // way, and let the next report re-read.
+    tokenDocPresence = null;
   } finally {
     // Cleared unconditionally: whatever the remote state, this run should
     // re-report coverage from scratch after the next sign-in rather than

@@ -236,7 +236,30 @@ export function sanitizeCustomLabels(value) {
     // neutral swatch they can change in two clicks is a far smaller wrong.
     // Stored six-digit so no render site has to know about the shorthand.
     const safeColor = isHexColor(color) ? expandHex(color) : NEUTRAL_LABEL_COLOR;
-    out.push({ id, name: name.trim().slice(0, MAX_LABEL_NAME_LENGTH), color: safeColor });
+    // CARRIED THROUGH, because this function's output is not only what the
+    // page renders -- it is what the page WRITES BACK. labelsPanel.js's
+    // writeCustomLabels and accountPanel.js's writeAppearance both setDoc
+    // the whole settings/app document with this catalog and a fresh
+    // `updatedAt`, so rebuilding each entry from a fixed {id, name, color}
+    // did not merely make the dashboard count an excluded label's time in
+    // its own totals: it DELETED the user's exclusion from the account, and
+    // app/src/sync/settingsSyncPlan.ts then saw the newer clock, answered
+    // 'apply', and propagated the deletion to the phone. A rename or an
+    // accent-swatch click was enough. Same reason this file already
+    // preserves goals.js's notifyTimes/notifyDays it does not edit either.
+    //
+    // Omitted rather than coerced when the value isn't literally `true`
+    // (a string "true", a number, an explicit `false`) -- matching the app
+    // twin: "no flag at all" IS this field's documented default of
+    // "counts", and unlike a bad colour there is nothing to repair a
+    // garbage value INTO.
+    const excludeFromTotals = entry.excludeFromTotals;
+    out.push({
+      id,
+      name: name.trim().slice(0, MAX_LABEL_NAME_LENGTH),
+      color: safeColor,
+      ...(excludeFromTotals === true ? { excludeFromTotals: true } : {}),
+    });
     if (out.length === MAX_CUSTOM_LABELS) break;
   }
   return out;
@@ -252,21 +275,61 @@ export function allLabelChoices(customLabels, mode = 'dark') {
   return [...builtins, ...customs];
 }
 
-/** Resolves a session's stored topic id (a built-in key or a `custom:`-prefixed
- * label id) to a display name + color. Returns null when untagged, or when a
- * custom label was since deleted. Mirrors app/src/stats/customLabels.ts's
- * resolveTopic. `mode` picks the built-in topic's light/dark hex the same way
- * the app's topicColor(key, mode) does; a custom label's color is user-picked
- * and mode-independent, same as the app. */
+/** True for a topic string shaped like a SAVED custom label's id, i.e. one
+ * this module minted via makeCustomLabelId. Twin of
+ * app/src/stats/customLabels.ts's isCustomLabelId. The prefix is the only
+ * thing that tells a since-deleted catalog entry apart from a one-time
+ * free-text tag once the catalog no longer has the entry -- see
+ * resolveTopic's fallback. */
+export function isCustomLabelId(topic) {
+  return !!topic && topic.startsWith(CUSTOM_ID_PREFIX);
+}
+
+/** Resolves a session's stored topic id (a built-in key, a saved custom
+ * label's `custom:`-prefixed id, or a one-time free-text tag typed straight
+ * into the app's TopicPicker) to a display name + color. Returns null only
+ * when untagged, or when a *saved* custom label was since deleted. Mirrors
+ * app/src/stats/customLabels.ts's resolveTopic. `mode` picks the built-in
+ * topic's light/dark hex the same way the app's topicColor(key, mode) does; a
+ * custom label's color is user-picked and mode-independent, same as the app.
+ *
+ * The one-time branch is NOT cosmetic. This function is the gate
+ * topicBreakdownWithCustom/dominantTopicWithCustom filter on ("if (!resolved)
+ * continue"), so while it ended at the catalog lookup every session carrying
+ * a one-time tag was dropped from "Time by label" -- the row was missing AND
+ * the column total read short by that session's time -- and the calendar day
+ * got no dot, on the website only. The app has always fallen through here,
+ * so this was pure website-side drift; two callers (sessionLabelPicker.js,
+ * goalsPanel.js) had each grown a private re-classification to work around
+ * it, which is what gave the bug away. */
 export function resolveTopic(topic, customLabels, mode = 'dark') {
   if (!topic) return null;
   if (topic in TOPIC_LABELS) {
     const color = TOPIC_HEX[topic][mode] || TOPIC_HEX[topic].dark;
-    return { id: topic, label: TOPIC_LABELS[topic], color, textColor: readableTextColor(color), isCustom: false };
+    return { id: topic, label: TOPIC_LABELS[topic], color, textColor: readableTextColor(color), isCustom: false, isOneTime: false };
   }
   const custom = (customLabels || []).find((l) => l.id === topic);
-  if (!custom) return null;
-  return { id: custom.id, label: custom.name, color: custom.color, textColor: readableTextColor(custom.color), isCustom: true };
+  if (custom) {
+    return { id: custom.id, label: custom.name, color: custom.color, textColor: readableTextColor(custom.color), isCustom: true, isOneTime: false };
+  }
+  // A saved custom label that has since been deleted: its past sessions keep
+  // the id, but the catalog entry that carried its name and color is gone, so
+  // there is genuinely nothing left to render. Deliberately kept ABOVE the
+  // fallback -- without it a deleted label would surface to the user as its
+  // own opaque `custom:mf3k2xa9b1` id.
+  if (isCustomLabelId(topic)) return null;
+  // A one-time free-text tag: not a built-in key, not a saved custom label
+  // (nor shaped like one), so the raw string the user typed is both its id
+  // and its only name. No catalog entry means no user-picked color either,
+  // hence the neutral swatch.
+  return {
+    id: topic,
+    label: topic,
+    color: NEUTRAL_LABEL_COLOR,
+    textColor: readableTextColor(NEUTRAL_LABEL_COLOR),
+    isCustom: false,
+    isOneTime: true,
+  };
 }
 
 /** Aggregate raw session records the same way the app/firmware does. Records
@@ -357,9 +420,21 @@ const WEEKDAY_INITIALS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 /** The single calendar day (across all logged history, not just the last 7)
  * with the most total focus time -- a real personal-record fact for the "Fun
  * facts" card, computed from the same session log as every other stat here.
- * Mirrors app/src/stats/trend.ts's bestDay. Null on an empty/all-zero log. */
-export function bestDay(sessions) {
-  const byDay = groupByDay(sessions);
+ * Mirrors app/src/stats/trend.ts's bestDay (called there with window 'all',
+ * which is the only mode this port has). Null on an empty/all-zero log.
+ *
+ * `labels`/`excludedTopicKeys` (both default `[]`, i.e. nothing excluded)
+ * are filtered out before the day totals are summed, same as aggregate and
+ * lastNDays above -- and for a sharper reason than either. This function
+ * feeds a banner that sits directly UNDER the "Total focus time" tile
+ * aggregate() produces, so when only one of the two excluded, the card
+ * contradicted itself in a single glance: excluding 'exercise' and logging
+ * 3h exercise Monday against 1h work Tuesday rendered "Total focus time
+ * 1h 00m" above "Your best day was Mon -- 3h 00m focused." A best day cannot
+ * be larger than the total it is a subset of. The app has always passed both
+ * lists here (app/src/screens/StatsScreen.tsx's bestDay call). */
+export function bestDay(sessions, labels = [], excludedTopicKeys = []) {
+  const byDay = groupByDay(filterCountedSessions(sessions, labels, excludedTopicKeys));
   let best = null;
   for (const [key, daySessions] of byDay) {
     const focusS = daySessions.reduce((sum, s) => sum + s.actualS, 0);

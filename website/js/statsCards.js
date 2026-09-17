@@ -60,7 +60,13 @@ export function renderSummary(stats, els) {
 const ICON_AWARD = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="7"/><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/></svg>';
 const ICON_ZAP = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>';
 
-export function renderFacts(sessions, totalFocusS, els) {
+/** `labels`/`excludedTopicKeys` are the same two lists renderDataViews
+ * hands aggregate(), and must stay the same two: `totalFocusS` above is
+ * aggregate's own excluded total, so bestDay has to be measured against the
+ * identical session set or the banner can name a day bigger than the total
+ * printed above it. Defaulted to `[]` only so the signature degrades to the
+ * old behavior rather than throwing; every real caller passes both. */
+export function renderFacts(sessions, totalFocusS, els, labels = [], excludedTopicKeys = []) {
   clear(els.facts);
   if (totalFocusS <= 0) {
     const p = document.createElement('p');
@@ -69,7 +75,7 @@ export function renderFacts(sessions, totalFocusS, els) {
     els.facts.appendChild(p);
     return;
   }
-  const best = bestDay(sessions);
+  const best = bestDay(sessions, labels, excludedTopicKeys);
   if (best) {
     const banner = document.createElement('div');
     banner.className = 'dash__best-day';

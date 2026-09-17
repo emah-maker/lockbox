@@ -15,12 +15,15 @@
    same whole-doc convention labelsPanel.js's writeCustomLabels uses, since
    that doc still has no scoped `update` rule), Firebase Auth calls
    (linkWithPopup/unlink/deleteUser/reauthenticateWithPopup), and a
-   multi-collection Firestore delete cascade. The deletion cascade
-   deliberately mirrors app/src/sync/firestoreSync.ts's deleteAllUserData
-   byte-for-byte (same subcollections, same batch chunk size, same
-   Firestore-data-before-Auth-user ordering) -- see account-spec.md §4 and
-   its own header comment for why that ordering matters (still authenticated
-   as this uid when the Firestore data goes).
+   multi-collection Firestore delete cascade. The deletion deliberately
+   mirrors the app's own, which is split across two files:
+   app/src/auth/useAuthStore.ts's deleteAccount for the step order
+   (reauthenticate, THEN wipe Firestore, THEN remove the Auth user) and
+   app/src/sync/firestoreSync.ts's deleteAllUserData for the cascade itself
+   (same subcollections, same batch chunk size, parent users/{uid} doc
+   deleted FIRST). Every one of those orderings is load-bearing rather than
+   stylistic -- accountDelete.js's own header spells out which bug each one
+   prevents, and account-spec.md §4 is the shared spec.
 
    ctx (built once in dashboard.js, passed to mountAccountPanel/
    renderAccountPanel) = {
@@ -313,7 +316,7 @@ function buildAppearanceSection(els, ctx) {
 /** Whole-document write of settings/app's theme fields -- same convention as
  * labelsPanel.js's writeCustomLabels: this doc has no scoped Firestore
  * `update` rule, so every write resends the fields this module doesn't own
- * (callAlertsEnabled, customLabels) unchanged. */
+ * (callAlertsEnabled, customLabels, excludedTopicKeys) unchanged. */
 async function writeAppearance(themeMode, accent, els, ctx) {
   const settings = ctx.getSettings();
   try {
@@ -322,6 +325,9 @@ async function writeAppearance(themeMode, accent, els, ctx) {
       accent,
       callAlertsEnabled: settings.callAlertsEnabled,
       customLabels: ctx.getCustomLabels(),
+      // See writeCustomLabels in labelsPanel.js: a whole-document write that
+      // omits a field deletes it, and the phone then syncs the deletion down.
+      excludedTopicKeys: settings.excludedTopicKeys,
       updatedAt: Date.now(),
     });
   } catch (err) {

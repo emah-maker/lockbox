@@ -249,6 +249,17 @@ function CustomLabelRow({
   const toggleEditing = (next: boolean) => {
     configureLayoutAnimation(reducedMotion);
     setError(null);
+    // Re-seed the draft on the way IN, not only on Cancel's way out. The
+    // useState initializer above runs once, and this row is keyed by
+    // label.id, so it survives every change to the label's NAME -- and the
+    // name changes underneath it whenever settings sync writes another
+    // device's edit back into useSettingsStore (sync/firestoreSync.ts),
+    // which Settings, left open, is precisely where that lands. The row
+    // then showed the new name but held the old one in draft: opening the
+    // editor put the pre-sync name in the field, and Save pushed it back
+    // over the remote rename. The user saw a name, changed nothing, tapped
+    // Save, and silently undid an edit they were never shown.
+    if (next) setDraft(label.name);
     setEditing(next);
   };
 
@@ -271,10 +282,20 @@ function CustomLabelRow({
       <View style={{ gap: 4 }}>
         <View style={styles.labelRow}>
           <View style={[styles.swatch, { backgroundColor: label.color }]} />
+          {/* The only TextInput in this app that used to carry neither an
+              accessibilityLabel nor a placeholder, so VoiceOver read it as
+              just its value -- "Reading, text field" -- with nothing to say
+              that editing it renames the label. A placeholder (what the
+              "New label name" field above uses) would not fix this one:
+              this field is pre-filled with the current name, so a
+              placeholder never shows and is never announced. The name is
+              interpolated because several of these rows can be on screen
+              at once. */}
           <TextInput
             value={draft}
             onChangeText={setDraft}
             maxLength={MAX_LABEL_NAME_LENGTH}
+            accessibilityLabel={`New name for ${label.name}`}
             style={[styles.textInput, { flex: 1, color: color.text, borderColor: color.textDim }]}
             autoFocus
           />

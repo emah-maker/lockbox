@@ -27,6 +27,24 @@
  * `firebase serve` each get their own project's config with no branching. */
 const INIT_JSON_PATH = '/__/firebase/init.json';
 
+/**
+ * How long to wait for that fetch before giving up and reporting "not
+ * connected". Matches dashboardData.js's LOAD_TIMEOUT_MS deliberately -- the
+ * Firestore reads downstream already got a 15s guard for the same class of
+ * failure, and this fetch is the step BEFORE those, so a shorter or longer
+ * budget here would just make the page's two stall behaviours inconsistent.
+ *
+ * Without any deadline, a request that is accepted and then never completes
+ * (a hung proxy, a captive portal swallowing the connection) left both
+ * pages permanently blank rather than merely slow. That is worse than it
+ * sounds: every state div in dashboard.html and login.html starts `hidden`,
+ * and init() awaits this call BEFORE its first showState(), so the page
+ * never reached even the loading spinner. No spinner, no error, no retry
+ * button -- an empty main region forever, with nothing on screen to
+ * suggest the page was still trying.
+ */
+const CONFIG_TIMEOUT_MS = 15000;
+
 // Cached across callers within a single page session -- dashboard.js and
 // login.js are separate pages, so each starts with a fresh copy of this
 // module and its own cache.
@@ -39,7 +57,19 @@ let configPromise = null;
  */
 export function loadFirebaseConfig() {
   if (!configPromise) {
-    configPromise = fetch(INIT_JSON_PATH)
+    // An AbortController rather than a bare Promise.race against a timer:
+    // racing settles the promise we return but leaves the request itself in
+    // flight, still holding a connection and still due to be parsed into a
+    // result nobody will read. Aborting actually cancels it. `timedOut`
+    // distinguishes our own abort from any other fetch rejection so the
+    // error below can say which happened.
+    const controller = new AbortController();
+    let timedOut = false;
+    const deadline = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, CONFIG_TIMEOUT_MS);
+    configPromise = fetch(INIT_JSON_PATH, { signal: controller.signal })
       .then((res) => {
         if (!res.ok) {
           throw new Error(`${INIT_JSON_PATH} returned ${res.status}`);
@@ -58,9 +88,26 @@ export function loadFirebaseConfig() {
       .catch((err) => {
         // Never cache a rejection: a transient network failure on first load
         // would otherwise block every retry for the rest of the page session.
+        // A timeout is exactly such a transient failure, so it is cached no
+        // more than any other -- a retry issues a fresh request.
         configPromise = null;
+        // Rewritten from the AbortError the abort above produces ("The
+        // operation was aborted"), which names the mechanism rather than the
+        // problem and would read as a bug in this page rather than a stalled
+        // network. Tagged `code: 'timeout'` to match the convention
+        // dashboardData.js's withTimeout already uses.
+        if (timedOut) {
+          throw Object.assign(
+            new Error(`${INIT_JSON_PATH} did not respond within ${CONFIG_TIMEOUT_MS}ms`),
+            { code: 'timeout' },
+          );
+        }
         throw err;
-      });
+      })
+      // Always, on both paths -- a success would otherwise leave a live 15s
+      // timer holding an AbortController for a request that already
+      // finished.
+      .finally(() => clearTimeout(deadline));
   }
   return configPromise;
 }

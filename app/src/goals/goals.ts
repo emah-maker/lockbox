@@ -285,9 +285,30 @@ export type GoalCreateExtras = Pick<
   'daysOfWeek' | 'targetSessions' | 'notify' | 'notifyAt' | 'notifyTimes' | 'notifyDays' | 'notifyOnlyIfBehind'
 >;
 
+/** Drops the `count` stalest archived tombstones, keeping everything else in
+ * the order it was already in. goalMerge.ts's capToMaxGoals encodes this same
+ * eviction ranking -- least-recently-updated first, ties broken by id purely
+ * for determinism -- but it can't be reused here: it sits on the far side of
+ * this module's dependency edge (goalMerge imports goals, never the reverse),
+ * and it re-sorts its whole result into merge order, which a list a screen may
+ * be rendering by array position must not be put through. Only tombstones are
+ * ever candidates, and createGoal's live-count check below is exactly what
+ * guarantees enough of them exist to cover `count`. */
+function dropStalestTombstones(goals: Goal[], count: number): Goal[] {
+  if (count <= 0) return goals;
+  const doomed = new Set(
+    goals
+      .filter((g) => g.archived)
+      .sort((a, b) => a.updatedAt - b.updatedAt || a.id.localeCompare(b.id))
+      .slice(0, count)
+      .map((g) => g.id),
+  );
+  return goals.filter((g) => !doomed.has(g.id));
+}
+
 /** Appends a new goal, stamping createdAt/updatedAt to `nowMs`. Rejects (via
  * throw, same as createCustomLabel) an invalid topic/period/targetS/
- * daysOfWeek/targetSessions/notify/notifyAt, or a goal count already at
+ * daysOfWeek/targetSessions/notify/notifyAt, or a LIVE goal count already at
  * MAX_GOALS -- the cap is checked last, same ordering as createCustomLabel's
  * own field-then-cap checks, so a field error is never masked by a cap error
  * that would have applied regardless. */
@@ -305,7 +326,17 @@ export function createGoal(
     notifyDays: extra.notifyDays,
     notifyOnlyIfBehind: extra.notifyOnlyIfBehind,
   });
-  if (goals.length >= MAX_GOALS) throw new Error(`You can have at most ${MAX_GOALS} goals.`);
+  // The cap is on goals the user actually HAS, not on array slots. A
+  // "deleted" goal stays in the array as a tombstone for the whole
+  // ARCHIVED_GOAL_PRUNE_MS horizon so the delete itself can propagate (see
+  // Goal.archived), and counting those against the cap meant a list showing
+  // the user ZERO goals could refuse to create one -- for thirty days, with
+  // nothing they could do about it from inside the app. goalMerge.ts's
+  // capToMaxGoals already treats a tombstone as the thing to give up first
+  // when something has to go; this is that same policy applied at the moment
+  // of creation rather than only at merge time.
+  const live = goals.reduce((n, g) => (g.archived ? n : n + 1), 0);
+  if (live >= MAX_GOALS) throw new Error(`You can have at most ${MAX_GOALS} goals.`);
   const daysOfWeek = extra.daysOfWeek !== undefined ? normalizeDaysOfWeek(extra.daysOfWeek) : undefined;
   const notifyTimes = normalizeNotifyTimes(extra.notifyTimes);
   const notifyDays = extra.notifyDays !== undefined ? normalizeDaysOfWeek(extra.notifyDays) : undefined;
@@ -331,7 +362,16 @@ export function createGoal(
     ...(notifyDays !== undefined ? { notifyDays } : {}),
     ...(extra.notifyOnlyIfBehind !== undefined ? { notifyOnlyIfBehind: extra.notifyOnlyIfBehind } : {}),
   };
-  return [...goals, goal];
+  // Making room, not overflowing. Letting the array itself past MAX_GOALS
+  // would not stay a local detail: app/firestore.rules refuses a goals/config
+  // doc whose `goals` list is longer, and an account that has no such doc yet
+  // gets this array pushed VERBATIM (firestoreSync.ts's syncGoalsTwoWay
+  // setDoc), so the rejection would fail the sync step rather than just the
+  // one write, and would keep failing identically on every retry. Almost
+  // always a no-op: it only removes anything when the cap was already spent
+  // on tombstones, which is precisely the case the live-count check above
+  // now lets through.
+  return dropStalestTombstones([...goals, goal], goals.length + 1 - MAX_GOALS);
 }
 
 export interface GoalPatch {
@@ -395,19 +435,44 @@ export function updateGoal(goals: Goal[], id: string, patch: GoalPatch, nowMs: n
     // Re-derived from the list on every write, so the legacy mirror can
     // never drift out of step with it -- see Goal.notifyAt.
     const notifyAt = notifyTimes ? notifyTimes[0] : patchedNotifyAt;
+    // Built field-by-field with the same conditional spreads createGoal
+    // (above) and sanitizeOneGoal (goalSanitize.ts) use -- NOT `{ ...g,
+    // daysOfWeek, ... }`. Spreading the old goal and then naming every
+    // optional field writes each one unconditionally, so a goal that simply
+    // doesn't have a `notifyTimes` comes back carrying
+    // `notifyTimes: undefined` as a real, present key.
+    //
+    // That is not cosmetic. sync/firestoreSync.ts's pushGoalsPatch /
+    // syncGoalsTwoWay hand this array straight to setDoc, and
+    // auth/firebase.ts builds Firestore WITHOUT
+    // `ignoreUndefinedProperties`, so a single present-but-undefined field
+    // rejects the whole doc write with "Unsupported field value:
+    // undefined". goalsSyncBridge pushes fire-and-forget, so nothing
+    // surfaces at the moment of the edit -- the failure shows up as the
+    // NEXT syncNow turning into an account-wide syncError (which also skips
+    // the scheduled-session reconcile), and it stays broken until a restart
+    // re-hydrates the JSON-stripped copy from storage.
+    //
+    // The invariant, stated once: a Goal's optional fields are ABSENT when
+    // unset, never present-and-undefined. `...g` can't express that, since
+    // it would also carry forward the very key a `null` patch is trying to
+    // clear -- which is why id/createdAt/archived are copied across
+    // explicitly instead.
     return {
-      ...g,
+      id: g.id,
       topic,
       period,
       targetS,
-      daysOfWeek,
-      targetSessions,
-      notify,
-      notifyAt,
-      notifyTimes,
-      notifyDays,
-      notifyOnlyIfBehind,
+      createdAt: g.createdAt,
       updatedAt: nowMs,
+      archived: g.archived,
+      ...(daysOfWeek !== undefined ? { daysOfWeek } : {}),
+      ...(targetSessions !== undefined ? { targetSessions } : {}),
+      ...(notify !== undefined ? { notify } : {}),
+      ...(notifyAt !== undefined ? { notifyAt } : {}),
+      ...(notifyTimes !== undefined ? { notifyTimes } : {}),
+      ...(notifyDays !== undefined ? { notifyDays } : {}),
+      ...(notifyOnlyIfBehind !== undefined ? { notifyOnlyIfBehind } : {}),
     };
   });
 }

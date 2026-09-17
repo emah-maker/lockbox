@@ -14,11 +14,29 @@
 import { View, StyleSheet } from 'react-native';
 import { useTheme } from '../../theme/useTheme';
 import { withAlpha } from '../../theme/color';
+import { heatFill } from '../../theme/dayHeat';
 import { formatDuration } from '../../stats/stats';
 import { HeatmapDay } from '../../stats/trend';
 import { AnimatedPressable } from '../../ui/AnimatedPressable';
 
-const HEATMAP_OPACITY = [0.08, 0.3, 0.5, 0.72, 1] as const;
+// Level 0's own fill, and the ONLY alpha this file still picks for itself.
+// theme/dayHeat.ts's heatFill answers every other level (see this file's
+// cell below) -- it used to answer none of them, because this file kept a
+// private [0.08, 0.3, 0.5, 0.72, 1] table of its own. Levels 2 and 4
+// happened to coincide with the shared scale; 1 and 3 did not, so the same
+// day was one shade on the Calendar tab and a different one here.
+//
+// Level 0 stays local because heatFill(theme, 0) is a fully transparent
+// fill, which is correct on the calendar -- the cell there still draws a
+// day number, so nothing goes missing -- and wrong here, where the cells
+// ARE the grid. This one is 32pt of nothing but fill, sitting on a Sheet
+// already painted theme.surface, so both transparent and `surface` render
+// as a hole in an otherwise solid 5x7 block. A tint faint enough to read as
+// "nothing logged" but solid enough to read as "a day" is the empty-cell
+// affordance the grid needs; ui/calendar/HeatLegend.tsx gives its own level
+// 0 the same kind of special case (an outlined `surface` swatch) for the
+// same reason, rather than trying to make one function cover both.
+const EMPTY_DAY_ALPHA = 0.08;
 
 export function HeatmapGrid({
   heatmap,
@@ -45,7 +63,12 @@ export function HeatmapGrid({
           accessibilityRole="button"
           accessibilityLabel={`${new Date(d.dateMs).toLocaleDateString()}, ${formatDuration(d.focusS)}. View sessions.`}
         >
-          <View style={[styles.heatmapCell, { backgroundColor: withAlpha(c.accent, HEATMAP_OPACITY[d.level]) }]} />
+          <View
+            style={[
+              styles.heatmapCell,
+              { backgroundColor: d.level === 0 ? withAlpha(c.accent, EMPTY_DAY_ALPHA) : heatFill(c, d.level) },
+            ]}
+          />
         </AnimatedPressable>
       ))}
     </View>

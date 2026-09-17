@@ -102,6 +102,22 @@ function drawDayList(daySessions) {
 }
 
 function draw() {
+  // Nothing to paint into yet. mountCalendarPanel() below wires the
+  // prev/next handlers from dashboard.js's init(), which runs well before
+  // the first renderCalendar supplies `calEls`/`calCtx`, so a click landing
+  // in that window would reach the `const { theme, themeMode } = calCtx`
+  // destructure below with both still null and throw.
+  //
+  // No user can currently produce that click -- the buttons sit inside
+  // #dashContent, and styles.css's `[hidden] { display: none !important; }`
+  // keeps it unclickable and out of the tab order until showState('content'),
+  // which runs after renderAll() in the same synchronous task. But every
+  // link in that chain lives in a different file: the ordering in
+  // dashboard.js, the containment in dashboard.html, the display rule in
+  // styles.css. This module's own public API openly permits "mount, then
+  // click, then render", so it should survive that order on its own rather
+  // than on three other files continuing to agree.
+  if (!calEls || !calCtx) return;
   const byDay = groupByDay(calSessions);
   const grid = buildMonthGrid(calCursor);
   const todayKey = dayKey(Date.now());

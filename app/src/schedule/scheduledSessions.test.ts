@@ -9,6 +9,7 @@ import {
   ScheduledSession,
   createScheduledSession,
   deleteScheduledSession,
+  isValidDateKey,
   pruneScheduledSessions,
   reminderFireMs,
   scheduledStartMs,
@@ -46,6 +47,53 @@ describe('scheduledStartMs / reminderFireMs', () => {
     expect(scheduledStartMs({ date: '2026-13-01', time: '09:00' })).toBeNaN();
   });
 
+  // DATE_RE checks digit RANGES, not whether the day exists in that month --
+  // so '2026-02-30' matched, and `new Date(2026, 1, 30)` silently rolled it
+  // forward to Mar 2. The plan then lived on two different days at once: the
+  // day sheet listed it under Feb 30 (a string compare), while its reminder
+  // fired on Mar 2, a day whose sheet never showed it.
+  it('is NaN for a date that passes the digit ranges but does not exist', () => {
+    expect(scheduledStartMs({ date: '2026-02-30', time: '09:00' })).toBeNaN();
+    expect(scheduledStartMs({ date: '2026-04-31', time: '09:00' })).toBeNaN();
+    expect(scheduledStartMs({ date: '2025-02-29', time: '09:00' })).toBeNaN(); // 2025 is not a leap year
+  });
+
+  it('still accepts the real edge days those checks must not reject', () => {
+    expect(scheduledStartMs({ date: '2024-02-29', time: '09:00' })).not.toBeNaN(); // a real leap day
+    expect(scheduledStartMs({ date: '2026-12-31', time: '23:59' })).not.toBeNaN();
+    expect(scheduledStartMs({ date: '2026-01-01', time: '00:00' })).not.toBeNaN();
+  });
+
+  // `new Date(y, ...)` maps a year under 100 into the 1900s, so '0026-09-01'
+  // parsed as 1926 rather than as the nonsense it is. The round-trip catches
+  // that for free, and a 1926 plan is not something to keep either way.
+  it('is NaN for a year JS would silently reinterpret as 19xx', () => {
+    expect(scheduledStartMs({ date: '0026-09-01', time: '09:00' })).toBeNaN();
+  });
+});
+
+// Exported so the untrusted side can apply the exact same rule -- see
+// isValidDateKey's own comment about sync/scheduledSessionsSync.ts's
+// fromRemote, which today accepts any string.
+describe('isValidDateKey', () => {
+  it('accepts a real local calendar day', () => {
+    expect(isValidDateKey('2026-09-01')).toBe(true);
+    expect(isValidDateKey('2024-02-29')).toBe(true);
+  });
+
+  it('rejects a day that does not exist in that month', () => {
+    expect(isValidDateKey('2026-02-30')).toBe(false);
+    expect(isValidDateKey('2026-06-31')).toBe(false);
+    expect(isValidDateKey('2025-02-29')).toBe(false);
+  });
+
+  it('rejects anything the shape check already rejected', () => {
+    expect(isValidDateKey('2026-13-01')).toBe(false);
+    expect(isValidDateKey('2026-9-01')).toBe(false);
+    expect(isValidDateKey('tomorrow')).toBe(false);
+    expect(isValidDateKey('')).toBe(false);
+  });
+
   it('backs the fire time off by leadMinutes', () => {
     const start = scheduledStartMs({ date: '2026-09-01', time: '09:00' });
     expect(reminderFireMs({ date: '2026-09-01', time: '09:00', leadMinutes: 30 })).toBe(start - 30 * 60_000);
@@ -62,6 +110,13 @@ describe('scheduledStartMs / reminderFireMs', () => {
 });
 
 describe('createScheduledSession', () => {
+  it('rejects a date that does not exist, not just a misshapen one', () => {
+    // Accepting it created a plan the app could never show the user on the
+    // day it would actually fire.
+    expect(() => createScheduledSession([], input({ date: '2026-02-30' }))).toThrow(/valid date/i);
+    expect(() => createScheduledSession([], input({ date: '2024-02-29' }))).not.toThrow();
+  });
+
   it('rejects malformed fields with a renderable message', () => {
     expect(() => createScheduledSession([], input({ date: 'nope' }))).toThrow(/valid date/i);
     expect(() => createScheduledSession([], input({ time: '25:00' }))).toThrow(/valid start time/i);

@@ -124,6 +124,25 @@ function normalizeDaysOfWeek(daysOfWeek) {
   return unique.length > 0 ? unique : undefined;
 }
 
+/** Writes `value` to `target[key]`, or REMOVES the key entirely when `value`
+ * is `undefined`.
+ *
+ * Exists because "not set" has to reach Firestore as an ABSENT key, never as
+ * a present key holding `undefined`. dashboard.js's writeGoals setDoc()s this
+ * array through a plain getFirestore(app) instance -- ignoreUndefinedProperties
+ * is off -- so an `undefined`-valued property makes the whole write throw
+ * "Unsupported field value: undefined" in the browser, before anything leaves
+ * the page. createGoal and sanitizeRemoteGoals get this for free by building
+ * their objects from scratch with `...(x !== undefined ? { x } : {})`;
+ * updateGoal cannot, because it builds on `...current`, where a plain
+ * conditional spread would leave the goal's OLD value in place instead of
+ * clearing it. Hence delete rather than skip -- the same shape the
+ * notifyTimes block in updateGoal below has always used. */
+function setOrDelete(target, key, value) {
+  if (value === undefined) delete target[key];
+  else target[key] = value;
+}
+
 /** Shared validation for create/update -- throws a plain Error with a
  * human-readable `.message`, same convention as focusStats.js's
  * createCustomLabel/renameCustomLabel (dashboard.js's errorMessage() already
@@ -184,7 +203,14 @@ function validateGoalExtras(period, daysOfWeek, targetSessions, notify, notifyAt
 export function createGoal(goals, topic, period, targetS, nowMs = Date.now(), extra = {}) {
   validateGoalFields(topic, period, targetS);
   validateGoalExtras(period, extra.daysOfWeek, extra.targetSessions, extra.notify, extra.notifyAt);
-  if (goals.length >= MAX_GOALS) throw new Error(`You can have at most ${MAX_GOALS} goals.`);
+  // LIVE goals, not the raw array. Archived entries are tombstones that
+  // pruneArchivedGoals keeps for 30 days so an archive propagates through
+  // mergeGoals' LWW union -- counting them meant a user whose visible goal
+  // list was EMPTY could still be refused a new goal for a month. Mirrors
+  // app/src/goals/goals.ts's createGoal, which had the identical bug.
+  if (goals.filter((g) => !g.archived).length >= MAX_GOALS) {
+    throw new Error(`You can have at most ${MAX_GOALS} goals.`);
+  }
   const daysOfWeek = extra.daysOfWeek !== undefined ? normalizeDaysOfWeek(extra.daysOfWeek) : undefined;
   const goal = {
     id: makeGoalId(),
@@ -199,7 +225,29 @@ export function createGoal(goals, topic, period, targetS, nowMs = Date.now(), ex
     ...(extra.notify !== undefined ? { notify: extra.notify } : {}),
     ...(extra.notifyAt !== undefined ? { notifyAt: extra.notifyAt } : {}),
   };
-  return [...goals, goal];
+  // Letting the live-count check above through can still push the array
+  // itself over MAX_GOALS when tombstones are what fill it, and the array is
+  // what gets written: firestoreSync pushes it verbatim and firestore.rules
+  // refuses goals.size() > 20, which would fail the sync identically on
+  // every retry. So make room by dropping the stalest tombstones -- never a
+  // live goal, which the check above guarantees is possible.
+  return dropStalestTombstones([...goals, goal], goals.length + 1 - MAX_GOALS);
+}
+
+/** Drops the `count` stalest tombstones, oldest-updated first with id as the
+ * tie-break so every surface agrees on which ones went. Only archived
+ * entries are ever candidates. Mirrors the helper of the same name in
+ * app/src/goals/goals.ts. */
+function dropStalestTombstones(goals, count) {
+  if (count <= 0) return goals;
+  const doomed = new Set(
+    goals
+      .filter((g) => g.archived)
+      .sort((a, b) => a.updatedAt - b.updatedAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+      .slice(0, count)
+      .map((g) => g.id),
+  );
+  return goals.filter((g) => !doomed.has(g.id));
 }
 
 /** Applies a partial edit (`patch` may include any of topic/period/targetS
@@ -230,7 +278,15 @@ export function updateGoal(goals, id, patch, nowMs = Date.now()) {
   validateGoalExtras(period, rawDaysOfWeek, targetSessions, notify, notifyAt);
   const daysOfWeek = rawDaysOfWeek !== undefined ? normalizeDaysOfWeek(rawDaysOfWeek) : undefined;
   const next = goals.slice();
-  const updated = { ...current, topic, period, targetS, daysOfWeek, targetSessions, notify, notifyAt, updatedAt: nowMs };
+  // topic/period/targetS/updatedAt are always defined, so they can be
+  // assigned straight through; the four extension fields go via setOrDelete
+  // above, which is what keeps an unset one an absent key rather than an
+  // `undefined`-valued one Firestore refuses to write.
+  const updated = { ...current, topic, period, targetS, updatedAt: nowMs };
+  setOrDelete(updated, 'daysOfWeek', daysOfWeek);
+  setOrDelete(updated, 'targetSessions', targetSessions);
+  setOrDelete(updated, 'notify', notify);
+  setOrDelete(updated, 'notifyAt', notifyAt);
 
   // Keep `notifyAt` and the phone's multi-time `notifyTimes` schedule from
   // drifting apart. The phone treats notifyTimes as the authority and notifyAt

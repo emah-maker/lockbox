@@ -12,7 +12,7 @@ from lock_config import (
     SERVO_ANGLE_MIN, SERVO_ANGLE_MAX, NVM_SETTINGS_BASE, NVM_SETTINGS_LEN,
     OVERRIDE_TIMEOUT, OVR_TIMEOUT_MIN_TENTHS, OVR_TIMEOUT_MAX_TENTHS,
     OVR_TIMEOUT_STEP_TENTHS, SERVO_ANGLE_STEP,
-    clamp,
+    clamp, snap_to_option,
 )
 
 _MAGIC = 0x64        # bump when the NVM layout changes (forces defaults once);
@@ -133,15 +133,91 @@ class Settings:
                 self.override_presses = (
                     ovr if OVR_MIN <= ovr <= OVR_MAX else OVERRIDE_PRESSES)
                 self.auto_open = bool(nvm[_BASE + 2])
-                self.sleep_s = nvm[_BASE + 3]
-                self.bright_pct = nvm[_BASE + 4]
+                # Snapped for exactly the reason bright_pct below is, and
+                # against the same shape of call site: SLEEP_OPTIONS is a
+                # discrete option tuple, and two readers look a stored
+                # value up IN it rather than merely comparing against it.
+                # _step_in swallows the ValueError and silently restarts
+                # the on-box stepper at the first option; lock_ui_widgets.
+                # setting_fraction -- the Sleep detail page's progress
+                # track, via _refresh_detail_track -- does not, so opening
+                # that row raises instead of drawing. code.py's run-loop
+                # guard keeps that from ending the box, but the row stays
+                # unreachable for as long as the byte stays bad, and the
+                # byte only gets better if the user can reach the row.
+                # decode_settings already snaps "sleep" arriving over BLE;
+                # this was the one door in that did not.
+                self.sleep_s = snap_to_option(SLEEP_OPTIONS, nvm[_BASE + 3])
+                # Snapped, not just clamped, and for a harsher reason than
+                # the two fields above are guarded. bright_level() is
+                # pct/100 and code.py hands that to Backlight.set_level on
+                # every frame, so a 0 byte here blanks the panel -- while
+                # Backlight._on stays True, so the screen is never
+                # considered "off" and backlight.on() is a no-op. The box
+                # goes on running, sampling touch and counting down
+                # perfectly; the user simply cannot see any of it, including
+                # the settings row that would undo it. There is no way back
+                # from the box itself, only a BLE push from the app.
+                #
+                # snap_to_option rather than clamp so the result is an exact
+                # BRIGHT_OPTIONS member: _step_in does options.index(value),
+                # so a merely-in-range value sends the on-box stepper back
+                # to the first option on the next swipe instead of stepping
+                # from where it was (see snap_to_option's own docstring).
+                # This is exactly what decode_settings already does to the
+                # same field arriving over BLE -- the NVM path was the one
+                # way in that trusted the value.
+                self.bright_pct = snap_to_option(BRIGHT_OPTIONS, nvm[_BASE + 4])
                 self.allow_remote_unlock = bool(nvm[_BASE + 5])
                 self.unlock_on_call = bool(nvm[_BASE + 6])
-                self.theme_mode = nvm[_BASE + 7]
-                self.accent_idx = nvm[_BASE + 8]
+                # These two are used as SUBSCRIPTS, not just compared:
+                # lock_ui_theme.set_theme does MODE_COLORS[mode_idx] and
+                # accent_set[accent_idx] against a 2- and an 8-entry tuple.
+                # LockController.__init__ calls set_theme as its third
+                # statement, and __init__ runs at import time in code.py --
+                # BEFORE the `while True:` whose try/except catches every
+                # other fault in this firmware. An IndexError reached from
+                # there is not a degraded screen, it is a box that does not
+                # boot, recoverable only by reflashing.
+                #
+                # set_theme does clamp both of its own arguments today, so
+                # that boot survives as the code currently stands. Guarding
+                # here anyway is deliberate rather than belt-and-braces.
+                # That clamp is two files away, inside a UI method whose
+                # own comments say nothing about holding the boot up, and
+                # it is not the only reader: a raw theme_mode of 255 reads
+                # as Dark everywhere (every consumer asks `== 1`) while
+                # lock_settings_nav's cycle-on-tap is `0 if s.theme_mode
+                # else 1`, which sees 255 as truthy and sets 0 -- Dark
+                # before the press and Dark after, a Theme row
+                # indistinguishable from a dead touch target. And a raw
+                # accent_idx leaves the box verbatim in encode_settings'
+                # "acc", where it is not an index into the app's
+                # ACCENT_KEYS either.
+                #
+                # Clamped rather than defaulted because that is what
+                # decode_settings already does with these same two fields
+                # arriving over the radio: a number the radio would not
+                # apply as-is must not be applied just because it came from
+                # flash instead.
+                self.theme_mode = clamp(nvm[_BASE + 7], 0, 1)
+                self.accent_idx = clamp(nvm[_BASE + 8], 0,
+                                        len(ACCENT_COLORS) - 1)
                 self.screen_flipped = bool(nvm[_BASE + 10])
-                self.lock_angle = nvm[_BASE + 11] - _ANGLE_BYTE_OFFSET
-                self.unlock_angle = nvm[_BASE + 12] - _ANGLE_BYTE_OFFSET
+                # Clamped to the servo's real range, like every other door
+                # to these two already is: _pack() clamps on the way out,
+                # and decode_settings clamps "langle"/"uangle" on the way
+                # in from the radio. Left raw, the stored byte minus the
+                # +90 offset spans -90..165, and nothing fails loudly --
+                # lock_servo.Servo._write_angle clamps before driving, and
+                # bar_fill_width pins the detail track's fraction at 1.0.
+                # What is left is a number the box shows and transmits but
+                # does not obey: the Lock pos row reads 165, the phone is
+                # told "langle":165, and the horn goes to 90.
+                self.lock_angle = clamp(nvm[_BASE + 11] - _ANGLE_BYTE_OFFSET,
+                                        SERVO_ANGLE_MIN, SERVO_ANGLE_MAX)
+                self.unlock_angle = clamp(nvm[_BASE + 12] - _ANGLE_BYTE_OFFSET,
+                                          SERVO_ANGLE_MIN, SERVO_ANGLE_MAX)
                 # Clamped on the way OUT as well as in: this byte is the
                 # newest field, so it is the one most likely to be read from
                 # a box whose NVM was written by a build that never set it.

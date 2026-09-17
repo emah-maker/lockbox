@@ -135,6 +135,70 @@ describe('createGoal', () => {
     expect(goals).toHaveLength(MAX_GOALS);
     expect(() => createGoal(goals, null, 'daily', 3600)).toThrow();
   });
+
+  // A "deleted" goal stays in the array as a tombstone for the full
+  // ARCHIVED_GOAL_PRUNE_MS horizon (see Goal.archived), so counting raw array
+  // length against the cap let a list the user sees as EMPTY refuse a new
+  // goal for 30 days, with no way out from inside the app.
+  describe('the cap counts live goals, not tombstones', () => {
+    const archiveAll = (goals: Goal[], nowMs: number): Goal[] =>
+      goals.reduce((acc, g) => archiveGoal(acc, g.id, nowMs), goals);
+
+    const fillToCap = (): Goal[] => {
+      let goals: Goal[] = [];
+      for (let i = 0; i < MAX_GOALS; i += 1) goals = createGoal(goals, null, 'daily', 3600, 1000 + i);
+      return goals;
+    };
+
+    it('accepts a new goal when every existing entry is an archived tombstone', () => {
+      const tombstones = archiveAll(fillToCap(), 5000);
+      expect(tombstones.filter((g) => !g.archived)).toHaveLength(0);
+      // Nothing is old enough to prune, so the array really is still full.
+      expect(pruneArchivedGoals(tombstones, 5000)).toHaveLength(MAX_GOALS);
+
+      const next = createGoal(tombstones, 'work', 'daily', 3600, 6000);
+      expect(next.filter((g) => !g.archived).map((g) => g.topic)).toEqual(['work']);
+    });
+
+    it('still keeps the array itself within MAX_GOALS, which firestore.rules requires of goals/config', () => {
+      // A local array over the cap is not a cosmetic overflow: an
+      // account whose goals/config doc does not exist yet is written with
+      // setDoc(local.goals) verbatim (firestoreSync.ts's syncGoalsTwoWay),
+      // and the rules reject goals.size() > 20 outright.
+      const next = createGoal(archiveAll(fillToCap(), 5000), 'work', 'daily', 3600, 6000);
+      expect(next).toHaveLength(MAX_GOALS);
+    });
+
+    it('evicts the stalest tombstone to make that room, never a live goal', () => {
+      let goals: Goal[] = [];
+      for (let i = 0; i < MAX_GOALS - 1; i += 1) goals = createGoal(goals, null, 'daily', 3600, 1000 + i);
+      // One extra goal, archived long enough ago to be the stalest entry but
+      // not long enough for pruneArchivedGoals to have dropped it.
+      goals = createGoal(goals, 'doomed', 'daily', 3600, 2000);
+      goals = archiveGoal(goals, goals[goals.length - 1].id, 2500);
+      expect(goals).toHaveLength(MAX_GOALS);
+
+      const next = createGoal(goals, 'work', 'daily', 3600, 6000);
+      expect(next).toHaveLength(MAX_GOALS);
+      expect(next.map((g) => g.topic)).not.toContain('doomed');
+      expect(next.filter((g) => !g.archived)).toHaveLength(MAX_GOALS);
+    });
+
+    it('still refuses a new goal once MAX_GOALS of them are live', () => {
+      const live = fillToCap();
+      expect(() => createGoal(live, 'work', 'daily', 3600, 6000)).toThrow(/at most/);
+    });
+
+    it('leaves an under-cap list appended in place, with no eviction or reordering', () => {
+      const goals = archiveGoal(
+        createGoal(createGoal([], 'a', 'daily', 3600, 1000), 'b', 'daily', 3600, 2000),
+        'nope',
+        3000,
+      );
+      const next = createGoal(goals, 'c', 'daily', 3600, 4000);
+      expect(next.map((g) => g.topic)).toEqual(['a', 'b', 'c']);
+    });
+  });
 });
 
 describe('updateGoal', () => {
@@ -287,6 +351,66 @@ describe('updateGoal -- flexible-goals extension fields', () => {
     const goals = createGoal([], null, 'daily', 3600, 1000);
     expect(() => updateGoal(goals, goals[0].id, { notifyAt: 'bad' })).toThrow();
     expect(() => updateGoal(goals, goals[0].id, { targetSessions: -1 })).toThrow();
+  });
+});
+
+// A goal's optional fields must be ABSENT, never present-and-undefined.
+// This is not tidiness: sync/firestoreSync.ts hands the goals array straight
+// to setDoc, and auth/firebase.ts builds Firestore without
+// `ignoreUndefinedProperties`, so one present-but-undefined key makes the
+// whole doc write reject with "Unsupported field value: undefined". The
+// reject is swallowed by goalsSyncBridge's fire-and-forget push, so the user
+// never sees an error on the edit itself -- what they see is every later
+// sync failing account-wide, until a restart re-hydrates the JSON-stripped
+// copy from storage. createGoal and sanitizeOneGoal both already build this
+// shape with conditional spreads; updateGoal is the third writer and has to
+// agree with them.
+describe('updateGoal writes a Firestore-serialisable shape', () => {
+  const OPTIONAL_KEYS = [
+    'daysOfWeek',
+    'targetSessions',
+    'notify',
+    'notifyAt',
+    'notifyTimes',
+    'notifyDays',
+    'notifyOnlyIfBehind',
+  ] as const;
+
+  it('omits every optional field the goal does not carry, rather than setting it to undefined', () => {
+    const goals = createGoal([], null, 'daily', 3600, 1000);
+    const updated = updateGoal(goals, goals[0].id, { targetS: 7200 }, 2000);
+    for (const key of OPTIONAL_KEYS) expect(updated[0]).not.toHaveProperty(key);
+  });
+
+  it('drops the key entirely when a patch clears a field via null', () => {
+    const goals = createGoal([], null, 'daily', 3600, 1000, { daysOfWeek: [1, 2], targetSessions: 4 });
+    const cleared = updateGoal(goals, goals[0].id, { daysOfWeek: null, targetSessions: null }, 2000);
+    expect(cleared[0]).not.toHaveProperty('daysOfWeek');
+    expect(cleared[0]).not.toHaveProperty('targetSessions');
+  });
+
+  it('survives a JSON round-trip byte-for-byte, the check a Firestore write effectively applies', () => {
+    const goals = createGoal([], 'work', 'weekly', 7200, 1000, { notify: true, notifyTimes: ['09:00'] });
+    const updated = updateGoal(goals, goals[0].id, { targetS: 10800 }, 2000);
+    // toStrictEqual (unlike toEqual) fails on a key whose value is
+    // undefined, which is exactly the distinction JSON.stringify -- and
+    // Firestore's serializer -- draws.
+    expect(updated[0]).toStrictEqual(JSON.parse(JSON.stringify(updated[0])));
+  });
+
+  it('produces the same key set as an equivalent freshly created goal', () => {
+    const created = createGoal([], null, 'daily', 3600, 1000)[0];
+    const goals = createGoal([], null, 'daily', 1800, 1000);
+    const updated = updateGoal(goals, goals[0].id, { targetS: 3600 }, 2000)[0];
+    expect(Object.keys(updated).sort()).toEqual(Object.keys(created).sort());
+  });
+
+  it('keeps id/createdAt/archived from the goal it edits', () => {
+    const goals = archiveGoal(createGoal([], 'work', 'daily', 3600, 1000), 'nope', 1500);
+    const updated = updateGoal(goals, goals[0].id, { targetS: 7200 }, 2000);
+    expect(updated[0].id).toBe(goals[0].id);
+    expect(updated[0].createdAt).toBe(1000);
+    expect(updated[0].archived).toBe(false);
   });
 });
 

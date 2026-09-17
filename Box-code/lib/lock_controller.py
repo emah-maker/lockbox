@@ -66,6 +66,7 @@ class LockController(StateMixin, BleMixin, GestureMixin):
         self._editing = False
         self._edit_idx = 0
         self._servo_relax_at = None
+        self._servo_hold = False   # drive with no relax: set by go_done, read by update()
         self._servo_locked = False
         self._done_force_open = False    # set by go_done(force_open=True) --
                                           # an unlock that must take physical
@@ -88,6 +89,7 @@ class LockController(StateMixin, BleMixin, GestureMixin):
         self._wall_epoch0 = None         # epoch pushed by the phone (time_sync)
         self._wall_mono0 = None          # monotonic at the moment of that push
         self._ble_connected = False      # drives the control/clock corner dot
+        self._last_batt = None     # the one gauge read a second; BleMixin._battery_pct reuses it
         self._last_frame_t = None        # for step_motion's dt -- see update()
         # ----- pre-session tag picker + custom-label sync (best-effort) -----
         self._synced_labels = []   # [(id, name, color), ...] most recently
@@ -232,14 +234,19 @@ class LockController(StateMixin, BleMixin, GestureMixin):
             self.ui.update_settings(self.settings)
 
     # ----- lock hardware hooks (wire a relay/solenoid here later) -----
+    # Both end any indefinite hold: the only two calls that drive the servo,
+    # both arming the relax timer, so a hold cannot outlive the state that
+    # asked for it (go_done sets the flag AFTER engage_lock).
     def engage_lock(self):
         self.servo.move(self.settings.lock_angle)
         self._servo_locked = True
+        self._servo_hold = False
         self._servo_relax_at = self._now + SERVO_HOLD_S
 
     def release_lock(self):
         self.servo.move(self.settings.unlock_angle)
         self._servo_locked = False
+        self._servo_hold = False
         self._servo_relax_at = self._now + SERVO_HOLD_S
 
     # ----- coordinate mapping -----
@@ -361,9 +368,16 @@ class LockController(StateMixin, BleMixin, GestureMixin):
             else:
                 self.ui.update_override_timeout(remaining, total)
 
-        if self._servo_relax_at is not None:
+        # Driven for EITHER reason: a move not yet relaxed, or the
+        # indefinite hold (go_done's auto-open-off branch). Two conditions
+        # because clearing _servo_relax_at used to mean "don't relax" AND,
+        # accidentally, "don't re-assert" -- in the one state needing it
+        # most, where the servo is pulsed until the box is opened. On
+        # battery that outlasts the screen sleep that drops the CPU to
+        # CPU_SLOW, and lock_servo says twice that shifts the PWM timer.
+        if self._servo_relax_at is not None or self._servo_hold:
             self.servo.reassert()          # keep a clean 50Hz through the move
-            if now >= self._servo_relax_at:
+            if self._servo_relax_at is not None and now >= self._servo_relax_at:
                 self.servo.relax()
                 self._servo_relax_at = None
 
@@ -392,7 +406,11 @@ class LockController(StateMixin, BleMixin, GestureMixin):
         bkey = int(now)                 # update about once per second
         if bkey != self._last_bkey:
             self._last_bkey = bkey
+            # THE one gauge read, cached for the BLE status push -- see
+            # _battery_pct. "Once per second" holds only while this is the
+            # only caller.
             r = self.battery.read(now)
+            self._last_batt = r
             self.ui.update_corner_battery(r)
             if self.view == "battery":
                 self.ui.update_battery_view(r)

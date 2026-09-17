@@ -26,6 +26,7 @@ import {
   collection,
   getDocs,
   writeBatch,
+  runTransaction,
   serverTimestamp,
 } from 'firebase/firestore';
 import { getDb, getFirebaseAuth } from '../auth/firebase';
@@ -145,20 +146,6 @@ export async function runMigrationAndSync(uid: string): Promise<void> {
   // uid's data -- see localDataOwner.ts.
   await ensureLocalDataScopedTo(uid);
   const db = getDb();
-  const auth = getFirebaseAuth();
-  const user = auth.currentUser!;
-  const userRef = doc(db, 'users', uid);
-  const userSnap = await getDoc(userRef);
-
-  if (!userSnap.exists()) {
-    await setDoc(userRef, {
-      email: user.email ?? null,
-      displayName: user.displayName ?? null,
-      photoURL: user.photoURL ?? null,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    });
-  }
 
   // Every inbound (remote -> local) write below is gated on this. See
   // makeSyncGuard for the sign-out race it exists to stop.
@@ -173,6 +160,37 @@ export async function runMigrationAndSync(uid: string): Promise<void> {
   // single time and quietly do nothing.
   const guard = makeSyncGuard(uid);
   try {
+    // Re-checked, not asserted non-null. requireUid(uid) above did check it,
+    // but FOUR awaits ago -- three hydrate()s and ensureLocalDataScopedTo --
+    // and this function is started fire-and-forget from onAuthStateChanged
+    // and from the Sync-now button, so a sign-out, an account switch or an
+    // account deletion can land in that window. `auth.currentUser!` then
+    // read null and the profile write below threw a TypeError on
+    // `user.email`, which propagated as a generic "sync failed" on the
+    // Account page for a sign-out the user performed on purpose. It is the
+    // same expected, benign outcome the LocalDataSuperseded path at the
+    // bottom of this function already exists to swallow -- and the profile
+    // write is above the first guard() call, so nothing else was going to
+    // catch it. A DIFFERENT uid is the same window with worse stakes: these
+    // writes are all built from `uid`, so they would be aimed at an account
+    // nobody is signed in as (and denied by firestore.rules' isOwner).
+    const user = getFirebaseAuth().currentUser;
+    if (!user || user.uid !== uid) {
+      throw new LocalDataSuperseded(`${uid} is no longer the signed-in user`);
+    }
+    const userRef = doc(db, 'users', uid);
+    const userSnap = await getDoc(userRef);
+
+    if (!userSnap.exists()) {
+      await setDoc(userRef, {
+        email: user.email ?? null,
+        displayName: user.displayName ?? null,
+        photoURL: user.photoURL ?? null,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+    }
+
     await syncSessions(uid, guard);
     await syncSettingsTwoWay(uid, guard);
     await syncGoalsTwoWay(uid, guard);
@@ -322,16 +340,52 @@ export async function pushSettingsPatch(): Promise<void> {
 /**
  * Incremental push for a local goals change (called from
  * sync/goalsSyncBridge.ts, which subscribes to useGoalsStore -- same §4.3
- * pattern as pushSettingsPatch above). No-op if signed out. This is a whole-
- * array push, not a per-goal patch -- see syncGoalsTwoWay's own comment on
- * why there's no cheaper partial-update path for goals the way sessions has
- * one for retags.
+ * pattern as pushSettingsPatch above). No-op if signed out.
+ *
+ * Unlike pushSettingsPatch this is NOT a blind whole-document write, and the
+ * difference is the whole reason goals has planGoalsSync at all: settings/app
+ * is whole-document last-write-wins, so pushing this device's copy over it is
+ * the protocol. goals/config is a per-item UNION (syncGoalsTwoWay's comment,
+ * and goalMerge.ts's) precisely so a goal added on the dashboard and a goal
+ * edited on the phone both survive -- and a blind setDoc from here bypassed
+ * that union entirely. Add a goal on the dashboard, then edit any goal on the
+ * phone before its next full sync, and the phone's array -- which never
+ * contained the new goal -- replaced the document. The next syncGoalsTwoWay
+ * then union-merged against a document the goal was already absent from, so
+ * neither side had a copy left to restore it from.
+ *
+ * Hence read-modify-write, and in a transaction rather than a getDoc/setDoc
+ * pair: two devices pushing at once would otherwise each merge against the
+ * pre-write document and the later write would still drop the earlier one's
+ * goal, which is the same bug one round trip narrower. The SDK re-runs this
+ * callback on contention, which is why the local state is read INSIDE it.
+ *
+ * The merge result is deliberately not applied locally. This runs from a
+ * best-effort bridge with no sync guard, and writing remote goals into a
+ * store that may have been wiped by a sign-out mid-flight is exactly the leak
+ * makeSyncGuard exists to stop. Leaving it is safe: the document now holds
+ * the union, and the next syncGoalsTwoWay pulls the missing goal down under
+ * a guard.
  */
 export async function pushGoalsPatch(): Promise<void> {
   const target = pushTarget();
   if (!target) return;
-  const local = useGoalsStore.getState();
-  await setDoc(doc(getDb(), 'users', target.uid, 'goals', 'config'), goalsPayload(local.goals, local.goalsUpdatedAt));
+  const db = getDb();
+  const ref = doc(db, 'users', target.uid, 'goals', 'config');
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(ref);
+    // Same untrusted shape syncGoalsTwoWay reads, so it goes through the same
+    // sanitize-and-merge decision rather than a second, thinner copy of it.
+    const remote = snap.exists() ? (snap.data() as RemoteGoalsDoc) : undefined;
+    const local = useGoalsStore.getState();
+    const plan = planGoalsSync(local.goals, local.goalsUpdatedAt, remote?.goals, remote?.updatedAt ?? 0);
+    // Nothing new for the remote side: the bridge fired for something this
+    // document doesn't carry, or another device already pushed this exact
+    // state. Writing anyway would bump the doc clock every other device
+    // re-merges against, for no content change.
+    if (!plan.shouldPushBack) return;
+    tx.set(ref, goalsPayload(plan.merged, plan.docUpdatedAt));
+  });
 }
 
 /**

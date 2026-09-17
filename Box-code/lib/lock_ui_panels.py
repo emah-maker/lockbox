@@ -317,7 +317,7 @@ class PanelsMixin:
         # see OVERRIDE_PRESSES) -- each registered press bumps the count up
         # and springs it back to rest instead of a flat text swap.
         self._ovr_pop.displace(-OVR_POP_OFFSET_PX, 0.0)
-        self.display.root_group = self.override_group
+        self._set_root(self.override_group)
 
     def update_override_timeout(self, remaining, total):
         # remaining/total -> a depleting bar, green -> amber -> red as the
@@ -404,6 +404,33 @@ class PanelsMixin:
         hint.anchored_position = (W // 2, 260)
         group.append(hint)
 
+    def _set_root(self, group):
+        """The one place display.root_group is assigned (bar show_call_alert).
+
+        Always records `group` as the intended screen, and applies it only
+        when the call-alert overlay is not on top. Every overlay entry point
+        used to assign root_group directly, each one individually
+        correct-looking and collectively wrong: an override counter, a tag
+        picker, a topic-confirm or a settings-detail page raised during an
+        incoming-call alert erased that alert mid-flash, defeating the one
+        screen this firmware calls insistent by design.
+
+        The restore had the mirror-image hole. hide_call_alert re-derived a
+        screen from self.view, but overlays are not views -- so an overlay
+        that was up when the alert arrived got wiped 20 seconds later while
+        the controller was still routing touches to it. From "closed" that
+        left state == "picking" with an invisible tag picker swallowing every
+        touch, which reads on the box as a dead screen.
+
+        Recording intent unconditionally is what makes both halves one idea:
+        whatever the box last decided to show is what comes back, overlay or
+        view, no second "screen is stale" flag to reconcile later.
+        """
+        self._pending_root = group
+        if self._call_alert_active:
+            return
+        self.display.root_group = group
+
     def show_call_alert(self, who):
         self._call_alert_active = True
         self.call_who.text = (who or "Call")[:16]
@@ -423,4 +450,12 @@ class PanelsMixin:
 
     def hide_call_alert(self):
         self._call_alert_active = False
-        self.show_view(self.view)      # restore whatever view was active
+        # Restore the INTENDED screen, not a view re-derived from self.view.
+        # An overlay that was up when the alert arrived (or was raised during
+        # it) is not a view, and re-deriving one used to wipe it while the
+        # controller still routed touches there. _pending_root is only None
+        # if an alert somehow preceded the constructor's own first paint.
+        if self._pending_root is not None:
+            self._set_root(self._pending_root)
+        else:
+            self.show_view(self.view)

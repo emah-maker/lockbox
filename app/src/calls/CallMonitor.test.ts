@@ -128,6 +128,30 @@ describe('gating', () => {
     await flush();
     expect(alertCall).not.toHaveBeenCalled();
   });
+
+  // The box's pre-session screens. Both can be up with the lid shut and the
+  // latch engaged (they are entered from 'closed' too), so they LOOK like
+  // states worth alerting in -- but lock_controller.notify_call discards an
+  // alert in either, while the write itself still succeeds. See LOCKED's
+  // comment: spending the alert there is what would lose it.
+  it.each(['picking', 'confirming'] as BoxState[])(
+    'holds its fire while the box is on its %s screen, and alerts the same ring once the session starts',
+    async (preSession) => {
+      mockGetCurrentCalls.mockReturnValue([ringing()]);
+      const { monitor, alertCall, cfg } = setup({ boxState: preSession });
+      monitor.start();
+      await flush();
+      // Several seconds of the user browsing tags on the box, with the call
+      // ringing the whole time.
+      for (let i = 0; i < 5; i += 1) await monitor.checkNow();
+      expect(alertCall).not.toHaveBeenCalled();
+
+      // Tag picked -> go_running. The uuid must not have been burned.
+      cfg.boxState = 'running';
+      await monitor.checkNow();
+      expect(alertCall).toHaveBeenCalledTimes(1);
+    },
+  );
 });
 
 describe('poll path (the half that survives suspension)', () => {

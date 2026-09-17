@@ -15,6 +15,10 @@ import {
   loadSessions,
   LoggedSession,
 } from './sessionHistory';
+import { mergeSessionsPreferLocalTopic, sessionDocId } from '../sync/sessionMerge';
+// The trend bars, used below to pin the one invariant filterByWindow's upper
+// bound exists for: a windowed total is the sum of the days actually drawn.
+import { lastNDays } from './trend';
 import type { HistoryEntry } from '../ble/protocol';
 
 const session = (startedAt: number, plannedS: number, actualS: number, topic?: string): LoggedSession => ({
@@ -56,6 +60,30 @@ describe('applyTopicUpdate', () => {
     const sessions = [session(1, 60, 60, 'work')];
     const next = applyTopicUpdate(sessions, { startedAt: 1, plannedS: 60, actualS: 60 }, 'study', 12345);
     expect(next[0].topicUpdatedAt).toBe(12345);
+  });
+
+  // The triple is the finest-grained identity the log has, but it is not a
+  // guaranteed-unique one: two clock-less sessions dated from the same
+  // arrival used to share it outright (see buildLoggedSessions' stagger), and
+  // a log restored from an older build can still hold such a pair. Retagging
+  // is a per-session edit made by tapping ONE row in the calendar's day
+  // sheet, so relabelling that row's twins as a side effect is silent data
+  // loss the user never asked for -- and each one then pushes its own retag
+  // to Firestore.
+  it('retags at most one entry even when several share the identity triple', () => {
+    const sessions = [session(1, 60, 60, 'work'), session(1, 60, 60, 'work')];
+    const next = applyTopicUpdate(sessions, { startedAt: 1, plannedS: 60, actualS: 60 }, 'study', 999);
+    expect(next.filter((s) => s.topic === 'study')).toHaveLength(1);
+    expect(next.filter((s) => s.topic === 'work')).toHaveLength(1);
+    expect(next.filter((s) => s.topicUpdatedAt === 999)).toHaveLength(1);
+  });
+
+  it('retags the first match, leaving later twins untouched', () => {
+    const sessions = [session(1, 60, 60, 'work'), session(1, 60, 60, 'work')];
+    const next = applyTopicUpdate(sessions, { startedAt: 1, plannedS: 60, actualS: 60 }, 'study');
+    expect(next[0].topic).toBe('study');
+    expect(next[1].topic).toBe('work');
+    expect(next[1].topicUpdatedAt).toBeUndefined();
   });
 });
 
@@ -218,6 +246,39 @@ describe('filterByWindow', () => {
     const sessions = [at(0), at(29), at(30)];
     expect(filterByWindow(sessions, 'month', now)).toEqual([sessions[0], sessions[1]]);
   });
+
+  // A session can be dated AFTER now: the box's RTC is what dates a logged
+  // session (buildLoggedSessions uses `e.t` as given), it is only re-synced
+  // from the phone on connect, and the phone's own clock can move backwards
+  // (a timezone change, a manual correction). A cross-device sync can bring
+  // one in from a device whose clock ran ahead, too.
+  describe('a session dated after today', () => {
+    const tomorrow = at(-1);
+
+    it('is outside every bounded window, which only ever means "up to today"', () => {
+      for (const w of ['day', 'week', 'month', 'year'] as const) {
+        expect(filterByWindow([tomorrow], w, now)).toEqual([]);
+      }
+    });
+
+    it('keeps the window total equal to the days the trend bars actually draw', () => {
+      // The visible symptom: the header counted a day no bar existed for, so
+      // "this week" read higher than every bar under it added up to.
+      const sessions = [at(0), at(3), tomorrow];
+      const windowed = filterByWindow(sessions, 'week', now).reduce((sum, s) => sum + s.actualS, 0);
+      const drawn = lastNDays(sessions, 7, now).reduce((sum, d) => sum + d.focusS, 0);
+      expect(windowed).toBe(drawn);
+    });
+
+    it('still counts under "all", which is documented as no filtering at all', () => {
+      expect(filterByWindow([tomorrow], 'all', now)).toEqual([tomorrow]);
+    });
+  });
+
+  it('keeps a session later TODAY, which today\'s own bar does draw', () => {
+    const lateToday = session(new Date(2026, 5, 15, 23, 30).getTime(), 60, 60);
+    expect(filterByWindow([lateToday], 'day', now)).toEqual([lateToday]);
+  });
 });
 
 describe('dayKeyToDate', () => {
@@ -301,5 +362,57 @@ describe('buildLoggedSessions guards a clock too low to date a session', () => {
         expect(v).toBeGreaterThanOrEqual(0);
       }
     }
+  });
+});
+
+// Two sessions the box logged while no phone was connected can arrive in the
+// same drained batch, and neither has a clock reading to be dated from -- both
+// are dated from arrival. If they also ran the same length they used to come
+// out byte-identical in startedAt AND actualS, which is precisely the pair
+// sync/sessionMerge.ts's sessionDocId builds a Firestore doc id out of. That
+// is not a cosmetic collision: syncSessions feeds the merge result straight
+// back through replaceSessions, so the twin that lost the Map slot is deleted
+// from local storage as well, with no copy left anywhere. appendSessions'
+// multiplicity dedupe deliberately stores both (a clock-less box CAN log two
+// identical sessions), so this is a reachable pair, not a hypothetical one.
+describe('buildLoggedSessions keeps same-batch clock-less sessions distinguishable', () => {
+  const NOW = 1_700_000_000_000;
+  const clockless = (): HistoryEntry => ({ p: 1500, a: 1500, c: 1, t: -1 });
+
+  it('dates two identical clock-less entries in one batch at distinct startedAt', () => {
+    const { sessions } = buildLoggedSessions([clockless(), clockless()], null, 0, 0, NOW);
+    expect(sessions).toHaveLength(2);
+    expect(sessions[0].startedAt).not.toBe(sessions[1].startedAt);
+  });
+
+  it('gives them distinct session doc ids, so a cross-device merge cannot collapse the pair', () => {
+    const { sessions } = buildLoggedSessions([clockless(), clockless()], null, 0, 0, NOW);
+    expect(new Set(sessions.map((s) => sessionDocId('box1', s))).size).toBe(2);
+
+    // The real merge, with nothing remote yet: both must survive into the list
+    // replaceSessions is about to persist, and both must be uploaded.
+    const { merged, toUpload } = mergeSessionsPreferLocalTopic(sessions, [], 'box1');
+    expect(merged).toHaveLength(2);
+    expect(toUpload).toHaveLength(2);
+  });
+
+  it('keeps every clock-less session ending at or before arrival, in the order the box queued them', () => {
+    // lock_log.py's SessionLog appends and evicts from the front, so the batch
+    // is oldest-first; the stagger has to preserve that rather than invert it.
+    const { sessions } = buildLoggedSessions(
+      [{ p: 600, a: 600, c: 1, t: -1 }, clockless(), clockless()],
+      null,
+      0,
+      0,
+      NOW,
+    );
+    for (const s of sessions) expect(s.startedAt + s.actualS * 1000).toBeLessThanOrEqual(NOW);
+    const starts = sessions.map((s) => s.startedAt + s.actualS * 1000);
+    expect(starts).toEqual([...starts].sort((a, b) => a - b));
+  });
+
+  it('still dates the newest clock-less entry from arrival exactly, as the single-entry case always did', () => {
+    const { sessions } = buildLoggedSessions([clockless(), clockless()], null, 0, 0, NOW);
+    expect(sessions[sessions.length - 1].startedAt).toBe(NOW - 1500 * 1000);
   });
 });

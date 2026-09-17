@@ -250,7 +250,7 @@ class Settings2Mixin:
         self._sd_track_last_key = None
         self._refresh_detail_track(idx, s)
         self.press_setting_stepper(None)
-        self.display.root_group = self.setting_detail_group
+        self._set_root(self.setting_detail_group)
 
     def update_setting_detail2(self, idx, s):
         self.sd_value.text = fmt_setting(idx, s)

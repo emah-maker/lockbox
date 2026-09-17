@@ -77,6 +77,39 @@ export function isGoalDueOn(goal, nowMs) {
   return goal.daysOfWeek.includes(new Date(nowMs).getDay());
 }
 
+/**
+ * The percentage a UI actually SHOWS for a goal's progress -- `ratio`
+ * clamped to [0, 1] before the *100 and round, unlike `ratio` itself, which
+ * computeGoalProgress below deliberately leaves unbounded (see its own
+ * comment) because a bar that still has room to draw "how far over" needs
+ * the raw number. Port of app/src/goals/goalProgress.ts's function of the
+ * same name; keep the two in step.
+ *
+ * A PERCENTAGE LABEL is a different contract from a bar, and conflating the
+ * two is the bug this fixes: goalsPanel.js's row derived its own
+ * `Math.round(ratio * 100)` off the unclamped ratio, so a 1h daily goal with
+ * 1h48m logged printed "180%" next to a bar barGeometry had already
+ * saturated at full width. The label and the visual contradicted each other
+ * because only the visual side was ever clamped. The app hit the identical
+ * bug across three surfaces and fixed it by funnelling all of them through
+ * this one function rather than each re-deriving the maths.
+ *
+ * The rule, matching the app exactly: cap at 100 and let `met` (already true
+ * whenever ratio >= 1) carry "you're over" via the row's existing "Goal met"
+ * copy, rather than inventing a second over-100 display. Every under-target
+ * reading stays byte-identical to the old derivation. Note this does NOT
+ * touch barGeometry, which keeps consuming the unclamped ratio so its target
+ * notch can still show the size of the overshoot -- same division of labour
+ * as app/src/screens/GoalRow.tsx.
+ *
+ * Also clamps a non-finite input (a stray NaN/Infinity from a
+ * divide-by-zero elsewhere) to 0 rather than rendering "NaN%".
+ */
+export function goalDisplayPercent(ratio) {
+  if (!Number.isFinite(ratio)) return 0;
+  return Math.round(Math.min(1, Math.max(0, ratio)) * 100);
+}
+
 /** Progress for every non-archived goal in `goals`, in the same order they
  * appear in that array (archived ones are filtered out before computing --
  * they never appear in the output, not even as a zeroed entry -- and this

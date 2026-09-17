@@ -310,9 +310,32 @@ export default function DashboardScreen() {
   // Push the picked duration to the box as it changes. This is what lets the
   // box's on-screen clock track the stepper live, so the picked time is
   // visible on the box before the user taps its own LOCK button.
+  //
+  // The guard is "is a box-origin value PENDING", not "does the box's value
+  // equal what's picked". Equality alone reads the ref one render too early:
+  // both effects run in the same commit, and the sync effect above arms the
+  // ref but can only queue `setPick` -- so this effect still closes over the
+  // PRE-sync pickSeconds. On mount that pre-sync value is the hardcoded
+  // 5-minute default, which by definition isn't the box's number, so an
+  // equality check waved it straight through and the app pushed `dur:300` at
+  // a box that was sitting on (say) 45m. The box echoed 300 back, the sync
+  // effect dutifully mirrored it, and the wheels walked themselves down --
+  // i.e. merely opening Home destroyed the duration the box was holding.
+  // (Reachable from a cold connect and from any tab switch back to Home,
+  // since this screen remounts with `pick` back at its default.)
+  //
+  // So: while the ref holds anything, the wheels are still catching up to the
+  // box and NOTHING here is a user edit worth sending. The ref is spent only
+  // once pickSeconds has actually arrived at the value the sync effect
+  // recorded -- which the next render always produces, because that effect
+  // stores the pickSeconds its own `setPick` will derive, not raw status.set.
+  // Leaving it armed until then is what makes the two-render handshake safe;
+  // clearing it here on the stale render would just re-open the same hole.
   useEffect(() => {
-    if (boxOriginSecondsRef.current === pickSeconds) {
-      boxOriginSecondsRef.current = null; // consumed -- this exact value came from the box, not the user
+    if (boxOriginSecondsRef.current !== null) {
+      // Consumed only when the wheels have caught up -- this exact value came
+      // from the box, not the user. Any other render is the in-between one.
+      if (boxOriginSecondsRef.current === pickSeconds) boxOriginSecondsRef.current = null;
       return;
     }
     if (!connected || !canClose) return;

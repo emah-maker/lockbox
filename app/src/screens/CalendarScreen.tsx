@@ -42,14 +42,26 @@
 // pixel constant for "StatusStrip's height" would.
 //
 // DayCell's own ring/circle/flame-badge/stack-row are fixed pixel sizes
-// (CIRCLE_SIZE/RING_SIZE etc, not relative to its parent's width) -- since
-// that file is out of this task's ownership, cellSize is clamped to a floor
-// (MIN_CELL_SIZE) comfortably above DayCell's own natural footprint so
-// those fixed-size glyphs are never asked to render inside a cell smaller
-// than they need, which would overflow/overlap neighbouring cells instead of
-// truly "scaling to fit". On a screen too short even for MIN_CELL_SIZE
-// cells (a genuinely tiny device), the grid stays at that floor and may
-// slightly exceed the ideal budget rather than render broken.
+// (CIRCLE_SIZE/RING_SIZE etc, not relative to its parent's width), so
+// cellSize carries a floor (MIN_CELL_SIZE) comfortably above DayCell's own
+// natural footprint -- those fixed-size glyphs are never asked to render
+// inside a cell smaller than they need, which would overflow/overlap
+// neighbouring cells instead of truly "scaling to fit". On a screen too
+// short even for MIN_CELL_SIZE cells (a genuinely tiny device), the grid
+// stays at that floor and may slightly exceed the ideal VERTICAL budget
+// rather than render broken.
+//
+// That floor applies to the height-derived term ONLY. Width is a hard
+// ceiling, never a thing to be floored past: this grid is `cellSize * 7`
+// inside a container that is `windowWidth - 2 * HORIZONTAL_PADDING` wide,
+// and a grid wider than that spills past the screen edge -- which is worse
+// than any cramped-cell problem the floor exists to prevent, and it took
+// the weekday header (a separate full-width row of 7 flex:1 labels) out of
+// alignment with the columns it labels at the same time. The two clamps
+// used to be collapsed into one Math.max over both terms, and since
+// (windowWidth - 40) / 7 is only ~47-57px on every iPhone while the floor
+// was 60, the floor won on all of them and the grid rendered at a constant
+// 420pt regardless of the phone. See CalendarScreen.layout.test.tsx.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, StyleSheet, Animated, Easing, PanResponder, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -63,7 +75,7 @@ import { useTheme } from '../theme/useTheme';
 import { dayKey, dayKeyToDate, groupByDay, LoggedSession } from '../stats/sessionHistory';
 import { topicBreakdownWithCustom } from '../stats/customLabels';
 import { AnimatedPressable } from '../ui/AnimatedPressable';
-import { DayCell } from '../ui/calendar/DayCell';
+import { DayCell, DAY_CELL_CONTENT_HEIGHT } from '../ui/calendar/DayCell';
 import { MonthSummaryStrip } from '../ui/calendar/MonthSummaryStrip';
 import { HeatLegend } from '../ui/calendar/HeatLegend';
 import { RecentSessionsRow } from '../ui/calendar/RecentSessionsRow';
@@ -76,20 +88,29 @@ import { useNowMs } from '../ui/useNowMs';
 import { typeScale } from '../theme/tokens';
 import { useNav } from '../nav/useNav';
 
-// DayCell.tsx's own tallest content stack is its RING_SIZE (40) ring, PLUS
-// its topic stack-row (3px bar + 3px margin = 6), PLUS its streak-dot row
-// (5px dot + 3px margin = 8, Goal Streaks feature) -- 54px total, fixed
-// regardless of this cell's own computed size. A few px of breathing room
-// above that so nothing touches the cell's edge. See this file's header for
-// why this floor exists at all. (Bumped from 52 -> 60 when the streak-dot
-// row was added, else it would clip on every device, not just tiny ones.)
-const MIN_CELL_SIZE = 60;
-// Above the original ungoverned (deviceWidth-40)/7 (~47-55px on most phones)
-// there's nothing left in a 7-wide row worth spending on a single day cell.
-// Bumped from 60 -> 66 alongside MIN_CELL_SIZE's own bump above, keeping
-// roughly the same adaptive range it had before that row ate into it.
+// DayCell's tallest possible content stack, plus a few px of breathing room
+// so nothing touches the cell's edge (and so its flame badge, which hangs
+// 2px outside the ring, still lands inside). IMPORTED, not re-derived: this
+// used to be a hand-copied "40 ring + 6 stack row + 8 dot row = 54, call it
+// 60", and the hand copy is exactly what goes stale -- every change to
+// DayCell's own glyphs had to be mirrored here or the cells clipped. See
+// this file's header for why a floor exists at all, and
+// DAY_CELL_CONTENT_HEIGHT's own doc comment for what it counts.
+const MIN_CELL_SIZE = DAY_CELL_CONTENT_HEIGHT + 4;
+// Above this there's nothing left in a 7-wide row worth spending on a single
+// day cell. It only binds on a device wide enough that availableWidth / 7
+// exceeds it, which no current iPhone is -- it is the ceiling for a future
+// wider one, not a number any phone here meets.
 const MAX_CELL_SIZE = 66;
-const HORIZONTAL_PADDING = 20; // this screen's own container paddingHorizontal -- PER SIDE (RN semantics)
+// This screen's own container paddingHorizontal -- PER SIDE (RN semantics).
+// 12 (spacing.md, already the most common gutter across this app's screens)
+// rather than 20: this is the one screen that has to fit seven columns
+// across, and the 8px reclaimed per side buys ~2.3px on every cell -- the
+// difference between DayCell's fixed glyph stack fitting inside a square
+// cell on a 375pt iPhone (SE 3rd gen / 13 mini, the narrowest still
+// supported) and not. Same "fit on one page" brief the vertical sizing
+// further down serves.
+const HORIZONTAL_PADDING = 12;
 // This screen's own root flex column `gap` (styles.container below) --
 // shared as a constant, not just duplicated into that StyleSheet entry,
 // because the cellSize math a few lines down also has to subtract it twice
@@ -150,10 +171,18 @@ export default function CalendarScreen() {
   // Read once via getState() rather than a subscribed selector -- consuming
   // the intent is a one-shot side effect on mount, not something this screen
   // should re-run on every intent change while already mounted.
+  // calendarDate is a dayKey ('YYYY-MM-DD'), which stats/sessionHistory.ts
+  // builds out of a LOCAL getFullYear/getMonth/getDate -- so it must be read
+  // back with dayKeyToDate (a local `new Date(y, m-1, d)`), not `new Date(str)`,
+  // which is the one Date constructor that reads a bare date-only string as
+  // UTC midnight. West of UTC that instant is still the previous local
+  // evening, so the link landed on the day BEFORE the one Stats pointed at --
+  // and on the 1st of a month it paged the grid back a whole month too.
+  // Same reading dayKeyToDate already does for selectedKey below.
   useEffect(() => {
     const intent = useNav.getState().consumeIntent();
     if (intent?.calendarDate) {
-      const d = new Date(intent.calendarDate);
+      const d = dayKeyToDate(intent.calendarDate);
       setCursor(startOfMonth(d));
       setSelectedKey(dayKey(d.getTime()));
       setDaySheetVisible(true);
@@ -342,19 +371,33 @@ export default function CalendarScreen() {
     0,
     rootHeight - aboveGridHeight - belowGridHeight - CONTAINER_GAP * 2,
   );
+  // The two budgets are NOT interchangeable, so they are not clamped
+  // together (see this file's header for what happened when they were).
+  // Width is a hard ceiling: seven cells have to fit the padded container,
+  // full stop -- exceeding it puts the grid off the screen edge and takes
+  // the weekday header, which spans the full container width, out of
+  // alignment with the columns it labels. Height is a preference with a
+  // floor: a cell below MIN_CELL_SIZE can't hold DayCell's fixed glyphs, so
+  // on a screen too short to grant that we keep the floor and let the grid
+  // run a little past its vertical budget instead of rendering cells that
+  // clip. Hence the floor around the height term only, then a plain min
+  // against the width term.
+  //
   // Before the first onLayout pass reports real numbers (rootHeight still
-  // 0), fall back to the old width-only sizing rather than the floor/ceiling
-  // clamp below -- clamping against a height budget of 0 would floor every
-  // cell to MIN_CELL_SIZE for one frame regardless of what actually fits,
-  // which is a worse flash than briefly showing the width-only size while
-  // the real measurement catches up (typically the very first frame only).
+  // 0), fall back to width-only sizing rather than involving the height
+  // budget at all -- flooring against a budget of 0 would pin every cell to
+  // MIN_CELL_SIZE for one frame regardless of what actually fits, a worse
+  // flash than briefly showing the width-only size while the real
+  // measurement catches up (typically the very first frame only).
+  const widthCellSize = availableWidth / 7;
   const cellSize =
     rootHeight > 0
       ? Math.min(
+          widthCellSize,
           MAX_CELL_SIZE,
-          Math.max(MIN_CELL_SIZE, Math.min(availableWidth / 7, availableGridHeight / numRows)),
+          Math.max(MIN_CELL_SIZE, availableGridHeight / numRows),
         )
-      : Math.min(MAX_CELL_SIZE, availableWidth / 7);
+      : Math.min(widthCellSize, MAX_CELL_SIZE);
 
   return (
     <View

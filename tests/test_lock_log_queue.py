@@ -358,6 +358,140 @@ check("oversized stored count stops at the physical end of the buffer, no crash"
 
 
 # ===================================================================
+# _save() write COST. Every assignment to microcontroller.nvm -- one
+# byte or one slice -- is a read-modify-ERASE-write of the whole flash
+# partition, ~85ms on this board (lock_controller._exit_editing's
+# comment, measured with PERF_DEBUG). The run loop samples no touch,
+# drives no servo and services no BLE while it blocks, and the flash's
+# erase budget is finite.
+#
+# A bytearray cannot show that cost, so this counts the assignments
+# instead: that count IS the number of erase cycles, and the multiplier
+# on how long the box is frozen. lock_settings.Settings.save() already
+# learned this the hard way ("DO NOT 'simplify' this back to per-field
+# assignment") -- _save() is the same mistake at 9 bytes per queued
+# entry, so a full queue meant 1802 erases and a ~2.5 minute freeze.
+# ===================================================================
+class CountingNVM:
+    """bytearray stand-in that counts assignments the way flash does.
+
+    Deliberately NOT a bytearray subclass: the point is to intercept
+    __setitem__, and a subclass that forgets one path would undercount
+    and quietly assert nothing.
+    """
+
+    def __init__(self, size):
+        self.buf = bytearray(size)
+        self.writes = 0
+
+    def __len__(self):
+        return len(self.buf)
+
+    def __getitem__(self, i):
+        return self.buf[i]
+
+    def __setitem__(self, i, v):
+        self.writes += 1
+        self.buf[i] = v
+
+    def __iter__(self):
+        return iter(self.buf)
+
+
+def counting_nvm(size=4096):
+    nvm = CountingNVM(size)
+    _microcontroller.nvm = nvm
+    return nvm
+
+
+nvm = counting_nvm()
+log = SessionLog()
+nvm.writes = 0
+log.record(300, 300, True, 1000)
+check("one queued entry costs ONE nvm write, not 2 + 9 per entry",
+      nvm.writes == 1)
+
+for i in range(19):
+    log.record(i, i, True, i)
+nvm.writes = 0
+log.record(42, 42, True, 42)
+check("saving a 21-entry queue is still ONE nvm write",
+      nvm.writes == 1)
+check("a full queue's worth of entries is persisted by that one write",
+      len(entries_of(SessionLog())) == 21)
+
+# The compare-first skip Settings.save() already has: a _save() whose
+# bytes are identical to what is stored must not erase flash at all.
+nvm.writes = 0
+log.clear()
+check("clear() of a non-empty queue does write", nvm.writes == 1)
+nvm.writes = 0
+log.clear()
+check("a _save() that changes nothing writes nothing (compare-first skip)",
+      nvm.writes == 0)
+
+# The realistic version of the same case: an ack for a batch that has
+# already fully aged out clears nothing, so it must cost nothing.
+nvm = counting_nvm()
+log = SessionLog()
+for i in range(3):
+    log.record(i, i, True, i)
+log.mark_sent()
+for i in range(LOG_MAX_PENDING + 3):
+    log.record(1000 + i, 1000 + i, True, 1000 + i)
+nvm.writes = 0
+log.ack(3)
+check("ack for a fully-evicted batch erases no flash (queue bytes unchanged)",
+      nvm.writes == 0)
+
+# Cost is not allowed to buy correctness: the persisted bytes must be
+# byte-for-byte what the per-field version wrote.
+nvm = counting_nvm()
+log = SessionLog()
+log.record(0x012C, 0x0226, True, 0x12345678)
+off = _BASE + 2
+check("slice write keeps the magic/count header", nvm[_BASE] == _MAGIC and nvm[_BASE + 1] == 1)
+check("slice write keeps planned_s big-endian", nvm[off] == 0x01 and nvm[off + 1] == 0x2C)
+check("slice write keeps actual_s big-endian", nvm[off + 2] == 0x02 and nvm[off + 3] == 0x26)
+check("slice write keeps the completed byte", nvm[off + 4] == 1)
+check("slice write keeps epoch big-endian 32-bit",
+      (nvm[off + 5], nvm[off + 6], nvm[off + 7], nvm[off + 8]) ==
+      (0x12, 0x34, 0x56, 0x78))
+check("slice write touches nothing below the queue's base",
+      all(b == 0 for b in bytes(nvm[:_BASE])))
+check("slice write touches nothing past the entries it wrote",
+      all(b == 0 for b in bytes(nvm[off + _ENTRY_SIZE:])))
+
+# A slice assignment past the end of a host bytearray silently EXTENDS
+# it instead of raising, which is the one way a slice write could be
+# worse than the byte-at-a-time version it replaces -- an undersized
+# region has to stay a no-op, not grow into whatever follows it.
+nvm = counting_nvm(5)  # smaller than _BASE (24): no room even for the header
+log = SessionLog()
+log.record(1, 1, True, 1)
+check("undersized NVM: slice write does not grow the region", len(nvm) == 5)
+check("undersized NVM: slice write leaves the region untouched",
+      not any(nvm[i] for i in range(5)))
+check("undersized NVM: entry is still tracked in RAM", len(entries_of(log)) == 1)
+
+# fit-limited region: still one write, still the NEWEST entries.
+fit = 3
+nvm = counting_nvm(_BASE + 2 + fit * _ENTRY_SIZE)
+log = SessionLog()
+for i in range(4):
+    log.record(i, i, True, i)
+nvm.writes = 0
+log.record(4, 4, True, 4)
+check("fit-limited region: still ONE nvm write", nvm.writes == 1)
+check("fit-limited region: still persists the newest entries only",
+      entries_of(SessionLog()) == [(2, 2, 1, 2), (3, 3, 1, 3), (4, 4, 1, 4)])
+
+# Put a plain bytearray back: the region-map checks below enumerate
+# _microcontroller.nvm directly and expect the buffer, not the counter.
+new_nvm()
+
+
+# ===================================================================
 # NVM region map: nothing on the device enforces who owns which byte,
 # so two regions that overlap corrupt each other silently. These are
 # the tripwire -- adding a settings field that grows past its

@@ -267,17 +267,77 @@ export function goalNotificationRequests(
   return requests;
 }
 
+/**
+ * How many goal reminders are ever handed to the OS at once.
+ *
+ * iOS keeps at most 64 PENDING local notifications per app and silently
+ * drops everything past that, choosing the victims itself. Nothing bounded
+ * this side: goalReminders.ts's MAX_NOTIFY_TIMES comment has always
+ * acknowledged the 20 goals x 6 times x 7 days = 840 worst case, but
+ * acknowledging it is not enforcing it, and far more ordinary settings
+ * overflow too -- 10 goals x 2 times x 5 weekdays is 100 requests from a
+ * form the user can fill in without doing anything unusual.
+ *
+ * Overflowing isn't merely "some goal reminders go missing". The 64 slots
+ * are one shared budget: schedule/sessionReminderPlan.ts spends up to
+ * MAX_SESSION_REMINDERS (24) of it on planned sessions, which are one-off
+ * and time-critical in a way a recurring goal nudge is not -- a goal
+ * reminder lost today comes round again tomorrow, a session reminder lost is
+ * a session missed. 64 - 24 leaves 40 here, which is what this is. The two
+ * constants are deliberately independent rather than imported from each
+ * other (sessionReminderPlan already imports this module's isInQuietHours,
+ * so a value import back would be a runtime cycle) -- the arithmetic between
+ * them is asserted in goalNotificationPlan.test.ts. Change one, check both.
+ */
+export const MAX_GOAL_REMINDERS = 40;
+
 /** Every request implied by a whole goal array -- archived goals dropped,
  * then flat-mapped through goalNotificationRequests. The one place the
  * per-goal progress lookup happens, so the scheduler doesn't have to know
- * the map's shape. */
+ * the map's shape.
+ *
+ * Capped at MAX_GOAL_REMINDERS, and the SHAPE of that cut is the point. The
+ * obvious implementation -- flatten, then take the first N -- spends the
+ * whole budget on the first few goals and leaves the rest of the user's
+ * goals silent, which reads as "reminders are broken" rather than "some
+ * reminders were dropped". So an over-budget plan is filled round-robin
+ * instead: every goal's first reminder, then every goal's second, and so on
+ * until the budget runs out. Every goal that wanted a reminder keeps at
+ * least one, and each keeps its earliest times first (goalNotifyTimes
+ * returns them sorted), which is the only "soonest" a recurring calendar
+ * trigger has without a clock this pure module deliberately doesn't read.
+ *
+ * Survivors come back in the original goal/time order, not round-robin
+ * order, and the selection is a pure function of the goals -- both matter
+ * because syncGoalNotifications reconciles by cancelling this feature's
+ * whole prefix and rescheduling, so an unstable survivor set would churn the
+ * OS queue on every progress tick. */
 export function planGoalNotifications(
   goals: Goal[],
   prefs: NotificationPrefs,
   progressById: Map<string, GoalProgressSnapshot>,
   customLabels: CustomLabel[] = [],
 ): GoalNotificationRequest[] {
-  return goals
+  const perGoal = goals
     .filter((g) => !g.archived)
-    .flatMap((g) => goalNotificationRequests(g, prefs, progressById.get(g.id), customLabels));
+    .map((g) => goalNotificationRequests(g, prefs, progressById.get(g.id), customLabels))
+    .filter((requests) => requests.length > 0);
+
+  const total = perGoal.reduce((n, requests) => n + requests.length, 0);
+  if (total <= MAX_GOAL_REMINDERS) return perGoal.flat();
+
+  const kept: GoalNotificationRequest[][] = perGoal.map(() => []);
+  let budget = MAX_GOAL_REMINDERS;
+  // `slot` is the index within each goal's own request list; the loop ends
+  // when the budget is spent, which is guaranteed to happen before every
+  // goal is exhausted because `total` is known to exceed the budget.
+  for (let slot = 0; budget > 0; slot += 1) {
+    for (let i = 0; i < perGoal.length && budget > 0; i += 1) {
+      const request = perGoal[i][slot];
+      if (!request) continue;
+      kept[i].push(request);
+      budget -= 1;
+    }
+  }
+  return kept.flat();
 }

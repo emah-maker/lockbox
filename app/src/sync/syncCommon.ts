@@ -100,7 +100,7 @@ interface ReadableStore<S> {
  * push carries per-plan detail) -- forcing either through this shape would
  * cost more than the repetition it removed.
  */
-export function createSnapshotPushBridge<S, T>(
+export function createSnapshotPushBridge<S extends { localWrites: number }, T>(
   store: ReadableStore<S>,
   snapshot: (state: S) => T,
   equal: (a: T, b: T) => boolean,
@@ -111,10 +111,28 @@ export function createSnapshotPushBridge<S, T>(
     if (started) return;
     started = true;
     let prev = snapshot(store.getState());
+    let prevWrites = store.getState().localWrites;
     store.subscribe((state) => {
       const next = snapshot(state);
+      // Read and advance the counter BEFORE the snapshot early-out, not
+      // after: a local edit that happens to leave the synced fields equal
+      // (setting the theme to the value it already had) would otherwise
+      // leave prevWrites stale, and the next non-local change -- a remote
+      // document landing -- would look like that edit and get pushed back.
+      const writes = state.localWrites;
+      const editedHere = writes !== prevWrites;
+      prevWrites = writes;
       if (equal(prev, next)) return; // an unrelated field on the same store changed
       prev = next;
+      // Only a real user edit is mirrored. Hydration, a remote merge landing
+      // and the sign-in wipe all replace these fields without anyone having
+      // changed anything here, and the push is a whole-document setDoc: the
+      // wipe (sync/localDataOwner.ts, which runs while ALREADY authenticated
+      // as the new uid) used to arrive here as an ordinary change and
+      // overwrite months of real cloud settings with defaults and
+      // `updatedAt: 0`, before the two-way merge had read a byte of the
+      // server's copy.
+      if (!editedHere) return;
       if (!isSignedIn()) return; // signed out: local-only, nothing to push
       push().catch(() => {}); // best-effort; next successful sync catches up
     });

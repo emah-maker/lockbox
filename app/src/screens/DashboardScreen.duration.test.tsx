@@ -182,3 +182,42 @@ describe('box-sync must not swallow the next user edit', () => {
     expect(pushed()).toEqual([3 * 3600, 2 * 3600]);
   });
 });
+
+describe('mounting against a box that already holds a duration', () => {
+  /** Puts the box where a real one sits when the app comes back to Home:
+   * connected, idle, and already holding a duration that is not the picker's
+   * 5-minute default -- before this screen has ever rendered. */
+  function boxAlreadyHolding(seconds: number) {
+    act(() => {
+      useStore.setState({ status: { st: 'idle', set: seconds, rem: 0 } as never } as never);
+    });
+  }
+
+  it('does not push the picker default over the duration the box is holding', () => {
+    boxAlreadyHolding(45 * 60);
+    mount();
+
+    // Both effects run in the SAME commit on mount. The box-sync effect goes
+    // first and records 2700 in the ref, but the push effect behind it still
+    // sees the pre-sync pickSeconds (300, the hardcoded default), and 2700
+    // !== 300, so a value-equality guard doesn't stop it -- it pushed 5m at a
+    // box that was sitting on 45m, the box echoed 300 back, and the wheels
+    // followed it down. Connecting to a box must never be what changes the
+    // box's own duration.
+    expect(pushed()).toEqual([]);
+  });
+
+  it('leaves the wheels on the box value and still pushes the next user edit', () => {
+    boxAlreadyHolding(45 * 60);
+    const tree = mount();
+    openDurationSheet(tree);
+    setDuration.mockClear();
+
+    // The suppressed push must not leave the ref armed forever: the guard is
+    // spent once the wheels have actually caught up to the box's number, so a
+    // genuine edit on top of it still reaches the box. 3h against the 45m the
+    // sync parked the minute wheel on.
+    dragHoursTo(tree, 3);
+    expect(pushed()).toEqual([3 * 3600 + 45 * 60]);
+  });
+});

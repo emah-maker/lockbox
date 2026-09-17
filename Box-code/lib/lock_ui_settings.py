@@ -396,7 +396,7 @@ class SettingsMixin:
         self._refresh_detail_track(idx, s)
         self.press_setting_stepper(None)   # clear any stale press highlight
                                             # left over from a previous visit
-        self.display.root_group = self.setting_detail_group
+        self._set_root(self.setting_detail_group)
 
     def update_setting_detail(self, idx, s):
         self.sd_value.text = fmt_setting(idx, s)

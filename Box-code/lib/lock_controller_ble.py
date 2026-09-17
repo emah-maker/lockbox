@@ -55,11 +55,37 @@ class BleMixin:
 
     # ----- BLE companion hooks (called by lock_ble.PhoneBoxBLE.service) -----
     def _battery_pct(self, now):
-        try:
-            r = self.battery.read(now)
-            return r.percent if r.available else -1
-        except Exception:
+        """Whole percent for the status push, or -1 when there is nothing to
+        report (encode_status's documented "no battery" value).
+
+        Reads the CACHED reading, never the gauge. This used to call
+        battery.read() itself, which broke the contract _refresh_battery
+        states in its own comment -- "at most once per second regardless of
+        the active view ... instead of hitting the shared I2C bus twice a
+        second" -- because _push_outbound reaches this once a second too,
+        so a connected box did precisely the doubling that comment rules
+        out. Two costs, not one: another transaction on the bus the TOUCH
+        controller shares, and a second trip through Battery._update_watts,
+        whose "charge rose while unplugged" branch re-anchors the measuring
+        window on nothing more than the gauge's own 1/256% jitter -- and a
+        window that keeps restarting is what pinned the battery page's draw
+        figure at 0.0W before (see tests/test_lock_battery_watts.py).
+
+        `now` is unused and kept: this is called from ble_status_json on the
+        1Hz push, and the whole point is that the answer is whatever the
+        last refresh found, not something re-measured at this instant. A
+        reading up to a second old is not a rounding error anyone can see --
+        the gauge moves about a percent every ten minutes.
+
+        No try/except either: the only thing that can fail is the gauge
+        read, which now happens in _refresh_battery, inside the run loop's
+        own guard (see code.py). Reading an attribute off a BatteryReading
+        cannot raise, and catching around it would only hide a None that
+        should be reported as -1 anyway."""
+        r = self._last_batt
+        if r is None or not r.available:
             return -1
+        return r.percent
 
     def ble_status_json(self, now):
         rem = int(max(0.0, self.deadline - now)) if self.state == "running" else 0

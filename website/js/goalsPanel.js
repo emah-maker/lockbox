@@ -30,7 +30,7 @@
    semantics differs -- only the widget.
    ========================================================================= */
 import { createGoal, updateGoal, archiveGoal, MAX_GOALS } from './goals.js';
-import { goalWindow, isGoalDueOn } from './goalProgress.js';
+import { goalWindow, isGoalDueOn, goalDisplayPercent } from './goalProgress.js';
 import { resolveTopic, formatDuration } from './focusStats.js';
 import { showMessage } from './dashMessage.js';
 import { buildGoalForm } from './goalForm.js';
@@ -50,10 +50,10 @@ let openFormKey = null;
  * `null` is the all-focus-time goal; a since-deleted saved custom label
  * still has a working goal (goals.js matches on the raw id) so it gets an
  * explicit name rather than an empty row; and a raw one-time free-text tag
- * renders as itself. focusStats.js's resolveTopic has no one-time-tag
- * fallback of its own (the app's does), so the two cases are told apart
- * here by the `custom:` prefix -- the same local reclassification
- * sessionLabelPicker.js's isOneTimeTag does, and for the same reason. */
+ * renders as itself. The last of those now comes straight out of
+ * resolveTopic, which grew the app's one-time fallback: it returns the typed
+ * string for a one-time tag and still null for a since-deleted `custom:`
+ * id, so the deleted case is the only one left to name here. */
 function describeTopic(topic, customLabels, themeMode) {
   if (topic === null || topic === undefined) return 'All focus time';
   const resolved = resolveTopic(topic, customLabels, themeMode);
@@ -133,7 +133,13 @@ function buildGoalRow(goal, result, els, ctx) {
   const dueToday = result ? result.dueToday : isGoalDueOn(goal, Date.now());
   const restriction = weekdayRestrictionLabel(goal);
   const { fillPct, targetPct } = barGeometry(ratio);
-  const percent = Math.round(ratio * 100);
+  // Clamped for DISPLAY only -- barGeometry above still gets the raw,
+  // unclamped ratio so its target notch can show how far past the line you
+  // went. Printing the unclamped number here read "180%" beside a bar that
+  // was already full; see goalDisplayPercent's own comment, and GoalRow.tsx,
+  // which splits the two the same way. One value feeds both the visible
+  // readout and the track's aria-label below, so the two cannot disagree.
+  const percent = goalDisplayPercent(ratio);
 
   const li = document.createElement('li');
   li.className = 'dash__goals-row';

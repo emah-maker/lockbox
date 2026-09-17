@@ -501,6 +501,28 @@ function withTimeout<T>(promise: Promise<T>, ms: number, name: string, message: 
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
+/**
+ * Releases a guard when `work` ITSELF settles, rather than when whoever was
+ * waiting on it gave up.
+ *
+ * withTimeout above bounds how long the caller waits; it cannot cancel what
+ * it raced, and the Firestore SDK gives it nothing to cancel with. So a
+ * timeout means "stop waiting", never "it stopped" -- and a guard released
+ * from the racing caller's own `finally` is released while the very work it
+ * guards against is still in flight. Both 30s bounds below had that bug:
+ * deleteAccount's endAccountDeletion let a push bridge re-create a document
+ * inside the account being deleted, and syncNow's syncingUid let a second
+ * run for the same uid interleave with the first.
+ *
+ * The same callback on both settlement paths, because the guard comes off
+ * because the work STOPPED, not because it succeeded. `void` plus a handler
+ * on the rejection path is also what keeps a failed `work` from surfacing
+ * here as a second, unhandled rejection -- the caller already has its own.
+ */
+function releaseWhenSettled(work: Promise<unknown>, release: () => void): void {
+  void work.then(release, release);
+}
+
 /** Registered exactly once, by whichever of init() or a sign-in retry first
  * gets initFirebaseAuth() to resolve. The unsubscribe onAuthStateChanged
  * returns is deliberately never called (the listener lives as long as the
@@ -585,7 +607,47 @@ async function startFirebaseAuth(
   // anywhere -- the sign-in silently does nothing. Attaching first means a
   // failure stays a failure, and stays retryable.
   onAuthStateChanged(getFirebaseAuth(), (u) => {
+    const hadUser = !!get().user;
     set({ ready: true, initError: null, user: u ? toAccountUser(u) : null });
+    // A session can end without anyone tapping Sign out: Firebase drops it
+    // by itself whenever the refresh token stops being valid -- the password
+    // was changed on another device, the account was disabled or deleted
+    // from the console, the credential was revoked. There is no action and
+    // no `await` anywhere in this app for those; there is only this callback
+    // firing with null.
+    //
+    // Setting `user: null` alone was therefore a leak of exactly the kind
+    // clearSignedInState exists to prevent (see its comment, and
+    // clearLocalAccountData's "so no account's data lingers on a shared,
+    // resold, or reset device"): localDataOwnerUid still named the old uid,
+    // and that account's sessions, goals, plans and armed reminders all
+    // stayed. The Account page flipped to signed-out while Stats and
+    // Calendar went on rendering the previous account's history and its
+    // scheduled-session reminders went on firing.
+    //
+    // Only on a real user -> nobody transition. Firebase also fires once on
+    // every startup, with null when there is no session, and treating that
+    // as a sign-out would wipe local data (and reset the five syncable
+    // settings to their defaults) on each launch of a signed-out app.
+    //
+    // The deliberate paths -- signOut and deleteAccount -- run the same
+    // teardown themselves once their provider call returns, so this fires
+    // for them too. That is a repeat, not a conflict: every step of
+    // clearSignedInState is idempotent, and the alternative (a flag saying
+    // "a deliberate sign-out is in progress, skip") would be one more piece
+    // of state able to get stuck in the position where this stops running.
+    //
+    // Fire-and-forget with its own catch, because this callback is
+    // synchronous and belongs to the Firebase SDK: there is no caller here
+    // to await it or to handle a rejection. A failed wipe must not become an
+    // unhandled rejection inside the SDK's call stack, and must not stop the
+    // signed-out state above from reaching the screen -- what it says is
+    // true either way.
+    if (!u && hadUser) {
+      clearSignedInState(set).catch((e) => {
+        console.warn('[useAuthStore] local data not cleared after session ended:', (e as Error)?.message ?? e);
+      });
+    }
     // autoSyncEnabled (useSettingsStore) gates ONLY this automatic call --
     // a local-only per-device preference (§3), off by exception rather
     // than by default. The manual "Sync now" button calls syncNow()
@@ -815,6 +877,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       deleteUserAccount = deleteEmailUserAccount;
     }
     beginAccountDeletion(user.uid);
+    // The wipe's OWN promise, kept because the timeout below cannot cancel
+    // it: when the bound fires, this is still deleting documents, and the
+    // guard has to come off from this settling rather than from the race
+    // giving up on it (see releaseWhenSettled). Starts already-settled so
+    // the `finally` needs no null case -- a flow that aborts at re-auth
+    // never starts a wipe and must still release the guard promptly.
+    let wipe: Promise<unknown> = Promise.resolve();
     try {
       // Step 1: prove the user is currently present. Throws (and aborts
       // everything below, untouched) on a cancelled or otherwise failed
@@ -828,8 +897,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       // explicitly built to survive: it removes users/{uid} first, so a retry
       // re-enters the same window and finishes the sweep. Better a "please
       // try again" the user can act on than a spinner that never ends.
+      wipe = deleteAllUserData(user.uid);
       await withTimeout(
-        deleteAllUserData(user.uid),
+        wipe,
         DELETE_WIPE_TIMEOUT_MS,
         'DeleteWipeTimeoutError',
         `Account data wipe did not finish within ${DELETE_WIPE_TIMEOUT_MS}ms.`,
@@ -846,7 +916,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         throw new AccountDataWipedError(e);
       }
     } finally {
-      endAccountDeletion();
+      // Chained onto the wipe rather than called outright, so the guard is
+      // held by whichever of the two finishes LAST. The `finally` covers the
+      // flow ending (including step 3, deleteUserAccount, which the bracket
+      // has always spanned); the chain covers the one case the `finally`
+      // cannot see -- a wipe that outlived DELETE_WIPE_TIMEOUT_MS and is
+      // still deleting documents. Clearing it then made isBeingDeleted(uid)
+      // false mid-wipe, pushTarget() start returning the uid again, and the
+      // next bridge emission re-create a document inside the account being
+      // deleted: precisely the race syncCommon's deletingUid exists for.
+      releaseWhenSettled(wipe, endAccountDeletion);
     }
     await clearSignedInState(set);
   },
@@ -860,6 +939,23 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     // blocked just because some other user's sync happens to be in flight.
     if (get().syncingUid === uid) return;
     set({ syncing: true, syncingUid: uid, syncError: null });
+    const work = runMigrationAndSync(uid);
+    // The guard comes off when the RUN stops, not when this call stops
+    // waiting for it. withTimeout below cannot cancel anything (see
+    // releaseWhenSettled), so clearing syncingUid from the race's own
+    // `finally` re-enabled Sync now for a run that was still going, and two
+    // runMigrationAndSync calls for one uid then interleaved their
+    // replaceSessions, applyRemoteSettings and upload batches.
+    //
+    // `syncing` is cleared here as well as in the `finally`, and the two are
+    // not redundant: this path is the only one that runs when the work
+    // outlives the bound and then finishes, and the `finally` is the only
+    // one that runs when the bound fires first. Whichever happens, the
+    // ownership test is the same -- a run that no longer owns syncingUid
+    // must not take a newer run's spinner down with it.
+    releaseWhenSettled(work, () => {
+      if (get().syncingUid === uid) set({ syncing: false, syncingUid: null });
+    });
     try {
       // Bounded because `syncing` gates more than a label: SyncStatusSection
       // disables its own button on it, and DangerZoneSection disables Sign
@@ -869,7 +965,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       // of it. The catch below turns this into the same on-screen sentence as
       // any other sync failure.
       await withTimeout(
-        runMigrationAndSync(uid),
+        work,
         SYNC_TIMEOUT_MS,
         'SyncTimeoutError',
         `Sync did not finish within ${SYNC_TIMEOUT_MS}ms.`,
@@ -897,7 +993,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         set({ syncError: syncErrorMessage(e) });
       }
     } finally {
-      if (get().syncingUid === uid) set({ syncing: false, syncingUid: null });
+      // Only the UI flag, deliberately -- syncingUid is the guard above and
+      // belongs to the run, which may still be going. `syncing` is what
+      // SyncStatusSection and DangerZoneSection disable their buttons on, so
+      // the bound has to release it or the first sign-in on a flaky
+      // connection permanently greys out the way back out of the app, which
+      // is the whole reason SYNC_TIMEOUT_MS exists. The consequence is
+      // deliberate and mild: between the bound firing and the run really
+      // stopping, Sync now is tappable but returns at the guard, with the
+      // timeout's own message still on screen explaining why.
+      if (get().syncingUid === uid) set({ syncing: false });
     }
   },
 

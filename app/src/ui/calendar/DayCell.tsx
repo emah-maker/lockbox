@@ -15,9 +15,26 @@ import { typeScale } from '../../theme/tokens';
 import { formatDuration } from '../../stats/stats';
 import type { LabelStat } from '../../stats/customLabels';
 
-const CIRCLE_SIZE = 34;
+// Every glyph in this cell is a fixed pixel size, not a fraction of the cell
+// -- so the CELL has to be at least as tall as the stack of them
+// (DAY_CELL_CONTENT_HEIGHT below), and CalendarScreen.tsx sizes its grid
+// against exactly that number. These were originally 34/+6/5/3/3, a 54pt
+// stack, which no iPhone can actually afford: seven of them across a
+// 375-440pt screen leaves 47-57pt per column once the screen's own side
+// padding is paid, and a square cell can't be 54 tall and 50 wide. The
+// screen tried to honour the 54 with a hard cell-size floor and ended up
+// rendering a grid wider than the phone instead (see CalendarScreen.tsx's
+// cellSize comment). Trimmed here to 47 so the two constraints can both be
+// satisfied on the narrowest supported iPhone; the ring's 1pt gap outside
+// the day circle is preserved (RING_SIZE keeps its +6, the circle came down
+// instead) because that gap is what makes the goal ring read as a ring
+// rather than as a border on the circle.
+const CIRCLE_SIZE = 30;
 const RING_SIZE = CIRCLE_SIZE + 6;
 const RING_STROKE = 2;
+const STACK_ROW_HEIGHT = 3;
+const STACK_ROW_MARGIN = 2;
+const STREAK_ROW_MARGIN = 2;
 // Cap the topic stack to the top N topics so a day with many different tags
 // doesn't turn into an unreadable sliver of colors -- the day's full
 // breakdown is always one tap away in the detail sheet, this is just a
@@ -25,12 +42,22 @@ const RING_STROKE = 2;
 const MAX_STACK_SEGMENTS = 4;
 // Same reasoning as MAX_STACK_SEGMENTS just above, applied to the streak dot
 // row below it -- a user can opt as many as MAX_GOALS (goals.ts, 20) goals
-// into the calendar's streak view, and a 20-dot row in a ~34px-wide cell
+// into the calendar's streak view, and a 20-dot row in a ~30px-wide cell
 // would be unreadable static, not information. The day sheet (one tap away)
 // already lists every goal's exact status; this row is a glance-level hint,
 // same job MAX_STACK_SEGMENTS does for the topic stack.
 const MAX_STREAK_DOTS = 4;
-const STREAK_DOT_SIZE = 5;
+const STREAK_DOT_SIZE = 4;
+
+/** The tallest stack this cell can ever draw: the ring, the topic stack row
+ * and the streak-dot row, each with its own top margin. Exported because
+ * CalendarScreen.tsx has to size its grid cells to hold it, and the copy it
+ * used to keep (a number in a comment, re-derived by hand) is precisely the
+ * kind of duplicate that goes stale -- it already had, by 8pt, once the
+ * streak-dot row landed. A cell shorter than this doesn't scale its
+ * contents down, it lets them spill into the rows above and below. */
+export const DAY_CELL_CONTENT_HEIGHT =
+  RING_SIZE + STACK_ROW_MARGIN + STACK_ROW_HEIGHT + STREAK_ROW_MARGIN + STREAK_DOT_SIZE;
 
 export function DayCell({
   date,
@@ -255,22 +282,22 @@ const styles = StyleSheet.create({
   stackRow: {
     flexDirection: 'row',
     width: CIRCLE_SIZE,
-    height: 3,
-    marginTop: 3,
-    borderRadius: 1.5,
+    height: STACK_ROW_HEIGHT,
+    marginTop: STACK_ROW_MARGIN,
+    borderRadius: STACK_ROW_HEIGHT / 2,
     overflow: 'hidden',
     gap: 1,
   },
-  stackSegment: { height: 3 },
+  stackSegment: { height: STACK_ROW_HEIGHT },
   // A second slim row below the topic stack, same CIRCLE_SIZE width so it
   // stays visually aligned with the stack row above it and the circle above
-  // that. See CalendarScreen.tsx's MIN_CELL_SIZE comment for the fixed-px
-  // footprint this adds to every cell's own content height.
+  // that. Its share of the fixed-px footprint every cell has to be tall
+  // enough for is counted in DAY_CELL_CONTENT_HEIGHT above.
   streakDotsRow: {
     flexDirection: 'row',
     width: CIRCLE_SIZE,
     justifyContent: 'center',
-    marginTop: 3,
+    marginTop: STREAK_ROW_MARGIN,
     gap: 3,
   },
   streakDot: { width: STREAK_DOT_SIZE, height: STREAK_DOT_SIZE, borderRadius: STREAK_DOT_SIZE / 2 },

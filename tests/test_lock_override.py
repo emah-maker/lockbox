@@ -54,13 +54,26 @@ def check(name, cond, detail=""):
 
 
 class FakeUI:
-    def __init__(self):
+    def __init__(self, events=None):
         self.shown = []
         self.hidden = 0
         self.timeouts = []
+        # Shared with the controller stand-in so screen changes and state
+        # transitions land in ONE ordered list. Order is the whole point for
+        # the pre-session screens: every one of these calls writes
+        # display.root_group, so an overlay shown before the screen under it
+        # is dismissed is an overlay that gets painted over.
+        self.events = [] if events is None else events
 
     def show_override(self, count, total):
+        self.events.append("show_override")
         self.shown.append((count, total))
+
+    def hide_tag_picker(self):
+        self.events.append("hide_tag_picker")
+
+    def hide_topic_confirm(self):
+        self.events.append("hide_topic_confirm")
 
     def update_override_timeout(self, remaining, total):
         self.timeouts.append((remaining, total))
@@ -81,22 +94,39 @@ class FakeController:
 
     press_override = LockController.press_override
     _clear_override = LockController._clear_override
+    _cancel_pre_session = LockController._cancel_pre_session
 
-    def __init__(self, state="running", servo_locked=True, **kw):
-        self.ui = FakeUI()
+    def __init__(self, state="running", servo_locked=True, picking_from="closed", **kw):
+        self.events = []
+        self.ui = FakeUI(self.events)
         self.settings = FakeSettings(**kw)
         self.state = state
         self._servo_locked = servo_locked
+        # Which state the tag picker / confirm screen was opened FROM --
+        # go_picking/go_confirming capture it, and it is what backing out of
+        # either one has to return to (see _apply_tag_picker_result's Cancel).
+        self._picking_from = picking_from
         self._override = 0
         self._override_at = 0.0
         self._now = 0.0
         self.opened = []
 
     def go_done(self, now, reason=None):
+        self.events.append("go_done")
+        self.state = "done"
         self.opened.append(("done", now))
 
     def go_idle(self):
+        self.events.append("go_idle")
+        self.state = "idle"
+        self._override = 0
         self.opened.append(("idle", None))
+
+    def go_closed(self, now):
+        self.events.append("go_closed")
+        self.state = "closed"
+        self._override = 0
+        self.opened.append(("closed", now))
 
 
 # --- 1. The press is stamped with the caller's clock, not the cached one ----
@@ -144,12 +174,56 @@ for st in ("running", "closed"):
           c._override == 1 and c.ui.shown == [(1, OVERRIDE_PRESSES)],
           "count {} shown {}".format(c._override, c.ui.shown))
 
-for st in ("idle", "picking", "confirming"):
-    c = FakeController(state=st)
+c = FakeController(state="idle", servo_locked=False)
+c.press_override(1.0)
+check("(2) override is a silent no-op in idle (nothing is latched)",
+      c._override == 0 and c.ui.shown == [],
+      "count {} shown {}".format(c._override, c.ui.shown))
+
+# The pre-session screens are the case the state gate got wrong. "picking"
+# and "confirming" are reachable from BOTH idle and closed (go_picking /
+# go_confirming record which in self._picking_from), and only one of those
+# two has the servo latched -- so the state name alone cannot say whether
+# there is anything to override. What decides is the same thing that decides
+# it in "done": _servo_locked, the real physical state.
+#
+# Opened from idle, nothing is shut yet, so this stays a no-op.
+for st in ("picking", "confirming"):
+    c = FakeController(state=st, servo_locked=False, picking_from="idle")
     c.press_override(1.0)
-    check("(2) override is a silent no-op in state " + st,
-          c._override == 0 and c.ui.shown == [],
+    check("(2) override is a silent no-op in " + st + " opened from idle",
+          c._override == 0 and c.ui.shown == [] and c.opened == [],
+          "count {} shown {} opened {}".format(c._override, c.ui.shown, c.opened))
+
+# Opened from closed, the lid sensor already fired go_closed -> engage_lock,
+# so a phone is physically shut inside while this screen is up. This is the
+# reported case: tap LOCK with the lid shut, the picker opens, and the one
+# control documented as "the always-available emergency path" (lock_config.py
+# BLE_CMD_MIN_INTERVAL's comment, lock_ble.py's header) does nothing at all.
+for st in ("picking", "confirming"):
+    c = FakeController(state=st, servo_locked=True, picking_from="closed")
+    c.press_override(1.0)
+    check("(2) override counts in " + st + " while the latch is shut",
+          c._override == 1 and c.ui.shown == [(1, OVERRIDE_PRESSES)],
           "count {} shown {}".format(c._override, c.ui.shown))
+    check("(2) the press first backs " + st + " out to the state that latched it",
+          c.opened == [("closed", 1.0)] and c.state == "closed",
+          "opened {} state {}".format(c.opened, c.state))
+    check("(2) backing out of " + st + " happens BEFORE the overlay is drawn",
+          c.events.index("go_closed") < c.events.index("show_override"),
+          repr(c.events))
+    check("(2) whichever pre-session screen is up gets hidden from " + st,
+          "hide_tag_picker" in c.events and "hide_topic_confirm" in c.events,
+          repr(c.events))
+
+# ...and the sequence then completes normally from "closed": the remaining
+# presses must reach the target and unlock, not be swallowed by a screen the
+# first press already dismissed.
+c = FakeController(state="picking", servo_locked=True, picking_from="closed", presses=3)
+for i in range(3):
+    c.press_override(1000.0 + i * 0.5)
+check("(2) a sequence begun on the picker still reaches the target and unlocks",
+      c.opened == [("closed", 1000.0), ("done", 1001.0)], repr(c.opened))
 
 c = FakeController(state="done", servo_locked=True)
 c.press_override(1.0)

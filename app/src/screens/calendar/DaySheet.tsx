@@ -146,7 +146,16 @@ export function DaySheet({
             sessions.map((s) => {
               const resolved = resolveTopic(s.topic, customLabels, themeMode);
               return (
-                <View key={`${s.startedAt}:${s.plannedS}`} style={styles.sessionRow}>
+                // The full startedAt+plannedS+actualS triple -- the same
+                // identity onRetag below resolves a tapped row by (see
+                // sessionHistory.ts's retag), and what SessionListSheet.tsx
+                // already keys on. The pair alone collided for two sessions
+                // started in the same second with the same planned duration
+                // and different actual ones, which is exactly the shape a
+                // clock-less box's batch used to arrive in; React then
+                // reconciled the two rows as one, so the retag picker
+                // opened from one of them rendered against the other.
+                <View key={`${s.startedAt}:${s.plannedS}:${s.actualS}`} style={styles.sessionRow}>
                   <Text style={[styles.sessionTime, { color: theme.textDim }]}>
                     {new Date(s.startedAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
                   </Text>

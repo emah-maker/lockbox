@@ -18,6 +18,7 @@ import {
   bestDay,
   lastNDays,
   sanitizeCustomLabels,
+  sessionCountsTowardTotals,
   topicBreakdownWithCustom,
   dominantTopicWithCustom,
   REAL_WORLD_REFS,
@@ -142,6 +143,46 @@ describe('bestDay', () => {
     assert.equal(best.key, '2024-01-02');
     assert.equal(best.focusS, 700);
   });
+
+  // Regression: bestDay took no exclusion params at all, so the "Fun facts"
+  // banner was computed from the RAW session log while the "Total focus
+  // time" tile directly above it came from aggregate(), which does exclude.
+  // Measured: exclude 'exercise', log 3h exercise Monday and 1h work
+  // Tuesday, and the dashboard read "Total focus time 1h 00m" above "Your
+  // best day was Mon -- 3h 00m focused." The app passes both lists
+  // (StatsScreen.tsx's bestDay(topicScoped, 'all', nowMs, customLabels,
+  // excludedTopicKeys)), so the banner named Tuesday there.
+  it('skips a built-in topic listed in excludedTopicKeys', () => {
+    const sessions = [
+      { startedAt: new Date(2024, 0, 1, 8).getTime(), actualS: 10800, topic: 'exercise' }, // Mon, 3h
+      { startedAt: new Date(2024, 0, 2, 8).getTime(), actualS: 3600, topic: 'work' }, // Tue, 1h
+    ];
+    assert.equal(bestDay(sessions).key, '2024-01-01'); // no exclusions: Monday still wins
+    const best = bestDay(sessions, [], ['exercise']);
+    assert.equal(best.key, '2024-01-02');
+    assert.equal(best.focusS, 3600);
+  });
+
+  it('skips a custom label flagged excludeFromTotals', () => {
+    const labels = [{ id: 'custom:chores', name: 'Chores', color: '#78716c', excludeFromTotals: true }];
+    const sessions = [
+      { startedAt: new Date(2024, 0, 1, 8).getTime(), actualS: 10800, topic: 'custom:chores' },
+      { startedAt: new Date(2024, 0, 2, 8).getTime(), actualS: 3600, topic: 'work' },
+    ];
+    assert.equal(bestDay(sessions, labels).key, '2024-01-02');
+  });
+
+  it('returns null when every logged day is excluded', () => {
+    const sessions = [{ startedAt: new Date(2024, 0, 1, 8).getTime(), actualS: 10800, topic: 'exercise' }];
+    assert.equal(bestDay(sessions, [], ['exercise']), null);
+  });
+
+  // The defaults must reproduce the pre-exclusion behavior exactly -- an
+  // empty catalog excludes nothing, same contract as aggregate/lastNDays.
+  it('excludes nothing when both lists are omitted', () => {
+    const sessions = [{ startedAt: new Date(2024, 0, 1, 8).getTime(), actualS: 10800, topic: 'exercise' }];
+    assert.equal(bestDay(sessions).focusS, 10800);
+  });
 });
 
 describe('lastNDays', () => {
@@ -187,6 +228,37 @@ describe('resolveTopic', () => {
     assert.equal(resolveTopic('custom:gone', []), null);
   });
 
+  // Regression: resolveTopic used to stop at "not a built-in, not a saved
+  // custom label -> null", which silently dropped every session tagged with
+  // a one-time free-text tag (the app's TopicPicker "Type a label for this
+  // session..." field) out of topicBreakdownWithCustom and therefore out of
+  // "Time by label", the calendar dots and the goal rows -- on the website
+  // only. app/src/stats/customLabels.ts's resolveTopic falls through to a
+  // one-time branch instead, and that asymmetry is exactly the drift this
+  // module exists to prevent.
+  it('resolves a one-time free-text tag to itself, in the neutral label color', () => {
+    const resolved = resolveTopic('Thesis', []);
+    assert.equal(resolved.id, 'Thesis');
+    assert.equal(resolved.label, 'Thesis');
+    assert.equal(resolved.color, '#78716c'); // NEUTRAL_LABEL_COLOR, same as the app twin
+    assert.equal(resolved.isCustom, false);
+    assert.equal(resolved.isOneTime, true);
+  });
+
+  // The one-time fallback must not swallow the deleted-label case: a
+  // 'custom:'-prefixed id IS catalog-shaped, so there is nothing to render
+  // for it once the catalog entry is gone. Guarded because the naive port
+  // (drop the null and always return the raw string) would make a deleted
+  // label render as its own opaque id.
+  it('still returns null for a deleted custom: id -- the prefix branch survives the one-time fallback', () => {
+    assert.equal(resolveTopic('custom:gone', [{ id: 'custom:other', name: 'Other', color: '#2563eb' }]), null);
+  });
+
+  it('marks built-in and saved-custom resolutions as not one-time', () => {
+    assert.equal(resolveTopic('work', []).isOneTime, false);
+    assert.equal(resolveTopic('custom:abc', [{ id: 'custom:abc', name: 'Side project', color: '#2563eb' }]).isOneTime, false);
+  });
+
   it('picks the light/dark hex variant per the `mode` argument for a built-in topic', () => {
     const light = resolveTopic('work', [], 'light');
     const dark = resolveTopic('work', [], 'dark');
@@ -218,6 +290,34 @@ describe('topicBreakdownWithCustom / dominantTopicWithCustom', () => {
 
   it('dominantTopicWithCustom is null when nothing is tagged', () => {
     assert.equal(dominantTopicWithCustom([{ actualS: 100, topic: undefined }], []), null);
+  });
+
+  // The user-visible half of the resolveTopic one-time regression above:
+  // type "Thesis" into the app's TopicPicker for a 2h session and the app's
+  // Stats screen shows "Thesis -- 2h 00m, 1 session", while the dashboard's
+  // "Time by label" had no such row and read 2h short.
+  it('counts one-time free-text tags as their own row, like the app', () => {
+    const sessions = [
+      { actualS: 7200, topic: 'Thesis' },
+      { actualS: 3600, topic: 'work' },
+    ];
+    const breakdown = topicBreakdownWithCustom(sessions, []);
+    assert.deepEqual(breakdown.map((b) => b.key), ['Thesis', 'work']);
+    assert.equal(breakdown[0].focusS, 7200);
+    assert.equal(breakdown[0].n, 1);
+    assert.equal(dominantTopicWithCustom(sessions, []).key, 'Thesis');
+  });
+
+  // Two sessions typed with the same string are the same tag -- they must
+  // land in one row, not two, since the raw string is the group key.
+  it('groups repeated one-time tags under a single row', () => {
+    const breakdown = topicBreakdownWithCustom(
+      [{ actualS: 60, topic: 'Thesis' }, { actualS: 90, topic: 'Thesis' }],
+      [],
+    );
+    assert.equal(breakdown.length, 1);
+    assert.equal(breakdown[0].focusS, 150);
+    assert.equal(breakdown[0].n, 2);
   });
 });
 
@@ -446,6 +546,58 @@ describe('sanitizeCustomLabels', () => {
   });
 });
 
+// The twin of app/src/stats/customLabels.test.ts's own
+// 'sanitizeCustomLabels -- excludeFromTotals round-trip' block, which this
+// suite had no counterpart for.
+//
+// Why a DROPPED flag here is worse than a merely-unrendered one: this
+// sanitizer is not just a read-side guard. Its output is what the dashboard
+// re-sends -- labelsPanel.js's writeCustomLabels and accountPanel.js's
+// writeAppearance both setDoc the whole settings/app document, carrying this
+// catalog and a freshly-stamped `updatedAt`. Rebuilding each label as
+// { id, name, color } therefore did not merely make the dashboard count an
+// excluded label's time; it ERASED the user's exclusion from the account, and
+// app/src/sync/settingsSyncPlan.ts, seeing the newer clock, answered 'apply'
+// and pushed the erasure down to the phone. Renaming a label or clicking an
+// accent swatch was enough to trigger it.
+describe('sanitizeCustomLabels -- excludeFromTotals round-trip (twin of the app side)', () => {
+  const label = (over = {}) => ({ id: 'custom:1', name: 'Deep Work', color: '#123456', ...over });
+
+  it('round-trips excludeFromTotals: true unchanged', () => {
+    assert.deepEqual(sanitizeCustomLabels([label({ excludeFromTotals: true })]), [label({ excludeFromTotals: true })]);
+  });
+
+  it('omits the field entirely for a label that never had it, same as before this field existed', () => {
+    assert.deepEqual(sanitizeCustomLabels([label()]), [label()]);
+    assert.equal('excludeFromTotals' in sanitizeCustomLabels([label()])[0], false);
+  });
+
+  it('drops a garbage (non-boolean) value from a hostile/old remote doc rather than coercing it', () => {
+    for (const excludeFromTotals of ['true', 1, 0, null, {}, []]) {
+      const [kept] = sanitizeCustomLabels([label({ excludeFromTotals })]);
+      assert.equal('excludeFromTotals' in kept, false, `value ${JSON.stringify(excludeFromTotals)}`);
+    }
+  });
+
+  it('explicit false is also dropped -- the omitted-key form is canonical, same as the app writes', () => {
+    assert.equal('excludeFromTotals' in sanitizeCustomLabels([label({ excludeFromTotals: false })])[0], false);
+  });
+
+  // The end-to-end consequence, asserted against the two readers that
+  // actually consume the flag, so this can't regress into "the key survives
+  // but nothing reads it".
+  it('keeps the sanitized catalog excluding the same sessions the raw one did', () => {
+    const raw = [label({ id: 'custom:sleep', name: 'Sleep', excludeFromTotals: true })];
+    const clean = sanitizeCustomLabels(raw);
+    assert.equal(sessionCountsTowardTotals('custom:sleep', clean), false);
+    const sessions = [
+      { id: 's1', startedAt: 1_000, actualS: 8 * 3600, outcome: 'completed', topic: 'custom:sleep' },
+      { id: 's2', startedAt: 2_000, actualS: 3600, outcome: 'completed', topic: 'work' },
+    ];
+    assert.equal(aggregate(sessions, clean).foc, 3600);
+  });
+});
+
 // Colour validation, kept in step with app/src/stats/customLabels.ts and
 // app/src/theme/color.ts. The two sides sanitize the SAME account document,
 // so a catalog they disagree about is one each client keeps re-pushing over
@@ -499,5 +651,82 @@ describe('label colour validation (twin of the app side)', () => {
   it('measures shorthand colours properly instead of returning NaN', () => {
     assert.equal(readableTextColor('#fff'), '#0b0b0b');
     assert.equal(readableTextColor('#000'), '#ffffff');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveTopic's one-time fallback, seen from its consumers. Read as TEXT
+// rather than imported for the reason settingsDoc.test.js spells out: these
+// modules import the Firebase SDK from `https://www.gstatic.com/...`, which
+// the default ESM loader refuses, so they cannot be imported under
+// `node --test` at all.
+// ---------------------------------------------------------------------------
+describe('one-time tag consumers', () => {
+  const read = (...parts) => readFileSync(path.join(__dirname, '..', '..', ...parts), 'utf8');
+  const picker = read('website', 'js', 'sessionLabelPicker.js');
+
+  // Before resolveTopic grew the fallback, this module carried its own
+  // `isOneTimeTag` re-classifying the same three cases. A second copy of the
+  // rule is how the two surfaces drift apart in the first place, so the
+  // duplicate must not come back.
+  it('sessionLabelPicker.js has no private re-implementation of the rule', () => {
+    assert.ok(!/function isOneTimeTag/.test(picker), 'isOneTimeTag duplicate is back');
+    assert.ok(picker.includes('resolved.isOneTime'), 'picker should read isOneTime off resolveTopic');
+  });
+
+  // Load-bearing ORDER, not just presence: a one-time tag is now a truthy
+  // resolution, so an `if (resolved)` tested first would swallow it and paint
+  // an ordinary filled chip, losing the dashed "typed once, not saved" cue
+  // that distinguishes it from a saved label.
+  it('renderChip tests the one-time case before the generic resolved case', () => {
+    const chip = picker.slice(picker.indexOf('function renderChip'), picker.indexOf('function renderSelect'));
+    const oneTimeAt = chip.indexOf('if (oneTime)');
+    const resolvedAt = chip.indexOf('} else if (resolved) {');
+    // Both asserted present first -- an indexOf of -1 on the one-time branch
+    // would otherwise satisfy the ordering comparison vacuously.
+    assert.ok(oneTimeAt >= 0, 'renderChip should branch on oneTime');
+    assert.ok(resolvedAt >= 0, 'renderChip should keep a generic resolved branch');
+    assert.ok(oneTimeAt < resolvedAt, 'one-time branch must come first');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The "Fun facts" banner's exclusion wiring. bestDay's own unit tests above
+// prove it CAN exclude; these prove the dashboard actually hands it the
+// lists. Both modules are read as TEXT -- they import the Firebase SDK from
+// `https://www.gstatic.com/...` (and statsCards.js is reached through
+// dashboard.js), which the default ESM loader refuses.
+// ---------------------------------------------------------------------------
+describe('fun-facts exclusion threading', () => {
+  const read = (...parts) => readFileSync(path.join(__dirname, '..', '..', ...parts), 'utf8');
+  const dashboard = read('website', 'js', 'dashboard.js');
+  const statsCards = read('website', 'js', 'statsCards.js');
+
+  // Extracts the argument text of `name(...)` -- the substring between the
+  // call's parentheses. Plain slicing rather than a regex so nothing here
+  // depends on escaping, and so a missing call is an explicit null.
+  const argsOf = (src, name) => {
+    const at = src.indexOf(name + '(');
+    if (at < 0) return null;
+    const open = at + name.length;
+    const close = src.indexOf(')', open);
+    return close < 0 ? null : src.slice(open + 1, close);
+  };
+
+  it('renderDataViews passes the same two exclusion lists to renderFacts that it passes to aggregate', () => {
+    // Sliced from the call site, not the import line -- the import names
+    // renderFacts without parentheses, so indexOf('renderFacts(') skips it.
+    const args = argsOf(dashboard, 'renderFacts');
+    assert.ok(args !== null, 'renderFacts call not found in dashboard.js');
+    assert.ok(args.includes('customLabels'), `renderFacts should receive the label catalog, got: ${args}`);
+    assert.ok(args.includes('calExcludedTopicKeys'), `renderFacts should receive the excluded built-in topics, got: ${args}`);
+  });
+
+  it('renderFacts forwards both lists into bestDay rather than dropping them', () => {
+    const body = statsCards.slice(statsCards.indexOf('export function renderFacts'));
+    const args = argsOf(body, 'bestDay');
+    assert.ok(args !== null, 'bestDay call not found in renderFacts');
+    assert.ok(args.includes('labels'), `bestDay should receive the label catalog, got: ${args}`);
+    assert.ok(args.includes('excludedTopicKeys'), `bestDay should receive the excluded built-in topics, got: ${args}`);
   });
 });

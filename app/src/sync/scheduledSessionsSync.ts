@@ -21,7 +21,7 @@
 import { doc, collection, getDocs, writeBatch, deleteDoc } from 'firebase/firestore';
 import { getDb, getFirebaseAuth } from '../auth/firebase';
 import { useScheduleStore } from '../store/useScheduleStore';
-import { reminderFireMs, type ScheduledSession } from '../schedule/scheduledSessions';
+import { reminderFireMs, isValidDateKey, TIME_RE, type ScheduledSession } from '../schedule/scheduledSessions';
 import { formatClockTime } from '../ui/time';
 
 const BATCH_LIMIT = 500; // Firestore's per-batch write limit
@@ -92,7 +92,23 @@ function toRemote(plan: ScheduledSession): RemotePlan {
 function fromRemote(id: string, data: unknown): ScheduledSession | null {
   if (!data || typeof data !== 'object') return null;
   const d = data as Partial<RemotePlan>;
-  if (typeof d.date !== 'string' || typeof d.time !== 'string') return null;
+  // The VALUES, not just the types. A string was all this asked for, and
+  // app/firestore.rules only checks the shape ('^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+  // and '^[0-9]{2}:[0-9]{2}$'), which '2026-02-30' and '25:00' both satisfy.
+  // An impossible day then came all the way in: sessionsOnDay and the
+  // calendar's day sheet key off the date STRING, so the plan listed under a
+  // cell the calendar never renders, while scheduledStartMs rolled Feb 30
+  // forward and armed its reminder for Mar 2 -- neither day showing the user
+  // what would actually happen. It only healed on the next local write,
+  // when pruneScheduledSessions dropped it for a NaN start.
+  //
+  // isValidDateKey is the schedule module's own rule (see its comment, which
+  // names this function as the untrusted caller it was exported for), not a
+  // second copy of it here: the app's authoring path already rejects exactly
+  // these values, and a boundary that disagreed with the authoring path
+  // would be its own bug.
+  if (typeof d.date !== 'string' || !isValidDateKey(d.date)) return null;
+  if (typeof d.time !== 'string' || !TIME_RE.test(d.time)) return null;
   if (typeof d.leadMinutes !== 'number' || !Number.isFinite(d.leadMinutes)) return null;
   return {
     id,
@@ -220,11 +236,23 @@ async function commitBatched(uid: string, plans: ScheduledSession[], removeIds: 
  * therefore re-armed every other plan in it, and the backend delivered their
  * reminders a second time (anything still inside its grace window and not
  * ticked done). Only what the user actually touched should be re-armed.
+ *
+ * Nothing is deleted from here, for the same "only what this mutation did"
+ * reason. This used to pass every key of the store's `deletedIds` as batch
+ * deletes, and tombstones are kept for 30 days (useScheduleStore's
+ * pruneTombstones), so moving one plan half an hour later committed dozens
+ * of deletes for documents removed days ago and long gone from Firestore.
+ * The two callers that legitimately need a delete already have one: the
+ * bridge removes the plan the user just deleted via
+ * deleteRemoteScheduledSession below, and syncScheduledSessions above
+ * reconciles the whole backlog against an actual listing of what the remote
+ * side still holds -- which is the only place that comparison can be made
+ * rather than guessed at.
  */
 export async function pushScheduledSessions(plans: ScheduledSession[]): Promise<void> {
   const uid = currentUid();
   if (!uid) return;
-  await commitBatched(uid, plans, Object.keys(useScheduleStore.getState().deletedIds));
+  await commitBatched(uid, plans, []);
 }
 
 /**

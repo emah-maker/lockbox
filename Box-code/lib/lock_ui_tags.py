@@ -17,6 +17,7 @@ from lock_config import (
     RADIUS_BTN_LG,
 )
 from lock_ui_common import _bg_tile
+from lock_ui_widgets import row_at
 
 
 class TagPickerMixin:
@@ -100,6 +101,11 @@ class TagPickerMixin:
         self.tp_dot_r = 6
         self.tp_name_x = 44
         self.tp_rows_y = (70, 110, 150, 190, 230, 270)
+        # Hit-test band for those rows, derived from them rather than
+        # written out a second time, so moving a row cannot leave its touch
+        # target behind at the old position. See tag_picker_row_at.
+        self.tp_row_pitch = self.tp_rows_y[1] - self.tp_rows_y[0]
+        self.tp_rows_top = self.tp_rows_y[0] - 19
         self.tp_row_labels = []
         self.tp_row_dots = []
         for y in self.tp_rows_y:
@@ -183,7 +189,7 @@ class TagPickerMixin:
                 lbl.text = ""
                 lbl.hidden = True
                 dot.hidden = True
-        self.display.root_group = self.tag_picker_group
+        self._set_root(self.tag_picker_group)
 
     def hide_tag_picker(self):
         # The universal chokepoint for leaving this screen -- go_running
@@ -198,11 +204,34 @@ class TagPickerMixin:
         self.show_view(self.view)
 
     def tag_picker_row_at(self, y):
-        # Same tolerance convention as settings_row_at.
-        for i, ry in enumerate(self.tp_rows_y):
-            if abs(y - ry) <= 19 and i < len(self._tp_ids):
-                return i
-        return None
+        # Full-band tiling, via the same helper settings_row_at uses -- so
+        # every pixel from the first row's top edge to the last row's bottom
+        # belongs to SOME row.
+        #
+        # This was a per-row `abs(y - ry) <= 19` tolerance check at a 40px
+        # pitch, which covers 39 of every 40 pixels: it left a one-pixel
+        # hole exactly halfway between each pair of rows (y = 90, 130, 170,
+        # 210, 250). A touch landing on one of those armed nothing at all --
+        # no hold fill, no selection, no feedback of any kind -- so it read
+        # as a screen that had stopped responding rather than as a miss.
+        # Precisely the gap class the settings list was rewritten to remove;
+        # see row_at's own comment in lock_ui_widgets.py.
+        #
+        # tp_rows_top keeps the OLD top edge (first centre - 19), so nothing
+        # above the list becomes tappable that was not before. The pixel
+        # comes back at the bottom instead, where the last band now just
+        # touches the SKIP/MORE row's own band -- harmless, because every
+        # caller asks tag_picker_nav_at first (lock_tag_picker.TagPicker.
+        # _arm and _release), so the overlap resolves by call order rather
+        # than being left as one more hole.
+        #
+        # row_at answers -1 for a miss; this screen's callers test for None,
+        # and the conversion matters rather than being cosmetic:
+        # tag_picker_topic_for_row's `row_idx is None or row_idx >= len(...)`
+        # guard would pass a -1 straight through to self._tp_ids[-1] and
+        # silently select the LAST topic instead of none.
+        idx = row_at(y, self.tp_rows_top, self.tp_row_pitch, len(self._tp_ids))
+        return None if idx < 0 else idx
 
     def tag_picker_topic_for_row(self, row_idx):
         if row_idx is None or row_idx >= len(self._tp_ids):
@@ -402,7 +431,7 @@ class TagPickerMixin:
         # the _build_override comment for where that was actually hit
         # on-device).
         self.tc_name.text = name
-        self.display.root_group = self.topic_confirm_group
+        self._set_root(self.topic_confirm_group)
 
     def hide_topic_confirm(self):
         # Same "safe to call even if this screen was never shown" contract

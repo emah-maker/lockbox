@@ -75,7 +75,20 @@ import { els } from './domRefs.js';
 // localSettingsPayload() does.
 let dashDb = null;
 let dashUid = null;
-let currentSettings = { themeMode: DEFAULT_THEME_MODE, accent: DEFAULT_ACCENT, callAlertsEnabled: true };
+// Every field the app's localSettingsPayload writes EXCEPT customLabels and
+// updatedAt, which the two writers supply themselves (the live catalog, and a
+// clock stamped at write time). settings/app has no scoped `update` rule, so
+// both writers resend the whole document -- a field missing HERE is missing
+// from both payloads, and a whole-document setDoc that omits a field deletes
+// it. excludedTopicKeys earned its place the hard way: leaving it out meant
+// switching the dashboard to Light theme silently put every excluded topic
+// back into the phone's totals and goal progress.
+let currentSettings = {
+  themeMode: DEFAULT_THEME_MODE,
+  accent: DEFAULT_ACCENT,
+  callAlertsEnabled: true,
+  excludedTopicKeys: [],
+};
 
 // ---------- Account panel wiring (accountPanel.js owns render + writes) ----------
 // dashAuth/dashUser mirror dashDb/dashUid's "set once per sign-in" shape
@@ -297,7 +310,10 @@ function renderDataViews(sessions, customLabels, goals = calGoals) {
   els.miniRow.hidden = stats.n === 0;
   els.emptyHint.hidden = stats.n > 0;
   els.factsCard.hidden = false;
-  renderFacts(sessions, stats.foc, els);
+  // Same two lists aggregate() got above -- stats.foc is its excluded total,
+  // so the best-day banner underneath it has to be measured against the same
+  // sessions or it can claim a day larger than the total it sits under.
+  renderFacts(sessions, stats.foc, els, customLabels, calExcludedTopicKeys);
   renderTrend(trend, els);
   renderBreakdown(topics, theme, els);
   renderSessionsTable(sessions, els, { labelPickerCtx });
@@ -411,6 +427,7 @@ async function loadDashboard(db, uid) {
       themeMode,
       accent: settings.accent || DEFAULT_ACCENT,
       callAlertsEnabled: settings.callAlertsEnabled !== undefined ? settings.callAlertsEnabled : true,
+      excludedTopicKeys,
     };
     applyTheme(theme);
     renderAll(sessions, customLabels, goals);

@@ -36,7 +36,14 @@ export function RecentSessionsRow({
           const started = new Date(sess.startedAt);
           return (
             <AnimatedPressable
-              key={`${sess.startedAt}:${sess.plannedS}`}
+              // The full startedAt+plannedS+actualS triple, the identity the
+              // rest of the app already means by "this session" (see
+              // sessionHistory.ts's retag, and SessionListSheet.tsx's own
+              // key). The pair alone collided for two sessions started in
+              // the same second with the same planned duration -- the shape
+              // a clock-less box's batch used to arrive in -- and React
+              // reconciles colliding siblings into one chip.
+              key={`${sess.startedAt}:${sess.plannedS}:${sess.actualS}`}
               accessibilityRole="button"
               // Spelled out rather than left to RN's collect-the-child-Text
               // default, which would read the abbreviated "Aug 3" / "45m"

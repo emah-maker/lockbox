@@ -114,6 +114,44 @@ describe('users/{uid}/pushTokens/{tokenId}', () => {
     const { suppressedReminderIds: _omitted, ...withoutSuppressed } = validToken();
     await assertSucceeds(setDoc(doc(db, path(OWNER, 'device-2')), withoutSuppressed));
   });
+
+  // The same coverage write, against a device that never registered -- which
+  // is not a hypothetical: it is every iOS build. plugins/
+  // withoutPushEntitlement.js strips `aps-environment`, so
+  // getExpoPushTokenAsync never mints a token, so registerPushToken never
+  // writes a document, while local reminders (and therefore coverage
+  // reports) keep working normally.
+  //
+  // setDoc(..., { merge: true }) is an UPSERT, not an update. Against a
+  // document that does not exist it is evaluated as a CREATE carrying
+  // exactly the merged fields -- here two coverage lists and an updatedAt,
+  // with no `transport` and no `token`. The rule above then reads
+  // request.resource.data.transport off a map that has no such key, which
+  // RAISES rather than evaluating to false, and a rules error evaluates to
+  // deny (the same trap settings/app's own comment records). So the write
+  // cannot land; it can only cost a permission-denied round trip plus an SDK
+  // console error, on every single reconcile, forever.
+  //
+  // This rule is NOT the thing to loosen. A pushTokens document with no
+  // transport or token is an address the server cannot send to, so accepting
+  // one would mean storing rows that can never do anything but cost reads.
+  // The fix belongs on the client, which is why the second half of this test
+  // matters as much as the first: the very same merge is legal the moment a
+  // real token document exists, so all reportLocalCoverage has to know is
+  // whether it does.
+  it('denies a coverage-only merge that would have to create the document', async () => {
+    const db = testEnv.authenticatedContext(OWNER).firestore();
+    const coverageOnly = {
+      localReminderIds: ['sched_1'],
+      suppressedReminderIds: ['sched_7'],
+      updatedAt: 1_700_000_000_000,
+    };
+    await assertFails(
+      setDoc(doc(db, path(OWNER, 'never-registered')), coverageOnly, { merge: true }),
+    );
+    await assertSucceeds(setDoc(doc(db, path(OWNER)), validToken()));
+    await assertSucceeds(setDoc(doc(db, path(OWNER)), coverageOnly, { merge: true }));
+  });
 });
 
 describe('users/{uid}/scheduledSessions/{planId}', () => {

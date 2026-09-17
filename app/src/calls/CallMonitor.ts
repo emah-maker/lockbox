@@ -55,6 +55,26 @@ export interface CallMonitorOptions {
   onAlertSent?: (label: string) => void;
 }
 
+// Mirrors lock_controller.notify_call's OWN gate -- `if self.state not in
+// ("running", "closed"): return` -- and must keep mirroring it, exactly,
+// rather than growing to cover every state that merely sounds locked.
+//
+// The temptation is real: BoxState gained 'picking' and 'confirming' (the
+// box's pre-session tag picker and topic-confirm screens, which the app
+// previously never saw because parseStatus rejected their frames), and both
+// are reachable with the lid shut and the latch engaged -- entered straight
+// out of 'closed', with no timeout on the picker. It looks like a ring
+// during one of them ought to alert.
+//
+// It must not, and the reason is this class's dedupe rather than the box's
+// screen. notify_call returns immediately in those states, so the alert
+// write succeeds at the GATT layer and is then discarded firmware-side --
+// but `consider` below has already put the uuid in `alerted`, and it only
+// un-marks on a REJECTED write. The alert would be spent: when the user
+// finishes tagging and the box goes 'running' seconds later, the same call
+// is still ringing and can never be alerted again. Skipping instead leaves
+// the uuid unmarked, so the very next status tick after go_running alerts
+// it for real. Not alerting is what makes the alert arrive.
 const LOCKED: BoxState[] = ['running', 'closed'];
 
 export class CallMonitor {

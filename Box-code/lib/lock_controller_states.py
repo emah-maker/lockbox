@@ -123,8 +123,18 @@ class StateMixin:
         if opens_now:
             self.release_lock()          # auto-open (or forced): servo releases now
         else:
-            self.engage_lock()           # stay shut: re-assert the lock and
-            self._servo_relax_at = None  # hold it (no relax) until OPEN is tapped
+            # Stay shut: re-drive the latch and hold it, with no relax, until
+            # OPEN is tapped. Two lines, not one -- _servo_relax_at = None
+            # alone silently also turned OFF update()'s servo.reassert(),
+            # which is gated on that same attribute, in the single state
+            # where the PWM keeps running long enough for a CPU-frequency
+            # change to shift it (see update()'s servo block and
+            # lock_servo.reassert). _servo_hold says "keep driving" without
+            # claiming a relax deadline; engage_lock above clears it, so it
+            # has to be set after, not before.
+            self.engage_lock()
+            self._servo_relax_at = None
+            self._servo_hold = True
         self.ui.show_done(opens_now)
         if self.view != "control":  # return to control so the unlock anim shows
             self.set_view("control")

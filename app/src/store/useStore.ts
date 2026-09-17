@@ -21,7 +21,12 @@ import { CallMonitor } from '../calls/CallMonitor';
 import type { Status, HistoryEntry, BoxState, Settings } from '../ble/protocol';
 import { getJSON, setJSON } from '../storage/storage';
 import { reconnectDelayMs, shouldScheduleReconnect } from '../ble/reconnectPolicy';
-import { handleHistoryEntries, PENDING_TOPIC_KEY, withPendingTopicLock } from '../ble/historyIntake';
+import {
+  handleHistoryEntries,
+  PENDING_TOPIC_KEY,
+  PENDING_TOPIC_PRE_SLACK_MS,
+  withPendingTopicLock,
+} from '../ble/historyIntake';
 import { loadSessions, retagSession, LoggedSession, PendingTopicTag } from '../stats/sessionHistory';
 import { useSettingsStore } from './useSettingsStore';
 // Remote sync (docs/rfcs/google-signin-cross-device-sync-architecture.md §4.3)
@@ -40,8 +45,43 @@ export const CONN_LABELS: Record<Conn, string> = {
   error: 'Not Connected',
 };
 
+/** What to show the user for each box state (ui/StatusStrip.tsx's label).
+ *
+ * Lives here next to CONN_LABELS, the sibling map StatusStrip already reads
+ * from this store, rather than in ble/protocol.ts -- that module's stated
+ * invariant is that it stays UI-independent (see its `acc` bound comment),
+ * and a user-facing string is exactly what it keeps out.
+ *
+ * A TOTAL `Record<BoxState, string>`, deliberately: the firmware owns that
+ * union (BoxState is its state machine, verbatim), and the last time it grew
+ * two members the app's only signal was that status frames silently stopped
+ * arriving. Typed this way, the next firmware state that reaches BOX_STATES
+ * cannot reach a release without someone deciding what it says on screen --
+ * the build fails until they do.
+ *
+ * 'picking'/'confirming' both read as "Tagging": they are two spellings of
+ * the same moment for the person looking at the box (its pre-session tag
+ * picker, or the CONFIRM screen for a tag the app already suggested), the
+ * distinction between them is the box's business, and neither is a state the
+ * app can act on -- the firmware ignores `lock`/`unlock` in both. */
+export const BOX_STATE_LABELS: Record<BoxState, string> = {
+  idle: 'Idle',
+  closed: 'Closed',
+  running: 'Running',
+  done: 'Done',
+  picking: 'Tagging',
+  confirming: 'Tagging',
+};
+
 const AUTO_CONNECT_KEY = 'autoConnect';
 const LAST_DEVICE_KEY = 'lastDeviceId';
+// Box settings the user changed while there was no box to write them to --
+// see rememberUnsyncedBoxSettings below. Persisted (rather than kept only in
+// the closure) because an out-of-range box is typically out of range for
+// hours, which is more than enough for iOS to terminate a backgrounded app:
+// an in-memory record would be gone by the relaunch whose own autoconnect
+// then reads the box's stale value back over the user's change.
+const UNSYNCED_BOX_SETTINGS_KEY = 'unsyncedBoxSettings';
 const RECONNECT_DELAY_MS = 4000;
 const MAX_RECONNECT_DELAY_MS = 60000; // cap the exponential backoff below
 // Used for both the by-id (autoconnect) and scan-then-connect paths -- see
@@ -50,6 +90,16 @@ const MAX_RECONNECT_DELAY_MS = 60000; // cap the exponential backoff below
 // connection but never finished could leave the UI stuck on "Connecting"
 // indefinitely with no error and no way to cancel.
 const CONNECT_TIMEOUT_MS = 6000;
+/** How much already-served time a `running` status frame may report and
+ * still count as "this run is only just beginning".
+ *
+ * The box recomputes `rem` from its deadline and pushes at most once a
+ * second (Box-code/lib/lock_ble.py's `now - self._last_push < 1.0`), so the
+ * first frame of a run reports zero or one second served; three seconds
+ * leaves room for a dropped frame and for BLE delivery latency, while still
+ * being nowhere near the length of a session someone reconnects into the
+ * middle of. See refreshPendingTopicOnFreshRun, the only reader. */
+const FRESH_RUN_ELAPSED_TOLERANCE_MS = 3000;
 
 interface AppState {
   initialized: boolean;
@@ -179,6 +229,46 @@ export const useStore = create<AppState>((set, get) => {
   // whole time. Reset to 0 on any successful connect (afterConnected) or a
   // fresh user-initiated connect() call.
   let reconnectAttempts = 0;
+  /** Set by the reconnect timer for the single call it is about to make,
+   * and cleared by connect() on the way in.
+   *
+   * connect() is one entry point serving two callers with opposite needs:
+   * a person tapping Connect is starting over and must get the bottom rung
+   * of the ladder, while the timer is the ladder and must not reset the
+   * counter it is climbing. Nothing in the call itself distinguishes them,
+   * and adding a parameter would put that distinction in the store's
+   * public shape where a screen could pass the wrong one. */
+  let connectFromReconnectTimer = false;
+  /** Box settings the user changed that the box has not been told about --
+   * the patch, not the whole object, because WHICH fields the app owns is
+   * exactly the information afterConnected needs and cannot otherwise
+   * recover.
+   *
+   * It cannot be recovered by comparing the mirror against the box's read
+   * values, which is the obvious alternative and is wrong: the box has its
+   * own on-screen settings, so a difference means "one of us changed this"
+   * and says nothing about which. Every field the user did NOT touch in the
+   * app still belongs to the box. Only a record of the app's own unsent
+   * writes distinguishes the two.
+   *
+   * Authoritative in memory and mirrored to storage on every change (rather
+   * than read back from storage) so two rapid toggles cannot interleave a
+   * read-modify-write and lose one. */
+  let unsyncedBoxSettings: Partial<Settings> = {};
+
+  /** Records a settings change the box did not receive, so afterConnected
+   * can re-apply it instead of letting the box's own copy overwrite it.
+   *
+   * Never records in demo mode: a toggle flipped while looking at the
+   * simulated box is a change to the simulated box (see pushBoxSettings'
+   * own comment on the same asymmetry), and replaying it onto real hardware
+   * on the next real connection is precisely the thing the non-persisting
+   * mirror already goes out of its way to prevent. */
+  const rememberUnsyncedBoxSettings = (patch: Partial<Settings>) => {
+    if (inDemoMode()) return;
+    unsyncedBoxSettings = { ...unsyncedBoxSettings, ...patch };
+    setJSON(UNSYNCED_BOX_SETTINGS_KEY, unsyncedBoxSettings);
+  };
 
   const clearReconnectTimer = () => {
     if (reconnectTimer) {
@@ -225,18 +315,31 @@ export const useStore = create<AppState>((set, get) => {
       // reaching for. setAutoConnect clears the timer too; this is the
       // backstop for any other path that flips the flag.
       if (userDisconnected || !get().autoConnect) return;
+      connectFromReconnectTimer = true;
       get().connect();
     }, delay);
   };
 
   /** The box's finished-session batches. The rule itself is
    * ble/historyIntake.ts; this binds it to this store and this connection. */
-  const handleHistory = (entries: HistoryEntry[]) =>
+  const handleHistory = (entries: HistoryEntry[]) => {
+    // Captured, not read live. The ack at the end of this is several
+    // storage round-trips away, and demo mode swaps `client` out from
+    // under anything in flight -- the same hazard cb.onStatus/cb.onHistory
+    // already guard with their own `owner !== client` checks on the way
+    // in. Reading the live binding at ack time meant the ack followed the
+    // swap: the box that sent the batch never heard it (recoverable -- it
+    // resends, and appendSessions dedupes), while the box that did hear it
+    // was told to drop a batch it knows nothing about. That second half is
+    // refused only because SessionLog.ack compares the count against the
+    // batch it last sent (Box-code/lib/lock_log.py); two batches of the
+    // same length is all it takes for that guard to agree.
+    const owner = client;
     handleHistoryEntries(entries, {
       onSessions: (sessions) => set({ sessions }),
       onTopicConsumed: (topic) =>
         set((state) => (state.currentTopic === topic ? { currentTopic: null } : {})),
-      ack: (count) => client.ackHistory(count),
+      ack: (count) => owner.ackHistory(count),
       // Marked at the one point where it is still knowable which box
       // produced this batch. It rides into the durable log as
       // LoggedSession.demo and is what keeps a demo session off Firestore
@@ -244,8 +347,9 @@ export const useStore = create<AppState>((set, get) => {
       // happens to be on, which matters because firestore.rules' sessions
       // block allows no delete: anything that reaches an account's history
       // is in its stats permanently.
-      demo: inDemoMode(),
+      demo: owner !== realClient,
     });
+  };
 
   // The user report this fixes: "goals do not update with the topic". A
   // pre-session pick durably writes PENDING_TOPIC_KEY at PICK time
@@ -264,6 +368,10 @@ export const useStore = create<AppState>((set, get) => {
   // in-memory field) against the moment this session actually started,
   // rather than the moment the user picked it.
   //
+  // Not on EVERY such freshRun, though -- see the elapsed-time gate in the
+  // body below, which is what keeps this from re-dating a tag onto a
+  // session that isn't the one it was placed for.
+  //
   // Goes through withPendingTopicLock, the same queue historyIntake.ts's
   // consume-then-compare-and-clear uses for this exact key, so this can
   // never land in the middle of that sequence: either this whole refresh
@@ -277,13 +385,48 @@ export const useStore = create<AppState>((set, get) => {
   // own compare-and-set immediately before writing too, since
   // tagCurrentSession's direct setJSON isn't behind this lock and could
   // still land in between this function's two reads.
-  const refreshPendingTopicOnFreshRun = () => {
+  const refreshPendingTopicOnFreshRun = (status: Status) => {
+    const now = Date.now();
+    // What the box says this run has already served. `freshRun` alone does
+    // NOT mean a run has just begun: onDisconnect nulls `status`, so the
+    // first frame after any reconnect compares against nothing and reads as
+    // fresh even if the session has been going for half an hour. This is
+    // the only thing in the frame that tells the two apart.
+    const elapsedMs = Math.max(0, status.set - status.rem) * 1000;
+    const runStartedAt = now - elapsedMs;
+    const justStarted = elapsedMs <= FRESH_RUN_ELAPSED_TOLERANCE_MS;
     withPendingTopicLock(async () => {
       const existing = await getJSON<PendingTopicTag | null>(PENDING_TOPIC_KEY, null);
       if (!existing) return; // nothing to refresh -- never invent a tag
+      // Reconnecting into a run already under way is the one case where
+      // this must hold back. While connected, the app sees every session
+      // start and drains every session's history within a second of it
+      // ending, so a tag still sitting in storage when a run begins can
+      // only be for that run. Across a gap it cannot say that: a tagged
+      // session may have finished unobserved, with its entry still queued
+      // on the box (lock_log.py), and an untagged one started since.
+      //
+      // Re-stamping the tag with `now` in that situation does not just fail
+      // to help, it actively moves the tag OFF the session that earned it:
+      // `now` is past that session's [startedAt - preSlack, endedAt + slack]
+      // window, so its entry -- pushed moments later in the same
+      // _push_outbound pass, always AFTER the status frame -- arrives to
+      // find its own tag no longer matches, and the session running now
+      // inherits it instead. Two sessions wrong from one write.
+      //
+      // So across a gap, only refresh a tag the running session could
+      // already claim: one placed no earlier than its own pre-slack window
+      // begins. That is a renewal of an existing claim rather than a
+      // transfer of one. A tag older than that is left exactly where it is,
+      // which is what lets the queued entry still match it.
+      if (!justStarted && existing.at < runStartedAt - PENDING_TOPIC_PRE_SLACK_MS) return;
       const stillCurrent = await getJSON<PendingTopicTag | null>(PENDING_TOPIC_KEY, null);
       if (stillCurrent && stillCurrent.at === existing.at && stillCurrent.topic === existing.topic) {
-        await setJSON<PendingTopicTag>(PENDING_TOPIC_KEY, { topic: existing.topic, at: Date.now() });
+        // `now`, sampled before the lock rather than read here: this queue
+        // can hold a unit of work for as long as a history batch takes to
+        // persist, and the moment worth recording is when the box reported
+        // the run, not when this write finally got its turn.
+        await setJSON<PendingTopicTag>(PENDING_TOPIC_KEY, { topic: existing.topic, at: now });
       }
     }).catch(() => {});
   };
@@ -328,7 +471,7 @@ export const useStore = create<AppState>((set, get) => {
       // whichever it is: a no-op if nothing is stored, otherwise it keeps
       // the durable tag alive against this session's actual start time.
       if (status.st === 'running' && !status.tp && freshRun) {
-        refreshPendingTopicOnFreshRun();
+        refreshPendingTopicOnFreshRun(status);
       }
       // A fresh run needs a fresh tag; clear the label from whatever finished
       // before. Also drop any still-pending app-side suggestion (pure local
@@ -367,11 +510,43 @@ export const useStore = create<AppState>((set, get) => {
     }
     try {
       const s = await client.readSettings();
-      // Mirrored for display but never written to disk while the box on the
-      // other end is the simulated one -- that mirror is the user's record
-      // of their REAL box (see setBoxSettings' own comment). setDemoMode
-      // puts the on-disk copy back when demo mode is switched off.
-      if (s) useSettingsStore.getState().setBoxSettings(s, { persist: !inDemoMode() });
+      if (s) {
+        // The box's read is the baseline, and then whatever the user changed
+        // with no box to write it to wins over it.
+        //
+        // Without that overlay this read was the bug: pushBoxSettings mirrors
+        // a change optimistically and skips the BLE write when nothing is
+        // connected, so a switch flipped out of range exists only in the app
+        // -- and this line then applied the box's stale copy over it,
+        // wholesale, on the next connection. From the user's side the switch
+        // simply turns itself back off some minutes later, with no error and
+        // nothing to retry. `unlk` (allow open from this phone) and the
+        // theme/accent pair are the ones people actually notice.
+        //
+        // Restricted to the fields actually recorded, never the whole mirror
+        // -- see unsyncedBoxSettings' own comment for why "the mirror wins"
+        // would be wrong.
+        const unsynced = inDemoMode() ? {} : unsyncedBoxSettings;
+        const owed = Object.keys(unsynced).length > 0;
+        const merged: Settings = owed ? { ...s, ...unsynced } : s;
+        // Mirrored for display but never written to disk while the box on the
+        // other end is the simulated one -- that mirror is the user's record
+        // of their REAL box (see setBoxSettings' own comment). setDemoMode
+        // puts the on-disk copy back when demo mode is switched off.
+        useSettingsStore.getState().setBoxSettings(merged, { persist: !inDemoMode() });
+        if (owed) {
+          try {
+            await client.writeSettings(merged);
+            unsyncedBoxSettings = {};
+            setJSON(UNSYNCED_BOX_SETTINGS_KEY, unsyncedBoxSettings);
+          } catch {
+            // Cleared only once the box has actually taken the write, so a
+            // connection that comes up and dies again still owes it on the
+            // next one -- the same "the app is the durable copy" posture
+            // handleHistory's ack has.
+          }
+        }
+      }
     } catch {
       // box didn't answer the settings read; the mirror keeps its last value
     }
@@ -403,12 +578,16 @@ export const useStore = create<AppState>((set, get) => {
     callDetectionAvailable: monitor.available,
 
     init: async () => {
-      const [autoConnect, sessions, lastDeviceId] = await Promise.all([
+      const [autoConnect, sessions, lastDeviceId, unsynced] = await Promise.all([
         getJSON<boolean>(AUTO_CONNECT_KEY, true),
         loadSessions(),
         getJSON<string | null>(LAST_DEVICE_KEY, null),
+        getJSON<Partial<Settings>>(UNSYNCED_BOX_SETTINGS_KEY, {}),
         useSettingsStore.getState().hydrate(),
       ]);
+      // Before the autoconnect below, which is the very thing that would
+      // otherwise read the box's stale copy over these.
+      unsyncedBoxSettings = unsynced;
       // After hydrate() above, so the persisted flag is actually in hand --
       // and before the autoconnect below, so a relaunch in demo mode never
       // reaches for the radio at all.
@@ -418,6 +597,12 @@ export const useStore = create<AppState>((set, get) => {
     },
 
     connect: async () => {
+      // Read and cleared FIRST, before the guard below can return early:
+      // a timer firing on top of an attempt already in flight would
+      // otherwise leave the flag set, and the next Connect the user
+      // actually taps would be mistaken for a rung of the ladder.
+      const fromReconnectTimer = connectFromReconnectTimer;
+      connectFromReconnectTimer = false;
       // 'scanning' has to be guarded too, not just 'connecting'/'connected':
       // without it, autoConnect's init() call and a manual reconnect (or a
       // double-tapped Connect button) can both be mid-scan at once. The two
@@ -429,6 +614,15 @@ export const useStore = create<AppState>((set, get) => {
       if (get().conn === 'connecting' || get().conn === 'connected' || get().conn === 'scanning') return;
       clearReconnectTimer();
       userDisconnected = false;
+      // A deliberate connect starts the backoff ladder over -- the second
+      // half of what reconnectAttempts' own declaration promises, and the
+      // half that was never implemented. Without it, a box that has been
+      // off long enough for the ladder to reach its 60s cap makes tapping
+      // Connect look like a button that does nothing: the attempt fails
+      // (the box really is off), and the retry behind it is a full minute
+      // away instead of four seconds. NOT reset when the timer is the
+      // caller, or the curve would flatten back to a fixed 4s forever.
+      if (!fromReconnectTimer) reconnectAttempts = 0;
       // The client this attempt belongs to. Every call below goes through
       // `owner` rather than the live `client` binding, and every await is
       // followed by an `abandoned()` check, because demo mode can swap the
@@ -475,6 +669,24 @@ export const useStore = create<AppState>((set, get) => {
           // Device (see its closeSession comment), one layer up. In every
           // non-swap case `owner` IS `client` and this changes nothing.
           if (owner !== client) return;
+          // Stopped here as well as in the user-initiated disconnect()
+          // below, because afterConnected unconditionally start()s it and
+          // CallMonitor.start() is a no-op while it still holds a
+          // subscription (`if (this.sub) return`). Leaving it running
+          // across a drop therefore did not keep the feature alive over
+          // the gap -- it made the RECONNECT do nothing: no fresh
+          // subscription, no immediate getCurrentCalls snapshot (the thing
+          // start() exists for, since iOS does not replay a ring
+          // transition to a late subscriber), and no clearing of the
+          // already-alerted set. That last one is the one that loses a
+          // call: a ring that was alerted just before the link dropped
+          // keeps its uuid, and the box coming back has no memory of an
+          // alert it may never have drained (lock_ble.py only reads the
+          // `alert` characteristic while connected), so the rest of that
+          // ring passes in silence. See CallMonitor.stop()'s own comment,
+          // which already describes this as the disconnect/reconnect case
+          // -- it just was not being reached from here.
+          monitor.stop();
           set({ conn: 'idle', status: null });
           scheduleReconnect();
         },
@@ -618,22 +830,29 @@ export const useStore = create<AppState>((set, get) => {
     },
 
     // Optimistically mirrors the patch into useSettingsStore immediately, then
-    // writes it to the box if connected. If the write fails the mirror stays
-    // ahead of the box; the next connect()'s readSettings() reconciles it.
-    // The connected-check above doesn't cover a disconnect landing mid-write
+    // writes it to the box if connected -- and remembers the patch when it
+    // could not, so afterConnected can finish the job rather than the box's
+    // own copy quietly undoing it.
+    //
+    // The connected-check below doesn't cover a disconnect landing mid-write
     // (Error('Not connected') from PhoneBoxClient.write, or the native write
     // itself rejecting) -- callers here (SettingsScreen's Switch/slider
     // handlers) never awaited or caught this promise, so that was an
-    // unhandled rejection (production readiness review, Medium).
+    // unhandled rejection (production readiness review, Medium). A rejection
+    // there is the same situation as being disconnected outright (the box
+    // does not have the value), so it is recorded the same way.
     pushBoxSettings: async (patch) => {
       // Same non-persisting treatment as afterConnected's read, from the
       // other direction: a toggle flipped while looking at the simulated box
       // is a change to the simulated box, and must not be written over the
       // real one's saved values either.
       useSettingsStore.getState().setBoxSettings(patch, { persist: !inDemoMode() });
-      if (!client.connected) return;
+      if (!client.connected) {
+        rememberUnsyncedBoxSettings(patch);
+        return;
+      }
       const next = useSettingsStore.getState().boxSettings;
-      await client.writeSettings(next).catch(() => {});
+      await client.writeSettings(next).catch(() => rememberUnsyncedBoxSettings(patch));
     },
 
     pushLabels: async () => {

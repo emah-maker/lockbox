@@ -96,16 +96,49 @@ export function makeScheduledSessionId(): string {
 }
 
 /**
+ * Whether `date` is a 'YYYY-MM-DD' key naming a day that ACTUALLY EXISTS.
+ *
+ * DATE_RE alone only checks digit ranges, so '2026-02-30' and '2026-04-31'
+ * sailed through it, and `new Date(2026, 1, 30)` doesn't reject an
+ * impossible day -- it rolls it forward (to Mon Mar 02 2026). The plan then
+ * existed on two days at once: sessionsOnDay and the calendar's day sheet
+ * key off the STRING, so it listed under Feb 30, while its reminder was
+ * scheduled for Mar 2, whose sheet never mentioned it. Neither day showed
+ * the user what would actually happen.
+ *
+ * Constructing the date and reading the three fields back is the check:
+ * anything that rolled over comes back as a different month or day. It also
+ * catches a year under 100, which `new Date(y, m, d)` silently maps into the
+ * 1900s ('0026-09-01' became Sep 1926).
+ *
+ * Exported because the untrusted side needs exactly this rule and currently
+ * has none: sync/scheduledSessionsSync.ts's fromRemote accepts any
+ * `typeof d.date === 'string'`, so a plan written by another client (or a
+ * hand-edited doc) can still bring an impossible date in behind this
+ * module's back. That file belongs to the sync layer; this is the validator
+ * for it to call.
+ */
+export function isValidDateKey(date: string): boolean {
+  if (!DATE_RE.test(date)) return false;
+  const [y, m, d] = date.split('-').map(Number);
+  const probe = new Date(y, m - 1, d);
+  return probe.getFullYear() === y && probe.getMonth() === m - 1 && probe.getDate() === d;
+}
+
+/**
  * The absolute local epoch-ms this plan starts at. Built from the local
  * Y/M/D + H:M rather than `new Date('2026-08-28T09:00')` for exactly the
  * reason sessionHistory.ts's dayKeyToDate exists: a bare date string is
  * parsed as UTC by the spec, which is off by a full day west of UTC.
  *
  * Returns NaN for a malformed date/time, which every caller treats as "not
- * schedulable" rather than as some fallback moment.
+ * schedulable" rather than as some fallback moment. "Malformed" includes a
+ * well-shaped but impossible day (see isValidDateKey): silently rolling
+ * Feb 30 into Mar 2 would hand back a real-looking moment on a day the plan
+ * does not claim to be on.
  */
 export function scheduledStartMs(item: Pick<ScheduledSession, 'date' | 'time'>): number {
-  if (!DATE_RE.test(item.date) || !TIME_RE.test(item.time)) return NaN;
+  if (!isValidDateKey(item.date) || !TIME_RE.test(item.time)) return NaN;
   const [y, m, d] = item.date.split('-').map(Number);
   const [hh, mm] = item.time.split(':').map(Number);
   return new Date(y, m - 1, d, hh, mm, 0, 0).getTime();
@@ -133,7 +166,9 @@ export interface ScheduledSessionInput {
  * customLabels.ts use ("Label name is required.") -- the form renders
  * `e.message` inline rather than mapping error codes. */
 function validate(input: ScheduledSessionInput): void {
-  if (!DATE_RE.test(input.date)) throw new Error('Pick a valid date for this session.');
+  // isValidDateKey, not DATE_RE: a date that merely passes the digit ranges
+  // is not one this plan can be shown on. See that function's comment.
+  if (!isValidDateKey(input.date)) throw new Error('Pick a valid date for this session.');
   if (!TIME_RE.test(input.time)) throw new Error('Pick a valid start time for this session.');
   if (input.topic !== null && (typeof input.topic !== 'string' || !input.topic)) {
     throw new Error('Session label is invalid.');

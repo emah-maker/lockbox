@@ -17,8 +17,14 @@ import {
   planGoalNotifications,
   allowedNotifyTimes,
   isInQuietHours,
+  MAX_GOAL_REMINDERS,
   type NotificationPrefs,
 } from './goalNotificationPlan';
+// Imported purely to assert the two caps still fit in one OS budget -- see
+// MAX_GOAL_REMINDERS. The modules themselves deliberately don't import each
+// other's constants (that would be a runtime cycle); this test is where the
+// arithmetic between them is checked.
+import { MAX_SESSION_REMINDERS } from '../schedule/sessionReminderPlan';
 
 const goal = (overrides: Partial<Goal>): Goal => ({
   id: 'goal:a',
@@ -258,6 +264,68 @@ describe('planGoalNotifications', () => {
     const requests = planGoalNotifications(goals, prefs(), progress);
 
     expect(requests.map((r) => r.identifier)).toEqual(['goal-notif:goal:b:daily:1000']);
+  });
+});
+
+// iOS keeps at most 64 PENDING local notifications per app and silently
+// drops whatever arrives past that -- a budget scheduled/session reminders
+// (schedule/sessionReminderPlan.ts, capped at MAX_SESSION_REMINDERS) spend
+// from too. goalReminders.ts's MAX_NOTIFY_TIMES comment has always
+// acknowledged the 840 worst case, but nothing actually enforced a bound, so
+// a heavy user's goals could fill the OS queue and starve the session
+// reminders of the slots they need.
+describe('planGoalNotifications stays inside the OS pending-notification budget', () => {
+  // 10 goals x 2 reminder times x 5 reminder weekdays = 100 requests, all
+  // from settings the goal form itself allows.
+  const heavy = (count: number): Goal[] =>
+    Array.from({ length: count }, (_, i) =>
+      goal({
+        id: `goal:${i}`,
+        notify: true,
+        notifyTimes: ['08:00', '20:00'],
+        notifyDays: [1, 2, 3, 4, 5],
+      }),
+    );
+
+  it('caps the plan at MAX_GOAL_REMINDERS', () => {
+    const requests = planGoalNotifications(heavy(10), prefs(), new Map());
+    expect(requests.length).toBe(MAX_GOAL_REMINDERS);
+  });
+
+  it('leaves room for a full session-reminder plan inside the 64-request budget', () => {
+    expect(MAX_GOAL_REMINDERS + MAX_SESSION_REMINDERS).toBeLessThanOrEqual(64);
+  });
+
+  it('keeps every goal represented rather than spending the whole budget on the first few', () => {
+    const requests = planGoalNotifications(heavy(10), prefs(), new Map());
+    const goalsHeard = new Set(requests.map((r) => r.identifier.split(':').slice(1, 3).join(':')));
+    expect(goalsHeard.size).toBe(10);
+  });
+
+  it('keeps each goal\'s earliest reminder time before its later ones', () => {
+    const requests = planGoalNotifications(heavy(10), prefs(), new Map());
+    // Every goal keeps 4 of its 10 requests; all four should be 08:00 slots,
+    // since a goal's own times are taken earliest-first.
+    expect(requests.filter((r) => r.identifier.endsWith(':2000'))).toHaveLength(0);
+  });
+
+  it('is stable across reconciles -- the same goals plan the same set, so a cancel-and-reschedule is idempotent', () => {
+    const goals = heavy(10);
+    expect(planGoalNotifications(goals, prefs(), new Map()).map((r) => r.identifier)).toEqual(
+      planGoalNotifications(goals, prefs(), new Map()).map((r) => r.identifier),
+    );
+  });
+
+  it('changes nothing about an ordinary under-budget plan, which stays in goal order', () => {
+    const goals = [
+      goal({ id: 'goal:a', notify: true, notifyTimes: ['09:00', '21:00'] }),
+      goal({ id: 'goal:b', notify: true, notifyTimes: ['10:00'] }),
+    ];
+    expect(planGoalNotifications(goals, prefs(), new Map()).map((r) => r.identifier)).toEqual([
+      'goal-notif:goal:a:daily:0900',
+      'goal-notif:goal:a:daily:2100',
+      'goal-notif:goal:b:daily:1000',
+    ]);
   });
 });
 

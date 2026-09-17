@@ -43,6 +43,20 @@ class GestureMixin:
         open (auto_open on, or already forced open) -- nothing left to
         override.
 
+        THE GATE IS "IS SOMETHING SHUT", NOT "WHICH SCREEN IS UP". This used
+        to return early for every state outside running/closed/done, which
+        silently included the two pre-session screens -- and both of those
+        are reachable with the servo already latched. Close the lid (the
+        sensor fires go_closed, which calls engage_lock) and tap LOCK: the
+        tag picker opens with a phone physically shut inside, and the one
+        control that lock_config.py's BLE_CMD_MIN_INTERVAL comment and
+        lock_ble.py's header both call "the always-available emergency path"
+        did nothing, leaving the undocumented swipe-up cancel as the only
+        way out. _servo_locked is what "is there anything to override"
+        actually means -- "done" was already gated on it for exactly this
+        reason (see its branch below) -- so picking/confirming are gated on
+        it too rather than on the state name.
+
         Takes `now` for the same reason press_lock does. self._now is only
         written by process() and update(), and code.py polls the buttons
         BETWEEN those two calls -- so a press read here carried the previous
@@ -64,6 +78,26 @@ class GestureMixin:
             # locked. _servo_locked reflects the real physical state either way.
             if not self._servo_locked:
                 return
+        elif self.state in ("picking", "confirming"):
+            # Either pre-session screen, over an already-latched servo (see
+            # the docstring). Opened from "idle" instead, nothing is shut and
+            # there is genuinely nothing to override, so that stays a no-op.
+            if not self._servo_locked:
+                return
+            # Back out to whatever latched the box BEFORE counting. Two
+            # reasons, and both are needed:
+            #  * show_override() below writes display.root_group, so leaving
+            #    the picker "up" would leave self.state == "picking" with an
+            #    invisible screen still arbitrating every touch.
+            #  * counting from "closed" is what the rest of this method
+            #    already knows how to finish -- reaching the target then
+            #    takes the ordinary go_done(OVERRIDDEN) path instead of
+            #    needing a third unlock branch for the pre-session states.
+            # The count restarts at 1 here (go_closed clears it): this press
+            # is the first of a sequence the user began on a different
+            # screen, and override_timeout is a second by default, so there
+            # was no live sequence to carry across anyway.
+            self._cancel_pre_session(now)
         elif self.state not in ("running", "closed"):
             return
         self._override += 1
@@ -244,12 +278,33 @@ class GestureMixin:
         if isinstance(result, Select):
             self.go_running(now, topic=result.topic)   # already hides the picker
         elif isinstance(result, Cancel):
-            self.ui.hide_tag_picker()
-            if self._picking_from == "closed":
-                self.go_closed(now)
-            else:
-                self.go_idle()
+            self._cancel_pre_session(now)
         # Page: the picker already redrew itself with show_tag_picker; nothing else to do.
+
+    def _cancel_pre_session(self, now):
+        """Back out of whichever pre-session screen is up -- tag picker or
+        topic-confirm -- to the state that opened it.
+
+        Was the tail of _apply_tag_picker_result's Cancel branch above and
+        nothing else, until press_override needed the same thing (see its
+        docstring: the override button has to work while these screens are
+        up, and cannot leave one of them live underneath the overlay).
+
+        Hides BOTH screens unconditionally, the same way go_running does and
+        for the same reason: only one of them is ever actually showing, both
+        hide_* calls are no-ops otherwise, and a caller that has to know
+        which one it is dismissing is a caller that can get it wrong.
+
+        self._picking_from is where to return to -- "idle" or "closed",
+        captured by go_picking/go_confirming. It must not be assumed to be
+        idle: "closed" means the lid sensor already latched the servo, and
+        going to idle instead would release a box the user never opened."""
+        self.ui.hide_tag_picker()      # no-op if the picker was never shown
+        self.ui.hide_topic_confirm()   # no-op if the confirm screen was never shown
+        if self._picking_from == "closed":
+            self.go_closed(now)
+        else:
+            self.go_idle()
 
     # ----- pre-session topic confirm: apply a TopicConfirm.on_touch result -----
     def _apply_topic_confirm_result(self, result, now):

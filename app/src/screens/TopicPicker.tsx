@@ -259,11 +259,22 @@ export function TopicPicker({
             <Text style={[styles.sectionLabel, { color: theme.textDim }]}>Pick a color to save it</Text>
             <View style={styles.swatchRow}>
               {LABEL_SWATCHES.map((color) => (
+                // The colour IS this button's content -- no text, no shape
+                // of its own -- so an identical label on all twelve (which
+                // is what `Save with this color` was) leaves a VoiceOver
+                // user a row of indistinguishable buttons, each of which
+                // commits the save immediately. `Color ${hex}` is the
+                // wording Settings > Custom labels' own swatch row
+                // (CustomLabelsSection's ColorSwatchRow) already uses for
+                // this same palette; the shared action moves to a hint,
+                // where iOS expects "what happens" as opposed to "what
+                // this is", instead of being repeated twelve times.
                 <AnimatedPressable
                   key={color}
                   onPress={() => saveAsLabel(color)}
                   accessibilityRole="button"
-                  accessibilityLabel={`Save with this color`}
+                  accessibilityLabel={`Color ${color}`}
+                  accessibilityHint={`Saves "${trimmed}" as a label in this color`}
                   style={[styles.swatch, { backgroundColor: color }]}
                 />
               ))}

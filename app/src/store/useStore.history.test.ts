@@ -22,6 +22,7 @@ import type { HistoryEntry } from '../ble/protocol';
 let mockCaptured: { onStatus?: (s: unknown) => void; onHistory?: (e: HistoryEntry[]) => void; onDisconnect?: () => void } = {};
 const mockAckHistory = jest.fn(async (_count: number) => {});
 let mockAppendShouldFail = false;
+let mockAppendGate: Promise<void> | null = null;
 
 jest.mock('../ble/PhoneBoxClient', () => ({
   PhoneBoxClient: class {
@@ -72,6 +73,10 @@ jest.mock('../stats/sessionHistory', () => {
     ...actual,
     appendSessions: jest.fn(async (sessions) => {
       if (mockAppendShouldFail) throw new Error('storage full');
+      // Lets a test hold the drain open at exactly the point where the
+      // batch has been received but not yet acked -- the window in which
+      // the connection underneath it can change.
+      if (mockAppendGate) await mockAppendGate;
       return actual.appendSessions(sessions);
     }),
   };
@@ -112,10 +117,21 @@ async function deliver(entries: HistoryEntry[]) {
 }
 
 beforeEach(async () => {
+  // Before the storage wipe: switching demo mode off reconnects the real
+  // client, which writes LAST_DEVICE_KEY on the way through.
+  await useStore.getState().setDemoMode(false);
   await AsyncStorage.clear();
   jest.clearAllMocks();
   mockAppendShouldFail = false;
+  mockAppendGate = null;
   useStore.setState({ sessions: [], conn: 'idle', status: null, currentTopic: null });
+});
+
+// The demo client runs a real setInterval for its clock, so leaving demo
+// mode on at the end of the run keeps the worker alive after the last
+// assertion. (beforeEach covers every test but the last one.)
+afterAll(async () => {
+  await useStore.getState().setDemoMode(false);
 });
 
 describe('a history batch from the box', () => {
@@ -190,6 +206,39 @@ describe('a history batch from the box', () => {
     const stored = await loadSessions();
     expect(stored).toHaveLength(1);
     expect(Number.isFinite(stored[0].startedAt)).toBe(true);
+    expect(mockAckHistory).toHaveBeenCalledWith(1);
+  });
+  // The ack has to reach the box that SENT the batch, and the two can stop
+  // being the same thing: the drain is several storage round-trips long,
+  // and demo mode swaps the store's whole client out from under whatever
+  // is in flight (ble/DemoBoxClient.ts). onStatus/onHistory already guard
+  // on that with their own `owner !== client` checks; the ack read the
+  // live binding instead and so followed the swap.
+  //
+  // Both halves of the result are wrong. The box that is owed the ack
+  // never hears it, so it holds the batch -- recoverable, since it resends
+  // and appendSessions dedupes. The other box is told to drop entries it
+  // was never asked about, which SessionLog.ack only refuses because it
+  // checks the count against the batch it last sent; two batches of equal
+  // length is all it takes for that guard to agree.
+  it('acks the client that delivered the batch, not whichever one is installed by the time it lands', async () => {
+    await connectBox();
+    let release!: () => void;
+    mockAppendGate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    mockCaptured.onHistory!([entry({ a: 1800 })]);
+    for (let i = 0; i < 10; i += 1) await new Promise((r) => setTimeout(r, 0));
+    expect(mockAckHistory).not.toHaveBeenCalled(); // held at the durable write
+
+    // The user taps "try demo mode" while that write is still going.
+    await useStore.getState().setDemoMode(true);
+
+    release();
+    mockAppendGate = null;
+    for (let i = 0; i < 25; i += 1) await new Promise((r) => setTimeout(r, 0));
+
     expect(mockAckHistory).toHaveBeenCalledWith(1);
   });
 });

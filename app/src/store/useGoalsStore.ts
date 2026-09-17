@@ -67,6 +67,14 @@ interface GoalsState {
    * merge's own doc-level clock (goalMerge.ts's mergedGoalsDocUpdatedAt),
    * preserved as-is so a later comparison against another device's copy
    * stays correct. */
+  /** Monotonic count of goal edits made ON THIS DEVICE BY THE USER. The
+   * sync bridge pushes only when this advances -- see syncCommon.ts's
+   * createSnapshotPushBridge. Hydration, a remote merge (applyRemoteGoals)
+   * and the sign-in wipe (resetGoals) all replace `goals` without anyone
+   * having edited anything, and pushGoalsPatch is a whole-document setDoc,
+   * so mistaking one for an edit overwrites the account's real goals.
+   * Same counter, same reasoning, as useScheduleStore's. */
+  localWrites: number;
   applyRemoteGoals: (goals: Goal[], updatedAt: number) => void;
   /** Resets to no goals and zeroes goalsUpdatedAt -- called from
    * sync/localDataOwner.ts's clearLocalAccountData on sign-out/account
@@ -85,13 +93,28 @@ interface GoalsState {
  * sessionHistory.ts's loadSessions healing sub-minute records in one place
  * rather than expecting every caller to re-check. Module-private: nothing
  * outside this file should be committing to `goals` storage directly. */
-function persist(set: (partial: Partial<GoalsState>) => void, goals: Goal[], updatedAt: number): void {
+function persist(
+  set: (partial: Partial<GoalsState>) => void,
+  goals: Goal[],
+  updatedAt: number,
+  // 'local' = the user did this here and it should reach Firestore.
+  // 'internal' = hydration, a remote merge, or an account wipe replacing the
+  // same field with nobody having edited anything. Named rather than
+  // inferred, so a future caller has to decide which it is.
+  origin: 'local' | 'internal',
+  localWrites: number,
+): void {
   const pruned = pruneArchivedGoals(goals);
   // `hydrated` here is not bookkeeping -- it is what stops hydrate() from
   // undoing this write. See hydrate()'s own comment: a write that lands while
   // hydrate is still awaiting its reads makes those reads stale by
   // definition, and flipping the flag now is how hydrate finds that out.
-  set({ hydrated: true, goals: pruned, goalsUpdatedAt: updatedAt });
+  set({
+    hydrated: true,
+    goals: pruned,
+    goalsUpdatedAt: updatedAt,
+    localWrites: origin === 'local' ? localWrites + 1 : localWrites,
+  });
   setJSON(GOALS_KEY, pruned);
   setJSON(GOALS_UPDATED_AT_KEY, updatedAt);
   // Fire-and-forget: this never throws and nothing here awaits or otherwise
@@ -103,6 +126,7 @@ export const useGoalsStore = create<GoalsState>((set, get) => ({
   hydrated: false,
   goals: [],
   goalsUpdatedAt: 0,
+  localWrites: 0,
 
   hydrate: async () => {
     if (get().hydrated) return;
@@ -134,26 +158,30 @@ export const useGoalsStore = create<GoalsState>((set, get) => ({
     // it across both the field write and the clock write).
     const nowMs = Date.now();
     const goals = createGoalIn(get().goals, topic, period, targetS, nowMs, extra);
-    persist(set, goals, nowMs);
+    persist(set, goals, nowMs, 'local', get().localWrites);
   },
 
   updateGoal: (id, patch) => {
     const nowMs = Date.now();
     const goals = updateGoalIn(get().goals, id, patch, nowMs);
-    persist(set, goals, nowMs);
+    persist(set, goals, nowMs, 'local', get().localWrites);
   },
 
   archiveGoal: (id) => {
     const nowMs = Date.now();
     const goals = archiveGoalIn(get().goals, id, nowMs);
-    persist(set, goals, nowMs);
+    persist(set, goals, nowMs, 'local', get().localWrites);
   },
 
   applyRemoteGoals: (goals, updatedAt) => {
-    persist(set, goals, updatedAt);
+    // A merge the server won is not an edit made here -- echoing it back
+    // would re-stamp a clock this device did not set.
+    persist(set, goals, updatedAt, 'internal', get().localWrites);
   },
 
   resetGoals: () => {
-    persist(set, [], 0);
+    // The sign-in/sign-out wipe (sync/localDataOwner.ts). Pushing on the way
+    // out is exactly the data-loss shape that file exists to prevent.
+    persist(set, [], 0, 'internal', get().localWrites);
   },
 }));

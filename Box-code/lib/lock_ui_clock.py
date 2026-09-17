@@ -410,24 +410,26 @@ class ClockMixin:
         # on later -- the same "always track intent" treatment `self.view =
         # view` above already gets regardless of the overlay.
         self.set_view_dots(view)
-        if self._call_alert_active:
-            return
         if view == "clock":
-            self.display.root_group = self.clock_groups[self.clock_style_idx]
+            group = self.clock_groups[self.clock_style_idx]
         elif view == "battery":
-            self.display.root_group = self.battery_group
+            group = self.battery_group
         elif view == "settings":
-            self.display.root_group = self.settings_group
+            group = self.settings_group
         elif view == "settings2":
-            self.display.root_group = self.settings2_group
+            group = self.settings2_group
         else:
-            self.display.root_group = self.control_group
+            group = self.control_group
+        # _set_root owns the "is the alert on top?" decision now, and records
+        # this as the intended screen either way -- so a view change made
+        # while the alert is up is the one that comes back when it ends.
+        self._set_root(group)
 
     def cycle_clock_style(self, direction):
         n = len(self.clock_groups)
         self.clock_style_idx = (self.clock_style_idx + direction) % n
         if self.view == "clock":
-            self.display.root_group = self.clock_groups[self.clock_style_idx]
+            self._set_root(self.clock_groups[self.clock_style_idx])
 
     def update_clock_view(self, remaining, total, state):
         # +0.999 ceiling before fmt_hms's own truncation -- see fmt_hm's

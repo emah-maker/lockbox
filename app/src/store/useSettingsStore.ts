@@ -211,6 +211,15 @@ interface SettingsState {
    * local copy (LWW pull) -- does not itself trigger a remote push.
    * `updatedAt` is the remote doc's own timestamp, preserved as-is so a
    * later comparison against another device's copy stays correct. */
+  /** Monotonic count of edits made ON THIS DEVICE BY THE USER. The sync
+   * bridges push only when this advances, which is what separates a real
+   * edit from the three things that replace the same fields without anyone
+   * having changed anything: hydration, a remote document landing
+   * (applyRemoteSettings), and the sign-in wipe (resetSyncableSettings).
+   * Same device-local counter useScheduleStore carries for plans, and for
+   * the same reason -- pushSettingsPatch is a whole-document setDoc, so a
+   * mistaken push does not waste a write, it overwrites the account. */
+  localWrites: number;
   applyRemoteSettings: (remote: SyncableSettings, updatedAt: number) => void;
   /** Resets the five account-syncable fields to their defaults and zeroes
    * settingsUpdatedAt, so a signed-out device carries no prior account's
@@ -290,6 +299,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   ...SYNCABLE_SETTINGS_DEFAULTS,
   boxSettings: DEFAULT_BOX_SETTINGS,
   settingsUpdatedAt: 0,
+  localWrites: 0,
   autoSyncEnabled: true,
   demoModeEnabled: false,
   ringBaselineWindow: 'week',
@@ -333,21 +343,21 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 
   setThemeMode: (mode) => {
     const settingsUpdatedAt = Date.now();
-    set({ themeMode: mode, settingsUpdatedAt });
+    set({ themeMode: mode, settingsUpdatedAt, localWrites: get().localWrites + 1 });
     setJSON('themeMode', mode);
     setJSON('settingsUpdatedAt', settingsUpdatedAt);
   },
 
   setAccent: (accent) => {
     const settingsUpdatedAt = Date.now();
-    set({ accent, settingsUpdatedAt });
+    set({ accent, settingsUpdatedAt, localWrites: get().localWrites + 1 });
     setJSON('accent', accent);
     setJSON('settingsUpdatedAt', settingsUpdatedAt);
   },
 
   setCallAlertsEnabled: (on) => {
     const settingsUpdatedAt = Date.now();
-    set({ callAlertsEnabled: on, settingsUpdatedAt });
+    set({ callAlertsEnabled: on, settingsUpdatedAt, localWrites: get().localWrites + 1 });
     setJSON('callAlertsEnabled', on);
     setJSON('settingsUpdatedAt', settingsUpdatedAt);
   },
@@ -439,7 +449,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   addCustomLabel: (name, color) => {
     const customLabels = createCustomLabel(get().customLabels, name, color);
     const settingsUpdatedAt = Date.now();
-    set({ customLabels, settingsUpdatedAt });
+    set({ customLabels, settingsUpdatedAt, localWrites: get().localWrites + 1 });
     setJSON('customLabels', customLabels);
     setJSON('settingsUpdatedAt', settingsUpdatedAt);
   },
@@ -447,7 +457,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   renameCustomLabel: (id, name) => {
     const customLabels = renameCustomLabelIn(get().customLabels, id, name);
     const settingsUpdatedAt = Date.now();
-    set({ customLabels, settingsUpdatedAt });
+    set({ customLabels, settingsUpdatedAt, localWrites: get().localWrites + 1 });
     setJSON('customLabels', customLabels);
     setJSON('settingsUpdatedAt', settingsUpdatedAt);
   },
@@ -455,7 +465,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   removeCustomLabel: (id) => {
     const customLabels = deleteCustomLabelIn(get().customLabels, id);
     const settingsUpdatedAt = Date.now();
-    set({ customLabels, settingsUpdatedAt });
+    set({ customLabels, settingsUpdatedAt, localWrites: get().localWrites + 1 });
     setJSON('customLabels', customLabels);
     setJSON('settingsUpdatedAt', settingsUpdatedAt);
   },
@@ -463,7 +473,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setLabelExcluded: (id, excluded) => {
     const customLabels = setLabelExcludedIn(get().customLabels, id, excluded);
     const settingsUpdatedAt = Date.now();
-    set({ customLabels, settingsUpdatedAt });
+    set({ customLabels, settingsUpdatedAt, localWrites: get().localWrites + 1 });
     setJSON('customLabels', customLabels);
     setJSON('settingsUpdatedAt', settingsUpdatedAt);
   },
@@ -471,7 +481,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setTopicKeyExcluded: (key, excluded) => {
     const excludedTopicKeys = setTopicKeyExcludedIn(get().excludedTopicKeys, key, excluded);
     const settingsUpdatedAt = Date.now();
-    set({ excludedTopicKeys, settingsUpdatedAt });
+    set({ excludedTopicKeys, settingsUpdatedAt, localWrites: get().localWrites + 1 });
     setJSON('excludedTopicKeys', excludedTopicKeys);
     setJSON('settingsUpdatedAt', settingsUpdatedAt);
   },

@@ -62,6 +62,13 @@ async function writeCustomLabels(next, ctx) {
     accent: settings.accent,
     callAlertsEnabled: settings.callAlertsEnabled,
     customLabels: next,
+    // Resent unchanged, like the three above it. settings/app has no scoped
+    // `update` rule, so this whole-document write DELETES any field it omits
+    // -- and settingsSyncPlan.ts then reads the newer updatedAt, answers
+    // 'apply', and copies the deletion down to the phone. Omitting this one
+    // meant renaming a label here silently put every excluded topic back into
+    // the phone's totals and goal progress.
+    excludedTopicKeys: settings.excludedTopicKeys,
     updatedAt: Date.now(),
   });
   ctx.onWritten(next); // triggers dashboard.js's renderDataViews -> renderLabelsList

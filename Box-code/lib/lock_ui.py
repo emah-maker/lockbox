@@ -43,6 +43,13 @@ class LockUI(ThemeMixin, ControlMixin, StateViewMixin, ClockMixin, PanelsMixin, 
         # Whether the call-alert overlay currently owns the display -- see
         # show_call_alert/hide_call_alert/show_view.
         self._call_alert_active = False
+        # The screen the box INTENDS to be showing, which is not the same as
+        # the one on the panel while the call alert owns it. Recorded by
+        # _set_root below on every screen change; hide_call_alert restores
+        # this rather than re-deriving a screen from self.view, because
+        # overlays (the override counter, the tag picker, the topic-confirm
+        # and settings-detail pages) are not views and re-deriving loses them.
+        self._pending_root = None
         # The display's native orientation -- NATIVE_ROTATION (lock_config.py)
         # is a hardcoded constant verified against this board's own
         # CircuitPython board.c, not a value read off display.rotation.
@@ -148,7 +155,10 @@ class LockUI(ThemeMixin, ControlMixin, StateViewMixin, ClockMixin, PanelsMixin, 
         self._build_topic_confirm(W, H)
 
         self.view = "control"
-        display.root_group = self.control_group
+        # Through the chokepoint, not a bare assignment: this first paint is
+        # what hide_call_alert has to restore to if an alert somehow lands
+        # before any other screen is shown.
+        self._set_root(self.control_group)
 
         # apply the compiled-in default theme now that every widget above has
         # registered itself; LockController re-applies the persisted theme

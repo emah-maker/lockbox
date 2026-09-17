@@ -21,7 +21,8 @@
 // now only *reads* useBatteryStore; it no longer records into it.
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import { useStore, CONN_LABELS } from '../store/useStore';
+import { useStore, BOX_STATE_LABELS, CONN_LABELS } from '../store/useStore';
+import { useSettingsStore } from '../store/useSettingsStore';
 import { useBatteryStore } from '../battery/useBatteryStore';
 import { batteryColor } from '../battery/batteryColor';
 import { estimateRemainingMs, formatRemaining } from '../battery/batteryEstimate';
@@ -30,6 +31,7 @@ import { useNav } from '../nav/useNav';
 import { AnimatedPressable } from './AnimatedPressable';
 import { BatteryIcon } from './BatteryIcon';
 import { typeScale, spacing } from '../theme/tokens';
+import { withAlpha } from '../theme/color';
 
 // Same fixed (non-accent) status-dot language as DashboardScreen/
 // SettingsScreen's own connection dots -- extended with an explicit amber
@@ -54,6 +56,7 @@ function connDotColor(conn: string, t: ReturnType<typeof useTheme>): string {
 export function StatusStrip(): React.JSX.Element {
   const conn = useStore((s) => s.conn);
   const status = useStore((s) => s.status);
+  const demoMode = useSettingsStore((st) => st.demoModeEnabled);
   const theme = useTheme();
   const s = styles(theme);
 
@@ -65,27 +68,77 @@ export function StatusStrip(): React.JSX.Element {
   const remaining = bat >= 0 ? formatRemaining(estimateRemainingMs(samples, bat)) : null;
 
   return (
+    <>
+      {/* Mounted here rather than on Home, because this strip is the one
+          thing App.tsx renders above EVERY tab -- a reviewer or tester who
+          turned demo mode on and then wandered into Stats or the Calendar
+          has to keep seeing that the numbers in front of them came from a
+          box that does not exist. The Settings row alone is not enough: by
+          the time the sessions have landed, nobody is looking at Settings.
+          Same tap target as the strip below it, so it also gets you back to
+          the switch that turns it off. */}
+      {demoMode ? <DemoModeBanner theme={theme} /> : null}
+      <AnimatedPressable
+        style={s.row}
+        onPress={() => useNav.getState().navigate('settings')}
+        accessibilityRole="button"
+        accessibilityLabel={`Box ${status ? BOX_STATE_LABELS[status.st] : CONN_LABELS[conn]}, battery ${
+          bat >= 0 ? `${bat} percent` : 'unknown'
+        }${remaining ? `, ${remaining}` : ''}`}
+      >
+        <View style={[s.dot, { backgroundColor: connDotColor(conn, theme) }]} />
+        {/* BOX_STATE_LABELS, not `status.st.toUpperCase()`. The raw token is
+            the firmware's wire spelling, and this row is the only place it
+            was ever shown to a person -- fine while the union happened to be
+            four English words, a leak the moment it grew 'picking' and
+            'confirming' and the strip started saying PICKING at users
+            sitting in the box's own tag picker (which has no timeout, so
+            that is not a flicker). The map is a total Record<BoxState,
+            string> so the next firmware state can't reach a release without
+            someone wording it. Title case, not shouted, to match
+            CONN_LABELS in the other arm of this same ternary -- the two
+            alternate in one slot and used to disagree on case. */}
+        <Text style={s.connLabel} numberOfLines={1}>
+          {status ? BOX_STATE_LABELS[status.st] : CONN_LABELS[conn]}
+        </Text>
+        <View style={s.spacer} />
+        {remaining ? (
+          <Text style={s.remaining} numberOfLines={1}>
+            {remaining}
+          </Text>
+        ) : null}
+        <BatteryIcon pct={bat} color={batteryColor(bat, theme)} />
+        <Text style={s.battLabel} numberOfLines={1}>
+          {bat >= 0 ? `${bat}%` : '—'}
+        </Text>
+      </AnimatedPressable>
+    </>
+  );
+}
+
+/** The persistent "this box is not real" marker, shown above the status row
+ * for as long as demo mode is on (ble/DemoBoxClient.ts).
+ *
+ * A tinted fill with ordinary `text` on top, not warn-colored text on a warn
+ * fill: the tint is what catches the eye, and the label still has to be
+ * legible against it in both themes at whatever accent is selected. The dot
+ * carries the color so the strip reads as a warning without betting the
+ * copy's contrast on it. */
+function DemoModeBanner({ theme }: { theme: ReturnType<typeof useTheme> }): React.JSX.Element {
+  const s = styles(theme);
+  return (
     <AnimatedPressable
-      style={s.row}
+      style={[s.banner, { backgroundColor: withAlpha(theme.warn, 0.18) }]}
       onPress={() => useNav.getState().navigate('settings')}
       accessibilityRole="button"
-      accessibilityLabel={`Box ${status ? status.st : CONN_LABELS[conn]}, battery ${
-        bat >= 0 ? `${bat} percent` : 'unknown'
-      }${remaining ? `, ${remaining}` : ''}`}
+      accessibilityLabel="Demo mode is on. Sessions are simulated and stay on this device. Opens Settings."
     >
-      <View style={[s.dot, { backgroundColor: connDotColor(conn, theme) }]} />
-      <Text style={s.connLabel} numberOfLines={1}>
-        {status ? status.st.toUpperCase() : CONN_LABELS[conn]}
+      <View style={[s.dot, { backgroundColor: theme.warn }]} />
+      <Text style={s.bannerLabel} numberOfLines={1}>
+        DEMO MODE
       </Text>
-      <View style={s.spacer} />
-      {remaining ? (
-        <Text style={s.remaining} numberOfLines={1}>
-          {remaining}
-        </Text>
-      ) : null}
-      <BatteryIcon pct={bat} color={batteryColor(bat, theme)} />
-      <Text style={s.battLabel} numberOfLines={1}>
-        {bat >= 0 ? `${bat}%` : '—'}
+      <Text style={s.bannerDetail} numberOfLines={1}>
+        Simulated box · sessions stay on this device
       </Text>
     </AnimatedPressable>
   );
@@ -106,6 +159,17 @@ const styles = (t: ReturnType<typeof useTheme>) =>
       backgroundColor: t.surface,
     },
     dot: { width: 8, height: 8, borderRadius: 4 },
+    banner: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: spacing.xl,
+      paddingVertical: spacing.sm,
+      gap: spacing.sm,
+    },
+    bannerLabel: { ...typeScale.caption, color: t.text, fontWeight: '800' },
+    // Shrinks (and truncates) before the label does, so the words that
+    // matter survive a narrow screen or a large system text size.
+    bannerDetail: { ...typeScale.caption, color: t.text, flexShrink: 1 },
     connLabel: { ...typeScale.caption, color: t.textDim, flexShrink: 1 },
     spacer: { flex: 1 },
     remaining: { ...typeScale.caption, color: t.textDim, flexShrink: 1 },

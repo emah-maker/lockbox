@@ -172,18 +172,38 @@ export function dayKeyToDate(key: string): Date {
  * `target` (identified by its startedAt+plannedS+actualS triple -- the
  * finest-grained identity already implied by this file's own dedup/doc-id
  * conventions) given a new topic. Split out from retagSession so it's
- * unit-testable without touching storage. */
+ * unit-testable without touching storage.
+ *
+ * "The one entry" is enforced, not just described: the FIRST match is
+ * relabelled and any later twin is left exactly as it was. The triple is the
+ * finest identity available, but it has never been a guaranteed-unique one --
+ * two clock-less sessions dated from the same arrival shared it outright
+ * until buildLoggedSessions started staggering them, and a log written by an
+ * older build (or restored from one) can still hold such a pair. A retag is a
+ * per-session edit: the user taps ONE row in the calendar day sheet. Mapping
+ * over every match instead relabelled that row's twins too, silently
+ * rewriting sessions the user never touched -- and, since each carries its
+ * own bumped topicUpdatedAt, pushing each of those edits to Firestore on the
+ * next sync, where they win by recency on every other device as well. */
 export function applyTopicUpdate(
   sessions: LoggedSession[],
   target: Pick<LoggedSession, 'startedAt' | 'plannedS' | 'actualS'>,
   topic: string | undefined,
   nowMs: number = Date.now(),
 ): LoggedSession[] {
-  return sessions.map((s) =>
-    s.startedAt === target.startedAt && s.plannedS === target.plannedS && s.actualS === target.actualS
-      ? { ...s, topic, topicUpdatedAt: nowMs }
-      : s,
-  );
+  let retagged = false;
+  return sessions.map((s) => {
+    if (
+      retagged ||
+      s.startedAt !== target.startedAt ||
+      s.plannedS !== target.plannedS ||
+      s.actualS !== target.actualS
+    ) {
+      return s;
+    }
+    retagged = true;
+    return { ...s, topic, topicUpdatedAt: nowMs };
+  });
 }
 
 /** Retag (or clear the tag on) one past session and persist the full set.
@@ -225,9 +245,12 @@ export function buildLoggedSessions(
   nowMs: number = Date.now(),
 ): BuiltLoggedSessions {
   let consumed = false;
-  const sessions: LoggedSession[] = entries
-    .filter((e) => e.a >= MIN_LOGGED_SESSION_S)
-    .map((e) => {
+  // Kept as its own array (rather than chaining .filter().map()) because the
+  // clock-less stagger below needs to know how many entries actually survive
+  // the length filter, and which position this one holds among them.
+  const kept = entries.filter((e) => e.a >= MIN_LOGGED_SESSION_S);
+  const sessions: LoggedSession[] = kept
+    .map((e, i) => {
       // e.t is a wall-clock epoch second, or -1 if the box's clock was never
       // synced (no phone had connected yet); fall back to "now" so the
       // session still shows up somewhere on the calendar.
@@ -247,7 +270,28 @@ export function buildLoggedSessions(
       // dates it from arrival, which is exactly what that flag already means
       // and already handles (including its own resend dedupe).
       const approxStart = e.t < 0 || e.t * 1000 - e.a * 1000 < 0;
-      const startedAt = (approxStart ? nowMs : e.t * 1000) - e.a * 1000;
+      // Every clock-less entry in a batch used to be dated from the SAME
+      // nowMs, so two same-length ones came out with a byte-identical
+      // startedAt -- and (startedAt, actualS) is exactly the pair
+      // sync/sessionMerge.ts's sessionDocId turns into a Firestore doc id.
+      // Two records on one id is not a cosmetic collision: syncSessions
+      // merges into a Map keyed by that id and hands the result to
+      // replaceSessions, which OVERWRITES local storage, so the twin that
+      // lost the slot is gone from the phone as well as never uploaded. The
+      // pair is reachable, not hypothetical -- appendSessions' multiplicity
+      // dedupe deliberately keeps both, because a box still without a clock
+      // can legitimately log two identical 25-minute sessions.
+      //
+      // So arrival is staggered a millisecond per surviving entry, oldest
+      // first: lock_log.py's SessionLog appends at the end and evicts from
+      // the front, so the batch is in queue order and this preserves it
+      // instead of inverting it. The newest entry still lands on nowMs
+      // exactly, which keeps the ordinary single-entry batch dated precisely
+      // as it always was. The whole spread is bounded by LOG_MAX_PENDING
+      // (200 entries, so under a fifth of a second) and only ever moves a
+      // start EARLIER, so nothing can be dated into the future by it.
+      const arrivedAt = nowMs - (kept.length - 1 - i);
+      const startedAt = (approxStart ? arrivedAt : e.t * 1000) - e.a * 1000;
       const endedAt = startedAt + e.a * 1000;
       let topic: string | undefined;
       let topicUpdatedAt: number | undefined;
@@ -290,7 +334,23 @@ const WINDOW_DAYS: Record<TimeWindow, number | null> = { day: 1, week: 7, month:
  * arithmetic (not raw ms subtraction), same as lastNDays, so the boundary
  * lands on the right calendar day across a DST transition. Used by
  * StatsScreen to scope both the total (stats.aggregate) and the topic
- * breakdown (customLabels.topicBreakdownWithCustom) to the same window. */
+ * breakdown (customLabels.topicBreakdownWithCustom) to the same window.
+ *
+ * Bounded at BOTH edges -- half-open [start, tomorrow's midnight), the same
+ * shape goalProgress.ts's goalWindow uses. Only the lower edge used to be
+ * checked, on the assumption that nothing can be dated later than now, and
+ * a logged session can be: the box's own RTC is what dates it
+ * (buildLoggedSessions takes `e.t` as given), that clock is only re-synced
+ * from the phone on connect, and the phone's own clock can move BACKWARDS
+ * under it (a timezone change, a manual correction) -- to say nothing of a
+ * sync pulling one in from a device that was running ahead. Such a session
+ * then counted toward the header total for every window while
+ * groupByDay/lastNDays filed it on a day past the end of the chart, which
+ * draws only up to today: the period total disagreed with the bars beneath
+ * it, and DashboardScreen's "focus time today" counted time that hasn't
+ * happened. 'all' is deliberately left alone -- it is documented as no
+ * filtering, and a lifetime total that quietly omits records is a worse
+ * answer than one that includes an odd-looking day. */
 export function filterByWindow(
   sessions: LoggedSession[],
   window: TimeWindow,
@@ -300,7 +360,8 @@ export function filterByWindow(
   if (days == null) return sessions;
   const now = new Date(nowMs);
   const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - (days - 1)).getTime();
-  return sessions.filter((s) => s.startedAt >= start);
+  const end = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).getTime();
+  return sessions.filter((s) => s.startedAt >= start && s.startedAt < end);
 }
 
 export function groupByDay(sessions: LoggedSession[]): Map<string, LoggedSession[]> {

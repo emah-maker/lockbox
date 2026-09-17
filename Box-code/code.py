@@ -92,152 +92,190 @@ _perf_process_ms = 0.0
 _perf_update_ms = 0.0
 _perf_ble_ms = 0.0
 
+# Last time the run-loop guard below actually printed -- see its comment.
+_last_err_print = 0.0
+
 while True:
-    now = time.monotonic()
+    # ONE BAD FRAME MUST NOT END THE RUN LOOP. Everything below runs
+    # unprotected against hardware that can fail mid-call: the touch
+    # controller and the fuel gauge share an I2C bus that can NAK, the radio
+    # can raise from _bleio, and every screen change is a displayio write.
+    # Before this guard, any one of those -- once, on one frame -- ended
+    # code.py. Not just the screen: touch, the countdown and the servo stop
+    # with it, so a phone already shut inside stays shut until somebody
+    # finds the box and power-cycles it. That is the worst possible failure
+    # for this product, and it was reachable from a transient bus error.
+    #
+    # lock_ble.service() has caught its own exceptions from the start ("never
+    # let a radio hiccup break the run loop"); this is that same rule applied
+    # where it actually holds, around the whole frame, so no future call site
+    # has to remember. A frame that fails is simply skipped -- every timer
+    # here is derived from time.monotonic() rather than accumulated per
+    # frame, so the next frame recovers on its own with nothing to unwind.
+    try:
+        now = time.monotonic()
 
-    # Brightness + sleep policy follow USB power: plugged in -> bright and always
-    # on; on battery -> dimmer and sleeps after inactivity.
-    usb = supervisor.runtime.usb_connected
-    backlight.set_level(ctrl.settings.bright_level())
-    if usb and not backlight.is_on:
-        backlight.on()
-        last_activity = now
-
-    # CPU scaling: screen on -> fast (responsive touch + stable servo PWM);
-    # asleep -> slow to save power. Set only when the target actually changes,
-    # so touch/servo are never disrupted by a mid-interaction clock switch.
-    want_hz = CPU_FAST if backlight.is_on else CPU_SLOW
-    if want_hz != _cpu_target:
-        _cpu_target = want_hz
-        try:
-            microcontroller.cpu.frequency = want_hz
-        except Exception:
-            pass
-
-    # Read + handle touch FIRST so gesture sampling has a steady cadence and is
-    # never delayed by the (heavier) clock redraw. process() sets _was_down,
-    # which suppresses the clock redraw for this same frame while a finger is
-    # down -- keeping swipes consistently responsive in the analog style.
-    if PERF_DEBUG:
-        _t0 = time.monotonic()
-    points = touch.touches
-    if PERF_DEBUG:
-        _perf_touch_ms += (time.monotonic() - _t0) * 1000.0
-    touching = len(points) > 0
-
-    if touching:
-        last_activity = now
-        if not backlight.is_on:
-            # first touch only wakes the screen; ignore it as a gesture
+        # Brightness + sleep policy follow USB power: plugged in -> bright and always
+        # on; on battery -> dimmer and sleeps after inactivity.
+        usb = supervisor.runtime.usb_connected
+        backlight.set_level(ctrl.settings.bright_level())
+        if usb and not backlight.is_on:
             backlight.on()
-            ctrl.reset_gesture()
-            time.sleep(0.02)
-            continue
+            last_activity = now
 
-    if backlight.is_on:
+        # CPU scaling: screen on -> fast (responsive touch + stable servo PWM);
+        # asleep -> slow to save power. Set only when the target actually changes,
+        # so touch/servo are never disrupted by a mid-interaction clock switch.
+        want_hz = CPU_FAST if backlight.is_on else CPU_SLOW
+        if want_hz != _cpu_target:
+            _cpu_target = want_hz
+            try:
+                microcontroller.cpu.frequency = want_hz
+            except Exception:
+                pass
+
+        # Read + handle touch FIRST so gesture sampling has a steady cadence and is
+        # never delayed by the (heavier) clock redraw. process() sets _was_down,
+        # which suppresses the clock redraw for this same frame while a finger is
+        # down -- keeping swipes consistently responsive in the analog style.
         if PERF_DEBUG:
             _t0 = time.monotonic()
-        ctrl.process(points, now)
+        points = touch.touches
         if PERF_DEBUG:
-            _perf_process_ms += (time.monotonic() - _t0) * 1000.0
-        # sleep the screen after inactivity -- but never while USB-powered,
-        # and never mid-alert (an incoming-call flash cut short by the sleep
-        # timeout would defeat the point of making it hard to miss).
-        # sleep_s == 0 is the user's "never sleep" choice (SLEEP_OPTIONS's
-        # Off), NOT a zero-second timeout -- guarded explicitly here, since
-        # `now - last_activity > 0` is true on essentially every frame and
-        # would blank the screen instantly instead.
-        if (not usb and ctrl.settings.sleep_s > 0 and not ctrl.call_alert_active
-                and now - last_activity > ctrl.settings.sleep_s):
-            backlight.off()
-            ctrl.reset_gesture()
+            _perf_touch_ms += (time.monotonic() - _t0) * 1000.0
+        touching = len(points) > 0
 
-    # physical buttons (active-low with pull-ups); act on the press (falling edge)
-    if btn_lock is not None:
-        v = btn_lock.value
-        if _prev_lock and not v:
-            ctrl.press_lock(now)
+        if touching:
             last_activity = now
+            if not backlight.is_on:
+                # first touch only wakes the screen; ignore it as a gesture
+                backlight.on()
+                ctrl.reset_gesture()
+                time.sleep(0.02)
+                continue
+
+        if backlight.is_on:
+            if PERF_DEBUG:
+                _t0 = time.monotonic()
+            ctrl.process(points, now)
+            if PERF_DEBUG:
+                _perf_process_ms += (time.monotonic() - _t0) * 1000.0
+            # sleep the screen after inactivity -- but never while USB-powered,
+            # and never mid-alert (an incoming-call flash cut short by the sleep
+            # timeout would defeat the point of making it hard to miss).
+            # sleep_s == 0 is the user's "never sleep" choice (SLEEP_OPTIONS's
+            # Off), NOT a zero-second timeout -- guarded explicitly here, since
+            # `now - last_activity > 0` is true on essentially every frame and
+            # would blank the screen instantly instead.
+            if (not usb and ctrl.settings.sleep_s > 0 and not ctrl.call_alert_active
+                    and now - last_activity > ctrl.settings.sleep_s):
+                backlight.off()
+                ctrl.reset_gesture()
+
+        # physical buttons (active-low with pull-ups); act on the press (falling edge)
+        if btn_lock is not None:
+            v = btn_lock.value
+            if _prev_lock and not v:
+                ctrl.press_lock(now)
+                last_activity = now
+                backlight.on()
+            _prev_lock = v
+        if btn_override is not None:
+            v = btn_override.value
+            if _prev_override and not v:
+                ctrl.press_override(now)
+                last_activity = now
+                backlight.on()
+            _prev_override = v
+
+        # advance countdown / animation last; wake the screen when the timer finishes
+        if PERF_DEBUG:
+            _t0 = time.monotonic()
+        _woke = ctrl.update(now)
+        if PERF_DEBUG:
+            _perf_update_ms += (time.monotonic() - _t0) * 1000.0
+        if _woke:
             backlight.on()
-        _prev_lock = v
-    if btn_override is not None:
-        v = btn_override.value
-        if _prev_override and not v:
-            ctrl.press_override(now)
             last_activity = now
+
+        # Proven-stable check: only clear the brownout-retry counter once the
+        # board has run past boot inrush and completed a real update() cycle --
+        # not on interpreter start -- so safemode.py's 5-retry cap still catches
+        # a brownout triggered later by the servo (see BROWNOUT_CLEAR_AFTER_S above).
+        if not _brownout_cleared and now - _boot_mono >= BROWNOUT_CLEAR_AFTER_S:
+            _brownout_cleared = True
+            try:
+                microcontroller.nvm[0] = 0
+            except Exception:
+                pass
+
+        # BLE companion link is serviced LAST -- after touch, buttons, and update --
+        # so radio work can never delay touch sampling or reorder a servo move. It is
+        # non-blocking and self-disables if the CP build lacks adafruit_ble.
+        if PERF_DEBUG:
+            _t0 = time.monotonic()
+        ble.service(ctrl, now, backlight.is_on)
+        if PERF_DEBUG:
+            _perf_ble_ms += (time.monotonic() - _t0) * 1000.0
+        ctrl.set_ble_connected(ble.connected)
+
+        # An incoming call redraws the screen (alert overlay, or the unlock
+        # animation if "unlock when called" is on) -- wake the backlight so that
+        # redraw is actually visible instead of landing on a dark screen.
+        if ctrl.consume_call_event():
             backlight.on()
-        _prev_override = v
+            last_activity = now
 
-    # advance countdown / animation last; wake the screen when the timer finishes
-    if PERF_DEBUG:
-        _t0 = time.monotonic()
-    _woke = ctrl.update(now)
-    if PERF_DEBUG:
-        _perf_update_ms += (time.monotonic() - _t0) * 1000.0
-    if _woke:
-        backlight.on()
-        last_activity = now
+        # PERF_DEBUG trace (lock_config.py) -- one line every
+        # PERF_DEBUG_INTERVAL_S with the mean and WORST frame of that window,
+        # because a user perceives lag as the worst frame, not the average.
+        # Everything is inside the guard, so this costs nothing when off.
+        if PERF_DEBUG:
+            _frame_ms = (time.monotonic() - now) * 1000.0
+            _perf_frames += 1
+            _perf_total_ms += _frame_ms
+            if _frame_ms > _perf_worst_ms:
+                _perf_worst_ms = _frame_ms
+            if now - _perf_last_report >= PERF_DEBUG_INTERVAL_S:
+                _perf_span = now - _perf_last_report
+                print("[perf] {}f in {:.1f}s = {:.0f}fps | frame avg {:.1f}ms worst {:.1f}ms"
+                      " | touch {:.1f} process {:.1f} update {:.1f} ble {:.1f} (ms, avg)".format(
+                          _perf_frames, _perf_span,
+                          _perf_frames / _perf_span if _perf_span > 0 else 0.0,
+                          _perf_total_ms / _perf_frames, _perf_worst_ms,
+                          _perf_touch_ms / _perf_frames, _perf_process_ms / _perf_frames,
+                          _perf_update_ms / _perf_frames, _perf_ble_ms / _perf_frames))
+                _perf_last_report = now
+                _perf_frames = 0
+                _perf_total_ms = 0.0
+                _perf_worst_ms = 0.0
+                _perf_touch_ms = 0.0
+                _perf_process_ms = 0.0
+                _perf_update_ms = 0.0
+                _perf_ble_ms = 0.0
 
-    # Proven-stable check: only clear the brownout-retry counter once the
-    # board has run past boot inrush and completed a real update() cycle --
-    # not on interpreter start -- so safemode.py's 5-retry cap still catches
-    # a brownout triggered later by the servo (see BROWNOUT_CLEAR_AFTER_S above).
-    if not _brownout_cleared and now - _boot_mono >= BROWNOUT_CLEAR_AFTER_S:
-        _brownout_cleared = True
-        try:
-            microcontroller.nvm[0] = 0
-        except Exception:
-            pass
-
-    # BLE companion link is serviced LAST -- after touch, buttons, and update --
-    # so radio work can never delay touch sampling or reorder a servo move. It is
-    # non-blocking and self-disables if the CP build lacks adafruit_ble.
-    if PERF_DEBUG:
-        _t0 = time.monotonic()
-    ble.service(ctrl, now, backlight.is_on)
-    if PERF_DEBUG:
-        _perf_ble_ms += (time.monotonic() - _t0) * 1000.0
-    ctrl.set_ble_connected(ble.connected)
-
-    # An incoming call redraws the screen (alert overlay, or the unlock
-    # animation if "unlock when called" is on) -- wake the backlight so that
-    # redraw is actually visible instead of landing on a dark screen.
-    if ctrl.consume_call_event():
-        backlight.on()
-        last_activity = now
-
-    # PERF_DEBUG trace (lock_config.py) -- one line every
-    # PERF_DEBUG_INTERVAL_S with the mean and WORST frame of that window,
-    # because a user perceives lag as the worst frame, not the average.
-    # Everything is inside the guard, so this costs nothing when off.
-    if PERF_DEBUG:
-        _frame_ms = (time.monotonic() - now) * 1000.0
-        _perf_frames += 1
-        _perf_total_ms += _frame_ms
-        if _frame_ms > _perf_worst_ms:
-            _perf_worst_ms = _frame_ms
-        if now - _perf_last_report >= PERF_DEBUG_INTERVAL_S:
-            _perf_span = now - _perf_last_report
-            print("[perf] {}f in {:.1f}s = {:.0f}fps | frame avg {:.1f}ms worst {:.1f}ms"
-                  " | touch {:.1f} process {:.1f} update {:.1f} ble {:.1f} (ms, avg)".format(
-                      _perf_frames, _perf_span,
-                      _perf_frames / _perf_span if _perf_span > 0 else 0.0,
-                      _perf_total_ms / _perf_frames, _perf_worst_ms,
-                      _perf_touch_ms / _perf_frames, _perf_process_ms / _perf_frames,
-                      _perf_update_ms / _perf_frames, _perf_ble_ms / _perf_frames))
-            _perf_last_report = now
-            _perf_frames = 0
-            _perf_total_ms = 0.0
-            _perf_worst_ms = 0.0
-            _perf_touch_ms = 0.0
-            _perf_process_ms = 0.0
-            _perf_update_ms = 0.0
-            _perf_ble_ms = 0.0
-
-    # Sleep only the REMAINDER of this frame's target period -- see
-    # FRAME_AWAKE_S in lock_config.py for why a flat sleep here was wrong.
-    # `now` is this frame's start (set at the top of the loop), so the
-    # subtraction is the work this frame actually did.
-    _target = FRAME_AWAKE_S if backlight.is_on else FRAME_ASLEEP_S
-    _remaining = _target - (time.monotonic() - now)
-    time.sleep(_remaining if _remaining > FRAME_MIN_SLEEP_S else FRAME_MIN_SLEEP_S)
+        # Sleep only the REMAINDER of this frame's target period -- see
+        # FRAME_AWAKE_S in lock_config.py for why a flat sleep here was wrong.
+        # `now` is this frame's start (set at the top of the loop), so the
+        # subtraction is the work this frame actually did.
+        _target = FRAME_AWAKE_S if backlight.is_on else FRAME_ASLEEP_S
+        _remaining = _target - (time.monotonic() - now)
+        time.sleep(_remaining if _remaining > FRAME_MIN_SLEEP_S else FRAME_MIN_SLEEP_S)
+    except Exception as _exc:
+        # Deliberately NOT a bare `except:` -- KeyboardInterrupt (Ctrl-C at
+        # the serial console) and the reload exception auto-reload raises are
+        # BaseExceptions, and swallowing those would make the box impossible
+        # to interrupt or re-deploy to without a power cycle: a worse version
+        # of the fault this guard exists to prevent.
+        #
+        # Rate-limited, not printed every frame. A fault that repeats on
+        # every frame would otherwise emit ~50 lines a second, and print()
+        # to an attached-but-not-draining USB console can block -- turning a
+        # recovered crash into a hang. One line a second is enough to
+        # diagnose from, and the sleep keeps the loop at its normal cadence
+        # instead of spinning flat out on the error path.
+        _err_now = time.monotonic()
+        if _err_now - _last_err_print >= 1.0:
+            _last_err_print = _err_now
+            print("[loop]", type(_exc).__name__, _exc)
+        time.sleep(FRAME_AWAKE_S)

@@ -12,7 +12,7 @@
 //
 // Firebase and expo-notifications are mocked at the module boundary: this
 // file is about which writes happen, not about what Firestore does with them.
-import { doc, setDoc } from 'firebase/firestore';
+import { doc, setDoc, getDoc } from 'firebase/firestore';
 import * as Notifications from 'expo-notifications';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { getGoalNotificationPermission } from '../goals/goalNotifications';
@@ -22,6 +22,12 @@ jest.mock('firebase/firestore', () => ({
   doc: jest.fn((_db: unknown, ...path: string[]) => path.join('/')),
   setDoc: jest.fn(async () => {}),
   deleteDoc: jest.fn(async () => {}),
+  // reportLocalCoverage asks once per run whether this device's token
+  // document is actually there before merging coverage into it. The default
+  // here is "it is", because that is the only state in which a coverage
+  // report is a legal write at all; the tests that care about the other
+  // state override it.
+  getDoc: jest.fn(async () => ({ exists: () => true })),
 }));
 
 jest.mock('../auth/firebase', () => ({
@@ -43,8 +49,16 @@ jest.mock('expo-constants', () => ({
 }));
 
 const setDocMock = setDoc as jest.MockedFunction<typeof setDoc>;
+const getDocMock = getDoc as jest.MockedFunction<typeof getDoc>;
 const permissionMock = getGoalNotificationPermission as jest.MockedFunction<typeof getGoalNotificationPermission>;
 const tokenMock = Notifications.getExpoPushTokenAsync as jest.MockedFunction<typeof Notifications.getExpoPushTokenAsync>;
+
+/** A document snapshot stub carrying the one thing this module asks of it.
+ * Cast rather than built, because constructing a real DocumentSnapshot needs
+ * a Firestore instance -- exactly what this file mocks away. */
+function snapshot(exists: boolean) {
+  return { exists: () => exists } as unknown as Awaited<ReturnType<typeof getDocMock>>;
+}
 
 /** The payload of the single setDoc this module made. */
 function writtenData(): Record<string, unknown> {
@@ -53,14 +67,21 @@ function writtenData(): Record<string, unknown> {
 }
 
 beforeEach(async () => {
-  // Clears the module's in-memory "last coverage written" key as a documented
-  // side effect (see unregisterPushToken's `finally`), so each test below
-  // starts from a device that has reported nothing -- without reaching into
-  // module internals or resetting the registry.
-  await unregisterPushToken('uid-a');
+  // Resets this module's in-memory state through its own public API rather
+  // than by reaching inside it. The uid here is deliberately NOT uid-a:
+  // unregisterPushToken clears the "last coverage written" key
+  // unconditionally (its `finally`), but it also records that the document
+  // it just deleted is gone -- and recording that about uid-a would
+  // pre-answer the very question the last block of tests is here to ask.
+  // Unregistering a DIFFERENT account clears the key while leaving uid-a's
+  // token document existence genuinely unknown, which is what a fresh app
+  // run looks like. That the two are scoped separately at all is itself the
+  // point: one device signs in and out of more than one account.
+  await unregisterPushToken('uid-other');
   jest.clearAllMocks();
   permissionMock.mockResolvedValue('granted');
   tokenMock.mockResolvedValue({ data: 'ExponentPushToken[abc]' } as Awaited<ReturnType<typeof tokenMock>>);
+  getDocMock.mockResolvedValue(snapshot(true));
   useSettingsStore.setState({ notificationsEnabled: true });
 });
 
@@ -94,6 +115,19 @@ describe('registerPushToken', () => {
 });
 
 describe('reportLocalCoverage', () => {
+  // Every case below describes a device that IS a push target -- it
+  // registered, so there is a token document for a coverage merge to merge
+  // INTO. That is a precondition, not set dressing: a merge against a
+  // missing document is a CREATE, and the rules reject a create carrying no
+  // transport/token (tests/firestore-rules/pushReminders.test.ts pins that).
+  // The outer beforeEach deliberately leaves the device unregistered, so
+  // this one puts it back; the last three tests take it away again, because
+  // the unregistered state is what they are about.
+  beforeEach(async () => {
+    await registerPushToken();
+    jest.clearAllMocks();
+  });
+
   it('writes both what this device scheduled and what it silenced', async () => {
     await reportLocalCoverage({ scheduled: ['plan-1'], suppressed: ['plan-2'] });
     expect(writtenData()).toMatchObject({
@@ -141,5 +175,64 @@ describe('reportLocalCoverage', () => {
     setDocMock.mockClear();
     await reportLocalCoverage({ scheduled: [], suppressed: ['plan-1'] });
     expect(writtenData()).toMatchObject({ localReminderIds: [], suppressedReminderIds: ['plan-1'] });
+  });
+});
+
+// The block above is about a registered device. This one is about the state
+// the master-switch check does NOT cover: the switch is on, permission is
+// granted, local reminders are being scheduled -- and there is still no
+// token document, because minting the token failed. That is not an edge
+// case, it is the permanent condition of every iOS build (see below), and
+// it is where the denied-write loop lived.
+describe('reportLocalCoverage without a registered token document', () => {
+  // iOS never registers, by design -- plugins/withoutPushEntitlement.js
+  // strips `aps-environment`, so getExpoPushTokenAsync always fails -- while
+  // local reminders, and therefore coverage reports, go on working exactly
+  // as normal. The resulting write is a merge with nothing to merge into,
+  // i.e. a create carrying no transport and no token, which the rules deny
+  // (tests/firestore-rules/pushReminders.test.ts pins that denial). Before
+  // this check existed the app spent one such round trip, plus an SDK
+  // console error, on every single reconcile, indefinitely.
+  //
+  // The read count is part of the assertion, not a bonus: trading a denied
+  // write per reconcile for a READ per reconcile would be a quieter version
+  // of the same bug.
+  it('does not report while this device has no token document to merge into', async () => {
+    getDocMock.mockResolvedValue(snapshot(false));
+    await reportLocalCoverage({ scheduled: ['plan-1'], suppressed: [] });
+    await reportLocalCoverage({ scheduled: ['plan-2'], suppressed: [] });
+    expect(setDocMock).not.toHaveBeenCalled();
+    expect(getDocMock).toHaveBeenCalledTimes(1);
+  });
+
+  // ...and a skipped report must not be recorded as a delivered one. The
+  // unchanged-since-last-time shortcut is keyed off what was actually
+  // WRITTEN, so a skip may not advance it -- otherwise an Android device
+  // whose registration merely hadn't landed yet would swallow the first real
+  // coverage report it ever had a document for, and the server would keep
+  // pushing copies of reminders the phone is already showing.
+  it('reports once registration gives it a document to merge into', async () => {
+    getDocMock.mockResolvedValue(snapshot(false));
+    await reportLocalCoverage({ scheduled: ['plan-1'], suppressed: [] });
+    expect(setDocMock).not.toHaveBeenCalled();
+
+    await registerPushToken();
+    setDocMock.mockClear();
+
+    await reportLocalCoverage({ scheduled: ['plan-1'], suppressed: [] });
+    expect(writtenData()).toMatchObject({ localReminderIds: ['plan-1'], suppressedReminderIds: [] });
+  });
+
+  // A read that FAILS means "don't know", not "no document". Offline is the
+  // ordinary way to get here, and offline is exactly when a device is most
+  // likely to have fallen behind on reporting -- so this has to stay
+  // retryable rather than latch into silence for the rest of the run.
+  it('retries on the next reconcile when the existence read itself fails', async () => {
+    getDocMock.mockRejectedValueOnce(new Error('offline'));
+    await reportLocalCoverage({ scheduled: ['plan-1'], suppressed: [] });
+    expect(setDocMock).not.toHaveBeenCalled();
+
+    await reportLocalCoverage({ scheduled: ['plan-1'], suppressed: [] });
+    expect(writtenData()).toMatchObject({ localReminderIds: ['plan-1'] });
   });
 });

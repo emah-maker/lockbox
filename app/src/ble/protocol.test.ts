@@ -200,15 +200,34 @@ describe('parseStatus hardening', () => {
     expect(parseStatus(frame({ bat: 0 }))!.bat).toBe(0);
   });
 
-  it('rejects a frame whose state is not one of the four BoxStates', () => {
+  it('rejects a frame whose state is not one the firmware can actually report', () => {
     expect(parseStatus(frame({ st: 'paused' }))).toBeNull();
     expect(parseStatus(frame({ st: '' }))).toBeNull();
     expect(parseStatus(frame({ st: 3 }))).toBeNull();
   });
 
   it('accepts every real BoxState', () => {
-    for (const st of ['idle', 'closed', 'running', 'done']) {
+    for (const st of ['idle', 'closed', 'running', 'done', 'picking', 'confirming']) {
       expect(parseStatus(frame({ st }))!.st).toBe(st);
+    }
+  });
+
+  // The two pre-session screens (Box-code/lib/lock_controller_states.py's
+  // go_picking / go_confirming) report their own state names on this wire,
+  // verbatim, exactly like the other four -- and the box's tag picker has no
+  // timeout, so it can stay up indefinitely. While BOX_STATES was missing
+  // them, parseStatus returned null for every one of those ~1/s frames and
+  // PhoneBoxClient's status monitor dropped them on the floor, so the whole
+  // Status object -- battery, configured duration, state -- froze at its last
+  // pre-LOCK values for as long as the picker was open. A frozen battery
+  // reading is the sharp end of that: it is the same field
+  // battery/useBatteryStore records samples from.
+  it('keeps reporting battery and duration while the box sits on its tag picker', () => {
+    for (const st of ['picking', 'confirming']) {
+      const s = parseStatus(frame({ st, bat: 42, set: 1800, rem: 0 }));
+      expect(s).not.toBeNull();
+      expect(s!.bat).toBe(42);
+      expect(s!.set).toBe(1800);
     }
   });
 });

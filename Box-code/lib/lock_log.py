@@ -228,7 +228,79 @@ class SessionLog:
             # previous RAM-only behavior.
             self._pending = []
 
+    def _pack(self, to_save):
+        """The whole queue region as a bytes-like, laid out EXACTLY as
+        _load() reads it back: magic, count, then `count` 9-byte records of
+        planned_s:2B + actual_s:2B + completed:1B + epoch:4B, big-endian.
+        Read this against _load() field by field when changing the layout --
+        one transposed offset silently misparses a user's session history
+        with no error anywhere (same hazard, and the same convention, as
+        lock_settings.Settings._pack).
+
+        Built with the same _write16/_write32 helpers the per-field version
+        used, on a plain bytearray rather than on nvm: they are where the
+        range clamps live, so packing through them keeps a value that
+        overflows its field clamping on the way out exactly as before
+        instead of the byte order and the clamps drifting apart.
+
+        Nothing past the last entry is included. _load() only reads `count`
+        records, so bytes beyond that are already unreachable -- erasing
+        them would cost the same flash to say nothing.
+        """
+        buf = bytearray(2 + len(to_save) * _ENTRY_SIZE)
+        buf[0] = _MAGIC
+        buf[1] = len(to_save)
+        # Only the first 4 fields are persisted -- the 5th (mono, see
+        # record()) is RAM-only backfill bookkeeping that a reboot would
+        # invalidate anyway (monotonic time resets), so there is nothing
+        # to clear here: it never reaches NVM in the first place.
+        for i, entry in enumerate(to_save):
+            planned_s, actual_s, completed, epoch = entry[:4]
+            off = 2 + i * _ENTRY_SIZE
+            _write16(buf, off, planned_s)
+            _write16(buf, off + 2, actual_s)
+            buf[off + 4] = 1 if completed else 0
+            epoch_v = _EPOCH_NONE if epoch is None or epoch < 0 else epoch
+            _write32(buf, off + 5, epoch_v)
+        return buf
+
     def _save(self):
+        """ONE region write, and none at all when nothing changed.
+
+        This is lock_settings.Settings.save()'s lesson applied to the queue,
+        and this module was the counter-example that docstring warns about.
+        On CircuitPython every assignment to microcontroller.nvm -- one byte
+        or one whole slice -- is a read-modify-ERASE-write of the NVM
+        partition, ~85ms on this board (measured with PERF_DEBUG, see
+        lock_controller._exit_editing). Written a field at a time this cost
+        2 + 9*N erase cycles per save: 11 for a single queued session, 1802
+        at the LOG_MAX_PENDING cap. The run loop samples no touch, steps no
+        countdown and services no BLE while flash erases, so that was very
+        nearly one frozen second per queued entry.
+
+        Both callers are ones a user is watching. record() runs from
+        go_done, i.e. the instant a timer expires and the box should be
+        opening; backfill_epoch() runs the moment a phone connects and
+        syncs the clock, which is also when the queue is at its longest,
+        because a long queue is precisely what "no phone has connected in a
+        while" produces.
+
+        Erase cycles are finite as well as slow, and nine per entry per save
+        spent them nine times faster than the data justified.
+
+        And usually zero: comparing against what is already stored costs one
+        read and skips the write entirely. ack() and clear() both save
+        unconditionally, and both are routinely no-ops -- an ack whose batch
+        already aged out of the queue deletes nothing, a clear() of an
+        already-empty queue changes nothing -- so this is the common case on
+        the BLE path, not a rare one.
+
+        A slice write is also all-or-nothing, where the per-field version
+        could write the count byte and then fail partway through the
+        records, leaving a region whose header promises entries that were
+        never written.
+
+        DO NOT "simplify" this back to per-field assignment."""
         try:
             nvm = microcontroller.nvm
             if nvm is None:
@@ -251,19 +323,38 @@ class SessionLog:
                 to_save = []
             else:
                 to_save = self._pending[-fit:]
-            nvm[_BASE] = _MAGIC
-            nvm[_BASE + 1] = len(to_save)
-            # Only the first 4 fields are persisted -- the 5th (mono, see
-            # record()) is RAM-only backfill bookkeeping that a reboot would
-            # invalidate anyway (monotonic time resets), so there is nothing
-            # to clear here: it never reaches NVM in the first place.
-            for i, entry in enumerate(to_save):
-                planned_s, actual_s, completed, epoch = entry[:4]
-                off = _BASE + 2 + i * _ENTRY_SIZE
-                _write16(nvm, off, planned_s)
-                _write16(nvm, off + 2, actual_s)
-                nvm[off + 4] = 1 if completed else 0
-                epoch_v = _EPOCH_NONE if epoch is None or epoch < 0 else epoch
-                _write32(nvm, off + 5, epoch_v)
+            buf = self._pack(to_save)
+            end = _BASE + len(buf)
+            if end > len(nvm):
+                # No room for even the 2-byte header -- a region this small
+                # simply has no queue in it, and _load()'s own bounds check
+                # already treats it that way. Returning here is not belt and
+                # braces: an out-of-range SLICE assignment does not raise the
+                # way the per-field version's out-of-range index did, it
+                # clamps (and on a host bytearray, EXTENDS), so without this
+                # the undersized case would start writing bytes that are not
+                # ours instead of doing nothing.
+                return
+            # Skip an unchanged region entirely -- see the docstring. Wrapped
+            # separately from the write below so a board whose nvm does not
+            # support slice READS still falls through to writing rather than
+            # silently never saving again.
+            try:
+                if bytes(nvm[_BASE:end]) == bytes(buf):
+                    return
+            except Exception:
+                pass
+            try:
+                nvm[_BASE:end] = buf
+            except (TypeError, AttributeError, ValueError):
+                # Explicit fallback, NOT a reliance on the outer catch: if
+                # this build's nvm rejects slice assignment the queue still
+                # has to persist, and letting it fall out to
+                # `except Exception: pass` would turn "slower saves" into
+                # "a reboot loses every unsynced session", which is the exact
+                # failure this module was written to close. Byte-wise is the
+                # old behaviour, cost and all.
+                for i in range(len(buf)):
+                    nvm[_BASE + i] = buf[i]
         except Exception:
             pass

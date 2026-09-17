@@ -109,6 +109,28 @@ def decode_command(cmd):
     return None
 
 
+# The opcodes above that can actually move the servo. A plain tuple for the
+# same reason _BUILTIN_TOPIC_IDS is one (frozenset is absent from some
+# CircuitPython builds), and kept here, next to decode_command's opcode
+# table, so an opcode added there is added in front of this list rather
+# than in another file that quietly keeps its old answer.
+LATCH_OPCODES = ("start", "lock", "unlock")
+
+
+def is_latch_command(cmd):
+    """True if this raw `command` write is one of the opcodes that can move
+    the latch. Classification only -- it does not parse the argument, so an
+    opcode with a malformed argument still answers True and still pays the
+    rate limit rather than slipping past it on a technicality.
+
+    Exists because lock_config.BLE_CMD_MIN_INTERVAL is written to rate-limit
+    "inbound BLE commands that change the latch", and the rate limit was
+    being charged to the CHARACTERISTIC instead: "dur" (a duration preview)
+    and "historyAck" (a log acknowledgement) move nothing, but could spend
+    the budget a real "lock" then needed -- see lock_ble._drain_inbound."""
+    return cmd.split(":", 1)[0] in LATCH_OPCODES
+
+
 def decode_settings(text):
     """Parse+validate a BLE `settings` JSON write (app/src/ble/protocol.ts's
     encodeSettings) into a dict of {wire_key: validated_value}, containing
