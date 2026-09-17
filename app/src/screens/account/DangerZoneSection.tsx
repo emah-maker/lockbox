@@ -36,11 +36,19 @@ import { EmailPasswordFields } from './EmailPasswordFields';
 // spec §4 otherwise requires a generic message.
 const WRONG_PASSWORD_CODES = new Set(['auth/invalid-credential', 'auth/wrong-password']);
 
+// Session history is now DELETED, not retained-but-orphaned. It used to be
+// the latter, and firestoreSync.ts's deleteAllUserData changed that -- it
+// deletes users/{uid} first precisely to open the window firestore.rules
+// requires for a session delete (App Store Review Guideline 5.1.1(v) asks for
+// the account AND its data, and a session topic is free text a user typed).
+// Wording kept in step with the dashboard's own confirm copy
+// (website/js/accountDelete.js) and with website/privacy.html's "Deleting
+// your account" section; a destructive confirm that promises data SURVIVES
+// when it does not is the worst kind of stale copy to leave standing.
 const DELETE_COPY =
-  "This permanently deletes your account and its cloud profile, settings, goals, and device list. " +
-  'Your session history is retained on our servers but orphaned (unreadable by anyone) for data-' +
-  'integrity reasons -- it is not visible anywhere once your account is gone. Local stats on this ' +
-  'phone, and the box itself, are unaffected. This cannot be undone.';
+  'This permanently deletes your account and its cloud data: profile, settings, custom labels, ' +
+  'focus goals, linked devices, scheduled sessions, and your focus session history. Local stats ' +
+  'on this phone, and the box itself, are unaffected. This cannot be undone.';
 
 export function DangerZoneSection({ color }: { color: ReturnType<typeof useTheme> }) {
   const signOut = useAuthStore((s) => s.signOut);

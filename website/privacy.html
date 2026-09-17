@@ -64,7 +64,7 @@
             works without an account, the app works without an account, and nothing leaves your
             phone unless you choose to sign in.
           </p>
-          <p class="legal__updated">Last updated: 8 September 2026</p>
+          <p class="legal__updated">Last updated: 17 September 2026</p>
         </div>
 
         <div class="card legal">
@@ -73,16 +73,16 @@
             Signing in is optional. Until you do, the app keeps everything on your device only:
             your focus session history, focus goals, custom labels, scheduled sessions, app
             settings, and the box settings you have pushed to your box. None of it is transmitted
-            to us or to anyone else, and we have no way to see it.
+            to me or to anyone else, and I have no way to see it.
           </p>
 
           <h2>If you sign in</h2>
           <p>
             Signing in creates an account so your data follows you to another phone and appears on
-            the web dashboard. We use Google's Firebase Authentication and Cloud Firestore for
+            the web dashboard. I use Google's Firebase Authentication and Cloud Firestore for
             this. You can sign in with Google, with Apple, or with an email address and password.
           </p>
-          <p>Once you are signed in, the following is stored in our database, filed under your account:</p>
+          <p>Once you are signed in, the following is stored in my database, filed under your account:</p>
           <ul>
             <li><strong>Profile</strong> — your email address, display name, and profile photo URL, as provided by whichever sign-in method you chose.</li>
             <li><strong>Focus sessions</strong> — for each session: when it started, how long it was planned for, how long it actually ran, whether it completed, and the optional label you tagged it with.</li>
@@ -93,17 +93,17 @@
             <li><strong>Notification tokens</strong> — if you enable reminders that can arrive while the app is closed, a push token for that device, plus which reminders that device has already scheduled locally, so the same reminder does not arrive twice.</li>
           </ul>
           <p>
-            If you sign in with Apple and choose to hide your email address, we receive and store
-            only Apple's private relay address. We never receive your real one.
+            If you sign in with Apple and choose to hide your email address, I receive and store
+            only Apple's private relay address. I never receive your real one.
           </p>
 
-          <h2>What we never collect</h2>
+          <h2>What I never collect</h2>
           <ul>
             <li><strong>Nothing about your calls.</strong> The app asks iOS only whether <em>a</em> call is ringing, connected, or ended, so it can light up the box. iOS does not give it the number, the contact, or anything else about the call, and none of it is stored or transmitted — not even the fact that a call happened.</li>
             <li><strong>No location.</strong> The app requests no location permission of any kind. Bluetooth is used solely to talk to your box.</li>
             <li><strong>No contacts, photos, microphone, camera, health, or calendar data.</strong></li>
-            <li><strong>No analytics, advertising, or tracking.</strong> The app contains no analytics or advertising SDK. We do not track you across other companies' apps or websites, we do not build advertising profiles, and we do not sell or share your data with data brokers.</li>
-            <li><strong>No sign-in credentials.</strong> Your password, if you use one, goes to Firebase Authentication and is never seen or stored by us. Session tokens stay in your device's own secure storage.</li>
+            <li><strong>No analytics, advertising, or tracking.</strong> The app contains no analytics or advertising SDK. I do not track you across other companies' apps or websites, I do not build advertising profiles, and I do not sell or share your data with data brokers.</li>
+            <li><strong>No sign-in credentials.</strong> Your password, if you use one, goes to Firebase Authentication and is never seen or stored by me. Session tokens stay in your device's own secure storage.</li>
           </ul>
 
           <h2>Bluetooth</h2>
@@ -117,10 +117,10 @@
           <h2>Who else is involved</h2>
           <ul>
             <li><strong>Google</strong> — Firebase Authentication, Cloud Firestore, Firebase Hosting, and Cloud Functions store your account and the data listed above, and serve this site.</li>
-            <li><strong>Google Sign-In</strong> and <strong>Sign in with Apple</strong>, if you use them, to verify who you are. Each gives us only your account identifier, email, and name.</li>
+            <li><strong>Google Sign-In</strong> and <strong>Sign in with Apple</strong>, if you use them, to verify who you are. Each gives me only your account identifier, email, and name.</li>
             <li><strong>Expo's push notification service</strong>, if you enable reminders that arrive while the app is closed, to deliver those notifications to your device.</li>
           </ul>
-          <p>These are service providers acting on our behalf. There are no other recipients.</p>
+          <p>These are service providers acting on my behalf. There are no other recipients.</p>
 
           <h2>Deleting your account</h2>
           <p>
@@ -130,12 +130,14 @@
             settings, focus goals, scheduled sessions, device list, and notification tokens.
           </p>
           <p>
-            One exception, stated here because the app states it too: your focus
-            <em>session</em> records are not erased from the database. They live in a deliberately
-            append-only collection, and deleting your account leaves them orphaned — filed under
-            an account identifier that no longer exists and is never reissued, so they can no
-            longer be read by you, by us through the app, or by anyone else. They hold timings and
-            labels only; they carry no name, email, or other identifier.
+            That includes your focus <em>session</em> records. While your account exists they are
+            append-only: you can relabel a session, but no client — not you, and not me through
+            the app — can delete an individual one, which is what keeps the history honest.
+            Deleting your account is the one operation that removes them, and it removes all of
+            them. They hold timings and labels only; they carry no name, email, or other
+            identifier. In the rare case that last step does not complete, what remains is filed
+            under an account identifier that no longer exists and is never reissued, so it can no
+            longer be read by you, by me through the app, or by anyone else.
           </p>
           <p>
             Deleting your account does not touch the copy of your data on your own phone, and it
@@ -143,17 +145,17 @@
             local copy as well, delete the app.
           </p>
 
-          <h2>How long we keep it</h2>
+          <h2>How long I keep it</h2>
           <p>
-            We keep the data above for as long as your account exists. There is no separate
+            I keep the data above for as long as your account exists. There is no separate
             retention schedule and no archival copy beyond the automatic backups Google Cloud
             keeps of the database itself.
           </p>
 
           <h2>Children</h2>
           <p>
-            Phone Box is not directed at children under 13, and we do not knowingly collect data
-            from them. If you believe a child has created an account, contact us and we will
+            Phone Box is not directed at children under 13, and I do not knowingly collect data
+            from them. If you believe a child has created an account, contact me and I will
             delete it.
           </p>
 
@@ -178,7 +180,7 @@
     <div class="wrap footer__inner">
       <div class="footer__brand">
         <span class="brand__name">Phone&nbsp;Box</span>
-        <p>A phone lockbox I designed and built myself.</p>
+        <p>A phone lockbox I designed and built for myself, with an agent on the code.</p>
       </div>
       <nav class="footer__links" aria-label="Footer">
         <a href="index.html">Home</a>
