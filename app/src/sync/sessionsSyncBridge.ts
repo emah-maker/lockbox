@@ -54,9 +54,35 @@ export function markSessionsSeen(sessions: LoggedSession[]): void {
 export function startSessionsSyncBridge(): void {
   if (started) return;
   started = true;
+  // App.tsx calls useStore.init() fire-and-forget and starts this bridge on
+  // the very next line, so init() has NOT resolved yet: the snapshot below is
+  // taken against an empty session list, and the persisted history arrives
+  // afterwards as an ordinary store emission. Left unhandled, the subscriber
+  // reads that hydration as "every one of these was just logged" and pushes
+  // the entire history on every cold launch. For a session another device
+  // originally uploaded -- routine, since syncSessions writes its merged
+  // cross-device list back over local storage -- that re-push lands at THIS
+  // device's deviceId-scoped doc id, so one real session becomes two
+  // Firestore docs and is double-counted in stats on every device, forever.
+  // That is precisely what markSessionsSeen exists to prevent; hydration just
+  // arrives too late for the call below to cover it.
+  //
+  // Waiting for `initialized` swallows nothing real: init() sets that flag in
+  // the same set() that installs the hydrated sessions, and only starts
+  // autoConnect afterwards -- so no box history, and no session, can be
+  // logged in this window. Sessions carried over from a previous run still
+  // reach Firestore, via syncSessions' own correctly-keyed toUpload on the
+  // syncNow() that onAuthStateChanged fires at launch.
+  let awaitingHydration = !useStore.getState().initialized;
   markSessionsSeen(useStore.getState().sessions);
 
   useStore.subscribe((state) => {
+    if (awaitingHydration) {
+      if (!state.initialized) return;
+      awaitingHydration = false;
+      markSessionsSeen(state.sessions);
+      return;
+    }
     const fresh: LoggedSession[] = [];
     const retagged: LoggedSession[] = [];
     for (const s of state.sessions) {
