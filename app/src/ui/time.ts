@@ -29,9 +29,30 @@
  * the expectation with the same Intl call, which asserts nothing. */
 export function formatClockTime(value: string, locale?: string | string[]): string {
   const [h, m] = value.split(':').map(Number);
-  const d = new Date();
-  d.setHours(h, m, 0, 0);
-  return d.toLocaleTimeString(locale, { hour: 'numeric', minute: '2-digit' });
+  // Formatted off a FIXED instant in UTC, not off `new Date()` + setHours.
+  // `value` is a wall-clock 'HH:MM' with no date attached, so anchoring it to
+  // "today" imported today's DST rules into a pure formatting call: on the
+  // device's own spring-forward day the requested time does not exist
+  // locally, setHours silently normalized forward, and this returned a time
+  // an hour later than the one it was asked to format -- '02:30' came back
+  // as "3:30 AM" (30 minutes, on the half-hour transitions of
+  // Australia/Lord_Howe).
+  //
+  // Not merely a one-day cosmetic slip, because the time being formatted has
+  // nothing to do with today: sync/scheduledSessionsSync.ts writes
+  // formatClockTime(plan.time) into the scheduledSessions document as
+  // `timeLabel`, functions/src/reminders.ts treats that field as
+  // client-written and server-trusted, and interpolates it verbatim into the
+  // push body. A plan created on the transition day for any future date
+  // therefore carried a permanently wrong "Starts at ..." string until it
+  // was next edited. 2000-01-01 UTC has no transition in any zone, and
+  // timeZone: 'UTC' keeps the render in the same frame the value was built
+  // in; `locale` still decides 12- vs 24-hour.
+  return new Date(Date.UTC(2000, 0, 1, h, m)).toLocaleTimeString(locale, {
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZone: 'UTC',
+  });
 }
 
 /**

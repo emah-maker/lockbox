@@ -70,6 +70,67 @@ describe('formatClockTime', () => {
       }
     });
   });
+
+  // Regression. The formatter used to build its Date from `new Date()` and
+  // then setHours(h, m) -- which dragged TODAY's DST rules into what is a
+  // pure formatting call on a bare wall-clock string. On the device's own
+  // spring-forward day the requested time does not exist locally, setHours
+  // normalized it forward, and '02:30' came back as "3:30 AM" (or "2:45 AM"
+  // where the transition is 30 minutes, as in Australia/Lord_Howe).
+  //
+  // Not a one-day cosmetic slip: sync/scheduledSessionsSync.ts writes
+  // formatClockTime(plan.time) into the scheduledSessions document as
+  // `timeLabel`, and functions/src/reminders.ts trusts that field and
+  // interpolates it verbatim into the push body. A plan created on the
+  // transition day for ANY future date kept the wrong "Starts at ..." string
+  // until it was next edited.
+  //
+  // The exact-string half is pinned to en-US so it holds in any runner
+  // locale. The cross-day half is what names the actual property -- the
+  // output must not depend on the date at all -- and only discriminates in a
+  // runner zone that observes DST, which is why both halves are here.
+  describe('the result does not depend on what day it is (DST)', () => {
+    const NOON_UTC_ON = {
+      'spring forward (US/Europe)': Date.UTC(2026, 2, 8, 12),
+      'fall back (US)': Date.UTC(2026, 10, 1, 12),
+      "Lord Howe's 30-minute shift": Date.UTC(2026, 9, 4, 1),
+      'an ordinary day': Date.UTC(2026, 5, 15, 12),
+    };
+    const CASES: [string, string][] = [
+      ['02:00', '2:00 AM'],
+      ['02:30', '2:30 AM'],
+      ['02:59', '2:59 AM'],
+      ['03:00', '3:00 AM'],
+      ['00:00', '12:00 AM'],
+      ['23:59', '11:59 PM'],
+    ];
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it.each(Object.entries(NOON_UTC_ON))(
+      'formats the requested wall-clock time on %s',
+      (_label, when) => {
+        jest.useFakeTimers().setSystemTime(when);
+        for (const [input, expected] of CASES) {
+          expect(formatClockTime(input, 'en-US')).toBe(expected);
+        }
+      },
+    );
+
+    it('gives the same answer on a transition day as on an ordinary one', () => {
+      const onOrdinary = CASES.map(([input]) => {
+        jest.useFakeTimers().setSystemTime(NOON_UTC_ON['an ordinary day']);
+        return formatClockTime(input);
+      });
+      const onTransition = CASES.map(([input]) => {
+        jest.useFakeTimers().setSystemTime(NOON_UTC_ON['spring forward (US/Europe)']);
+        return formatClockTime(input);
+      });
+      expect(onTransition).toEqual(onOrdinary);
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------
