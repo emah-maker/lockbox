@@ -20,9 +20,31 @@ import * as SecureStore from 'expo-secure-store';
 import { firebaseConfig } from './firebaseConfig';
 
 export const SECURE_STORE_OPTS: SecureStore.SecureStoreOptions = {
-  // Never exported to iCloud Keychain backups; unavailable if the device is
-  // locked, and tied to this specific device install.
-  keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
+  // Never exported to iCloud Keychain backups, and tied to this specific
+  // device install -- the two properties §2.2 actually requires.
+  //
+  // AFTER_FIRST_UNLOCK rather than WHEN_UNLOCKED because this app runs while
+  // the phone is locked and can be COLD-LAUNCHED there: app.json declares
+  // UIBackgroundModes ["bluetooth-central"] and PhoneBoxClient.ts sets
+  // restoreStateIdentifier, so iOS relaunches the process in the background,
+  // screen off, to hand back the restored central. App.tsx's init() then runs
+  // the normal auth startup against a Keychain that answers nothing.
+  //
+  // The damage is not a failed read -- it is a silent, whole-process
+  // downgrade. secureStorePersistence._isAvailable() probes with a WRITE, so
+  // it returns false; @firebase/auth's PersistenceUserManager.create() filters
+  // out every unavailable persistence and falls back to inMemoryPersistence
+  // for the life of that process. The user unlocks, foregrounds the SAME
+  // process, and finds themselves signed out with auto-sync stopped -- and if
+  // they sign in again, that session is written to memory only, so they are
+  // signed out once more on the next launch. Nothing throws and nothing is
+  // logged, so it reads as "the app keeps signing me out".
+  //
+  // WHEN_UNLOCKED bought nothing against that: the session is readable
+  // whenever the app is usable either way. AFTER_FIRST_UNLOCK only widens the
+  // window to "at some point since boot, the owner unlocked this device once",
+  // which is the standard choice for an app with a background mode.
+  keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY,
 };
 
 // The modular Firebase JS SDK's persistence layer names its keys
@@ -73,11 +95,24 @@ export const FIREBASE_AUTH_SECURE_STORE_KEYS: string[] = [
  * ever changes the internal key format this module still assumes. A bare
  * `.catch(() => {})` here previously gave none at all (production readiness
  * review, Medium).
+ *
+ * Returns whether every delete actually succeeded. Best-effort is right for
+ * the sign-out paths, which have a real wipe behind them and nothing better to
+ * do on failure -- but wipeStaleSessionOnFreshInstall gets ONE attempt ever,
+ * and it used to record success unconditionally. A Keychain that refused the
+ * deletes (a locked device, which §2.5's wipe can meet: this app is
+ * cold-launched in the background by the bluetooth-central restore) left the
+ * previous owner's session in place AND set the marker that stops any later
+ * launch retrying -- so the §2.5 window closed permanently on a wipe that
+ * never happened, on exactly the resold or restored phone it exists for.
  */
-export async function wipeFirebaseAuthSecureStore(context: string): Promise<void> {
+export async function wipeFirebaseAuthSecureStore(context: string): Promise<boolean> {
+  let wipedEverything = true;
   for (const key of FIREBASE_AUTH_SECURE_STORE_KEYS) {
-    await SecureStore.deleteItemAsync(key, SECURE_STORE_OPTS).catch((e) =>
-      console.warn(`${context}: failed to delete`, key, e?.message),
-    );
+    await SecureStore.deleteItemAsync(key, SECURE_STORE_OPTS).catch((e) => {
+      wipedEverything = false;
+      console.warn(`${context}: failed to delete`, key, e?.message);
+    });
   }
+  return wipedEverything;
 }

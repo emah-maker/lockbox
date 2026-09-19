@@ -34,6 +34,7 @@ import { useSettingsStore, type SyncableSettings } from '../store/useSettingsSto
 import { useGoalsStore } from '../store/useGoalsStore';
 import { useScheduleStore } from '../store/useScheduleStore';
 import { planSettingsSync } from './settingsSyncPlan';
+import { queueSettingsWrite } from './settingsWriteQueue';
 import { syncSessions } from './sessionsSync';
 import { BATCH_LIMIT, isBeingDeleted, pushTarget, requireUid } from './syncCommon';
 import { ensureLocalDataScopedTo, localDataGeneration } from './localDataOwner';
@@ -234,10 +235,15 @@ async function syncSettingsTwoWay(uid: string, guard: () => void): Promise<void>
   const db = getDb();
   const ref = doc(db, 'users', uid, 'settings', 'app');
   const snap = await getDoc(ref);
+  // Read AFTER the getDoc above, deliberately: a snapshot taken before it
+  // would compare a clock that could already have moved on while the read was
+  // in flight, and lose the change that moved it. Everything from here to the
+  // applyRemoteSettings below is synchronous, so nothing can slip in between
+  // deciding and acting.
   const local = useSettingsStore.getState();
 
   if (!snap.exists()) {
-    await setDoc(ref, localSettingsPayload(local));
+    await pushLocalSettings(uid);
     return;
   }
 
@@ -250,9 +256,44 @@ async function syncSettingsTwoWay(uid: string, guard: () => void): Promise<void>
     guard();
     useSettingsStore.getState().applyRemoteSettings(plan.settings, plan.updatedAt);
   } else if (plan.action === 'push') {
-    await setDoc(ref, localSettingsPayload(local));
+    // NOT `localSettingsPayload(local)`. `local` is the snapshot this run
+    // made its decision from, and the write below may sit behind another one
+    // for a while; by the time it goes out the user may have changed a
+    // setting, and sending the snapshot would put the superseded values back
+    // into the account. pushLocalSettings re-reads at send time instead --
+    // see settingsWriteQueue.ts for the race this closes.
+    await pushLocalSettings(uid);
   }
   // 'none': equal clocks, so both sides already hold the same write.
+}
+
+/**
+ * The ONE way this app writes users/{uid}/settings/app -- both the two-way
+ * merge above and pushSettingsPatch below go through here.
+ *
+ * Two properties, and settingsWriteQueue.ts's header explains why neither is
+ * sufficient alone:
+ *
+ *   - the payload is built from LIVE store state at send time, never from a
+ *     snapshot the caller took before its own awaits, so a write can only
+ *     ever carry the newest local values;
+ *   - writes are serialized, so two of them are never in flight at once and
+ *     the server cannot apply them out of order.
+ *
+ * The pushTarget() re-check is here rather than at the call sites for the
+ * same reason: it has to be evaluated when the write actually goes out. A
+ * write queued behind another one can find, by the time its turn comes, that
+ * the user signed out, switched accounts, or started deleting this one.
+ */
+function pushLocalSettings(uid: string): Promise<void> {
+  return queueSettingsWrite(uid, async () => {
+    const target = pushTarget();
+    if (!target || target.uid !== uid) return;
+    await setDoc(
+      doc(getDb(), 'users', uid, 'settings', 'app'),
+      localSettingsPayload(useSettingsStore.getState()),
+    );
+  });
 }
 
 function localSettingsPayload(local: ReturnType<typeof useSettingsStore.getState>) {
@@ -329,12 +370,15 @@ function goalsPayload(goals: Goal[], updatedAt: number) {
  * sync/settingsSyncBridge.ts, which subscribes to useSettingsStore -- §4.3).
  * No-op if signed out. Mirrors useStore.ts's existing "optimistic local
  * write, best-effort remote sync" pattern for box settings (pushBoxSettings).
+ *
+ * Shares pushLocalSettings with the two-way merge rather than issuing its own
+ * setDoc: these are the two writers that used to race each other for this one
+ * document.
  */
 export async function pushSettingsPatch(): Promise<void> {
   const target = pushTarget();
   if (!target) return;
-  const local = useSettingsStore.getState();
-  await setDoc(doc(getDb(), 'users', target.uid, 'settings', 'app'), localSettingsPayload(local));
+  await pushLocalSettings(target.uid);
 }
 
 /**

@@ -38,6 +38,7 @@ import {
   getFirestore,
   doc,
   setDoc,
+  runTransaction,
 } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
 import { loadFirebaseConfigOrNull } from './firebaseConfig.js';
 import { initAppCheck } from './appCheck.js';
@@ -47,7 +48,12 @@ import { aggregate, lastNDays, topicBreakdownWithCustom } from './focusStats.js'
 import { showMessage, describeWriteError } from './dashMessage.js';
 import { mountLabelsPanel, renderLabelsList } from './labelsPanel.js';
 import { mountGoalsPanel, renderGoalsList } from './goalsPanel.js';
-import { pruneArchivedGoals } from './goals.js';
+import {
+  mergeGoals,
+  mergedGoalsDocUpdatedAt,
+  pruneArchivedGoals,
+  sanitizeRemoteGoals,
+} from './goals.js';
 import { computeGoalProgress } from './goalProgress.js';
 import { mountAccountPanel, renderAccountPanel } from './accountPanel.js';
 import { mountCalendarPanel, renderCalendar, resetCalendarView } from './calendarPanel.js';
@@ -158,16 +164,61 @@ const accountCtx = {
   getSettings: () => currentSettings,
   getCustomLabels: () => calCustomLabels,
   getLastLoadedAt: () => lastLoadedAt,
-  onThemeWritten: (nextThemeMode, nextAccent) => {
+  // `fresh` is what writeAppearance's transaction actually read for the three
+  // fields it does not own. Adopting it is not cosmetic: calExcludedTopicKeys
+  // is threaded through aggregate, lastNDays, renderFacts and
+  // computeGoalProgress, and calCustomLabels is what the next label edit
+  // composes against, so leaving either stale meant the page kept rendering
+  // -- and the next write kept resending -- values the write had just
+  // disproved. Omitted by callers that have nothing fresher to offer.
+  //
+  // Those four names are spelled without parentheses on purpose:
+  // tests/website/focusStats.test.js finds the real call sites with a plain
+  // indexOf on the name immediately followed by an open paren, so any comment
+  // above them written that way becomes the match and the suite reads the
+  // prose as the call's arguments.
+  onThemeWritten: (nextThemeMode, nextAccent, fresh) => {
     themeMode = nextThemeMode;
-    currentSettings = { ...currentSettings, themeMode: nextThemeMode, accent: nextAccent };
+    currentSettings = {
+      ...currentSettings,
+      themeMode: nextThemeMode,
+      accent: nextAccent,
+      ...(fresh ?? {}),
+    };
+    if (fresh) {
+      calCustomLabels = fresh.customLabels ?? calCustomLabels;
+      calExcludedTopicKeys = fresh.excludedTopicKeys ?? calExcludedTopicKeys;
+    }
     theme = resolveTheme(themeMode, nextAccent);
     applyTheme(theme);
     renderDataViews(calSessions, calCustomLabels);
   },
   onRefresh: () => { if (dashDb && dashUid) loadDashboard(dashDb, dashUid); },
-  onSignOut: () => { signOut(dashAuth).catch(showError); },
+  onSignOut: () => { signOutWithPushCleanup().catch(showError); },
 };
+
+/**
+ * The only way this page should sign anyone out. Deletes this browser's
+ * web-push token BEFORE signOut, because that delete is authorized by
+ * firestore.rules' isOwner(uid) and so needs the user still signed in.
+ *
+ * Left behind, the token keeps this browser receiving the PREVIOUS account's
+ * reminders -- whose body carries that account's own plan note text
+ * (functions/src/reminders.ts) -- with nobody signed in, or under whoever
+ * signs in next on this browser profile: the token id is per-browser
+ * (localStorage), not per-account, so both accounts' token documents end up
+ * pointing at the same FCM token.
+ *
+ * Shared rather than inlined because that ordering was observed only by the
+ * nav-bar button, and the Account panel's own sign-out (accountCtx.onSignOut
+ * above, reached from Account -> Danger zone) went straight to signOut() and
+ * skipped it. Best-effort on the cleanup, and never a reason to block a
+ * sign-out -- webPush.js swallows its own failures.
+ */
+async function signOutWithPushCleanup() {
+  if (dashDb && dashUid) await disableWebPush({ db: dashDb, uid: dashUid });
+  await signOut(dashAuth);
+}
 
 // ---------- Per-session relabel picker ctx (sessionLabelPicker.js owns render + writes) ----------
 // Rebuilt fresh on every call (renderCalDayList/renderSessionsTable both run
@@ -360,19 +411,55 @@ function renderAll(sessions, customLabels, goals = []) {
  * serverTimestamp(), so it stays comparable against the app's own goals doc
  * clock. Tombstones are pruned right before the write lands (see goals.js's
  * pruneArchivedGoals), not on every read, so a fresh tombstone still gets a
- * full propagation window before it can be dropped by whichever side writes next. */
+ * full propagation window before it can be dropped by whichever side writes next.
+ *
+ * Read-modify-write inside a transaction, NOT a bare setDoc of `next`. The
+ * note above is about the document's FIELD set -- `{goals, updatedAt}` really
+ * is the whole shape, so nothing needs resending -- but it says nothing about
+ * the `goals` ARRAY, which the panel composes against `calGoals`: a snapshot
+ * taken when the page loaded and never refreshed (there is no onSnapshot
+ * anywhere in website/js/). Writing that array wholesale dropped every goal
+ * it didn't know about. Two tabs was enough: tab A loads, tab B creates a
+ * goal, then any save in tab A deletes B's goal -- and a browser keeps no
+ * durable local copy, so unlike the phone (whose useGoalsStore union merge is
+ * what lets it self-heal) there is nothing left to restore it from.
+ *
+ * mergeGoals resolves per goal on each goal's own `updatedAt` with local
+ * winning ties, so the edit being saved still lands, a goal another client
+ * changed more recently survives, and an archive tombstone still propagates.
+ * This is the same fix, and the same reasoning, as pushGoalsPatch in
+ * app/src/sync/firestoreSync.ts -- which is also why the remote read happens
+ * INSIDE the callback: the SDK re-runs it on contention.
+ */
 async function writeGoals(next) {
   const pruned = pruneArchivedGoals(next, Date.now());
+  const ref = doc(dashDb, 'users', dashUid, 'goals', 'config');
+  let committed = pruned;
   try {
-    await setDoc(doc(dashDb, 'users', dashUid, 'goals', 'config'), {
-      goals: pruned,
-      updatedAt: Date.now(),
+    committed = await runTransaction(dashDb, async (tx) => {
+      const snap = await tx.get(ref);
+      const remoteDoc = snap.exists() ? snap.data() : null;
+      const nowMs = Date.now();
+      // Same untrusted shape loadDashboard reads, so it goes through the same
+      // sanitize step rather than a second, thinner copy of it.
+      const remote = sanitizeRemoteGoals(remoteDoc ? remoteDoc.goals : undefined, nowMs);
+      const remoteDocUpdatedAt = typeof (remoteDoc && remoteDoc.updatedAt) === 'number'
+        ? remoteDoc.updatedAt
+        : 0;
+      const merged = pruneArchivedGoals(mergeGoals(pruned, remote), nowMs);
+      tx.set(ref, {
+        goals: merged,
+        updatedAt: mergedGoalsDocUpdatedAt(merged, nowMs, remoteDocUpdatedAt),
+      });
+      return merged;
     });
   } catch (err) {
     showWriteError(err);
     throw err;
   }
-  renderDataViews(calSessions, calCustomLabels, pruned);
+  // The merged set, not `pruned` -- otherwise a goal this write just rescued
+  // from another client would be missing from the screen until the next load.
+  renderDataViews(calSessions, calCustomLabels, committed);
 }
 
 // ---------- Firebase wiring ----------
@@ -485,14 +572,10 @@ async function init() {
     onReminder: (title, body) => showMessage(els.planMsg, `${title} -- ${body}`, { kind: 'ok' }),
   });
 
-  els.signOutBtn.addEventListener('click', async () => {
-    // BEFORE signOut, not after: deleting this browser's push token is
-    // authorized by isOwner(uid), which needs the user still signed in. Left
-    // behind, it would keep this browser receiving the previous account's
-    // reminders. Best-effort, and never a reason to block a sign-out
-    // (webPush.js swallows its own failures).
-    if (dashDb && dashUid) await disableWebPush({ db: dashDb, uid: dashUid });
-    signOut(auth).catch(showError);
+  // Both sign-out entry points go through the one helper -- see its header
+  // for why the push-token delete has to happen before signOut().
+  els.signOutBtn.addEventListener('click', () => {
+    signOutWithPushCleanup().catch(showError);
   });
 
   onAuthStateChanged(auth, (user) => {

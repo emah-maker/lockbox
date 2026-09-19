@@ -22,6 +22,35 @@ from lock_ui_kit import (
 )
 from lock_ui_widgets import bar_fill_width
 
+# ---------- incoming-call alert: caller-name pixel budget ----------
+# terminalio.FONT is a fixed 6x8px bitmap font, so a Label's rendered width is
+# exactly 6 * scale px per character -- which is why a character cap is only a
+# disguised pixel cap, and a badly wrong one once `scale` is anything but 1.
+FONT_ADVANCE_PX = 6
+# The alert's border is a stroke=10 Rect (see _build_call_alert), so the usable
+# interior of the 172px panel is x=10..162. 4px of clearance either side of
+# that keeps the caller name off the flashing border.
+CALL_ALERT_BORDER_STROKE = 10
+CALL_WHO_MARGIN_PX = CALL_ALERT_BORDER_STROKE + 4
+# scale=2 (12px/glyph), not 3 (18px/glyph). The name label is center-anchored,
+# so an over-long one spills off BOTH edges, and scale=3 leaves the 144px
+# budget below only 8 glyphs -- too few for most contact names. scale=2 fits
+# 12, enough for a first name plus an initial. The alert's vertical layout has
+# room for either: centered on y=190 the label occupies y=182..198 at scale=2
+# (vs. 178..202 at scale=3), still clear of "INCOMING CALL" ending at y=138
+# above and the "box stays locked" hint starting at y=256 below.
+CALL_WHO_SCALE = 2
+
+
+def _fit_px(text, scale, budget_px):
+    """`text` truncated to the most whole glyphs that fit in `budget_px` at
+    `scale`, given terminalio.FONT's 6px advance. Returns "" if not even one
+    glyph fits, rather than a guaranteed-overflowing single character."""
+    max_glyphs = budget_px // (FONT_ADVANCE_PX * scale)
+    if max_glyphs < 1:
+        return ""
+    return text[:max_glyphs]
+
 
 class PanelsMixin:
     # =================== battery view ===================
@@ -378,7 +407,8 @@ class PanelsMixin:
         # reads over either color.
         self.call_bg = _bg_tile(W, H, C_ALERT_RED)
         group.append(self.call_bg)
-        self.call_border = Rect(0, 0, W, H, fill=None, outline=C_ALERT_AMBER, stroke=10)
+        self.call_border = Rect(0, 0, W, H, fill=None, outline=C_ALERT_AMBER,
+                                stroke=CALL_ALERT_BORDER_STROKE)
         group.append(self.call_border)
 
         bell = label.Label(terminalio.FONT, text="((  ))", color=C_WHITE, scale=2)
@@ -393,10 +423,13 @@ class PanelsMixin:
         group.append(ttl)
 
         self.call_who = label.Label(terminalio.FONT, text="", color=C_WHITE,
-                                    scale=3)
+                                    scale=CALL_WHO_SCALE)
         self.call_who.anchor_point = (0.5, 0.5)
         self.call_who.anchored_position = (W // 2, 190)
         group.append(self.call_who)
+        # Measured off the real panel width rather than hardcoded, so the
+        # budget follows W if this ever renders on a different display.
+        self._call_who_budget_px = W - 2 * CALL_WHO_MARGIN_PX
 
         hint = label.Label(terminalio.FONT, text="box stays locked",
                            color=C_WHITE)
@@ -433,7 +466,12 @@ class PanelsMixin:
 
     def show_call_alert(self, who):
         self._call_alert_active = True
-        self.call_who.text = (who or "Call")[:16]
+        # Budget in PIXELS, not characters: the caller name arrives unbounded
+        # over BLE (lock_ble's `alert` payload has no length cap of its own),
+        # and this label is center-anchored, so anything too wide spills off
+        # both edges of the panel at once.
+        self.call_who.text = _fit_px(who or "Call", CALL_WHO_SCALE,
+                                     self._call_who_budget_px)
         self.call_bg.pixel_shader[0] = C_ALERT_RED
         self.call_border.outline = C_ALERT_AMBER
         self.display.root_group = self.call_group

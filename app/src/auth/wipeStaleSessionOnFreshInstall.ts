@@ -21,7 +21,15 @@ export async function wipeStaleSessionOnFreshInstall(): Promise<void> {
     // Proactively wipe any Keychain-resident auth state left over from a
     // previous install before Firebase Auth even initializes. Same shared
     // wipe every sign-out/delete path uses -- see secureStoreKeys.ts.
-    await wipeFirebaseAuthSecureStore('[wipeStaleSessionOnFreshInstall]');
-    await setJSON(MARKER_KEY, true);
+    const wiped = await wipeFirebaseAuthSecureStore('[wipeStaleSessionOnFreshInstall]');
+    // Only record a wipe that actually wiped. The marker is the single thing
+    // stopping every later launch from retrying, so setting it after a failed
+    // attempt closes §2.5's window permanently on a session that is still
+    // sitting there -- on exactly the resold or restored phone the wipe exists
+    // for. The wipe is best-effort by design (secureStoreKeys.ts catches every
+    // delete), so it resolves just as happily when it deleted nothing; the
+    // return value is how the two are told apart. Leaving the marker unset
+    // costs one redundant round of deletes next launch, which is a no-op.
+    if (wiped) await setJSON(MARKER_KEY, true);
   }
 }

@@ -303,9 +303,24 @@ export function updateGoal(goals, id, patch, nowMs = Date.now()) {
   // phone. When the time really did change, the newer edit wins and the goal
   // collapses to that single time -- deliberate, since one time is all this
   // form can express. Multi-time schedules stay editable on the phone.
-  if (notifyAt !== current.notifyAt) {
-    if (notifyAt === undefined) delete updated.notifyTimes;
-    else updated.notifyTimes = [notifyAt];
+  // Only a real NEW time collapses the list. Clearing the time (the "Remind
+  // me" toggle going off, which sends notifyAt: null) must NOT delete
+  // notifyTimes: app/src/goals/goals.ts:422 keeps `g.notifyTimes` whenever the
+  // patch doesn't name that field, and `notify: false` is already what
+  // switches reminders off. Deleting it here meant a goal the user had set to
+  // 09:00 + 18:00 on their phone came back single-timed after they toggled
+  // the reminder off and on again from the dashboard -- and because the
+  // website's write carries the newer `updatedAt`, mergeGoals' LWW compare
+  // then propagated that loss down to the phone.
+  if (notifyAt !== undefined && notifyAt !== current.notifyAt) {
+    updated.notifyTimes = [notifyAt];
+  }
+  // notifyTimes is the authority the phone reads (goalReminders.ts's
+  // goalNotifyTimes: a non-empty list wins outright and notifyAt is ignored),
+  // so the legacy notifyAt mirror is re-derived from it on every write rather
+  // than left to drift -- the same thing the app's updateGoal does.
+  if (Array.isArray(updated.notifyTimes) && updated.notifyTimes.length > 0) {
+    updated.notifyAt = updated.notifyTimes[0];
   }
 
   next[idx] = updated;

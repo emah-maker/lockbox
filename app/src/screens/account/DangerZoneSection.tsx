@@ -23,6 +23,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, Alert } from 'react-native';
 import { useAuthStore, AccountDataWipedError, PasswordRequiredError } from '../../auth/useAuthStore';
+import { providerActionErrorMessage } from '../../auth/accountDisplay';
 import { useTheme } from '../../theme/useTheme';
 import { AnimatedPressable } from '../../ui/AnimatedPressable';
 import { Button, Section, captionStyle } from '../SettingsPrimitives';
@@ -110,10 +111,25 @@ export function DangerZoneSection({ color }: { color: ReturnType<typeof useTheme
         // so correcting it is the obvious next step.
         setDeleteError('Incorrect password. Please try again.');
       } else {
-        // Generic message only (spec §4) -- never interpolate the
-        // underlying error in case a future failure mode ever carries more
-        // than a plain string message.
-        setDeleteError('Could not delete account. Please try again.');
+        // Generic message only (spec §4) -- never interpolate the underlying
+        // error in case a future failure mode ever carries more than a plain
+        // string message. providerActionErrorMessage supplies exactly that
+        // generic string for every real failure; what it adds is `null` for a
+        // cancel, which this branch used to render as "Could not delete
+        // account. Please try again."
+        //
+        // Deleting the account re-authenticates first, so backing out of the
+        // Apple sheet or the Google picker lands here -- appleAuth.ts and
+        // googleAuth.ts both throw their cancel messages on this path too.
+        // The user called the deletion off and was told it had failed, which
+        // reads as "it tried and something broke": the opposite of what
+        // happened, and an invitation to retry something they meant to stop.
+        // Every other cancel in this app is silent for that reason
+        // (signInErrorMessage and providerActionErrorMessage both return null
+        // for /cancel/i); this was the one path that never consulted them.
+        setDeleteError(
+          providerActionErrorMessage(e as { code?: string; name?: string; message?: string }, 'Could not delete account. Please try again.'),
+        );
       }
     } finally {
       setBusy(false);

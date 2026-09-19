@@ -18,6 +18,23 @@ export const TOPIC_LABELS = {
   other: 'Other',
 };
 
+/** "Is this one of the six real built-in topic keys" -- the port of
+ * app/src/stats/topics.ts's isTopicKey, and deliberately NOT
+ * `topic in TOPIC_LABELS`. TOPIC_LABELS is a plain object literal, so `in`
+ * also matches everything inherited from Object.prototype ('constructor',
+ * 'toString', 'valueOf', 'hasOwnProperty', '__proto__', ...). A one-time
+ * free-text tag can be literally the string 'constructor' -- the app's
+ * TopicPicker sends whatever the user types, and firestore.rules accepts any
+ * string -- and `in` then treated it as a built-in topic: TOPIC_LABELS[topic]
+ * returned the INHERITED function instead of a name and TOPIC_HEX[topic] was
+ * undefined, so resolveTopic handed statsCards.js a `color` of undefined,
+ * compositeHex threw on it, and the whole dashboard fell to its error state
+ * on every load until the tag was removed on the phone. TOPIC_KEYS is an
+ * array, so .includes has no inherited-property hazard. */
+export function isTopicKey(topic) {
+  return TOPIC_KEYS.includes(topic);
+}
+
 // Light/dark variants, matching app/src/stats/topics.ts's TOPIC_HEX exactly --
 // the dashboard now resolves the signed-in user's actual themeMode (synced to
 // users/{uid}/settings/app) rather than assuming dark, so topic colors need
@@ -161,7 +178,7 @@ export function deleteCustomLabel(labels, id) {
  * carry an exclusion opinion. */
 export function sessionCountsTowardTotals(topic, labels, excludedTopicKeys = []) {
   if (!topic) return true;
-  if (topic in TOPIC_LABELS) return !excludedTopicKeys.includes(topic);
+  if (isTopicKey(topic)) return !excludedTopicKeys.includes(topic);
   const label = (labels || []).find((l) => l.id === topic);
   return !(label && label.excludeFromTotals);
 }
@@ -304,7 +321,7 @@ export function isCustomLabelId(topic) {
  * it, which is what gave the bug away. */
 export function resolveTopic(topic, customLabels, mode = 'dark') {
   if (!topic) return null;
-  if (topic in TOPIC_LABELS) {
+  if (isTopicKey(topic)) {
     const color = TOPIC_HEX[topic][mode] || TOPIC_HEX[topic].dark;
     return { id: topic, label: TOPIC_LABELS[topic], color, textColor: readableTextColor(color), isCustom: false, isOneTime: false };
   }

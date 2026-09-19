@@ -3,34 +3,27 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Phone Box — The Smart Focus Lockbox</title>
-  <meta name="description" content="Phone Box is a phone lockbox I designed, printed, and coded myself: true physical lockaway, a touchscreen countdown, a tunable emergency override, and a BLE companion app. A personal project, not a product for sale." />
-
-  <!-- PLACEHOLDER DOMAIN: every absolute URL below (og:url, og:image, twitter:image,
-       canonical) uses https://phonebox.example.com as a stand-in.
-       `example.com` is the IANA-reserved documentation domain (RFC 2606), chosen
-       specifically so it can't collide with anyone's real site. Swap every occurrence
-       for the real production domain before this page goes live, or link previews
-       (Slack/iMessage/Twitter/Facebook) will point at a non-existent host. -->
+  <title>Phone Box — a smart focus lockbox built by Evan Mah</title>
+  <meta name="description" content="Phone Box is a phone lockbox I designed and printed myself, with firmware and an iOS companion app I specified, tested, and debugged using Claude Code. A personal project, never sold." />
 
   <!-- Open Graph: without these, sharing this URL anywhere renders a blank card. -->
   <meta property="og:type" content="website" />
   <meta property="og:site_name" content="Phone Box" />
-  <meta property="og:title" content="Phone Box — The Smart Focus Lockbox" />
-  <meta property="og:description" content="Set a timer, drop your phone in, and it stays physically locked away until you're done. A personal project: touchscreen countdown, tunable emergency override, custom firmware, and a BLE companion app. Never sold." />
-  <meta property="og:url" content="https://phonebox.example.com/" />
-  <meta property="og:image" content="https://phonebox.example.com/assets/og-image.png" />
-  <meta property="og:image:width" content="1280" />
-  <meta property="og:image:height" content="860" />
-  <meta property="og:image:alt" content="Phone Box, an opaque 3D-printed lockbox with a touchscreen countdown, resting in a stainless checkpoint tray with its claim ticket attached." />
+  <meta property="og:title" content="Phone Box — a smart focus lockbox built by Evan Mah" />
+  <meta property="og:description" content="A phone lockbox I designed and printed over summer 2026: servo latch, 1.47-inch touchscreen, ESP32-S3, and an iOS companion app over BLE. Two enclosure revisions in SolidWorks; Claude Code wrote the firmware and app while I specified, tested, and debugged them. Never sold." />
+  <meta property="og:url" content="https://phonebox-d14b7.web.app/" />
+  <meta property="og:image" content="https://phonebox-d14b7.web.app/assets/og-image.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:image:alt" content="A share card reading Phone Box, a phone lockbox I designed, printed, and built over summer 2026, badged Personal project - never sold and credited to Evan Mah, Mechanical Engineering, Northeastern University, beside a photograph of the finished black 3D-printed box with its touchscreen showing 88 percent battery." />
 
   <!-- Twitter Card: mirrors the Open Graph tags above so X/Twitter previews match. -->
   <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:title" content="Phone Box — The Smart Focus Lockbox" />
-  <meta name="twitter:description" content="Set a timer, drop your phone in, and it stays physically locked away until you're done. Touchscreen countdown, tunable emergency override, and a BLE companion app — a personal project, never sold." />
-  <meta name="twitter:image" content="https://phonebox.example.com/assets/og-image.png" />
+  <meta name="twitter:title" content="Phone Box — a smart focus lockbox built by Evan Mah" />
+  <meta name="twitter:description" content="A phone lockbox I designed and printed over summer 2026 — servo latch, touchscreen, ESP32-S3, BLE companion app. Two enclosure revisions in SolidWorks; Claude Code wrote the code while I specified, tested, and debugged. Never sold." />
+  <meta name="twitter:image" content="https://phonebox-d14b7.web.app/assets/og-image.png" />
 
-  <link rel="canonical" href="https://phonebox.example.com/" />
+  <link rel="canonical" href="https://phonebox-d14b7.web.app/" />
   <meta name="theme-color" content="#0b0b0c" />
 
   <!-- No JSON-LD Product schema here: this is a personal project that has
@@ -47,14 +40,6 @@
   <noscript><style>.reveal { opacity: 1 !important; transform: none !important; }</style></noscript>
 </head>
 <body>
-  <!-- impeccable:direction
-  THESIS: your phone isn't secured by a promise -- it's processed, like a restricted item surrendered at a checkpoint, and the stub in your hand is the only way it comes back.
-  OWN-WORLD: matte institutional charcoal + achromatic brushed-steel chrome (never a status color) + thermal claim-ticket paper; rubber ink-stamps map SEIZED/HOLDING/CLEARED to the firmware's real red/amber/green. Bebas Neue + Archivo + Courier Prime + VT323 (ticket readout only).
-  STORY: visitor understands the box is a real surrender-and-reclaim system with a documented, tunable release process -- not a soft toggle -- and is convinced it's a serious build because "how do I get it back" is answered before they ask it.
-  FIRST VIEWPORT: headline + lead + stamped CTA left; the honest device in a stainless checkpoint tray with a live claim-ticket tag (barcode, countdown, SEIZED stamp) right.
-  FORM: Checkpoint Claim-Ticket world, direction seed dc54e762 (assigned index 6), raised past Fletcher/torn-flyer/collider/quilt/raku challengers: one pictorial device per section, a permanent stamped record of every session and override, stats as bold graphic marks.
-  FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md.
-  -->
   <a class="skip-link" href="#main">Skip to content</a>
 
   <!-- ===== NAV ===== -->
@@ -76,12 +61,12 @@
       <div class="nav__menu" id="navMenu">
         <div class="nav__menu-inner">
           <nav class="nav__links" aria-label="Primary">
+            <a href="#build">The build</a>
             <a href="#pillars">Features</a>
             <a href="#how">How it works</a>
-            <a href="#adjust">Settings</a>
             <a href="#compare">Compare</a>
             <a href="#faq">FAQ</a>
-            <a href="dashboard.html">Dashboard</a>
+            <a href="#builder">Who built it</a>
           </nav>
         </div>
       </div>
@@ -107,6 +92,7 @@
           <p style="margin-top:18px;">
             <span class="ticket-badge">Personal project · not for sale</span>
           </p>
+          <p class="hero__byline">Built by <a href="#builder">Evan Mah</a> — mechanical engineering undergraduate, Northeastern University.</p>
           <ul class="hero__points">
             <li>True physical lockaway</li>
             <li>Two full enclosure revisions</li>
@@ -119,7 +105,7 @@
           <div class="checkpoint">
             <div class="checkpoint__tray">
               <figure class="device" role="img"
-                aria-label="Phone Box device: an opaque 3D-printed lockbox with a small portrait touchscreen showing a red SEIZED countdown timer and a battery indicator, sitting in a stainless checkpoint tray with an attached claim ticket.">
+                aria-label="Illustration of the Phone Box device: an opaque 3D-printed lockbox with a small portrait touchscreen showing a red SEIZED countdown timer and a battery indicator, sitting in a stainless checkpoint tray with an attached claim ticket.">
                 <div class="device__lid"></div>
                 <div class="device__screen" id="mockScreen">
                   <div class="scr">
@@ -137,7 +123,7 @@
                       <div class="scr__bar"><span id="mockBar"></span></div>
                     </div>
                     <div class="scr__foot">
-                      <span class="scr__hint">HOLD OVERRIDE &times;25</span>
+                      <span class="scr__hint">PRESS OVERRIDE &times;25</span>
                     </div>
                   </div>
                 </div>
@@ -179,6 +165,153 @@
       </div>
     </section>
 
+    <!-- ===== THE BUILD (process + honest attribution) ===== -->
+    <section class="build" id="build" aria-labelledby="build-title">
+      <div class="wrap">
+        <div class="section-head reveal">
+          <h2 id="build-title">How it actually got built.</h2>
+          <p class="section-sub">Two enclosure revisions, a pile of test prints, and a clear line between what I did and what an agent did.</p>
+        </div>
+
+        <div class="proof reveal">
+          <figure class="proof__item">
+            <img src="assets/photos/device-battery.webp" width="780" height="1040" loading="lazy" decoding="async"
+                 alt="The finished Phone Box: a matte black 3D-printed enclosure with visible layer lines, its 1.47-inch touchscreen reading BATTERY, 88 percent, 4.01 volts, held in one hand." />
+            <figcaption>The battery view, reading off the MAX17043 &mdash; 88%, 4.01&nbsp;V.</figcaption>
+          </figure>
+          <figure class="proof__item">
+            <img src="assets/photos/device-timer.webp" width="780" height="1040" loading="lazy" decoding="async"
+                 alt="The same box with a finger on the touchscreen, setting a timer that reads 0:05, with the lock button below it." />
+            <figcaption>Setting a lock on the panel itself. No phone involved.</figcaption>
+          </figure>
+          <p class="proof__note">
+            Both are frames lifted from a clip of the actual box, so they are softer than
+            I would like. They are here because a render proves nothing and this proves
+            the thing exists. The source is a private repo &mdash; happy to walk anyone
+            through the tree.
+          </p>
+        </div>
+
+        <!-- iteration evidence -->
+        <div class="manifest">
+          <article class="manifest__row reveal">
+            <span class="manifest__num">No. 1</span>
+            <div class="manifest__body">
+              <h3>Print the joint before you print the box</h3>
+              <p>
+                The enclosure is mine end to end &mdash; modelled in <strong>SolidWorks</strong>
+                and drawn for FDM printing, through two full revisions. Every interface that
+                could bite got its own throwaway coupon first: a hinge, the charger port, the
+                screen bezel, the latch tab, the power switch, and a housing for the on/off
+                button. Each one printed, offered up to the real component, and binned.
+              </p>
+              <p>
+                Only once those passed did a full V2 assembly get committed to a multi-hour
+                print. The dates below are the CAD files themselves &mdash; six coupons in five days, five of
+                them in a single session, then the assembly.
+              </p>
+              <div class="printlog">
+                <div class="printlog__head">
+                  <span class="spec-sheet__title">Fit-test log</span>
+                  <span class="spec-sheet__num">V1 &rarr; V2</span>
+                </div>
+                <dl class="printlog__list">
+                  <div class="printlog__row"><dt>Main case + lid, rev 1</dt><dd>17&ndash;22 Aug</dd></div>
+                  <div class="printlog__row"><dt>Hinge coupon</dt><dd>18 Aug</dd></div>
+                  <div class="printlog__row"><dt>Charger-port coupon</dt><dd>18 Aug</dd></div>
+                  <div class="printlog__row"><dt>Latch-tab coupon</dt><dd>18 Aug</dd></div>
+                  <div class="printlog__row"><dt>Power-switch coupon</dt><dd>18 Aug</dd></div>
+                  <div class="printlog__row"><dt>On/off button housing</dt><dd>18 Aug</dd></div>
+                  <div class="printlog__row"><dt>Screen-bezel coupon</dt><dd>22 Aug</dd></div>
+                  <div class="printlog__row printlog__row--final"><dt>Full V2 assembly</dt><dd>24 Aug</dd></div>
+                </dl>
+              </div>
+              <span class="card__tag stamp stamp--note">SolidWorks &middot; FDM &middot; two revisions</span>
+            </div>
+          </article>
+
+          <article class="manifest__row reveal">
+            <span class="manifest__num">No. 2</span>
+            <div class="manifest__body">
+              <h3>The servo kept dying, and only on real hardware</h3>
+              <p>
+                Locks failed intermittently, and never in anything I could reason about on
+                screen. I found it by running lock cycles on the bench until the pattern
+                showed up. It turned out to be two faults wearing one coat: the CPU clock
+                scaling out from under the servo's PWM timer, and a motor that pulls close
+                to an amp hanging off a rail that cannot supply it. The firmware re-asserts
+                50&nbsp;Hz on every move, and the servo runs from the battery rail with
+                bulk capacitance rather than 3.3&nbsp;V.
+              </p>
+              <span class="card__tag stamp stamp--note">Found on hardware</span>
+            </div>
+          </article>
+
+          <article class="manifest__row reveal">
+            <span class="manifest__num">No. 3</span>
+            <div class="manifest__body">
+              <h3>Getting a battery reading at all</h3>
+              <p>
+                The ESP32-S3 board has no fuel gauge. I bought a MAX17043 breakout and
+                modified it by hand &mdash; disconnecting lines, soldering, crimping &mdash;
+                until the box could report a real state of charge instead of guessing from
+                a raw ADC voltage.
+              </p>
+              <span class="card__tag stamp stamp--note">Soldering &middot; crimping</span>
+            </div>
+          </article>
+
+          <figure class="wiring reveal">
+            <img src="assets/wiring-diagram.svg" width="2000" height="1250" loading="lazy" decoding="async"
+                 alt="Electrical wiring diagram for Phone Box: the ESP32-S3 board with its 1.47-inch touchscreen, the MAX17043 fuel gauge on I2C, the LiPo cell and USB-C charge path, the servo on GPIO5 powered from the battery rail rather than 3.3 volts, and the override button." />
+            <figcaption>
+              What is actually wired together inside the box &mdash; the servo on its own supply
+              rather than the 3.3&nbsp;V rail, and the MAX17043 on I2C.
+              <a class="wiring__open" href="assets/wiring-diagram.svg" target="_blank" rel="noopener">Open it full size</a>
+              if the pin labels are too small to read here.
+            </figcaption>
+          </figure>
+        </div>
+        <!-- chain of custody: honest split of who did what -->
+        <div class="custody reveal">
+          <div class="custody__head">
+            <span class="spec-sheet__title">Chain of custody</span>
+            <span class="spec-sheet__num">No. 0417</span>
+          </div>
+          <div class="barcode" aria-hidden="true"></div>
+          <div class="custody__cols">
+            <div class="custody__col">
+              <h3 class="custody__label">Signed by me</h3>
+              <ul>
+                <li>Industrial and mechanical design &mdash; two full enclosure revisions in SolidWorks, drawn for FDM printing</li>
+                <li>Every fit-test part, printed and checked against the real component before committing to an assembly</li>
+                <li>The MAX17043 breakout modification &mdash; lines disconnected, soldered, crimped by hand</li>
+                <li>Finding the faults on real hardware: the intermittent servo failures and the touchscreen dropping frames</li>
+                <li>Specifying what the box should do, testing every build on the physical device, and debugging what came back wrong</li>
+                <li>Tooling calls: parametric-CAD MCP to screen battery candidates for enclosure fit, and cutting an agent-swarm framework whose subagents cut token cost but never reported results back</li>
+              </ul>
+            </div>
+            <div class="custody__col">
+              <h3 class="custody__label">Signed by Claude Code</h3>
+              <ul>
+                <li>Most of the CircuitPython firmware, including the servo state machine and the custom AXS5106L touch driver</li>
+                <li>Most of the React Native (Expo) companion app and the Firebase backend behind it, plus the two native iOS modules it leans on &mdash; <code>call-observer</code> and <code>background-wake</code></li>
+                <li>Diagnosing the root cause of the servo brownout once I'd found it, and the capacitor fix that solved it</li>
+                <li>The touch debounce fix for the frames the controller drops mid-touch</li>
+                <li>The wiring diagram above, derived from the firmware&rsquo;s own config and driver files</li>
+              </ul>
+            </div>
+          </div>
+          <p class="custody__note">
+            I can't write React Native cold and I didn't write the firmware. I decided what the
+            box should do, built the thing it runs inside, tested every revision on real
+            hardware, and drove the agent that wrote the code across 200-plus commits. Saying
+            that plainly seemed better than letting anyone find out in an interview.
+          </p>
+        </div>
+      </div>
+    </section>
+
     <!-- ===== PILLARS ===== -->
     <section class="pillars" id="pillars" aria-labelledby="pillars-title">
       <div class="wrap">
@@ -207,8 +340,9 @@
               <p>
                 Swipe to set hours, minutes and seconds. Watch a live countdown,
                 check the battery, tweak settings — all on a crisp 1.47" screen. The
-                touch controller (AXS5106L, over I2C) runs on a driver I wrote myself,
-                not an off-the-shelf library.
+                AXS5106L touch controller had no CircuitPython driver, so the box runs
+                a custom one over I2C — including a debounce fix for the frames the
+                controller intermittently drops mid-touch.
               </p>
             </div>
           </article>
@@ -218,9 +352,11 @@
             <div class="manifest__body">
               <h3>Every routine lives on the device</h3>
               <p>
-                Schedules, routines and focus streaks are stored in the firmware's
-                own memory (NVM) — nothing lives in a cloud account, and nothing
-                needs a subscription to keep working.
+                Schedules, routines and focus streaks live in the microcontroller's own
+                non-volatile memory — no cloud account, no host-writable filesystem. State
+                survives a full power cut, and a brownout counter in that same NVM drives
+                automatic recovery when the servo's inrush current browns out the board
+                mid-lock.
               </p>
             </div>
           </article>
@@ -231,8 +367,10 @@
               <h3>Opaque, rechargeable, honest build</h3>
               <p>
                 An opaque enclosure means no seeing notifications through the case.
-                USB-C charging, a rechargeable LiPo, and a battery percentage
-                calibrated against a real multimeter — not a guessed number.
+                USB-C charging and a rechargeable LiPo. The board has no fuel gauge, so I added
+                one: a MAX17043 breakout, modified by hand — cutting the traces tying its
+                3 V rail to the battery rail, then soldering and crimping it in. It shares
+                the touchscreen's I2C bus at 0x36, so it costs no extra GPIO.
               </p>
             </div>
           </article>
@@ -292,19 +430,19 @@
                     <source src="assets/video/screen/override-loop.webm" type="video/webm" media="(prefers-reduced-motion: no-preference)">
                   </video>
                 </div>
-                <figcaption class="override-inset__caption">The box&rsquo;s actual override screen</figcaption>
+                <figcaption class="override-inset__caption">Override screen, redrawn from the firmware’s own UI geometry</figcaption>
               </figure>
             </div>
-            <p>Set how hard it is to bail out early. Make it a light 10-press nudge or a serious 100-press commitment. Default is 25.</p>
-            <div class="setting__track" aria-hidden="true"><span class="setting__fill" style="--w:22%"></span><span class="setting__thumb" style="--x:22%"></span></div>
-            <div class="setting__scale" aria-hidden="true"><span>10</span><span>Default 25</span><span>100</span></div>
+            <p>Set how hard it is to bail out early. Make it a light 5-press nudge or a serious 500-press commitment, in steps of 5. Default is 25.</p>
+            <div class="setting__track" aria-hidden="true"><span class="setting__fill" style="--w:4%"></span><span class="setting__thumb" style="--x:4%"></span></div>
+            <div class="setting__scale" aria-hidden="true"><span>5</span><span>Default 25</span><span>500</span></div>
             <div class="override-demo">
               <div class="tear" style="color:var(--border-soft);"></div>
-              <p class="section-sub" style="margin:0 0 0;font-size:13.5px;text-align:left;">Try the default 25-press override right here — every release gets logged, never quietly reset:</p>
+              <p class="section-sub" style="margin:0 0 0;font-size:13.5px;text-align:left;">Try the default 25-press override right here. On the box itself, every release is written to on-device memory:</p>
               <div class="override-demo__row">
                 <button type="button" class="override-demo__btn" id="overrideBtn">Press to release</button>
                 <div class="override-demo__ticks" id="overrideTicks" aria-hidden="true"></div>
-                <span class="override-demo__status" id="overrideStatus">0 / 25</span>
+                <span class="override-demo__status" id="overrideStatus" role="status" aria-live="polite" aria-atomic="true">0 / 25</span>
               </div>
             </div>
           </article>
@@ -389,7 +527,7 @@
             <div class="spec-sheet__row"><dt>Focus session length</dt><dd>Up to 9 hours</dd></div>
             <div class="spec-sheet__row"><dt>Settings storage</dt><dd>On-device, survives power-off</dd></div>
             <div class="spec-sheet__row"><dt>Connectivity required</dt><dd>None &mdash; no account, fully offline</dd></div>
-            <div class="spec-sheet__row"><dt>Firmware</dt><dd>~7,900 lines of custom CircuitPython</dd></div>
+            <div class="spec-sheet__row"><dt>Firmware</dt><dd>CircuitPython on ESP32-S3</dd></div>
             <div class="spec-sheet__row"><dt>Companion app</dt><dd>iOS, custom BLE protocol</dd></div>
           </dl>
         </div>
@@ -536,8 +674,36 @@
               </button>
             </h3>
             <div class="acc__panel" id="a6" role="region" aria-labelledby="q6" hidden>
-              <p>No — Phone Box has never been sold and isn't for sale. It's a personal project I designed, printed, and coded for my own use over summer 2026. This site exists to show how it was built, not to sell it.</p>
+              <p>No — Phone Box has never been sold and isn't for sale. It&rsquo;s a personal project I built for my own use over summer 2026 — I designed and printed the enclosure, modified the electronics by hand, and used Claude Code to write the firmware and the iOS app while I specified, tested, and debugged them. This site exists to show how it was built, not to sell it.</p>
             </div>
+          </div>
+        </div>
+      </div>
+    </section>
+    <!-- ===== WHO BUILT THIS ===== -->
+    <section class="builder" id="builder" aria-labelledby="builder-title">
+      <div class="wrap builder__inner reveal">
+        <div class="builder__card">
+          <div class="custody__head">
+            <span class="spec-sheet__title">Claimed by</span>
+            <span class="spec-sheet__num">No. 0417</span>
+          </div>
+          <div class="barcode" aria-hidden="true"></div>
+          <h2 id="builder-title">Evan Mah</h2>
+          <p class="builder__role">Mechanical engineering undergraduate, Northeastern University &middot; Boston, MA</p>
+          <p class="builder__bio">
+            I build hardware and drive agents to write the software around it. Phone Box was
+            a summer 2026 project: I wanted one, nothing on the market did what I needed, so
+            I designed the enclosure in SolidWorks, modified the electronics by hand, and
+            used Claude Code to take it from firmware through a React Native app on iOS. It has never
+            been sold. It sits on my desk and it works.
+          </p>
+          <p class="builder__bio">
+            I&rsquo;m looking for a mechanical engineering co-op for July&ndash;December 2027.
+          </p>
+          <div class="builder__links">
+            <a class="btn btn--primary" href="mailto:mah.e@northeastern.edu">Email me</a>
+            <a class="btn btn--ghost" href="https://www.linkedin.com/in/evan-mah-855b57269" target="_blank" rel="noopener">LinkedIn</a>
           </div>
         </div>
       </div>
@@ -549,7 +715,8 @@
     <div class="wrap footer__inner">
       <div class="footer__brand">
         <span class="brand__name">Phone&nbsp;Box</span>
-        <p>A phone lockbox I designed and built myself.</p>
+        <p>A phone lockbox I designed and built for myself, with an agent on the code.</p>
+        <p class="footer__by">Built by <a href="#builder">Evan Mah</a> · <a href="mailto:mah.e@northeastern.edu">mah.e@northeastern.edu</a></p>
       </div>
       <nav class="footer__links" aria-label="Footer">
         <a href="#pillars">Features</a>
@@ -557,7 +724,8 @@
         <a href="#adjust">Settings</a>
         <a href="#compare">Compare</a>
         <a href="#faq">FAQ</a>
-        <a href="dashboard.html">Dashboard</a>
+        <a href="#builder">Who built it</a>
+        <a href="dashboard.html">Dashboard (sign-in)</a>
         <a href="privacy.html">Privacy</a>
       </nav>
       <p class="footer__legal">© 2026 Phone Box. A personal project — not a product for sale.</p>

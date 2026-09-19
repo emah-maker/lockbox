@@ -105,8 +105,36 @@ export async function linkGoogleToCurrentUser(user: User): Promise<User> {
  * below, which is exactly where each used to run it inline.
  */
 async function revokeGoogleGrant(): Promise<void> {
-  await GoogleSignin.revokeAccess().catch(() => {}); // invalidates the grant at Google, not just the local session
-  await GoogleSignin.signOut().catch(() => {});
+  // Bounded, because "best-effort" only holds if it can also STOP. Both calls
+  // below reach Google's servers, and the `.catch` on each covers a rejection
+  // but not a request that simply never comes back -- on which signOutFully
+  // never settles, and with it the SecureStore wipe that runs after it. Every
+  // other network call this app awaits on a user-facing path is bounded for
+  // the same reason (PUSH_CLEANUP_TIMEOUT_MS, SYNC_TIMEOUT_MS,
+  // DELETE_WIPE_TIMEOUT_MS in useAuthStore); this was the one that was not.
+  //
+  // Short, because nothing downstream depends on the outcome: the Firebase
+  // session is already gone by the time this runs, so a skipped revoke costs
+  // a stale OAuth grant at Google, against a sign-out that never finishes.
+  await withRevokeTimeout(GoogleSignin.revokeAccess()); // invalidates the grant at Google, not just the local session
+  await withRevokeTimeout(GoogleSignin.signOut());
+}
+
+const GOOGLE_REVOKE_TIMEOUT_MS = 5_000;
+
+/** Resolves either way: a timeout here is not a failed sign-out, and neither
+ * is a rejection -- see revokeGoogleGrant's note. Logged, never thrown. */
+function withRevokeTimeout(work: Promise<unknown>): Promise<void> {
+  return new Promise<void>((resolve) => {
+    const timer = setTimeout(() => {
+      console.warn('[googleAuth] Google grant revoke did not finish; continuing sign-out.');
+      resolve();
+    }, GOOGLE_REVOKE_TIMEOUT_MS);
+    void work.then(
+      () => { clearTimeout(timer); resolve(); },
+      () => { clearTimeout(timer); resolve(); },
+    );
+  });
 }
 
 /**

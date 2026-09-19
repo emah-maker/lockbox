@@ -1013,7 +1013,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ linkError: null });
     const auth = getFirebaseAuth();
     const current = auth.currentUser;
-    if (!current) return;
+    // Throw rather than resolve quietly. To SignInMethodsSection a silent
+    // resolve is indistinguishable from success -- the spinner stops, no
+    // error appears, and the chip row is unchanged -- so the user is told
+    // the link (or unlink) happened when no picker ever opened. Narrow to
+    // reach, since that section unmounts once the store's `user` is null,
+    // but the store is what makes these actions safe to call from anywhere.
+    // Same generic, credential-free wording as unlinkProvider's own guard.
+    if (!current) throw new Error('You are not signed in any more.');
     // Deliberately not routed through handleProviderSignIn/pendingLink --
     // that flow is for the sign-in-time conflict case (not yet signed in,
     // Firebase itself rejected the credential). Here the user is already
@@ -1039,7 +1046,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ linkError: null }); // see linkProvider's note
     const auth = getFirebaseAuth();
     const current = auth.currentUser;
-    if (!current) return;
+    // Throw rather than resolve quietly. To SignInMethodsSection a silent
+    // resolve is indistinguishable from success -- the spinner stops, no
+    // error appears, and the chip row is unchanged -- so the user is told
+    // the link (or unlink) happened when no picker ever opened. Narrow to
+    // reach, since that section unmounts once the store's `user` is null,
+    // but the store is what makes these actions safe to call from anywhere.
+    // Same generic, credential-free wording as unlinkProvider's own guard.
+    if (!current) throw new Error('You are not signed in any more.');
     // Same "already signed in, adding on purpose" case as linkProvider above
     // (see its comment), but kept as its own action rather than a case
     // linkProvider handles: linking a password needs the typed email/password
@@ -1057,7 +1071,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ linkError: null }); // see linkProvider's note
     const auth = getFirebaseAuth();
     const current = auth.currentUser;
-    if (!current) return;
+    // Throw rather than resolve quietly. To SignInMethodsSection a silent
+    // resolve is indistinguishable from success -- the spinner stops, no
+    // error appears, and the chip row is unchanged -- so the user is told
+    // the link (or unlink) happened when no picker ever opened. Narrow to
+    // reach, since that section unmounts once the store's `user` is null,
+    // but the store is what makes these actions safe to call from anywhere.
+    // Same generic, credential-free wording as unlinkProvider's own guard.
+    if (!current) throw new Error('You are not signed in any more.');
     if (!canUnlink(current.providerData.map((p) => p.providerId))) {
       // Generic, credential-free message matching this file's other thrown
       // errors -- this should be unreachable from a UI that itself gates the

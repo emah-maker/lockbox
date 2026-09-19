@@ -143,24 +143,50 @@ read touch → process touch/gesture → run buttons → `ctrl.update()` → sle
 
 ## 7. Battery (`lock_battery.py`) — real hardware constraints
 
-- The board has **NO fuel gauge and NO current sensor**. Battery voltage is on an
-  onboard **200K/100K divider (net BAT_ADC) → GPIO12**, an internal **ADC2** net
-  (not on the header; resolved via `microcontroller.pin.GPIO12`). Confirmed from
-  the board schematic + the CircuitPython board definition.
-- **The cell is a standard 1000 mAh LiPo (PL102050):** full **4.2 V**, nominal
-  3.7 V (the label number — NOT full), BMS cutoff 2.75 V, max charge 500 mA.
-- **Calibration:** the raw ADC under‑reads; `BAT_DIVIDER=3.41` is calibrated so a
-  full cell reads ~4.2 V. If it's off, tweak proportionally:
-  `new = 3.41 × 4.2 / (your full reading)`. Best done against a multimeter.
-- **%** via `BAT_CURVE` (standard LiPo curve, 4.2 V=100% … 3.45 V=0%). Charging
-  detected via `supervisor.runtime.usb_connected` (or a rising voltage trend);
-  while charging, `BAT_CHG_COMP`=0.12 V is subtracted before mapping % (the charger
-  holds voltage elevated, so voltage‑only over‑reads).
-- **Watts is a coarse estimate** from the discharge rate (`BAT_CAPACITY_MAH`=1000),
-  labelled "(est)". True watts is impossible without a current sensor — an
-  **INA219/INA226** on the I²C bus (GPIO41/42, addr 0x40) would give real V + A + W.
-- Note: `BAT_PIN_CANDIDATES`/`BAT_VALID_*` are legacy from an auto‑detect phase
-  (now unused since the pin is fixed to GPIO12). Harmless.
+> Corrected 2026‑09‑10. The original 2026‑07 text described an ADC voltage
+> divider that no longer exists in the firmware; it also implied a multimeter
+> calibration that was never performed. Treat anything below as current.
+
+- **A MAX17043 fuel gauge is the only battery source the firmware reads.** It is
+  an aftermarket breakout that Evan physically modified — cutting the traces that
+  tie the breakout's 3V rail to the battery rail — then soldered and crimped into
+  the build. It sits at I²C **0x36 on the shared AXS5106L touch bus**
+  (GPIO41/42/47/48), so it costs no extra GPIO. Driver: `lib/max17043.py`, which
+  reads three registers only: VCELL (0x02), SOC (0x04), VERSION (0x08).
+- **There is no ADC fallback.** `BAT_SENSE_PIN`, `BAT_DIVIDER`, `BAT_CURVE`,
+  `BAT_CHG_COMP`, `BAT_PIN_CANDIDATES` and `BAT_VALID_*` no longer exist anywhere
+  in `Box-code/` — the divider + voltage‑curve path was deleted, not kept as a
+  backup. If the gauge doesn't ACK at 0x36, `Battery.available` goes False and no
+  reading is shown. (The board's own 200K/100K divider on net BAT_ADC → GPIO12 is
+  still physically present, so GPIO12 is still worth avoiding when picking a free
+  pin; the firmware just never reads it.)
+- **Volts and % come straight off the gauge.** ModelGauge compensates for load
+  and temperature in hardware, so `lock_battery.py` deliberately does **not**
+  re‑smooth or charge‑compensate the value. There is no voltage curve to map and
+  **no calibration constant to trim** — the numbers are as the part reports them.
+- **Charging** is still inferred from `supervisor.runtime.usb_connected`; the
+  gauge exposes no charge‑current register to detect it directly.
+- **Watts is still an estimate, and "no current sensor" still holds.** A MAX17043
+  is a *fuel gauge* (voltage + state of charge), **not** a current sensor —
+  ModelGauge needs no sense resistor and the part has no current register. So
+  watts is derived from how fast state of charge falls: fractional SOC (1/256 %
+  steps) over a window of at least `BAT_WATT_WINDOW_S`=20 s, scaled by
+  `BAT_CAPACITY_MAH`, and decayed toward a bound after `BAT_WATT_CEILING_S`=60 s
+  with no movement. Still labelled "(est)". **True watts remains impossible
+  without a current sensor** — an **INA219/INA226** on the same I²C bus (addr
+  0x40, no conflict with 0x36) would give real V + A + W.
+- **The cell is 5000 mAh as of the v2 build** (confirmed by Evan, 2026‑09‑10).
+  `BAT_CAPACITY_MAH` was raised 1000 → 5000 on 2026‑08‑17 (commit 7c30823) to match.
+  The older "1000 mAh PL102050" figure in this doc described **v1**; the
+  enclosure study in `docs/procurement/board-cost-reduction/` had already
+  confirmed room for a 2000–5000 mAh cell, and the v2 case was built around one.
+  The constant scales the watt estimate only — nothing else depends on it.
+- **Checking the gauge against a meter — procedure, never yet performed.** No
+  multimeter has ever been used on this project. Nothing in this section is a
+  record of a measurement. *If* you ever want to verify the gauge: measure the
+  cell with a multimeter and compare against the reported `cell_voltage`. Note
+  there is no firmware constant to adjust afterwards, so a mismatch would point
+  at the wiring or the part itself, not at a number in `lock_config.py`.
 
 ---
 
@@ -223,7 +249,8 @@ read touch → process touch/gesture → run buttons → `ctrl.update()` → sle
 - **Red power LED can't be turned off in software** — it's a hardwired power/charge
   indicator on the 5 V rail / charger STAT pin, not on a GPIO. Physical removal
   (desolder the LED or its resistor) is the only way.
-- **Watts** = estimate only (no current sensor); INA219 needed for real values.
+- **Watts** = estimate only. There is no current sensor — the MAX17043 fuel gauge
+  is not one (it reads voltage + state of charge). INA219 needed for real values.
 - **`display.brightness`** may be on/off‑only on this panel rather than true PWM
   dimming — if intermediate `Bright` settings don't visibly dim, the fix would be
   driving the backlight pin (GPIO46/LCD_BL) directly with `pwmio`. (Untested.)
@@ -253,7 +280,7 @@ read touch → process touch/gesture → run buttons → `ctrl.update()` → sle
 | `SERVO_HOLD_S` | 1.0 | servo hold before relax |
 | `BTN_LOCK_PIN` / `BTN_OVERRIDE_PIN` | GPIO1 / GPIO10 | buttons |
 | `OVERRIDE_PRESSES` / `OVR_*` | 25 / 10‑100 step 10 | override count (settable) |
-| `BAT_SENSE_PIN` / `BAT_DIVIDER` | GPIO12 / 3.41 | battery ADC + calibration |
+| `BAT_GAUGE_ADDR` / `BAT_CAPACITY_MAH` | 0x36 / 5000 | MAX17043 fuel gauge on the touch I²C bus + pack size (watt estimate only) |
 | `BL_LEVEL` / `BRIGHT_OPTIONS` | 0.5 / 10‑100% | backlight |
 | `INACTIVITY_S` / `SLEEP_OPTIONS` | 20 / 10‑60 s | screen sleep |
 | `CPU_FAST` / `CPU_SLOW` | 240 / 80 MHz | on / asleep |

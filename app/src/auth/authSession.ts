@@ -85,7 +85,12 @@ export async function reauthenticateCurrentUser(
 ): Promise<void> {
   const auth = getFirebaseAuth();
   const user = auth.currentUser;
-  if (!user) return;
+  // Same reasoning as deleteFirebaseUser below: this function's whole job is
+  // to prove the person at the phone is still present, and returning quietly
+  // when there is no user reports that proof as obtained without anyone
+  // having been asked for anything. Its one caller is the deletion retry, so
+  // a false success here is what lets the destructive step proceed.
+  if (!user) throw new Error('No signed-in user to re-authenticate.');
   const credential = await getCredential(user);
   await reauthenticateWithCredential(user, credential);
 }
@@ -130,7 +135,19 @@ export async function deleteFirebaseUser(
 ): Promise<void> {
   const auth = getFirebaseAuth();
   const user = auth.currentUser;
-  if (!user) return;
+  // Throw, never return. This runs as step 3 of deleteAccount, AFTER the
+  // cloud data has already been wiped, so a silent return here is the one
+  // outcome the flow must never produce: deleteAccount does not throw,
+  // clearSignedInState runs, the page swaps to signed-out, and the user is
+  // told their account is gone while the Firebase Auth user still exists and
+  // can be signed straight back into. Reachable when the session drops
+  // between the re-authentication and this call.
+  //
+  // AccountDataWipedError exists precisely to describe "your cloud data was
+  // deleted but removing the account itself failed", and deleteAccount's
+  // catch already turns anything thrown here into it. Returning quietly was
+  // the one way to route around that message.
+  if (!user) throw new Error('No signed-in user to delete.');
   await deleteUser(user);
   await providerCleanup?.();
   await wipeFirebaseAuthSecureStore(context);

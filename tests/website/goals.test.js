@@ -334,10 +334,34 @@ describe('updateGoal', () => {
       assert.deepEqual(updated[0].notifyTimes, ['08:00', '12:00']);
     });
 
-    it('clears the whole schedule when the reminder is switched off', () => {
+    // Was "clears the whole schedule when the reminder is switched off",
+    // which pinned a divergence rather than a requirement: the app's
+    // updateGoal (app/src/goals/goals.ts:422) keeps `g.notifyTimes` whenever
+    // the patch doesn't name that field, and switching the reminder off is
+    // `notify: false` -- not a request to forget WHEN it was set for. The old
+    // behavior meant a 09:00 + 18:00 schedule set on the phone came back
+    // single-timed after a toggle off and on from the dashboard, and the
+    // website's newer `updatedAt` then carried that loss down to the phone
+    // through mergeGoals' LWW compare.
+    it('switches the reminder off without forgetting the phone schedule', () => {
       const updated = updateGoal(multiTime(), 'goal:a', { notify: false, notifyAt: null }, 2000);
-      assert.equal(updated[0].notifyAt, undefined);
-      assert.ok(!('notifyTimes' in updated[0]), 'notifyTimes should be removed, not set to undefined');
+      assert.equal(updated[0].notify, false);
+      assert.deepEqual(updated[0].notifyTimes, ['08:00', '12:00']);
+      // Re-derived from notifyTimes[0], the same mirror the app maintains.
+      assert.equal(updated[0].notifyAt, '08:00');
+    });
+
+    // The ordinary single-time goal still clears completely -- there is no
+    // phone-set list to preserve, so nothing should be left behind.
+    it('clears notifyAt outright for a goal that has no notifyTimes list', () => {
+      const single = [{
+        id: 'goal:b', topic: null, period: 'daily', targetS: 3600,
+        createdAt: 1000, updatedAt: 1000, archived: false, notify: true, notifyAt: '08:00',
+      }];
+      const updated = updateGoal(single, 'goal:b', { notify: false, notifyAt: null }, 2000);
+      assert.equal(updated[0].notify, false);
+      assert.ok(!('notifyAt' in updated[0]), 'notifyAt should be removed, not set to undefined');
+      assert.ok(!('notifyTimes' in updated[0]), 'notifyTimes should not be invented');
     });
 
     it('never leaves notifyAt disagreeing with notifyTimes[0]', () => {

@@ -10,8 +10,11 @@
 - the GPIO pin map, and calibration. Change hardware/behavior constants there,
 - not scattered across modules.
 - Respect the pin map. When assigning pins, avoid strapping pins
-- (GPIO0/3/45/46) and pins already in use (GPIO12 battery sense, 41/42/47/48
-- touch, LCD pins). Current assignments: servo GPIO5, lock/sense button GPIO1,
+- (GPIO0/3/45/46) and pins already in use (GPIO12 — the board's own battery
+- divider net: still physically wired, so keep avoiding it, but the firmware no
+- longer reads it since the MAX17043 swap; 41/42/47/48 touch I2C, shared with
+- the MAX17043 fuel gauge @ 0x36; LCD pins). Current assignments: servo GPIO5,
+- lock/sense button GPIO1,
 - override button GPIO10. GPIO13-18 (formerly reserved for the SD card's 4-bit
 - SDIO bus) are free since the SD-card feature was removed (2026-07-24).
 - The live entry point is Box-code/code.py.

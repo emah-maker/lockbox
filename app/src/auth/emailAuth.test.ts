@@ -209,8 +209,13 @@ describe('signOutFully', () => {
 });
 
 describe('reauthenticateForDeletion', () => {
-  it('is a no-op when nobody is signed in', async () => {
-    await reauthenticateForDeletion('pw'); // authWithCurrentUser(null) from beforeEach
+  // Same reasoning as the no-email case below: this function's whole job is
+  // to prove the person holding the phone is still there, so resolving when
+  // there is nobody to ask reports that proof as obtained without anyone
+  // having been prompted -- and its one caller then proceeds to the
+  // destructive wipe on the strength of it.
+  it('throws rather than silently returning when nobody is signed in', async () => {
+    await expect(reauthenticateForDeletion('pw')).rejects.toThrow(); // authWithCurrentUser(null) from beforeEach
     expect(mockReauthenticateWithCredential).not.toHaveBeenCalled();
   });
 
@@ -250,8 +255,17 @@ describe('reauthenticateForDeletion', () => {
 });
 
 describe('deleteUserAccount', () => {
-  it('is a no-op when nobody is signed in', async () => {
-    await deleteUserAccount(); // authWithCurrentUser(null) from beforeEach
+  // Throws rather than returning silently, for the same reason the no-email
+  // case above does -- and with more at stake. This runs as step 3 of
+  // deleteAccount, AFTER the Firestore wipe, so a silent resolve makes
+  // deleteAccount report a complete success: the page swaps to signed-out and
+  // the user is told their account is gone, while the Firebase Auth user
+  // still exists and can be signed straight back into. Reachable if the
+  // session drops between the re-authentication and this call.
+  // AccountDataWipedError is the message that outcome is supposed to get, and
+  // deleteAccount's catch produces it from anything thrown here.
+  it('throws rather than reporting success when there is no user left to delete', async () => {
+    await expect(deleteUserAccount()).rejects.toThrow(); // authWithCurrentUser(null) from beforeEach
     expect(mockDeleteUser).not.toHaveBeenCalled();
   });
 

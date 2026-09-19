@@ -245,6 +245,37 @@ describe('resolveTopic', () => {
     assert.equal(resolved.isOneTime, true);
   });
 
+  // Regression, and the drift this module exists to catch: the built-in test
+  // was `topic in TOPIC_LABELS`, and TOPIC_LABELS is a plain object literal,
+  // so `in` also matched every Object.prototype key. A session tagged with
+  // the literal text 'constructor' -- the app's TopicPicker sends whatever
+  // the user types, and firestore.rules accepts any string -- resolved as a
+  // BUILT-IN: `label` came back as the inherited function and TOPIC_HEX had
+  // no entry, so `color` was undefined, statsCards.js's compositeHex threw
+  // on it, and the dashboard fell to "Something went wrong" on every load
+  // until the tag was deleted on the phone. app/src/stats/topics.ts has
+  // carried isTopicKey against exactly this since before the port.
+  it('treats an Object.prototype key as a one-time tag, not a built-in topic', () => {
+    for (const tag of ['constructor', 'toString', 'valueOf', 'hasOwnProperty', '__proto__']) {
+      const resolved = resolveTopic(tag, []);
+      assert.equal(resolved.label, tag, `${tag} must resolve to its own text`);
+      assert.equal(resolved.color, '#78716c', `${tag} must get the neutral color, not undefined`);
+      assert.equal(resolved.isOneTime, true);
+      assert.equal(typeof resolved.label, 'string');
+    }
+  });
+
+  // The same `in` hazard exists on the totals path (line 164 took the
+  // built-in branch too), but it is currently unobservable: an inherited key
+  // can never appear in excludedTopicKeys, because sanitizeExcludedTopicKeys
+  // admits only real TOPIC_KEYS, so both branches answer "counts". Pinned
+  // anyway -- this is the assertion that would start failing if that
+  // sanitizer were ever loosened to pass arbitrary strings through.
+  it('counts a prototype-keyed tag toward totals regardless of topic exclusions', () => {
+    assert.equal(sessionCountsTowardTotals('constructor', [], ['exercise']), true);
+    assert.equal(sessionCountsTowardTotals('toString', [], ['work', 'study']), true);
+  });
+
   // The one-time fallback must not swallow the deleted-label case: a
   // 'custom:'-prefixed id IS catalog-shaped, so there is nothing to render
   // for it once the catalog entry is gone. Guarded because the naive port

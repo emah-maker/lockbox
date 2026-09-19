@@ -20,8 +20,10 @@ to integrate with.
     (uses `microcontroller.nvm[0]` as a brownout counter).
   - `lib/` — device modules:
     - `lock_config.py` — **central tunables**: behavior constants, colors,
-      the full **GPIO pin map**, battery curve/calibration, servo calibration,
-      button pins, and settings-screen option ranges. Start here for hardware.
+      the full **GPIO pin map**, the battery gauge address + pack size, servo
+      calibration, button pins, and settings-screen option ranges. Start here
+      for hardware. (There is no battery curve or divider calibration — those
+      constants were deleted with the MAX17043 swap.)
     - `lock_controller.py` — gesture/state machine tying UI, touch, servo,
       timer, and settings together.
     - `lock_ui.py` — display rendering (timer view, clock/countdown, settings,
@@ -50,10 +52,13 @@ to integrate with.
   currently paid-for but unused.
 - **Lock actuator:** external hobby **servo** on a free GPIO (default `GPIO5`),
   locked angle 45°, unlocked 0°.
-- **Power:** single-cell **LiPo (~1000 mAh)**. State of charge is read from an
-  add-on **MAX17043 fuel gauge** (I2C @ 0x36, shares the touch bus, no
-  new GPIO); the board's own `GPIO12` 3:1 divider is no longer used by firmware.
-  USB-power-aware brightness & sleep.
+- **Power:** single-cell **LiPo, 5000 mAh** as of the **v2** build (confirmed by
+  Evan, 2026-09-10); `BAT_CAPACITY_MAH` was raised 1000 → 5000 on 2026-08-17
+  (commit 7c30823) to match. The 1000 mAh figure in the BOM below is **v1** and
+  is not the installed cell. State of charge is read from an add-on
+  **MAX17043 fuel gauge** (I2C @ 0x36, shares the touch bus, no new GPIO); the
+  board's own `GPIO12` 3:1 divider is no longer used by firmware. The MAX17043 is a **fuel gauge, not a current sensor**, so
+  the watts figure remains an estimate. USB-power-aware brightness & sleep.
 - **Inputs:** capacitive touchscreen + two physical buttons — a lock/box-state
   sense button (`GPIO1`) and an override button (`GPIO10`); default override is
   25 presses within a timeout to unlock early.
@@ -84,12 +89,16 @@ Any cost-reduction proposal must preserve these functions.
 Optimization target volume: **prototype quantities**. Functions are
 **negotiable** (parts may be substituted if the functions above are preserved).
 
-Estimated per-prototype BOM ≈ **$40.77**:
+Estimated per-prototype BOM ≈ **$56.26** (v2). The two v2-only rows are
+**market comps priced on Amazon 2026-09-10, not receipts** — Evan's actual
+purchase prices are not recorded; swap them in if you get them.
 
 | Component | Basis | Per unit |
 |---|---|---|
 | Waveshare ESP32-S3 1.47" Touch board | $25 ea | $25.00 |
-| 1000 mAh LiPo battery | $8.49 ea | $8.49 |
+| 5000 mAh LiPo battery (v2 cell) | est. $13.99 — comp, range $13.59–$14.49 | ~$13.99 |
+| MAX17043 fuel gauge breakout (v2 add-on) | est. $9.99 — comp, range $8.32–$11.40 | ~$9.99 |
+| ~~1000 mAh LiPo battery~~ (v1, superseded) | $8.49 ea | — |
 | Servo (lock actuator) | $4 ea (cheaper at scale) | $4.00 |
 | Screws + threaded inserts | $1 / build | $1.00 |
 | Hinges ×2 | $4 / 20 → $0.20 ea | $0.40 |
@@ -101,16 +110,27 @@ Estimated per-prototype BOM ≈ **$40.77**:
 
 Assumptions to confirm against a real build: **2 tactile (box-state) + 1 on/off
 button + 1 mechanical override switch per unit**, and **~$0.75 of wire**. The
+two v2 rows carry the weakest evidence in this table: they are **comparable
+listings priced on Amazon on 2026-09-10, not what Evan paid**. Treat them as
+order-of-magnitude only, and replace them with the real figures from his order
+history if precision matters. (Sizing note: a 5000 mAh single cell comes as
+115659 / 955565 / 706090 — the **606090** the 2026-07-19 space study named as an
+example tops out near 4000 mAh, so the installed cell is a different footprint
+than that doc assumed.) The
 override switch is a mounted momentary pushbutton driving `BTN_OVERRIDE_PIN`
 (`GPIO10`); estimated higher than the bare tactile buttons because it is a
 durable panel-mount part cycled repeatedly (default 25 presses to unlock).
 
-**Cost structure:** the Waveshare board is **~62%** of unit cost, the battery
-**~21%**, the servo **~10%**; everything else combined is **<7%**. Cost
-reduction therefore lives almost entirely in (a) the display/MCU board — a
-radio-free or cheaper MCU + display could remove unused Wi-Fi/BLE cost — and
-(b) battery sizing. (Manager noted the battery may instead be made *larger*;
-treat capacity as a deliberate tradeoff, not automatically a cut.)
+**Cost structure (v2, on the estimates above):** Waveshare board **~44%**,
+battery **~25%**, MAX17043 gauge **~18%**, servo **~7%**; everything else
+combined **~6%**. This is a real shift from v1's **~62% / ~21% / ~10%**: the
+board is no longer the dominant line, and the fuel gauge now costs more than
+the servo. Cost reduction still lives mostly in (a) the display/MCU board — a
+radio-free or cheaper MCU + display could remove unused Wi-Fi/BLE cost — but
+(b) is no longer "battery sizing" as a cut: v2 deliberately went *larger*, and
+the earlier note that capacity is a tradeoff rather than a cut is what actually
+happened. A third lever now exists: the gauge is a breakout, so a bare
+MAX17043 (or folding it onto a custom board) would take most of that ~18%.
 
 ## Local workflows
 - **No host-runnable build or test suite.** The firmware runs on-device

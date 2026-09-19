@@ -97,27 +97,47 @@ export default function App() {
       console.log('CallObserver available:', isCallObserverAvailable());
       console.log('Launch reason:', getLaunchReason());
     }
-    init();
-    // Focus-goals persistence has no BLE/box relationship (unlike
-    // useSettingsStore's hydrate, which rides inside useStore.init()'s own
-    // Promise.all above because boxSettings does) -- hydrated directly here
-    // instead. Fire-and-forget, same as init() itself just above: nothing in
-    // this file awaits either, and hydrate() itself no-ops past its first
-    // call, so a re-render can't double-hydrate.
-    useGoalsStore.getState().hydrate();
-    // Battery sample log (task 2): hydrate the persisted log, then start the
-    // BLE-status subscription that feeds it -- same "hydrate, then start the
-    // bridge that writes to it" ordering as useSettingsStore/useGoalsStore's
-    // own hydrate() calls above and startSettingsSyncBridge() below. Both
-    // StatusStrip and Home's BatteryBadge now read this same shared store
-    // instead of StatusStrip privately recording its own copy.
-    useBatteryStore.getState().hydrate();
-    startBatterySampling();
+    // Everything from here to the auth init at the bottom is wrapped, because
+    // of what sits at the bottom. Every releaser of useAuthStore's `ready`
+    // flag -- the onAuthStateChanged callback, the 10s watchdog, the catch --
+    // lives INSIDE its init(), so if init() is never called the Account page
+    // shows "Starting sign-in..." with three dead buttons forever, and
+    // nothing is logged or displayed. One synchronous throw from any of the
+    // five fire-and-forget calls below (a native module missing its linkage,
+    // a store constructed against a bad persisted shape) used to do exactly
+    // that, from an effect body with no catch of its own.
+    //
+    // Wrapped rather than reordered: the auth listener reads
+    // useSettingsStore's autoSyncEnabled when it fires, so hydrating settings
+    // first is deliberate. Each of these already swallows its own async
+    // failures; this only covers the synchronous ones.
+    try {
+      init();
+      // Focus-goals persistence has no BLE/box relationship (unlike
+      // useSettingsStore's hydrate, which rides inside useStore.init()'s own
+      // Promise.all above because boxSettings does) -- hydrated directly here
+      // instead. Fire-and-forget, same as init() itself just above: nothing in
+      // this file awaits either, and hydrate() itself no-ops past its first
+      // call, so a re-render can't double-hydrate.
+      useGoalsStore.getState().hydrate();
+      // Battery sample log (task 2): hydrate the persisted log, then start the
+      // BLE-status subscription that feeds it -- same "hydrate, then start the
+      // bridge that writes to it" ordering as useSettingsStore/useGoalsStore's
+      // own hydrate() calls above and startSettingsSyncBridge() below. Both
+      // StatusStrip and Home's BatteryBadge now read this same shared store
+      // instead of StatusStrip privately recording its own copy.
+      useBatteryStore.getState().hydrate();
+      startBatterySampling();
 
-    // Call-path instrumentation. Hydrated (not awaited) so the tick counters
-    // survive a process kill -- see app/src/calls/callDiagnostics.ts for why
-    // this path needs measuring at all rather than just logging.
-    void hydrateCallDiagnostics();
+      // Call-path instrumentation. Hydrated (not awaited) so the tick counters
+      // survive a process kill -- see app/src/calls/callDiagnostics.ts for why
+      // this path needs measuring at all rather than just logging.
+      void hydrateCallDiagnostics();
+    } catch (e) {
+      // Logged, not rethrown: each of these is additive, and none of them is
+      // a reason to leave the account page permanently mid-launch.
+      console.warn('[App] startup hydration failed:', (e as Error)?.message ?? e);
+    }
 
     // Account sign-in/sync (docs/rfcs/google-signin-cross-device-sync-architecture.md
     // §2.5, §4.3, §6). useAuthStore.init() runs wipeStaleSessionOnFreshInstall()

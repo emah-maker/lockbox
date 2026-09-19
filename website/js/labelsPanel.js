@@ -16,6 +16,7 @@
 import {
   setDoc,
   doc,
+  runTransaction,
 } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
 import {
   createCustomLabel,
@@ -54,24 +55,75 @@ function closePopoverAndRefocus() {
 /** Whole-document write of the customLabels catalog. `ctx.getDb()`/
  * `ctx.getUid()` are getters (not static values) because mountLabelsPanel
  * is wired once at page init, before sign-in resolves dashDb/dashUid in
- * dashboard.js -- a plain captured value would be stale/null forever. */
-async function writeCustomLabels(next, ctx) {
+ * dashboard.js -- a plain captured value would be stale/null forever.
+ *
+ * Takes a MUTATOR, not a finished array, for the same reason the other four
+ * fields below are re-read: ctx.getCustomLabels() is dashboard.js's
+ * `calCustomLabels`, set once by loadDashboard and never refreshed. Applying
+ * createCustomLabel/renameCustomLabel/recolorCustomLabel/deleteCustomLabel to
+ * that snapshot and writing the result wholesale dropped every label the tab
+ * had not seen -- create "Piano" on the phone, rename anything here, and
+ * "Piano" is gone, then settingsSyncPlan.ts sees the newer updatedAt, answers
+ * 'apply', and copies the deletion down to the phone too. Unlike the phone,
+ * this tab has no durable local catalog to heal from. Running the mutator
+ * against the transaction's own fresh read is the same merge discipline
+ * dashboard.js's writeGoals already uses for the goals array.
+ *
+ * Returns the array actually written, which is not necessarily the one the
+ * caller would have computed -- callers that render from the result (the
+ * delete path's focusAfterDelete) need the merged one. */
+async function writeCustomLabels(mutate, ctx) {
+  const db = ctx.getDb();
+  const uid = ctx.getUid();
   const settings = ctx.getSettings();
-  await setDoc(doc(ctx.getDb(), 'users', ctx.getUid(), 'settings', 'app'), {
-    themeMode: settings.themeMode,
-    accent: settings.accent,
-    callAlertsEnabled: settings.callAlertsEnabled,
-    customLabels: next,
-    // Resent unchanged, like the three above it. settings/app has no scoped
-    // `update` rule, so this whole-document write DELETES any field it omits
-    // -- and settingsSyncPlan.ts then reads the newer updatedAt, answers
-    // 'apply', and copies the deletion down to the phone. Omitting this one
-    // meant renaming a label here silently put every excluded topic back into
-    // the phone's totals and goal progress.
-    excludedTopicKeys: settings.excludedTopicKeys,
-    updatedAt: Date.now(),
+  const ref = doc(db, 'users', uid, 'settings', 'app');
+  // Validate against the local snapshot before opening the transaction. Every
+  // mutator throws on bad input (empty name, over-length, non-hex, at
+  // capacity), and rejecting here keeps that a synchronous error with no round
+  // trip -- and keeps it out of runTransaction, where a throw costs a read
+  // first. The result is discarded; only the in-transaction run is written.
+  mutate(ctx.getCustomLabels() ?? []);
+  let written = [];
+  await runTransaction(db, async (tx) => {
+    // The fields this writer does not own come from a FRESH read, not from
+    // ctx.getSettings(). That snapshot is dashboard.js's `currentSettings`,
+    // taken once when the page loaded and never refreshed -- there is no
+    // onSnapshot anywhere in website/js/ -- so resending it wrote values that
+    // could be hours stale. Because the write also stamps a NEWER updatedAt,
+    // settingsSyncPlan.ts then answers 'apply' and copies those stale values
+    // down over the phone's newer ones: excluding a topic or creating a label
+    // on the phone at 10:00 was silently undone by renaming a label in a tab
+    // opened at 09:00. Resending every field (below) only ever fixed the
+    // narrower bug where an OMITTED field was deleted outright.
+    const snap = await tx.get(ref);
+    const remote = snap.exists() ? snap.data() : {};
+    // The edit is applied to the catalog as it exists NOW, not as this tab
+    // last saw it -- see the mutator note above.
+    written = mutate(remote.customLabels ?? ctx.getCustomLabels() ?? []);
+    // `??`, not `||`: callAlertsEnabled is a boolean, and `false` is a real
+    // stored value that must not fall through to the local snapshot.
+    tx.set(doc(db, 'users', uid, 'settings', 'app'), {
+      themeMode: remote.themeMode ?? settings.themeMode,
+      accent: remote.accent ?? settings.accent,
+      callAlertsEnabled: remote.callAlertsEnabled ?? settings.callAlertsEnabled,
+      customLabels: written, // the one field this writer owns
+      // Still named explicitly, like the three above it. settings/app has no
+      // scoped `update` rule, so this whole-document write DELETES any field
+      // it omits -- and settingsSyncPlan.ts then reads the newer updatedAt,
+      // answers 'apply', and copies the deletion down to the phone. Omitting
+      // this one meant renaming a label here silently put every excluded
+      // topic back into the phone's totals and goal progress. The key set is
+      // pinned by tests/website/settingsDoc.test.js, which finds this payload
+      // by scanning for the document path followed by an object literal --
+      // which is why the doc() call is spelled out here instead of reusing
+      // `ref`, and why no comment in this file should reproduce that pattern
+      // (it would read as a second writer and fail that suite).
+      excludedTopicKeys: remote.excludedTopicKeys ?? settings.excludedTopicKeys,
+      updatedAt: Date.now(),
+    });
   });
-  ctx.onWritten(next); // triggers dashboard.js's renderDataViews -> renderLabelsList
+  ctx.onWritten(written); // triggers dashboard.js's renderDataViews -> renderLabelsList
+  return written;
 }
 
 function buildSwatchOption(hex, { pressed, onPick }) {
@@ -119,13 +171,12 @@ function buildLabelRow(label, customLabels, els, ctx) {
       onPick: async (hex_) => {
         closePopover();
         try {
-          const next = recolorCustomLabel(customLabels, label.id, hex_);
-          await writeCustomLabels(next, ctx);
+          await writeCustomLabels((labels) => recolorCustomLabel(labels, label.id, hex_), ctx);
           // A successful write re-renders the whole list (settings/app has
           // no scoped update, so every row is rebuilt) -- re-query the
           // fresh trigger by its stable data-label-id hook rather than
           // using the (now-detached) local `trigger` reference.
-          const fresh = document.querySelector(`[data-label-id="${label.id}"] .dash__labels-swatch`);
+          const fresh = document.querySelector(`[data-label-id="${CSS.escape(label.id)}"] .dash__labels-swatch`);
           if (fresh) {
             fresh.classList.add('dash__save-flash');
             fresh.focus();
@@ -183,10 +234,9 @@ function buildLabelRow(label, customLabels, els, ctx) {
     name.disabled = true;
     name.classList.add('dash__chip-select--saving');
     try {
-      const next = renameCustomLabel(customLabels, label.id, name.value);
-      await writeCustomLabels(next, ctx);
+      await writeCustomLabels((labels) => renameCustomLabel(labels, label.id, name.value), ctx);
       showMessage(els.labelsMsg, 'Label renamed.', { kind: 'ok', autoDismissMs: 4000 });
-      const fresh = document.querySelector(`[data-label-id="${label.id}"] .dash__labels-name`);
+      const fresh = document.querySelector(`[data-label-id="${CSS.escape(label.id)}"] .dash__labels-name`);
       if (fresh) fresh.classList.add('dash__save-flash');
     } catch (err) {
       name.value = original;
@@ -250,8 +300,7 @@ function buildLabelRow(label, customLabels, els, ctx) {
     cancelBtn.disabled = true;
     try {
       const idx = customLabels.findIndex((l) => l.id === label.id);
-      const next = deleteCustomLabel(customLabels, label.id);
-      await writeCustomLabels(next, ctx);
+      const next = await writeCustomLabels((labels) => deleteCustomLabel(labels, label.id), ctx);
       showMessage(els.labelsMsg, 'Label deleted.', { kind: 'ok', autoDismissMs: 4000 });
       focusAfterDelete(els, next, idx);
     } catch (err) {
@@ -277,7 +326,7 @@ function focusAfterDelete(els, nextLabels, deletedIdx) {
   }
   const idx = Math.min(deletedIdx, nextLabels.length - 1);
   const targetId = nextLabels[idx].id;
-  const btn = els.labelsList.querySelector(`[data-label-id="${targetId}"] .dash__label-delete`);
+  const btn = els.labelsList.querySelector(`[data-label-id="${CSS.escape(targetId)}"] .dash__label-delete`);
   if (btn) btn.focus();
 }
 
@@ -362,8 +411,10 @@ export function mountLabelsPanel(els, ctx) {
   els.labelAddForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     try {
-      const next = createCustomLabel(ctx.getCustomLabels(), els.labelAddName.value, addSelectedColor);
-      await writeCustomLabels(next, ctx);
+      await writeCustomLabels(
+        (labels) => createCustomLabel(labels, els.labelAddName.value, addSelectedColor),
+        ctx,
+      );
       els.labelAddName.value = '';
       addSelectedColor = null;
       for (const child of els.labelAddSwatches.children) child.setAttribute('aria-pressed', 'false');

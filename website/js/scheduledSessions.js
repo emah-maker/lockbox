@@ -81,9 +81,24 @@ export function reminderFireMs(plan) {
  * app/src/ui/time.ts's formatClockTime. */
 export function formatClockTime(value) {
   const [h, m] = String(value).split(':').map(Number);
-  const d = new Date();
-  d.setHours(h, m, 0, 0);
-  return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  // Fixed instant in UTC, not `new Date()` + setHours -- the same fix, and
+  // for the same reason, as app/src/ui/time.ts's twin. `value` is a bare
+  // wall-clock 'HH:MM', so anchoring it to "today" imported today's DST
+  // rules into a pure formatting call: on the browser's own spring-forward
+  // day the requested time does not exist locally, setHours normalized
+  // forward, and '02:30' came back as "3:30 AM".
+  //
+  // That matters here beyond display, because toRemote below writes
+  // formatClockTime(plan.time) into the scheduledSessions document as
+  // `timeLabel`, and functions/src/reminders.ts trusts that field and
+  // interpolates it verbatim into the push body -- so a plan saved from the
+  // dashboard on the transition day kept a wrong "Starts at ..." string for
+  // whatever future date it was scheduled on.
+  return new Date(Date.UTC(2000, 0, 1, h, m)).toLocaleTimeString(undefined, {
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZone: 'UTC',
+  });
 }
 
 /** "At start" / "10 min before" / "1 hour before". */

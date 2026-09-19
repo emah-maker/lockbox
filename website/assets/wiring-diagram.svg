@@ -1,0 +1,228 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2000" height="1250" viewBox="0 0 2000 1250" font-family="Segoe UI, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L6,3 L0,6 Z" fill="#333"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect x="0" y="0" width="2000" height="1250" fill="#ffffff"/>
+
+  <!-- Title -->
+  <text x="30" y="34" font-size="22" font-weight="700" fill="#111318">Phone Box — Electrical Wiring Diagram</text>
+  <text x="30" y="56" font-size="14" fill="#5B6167">MAX17043 fuel gauge + TP4056 dedicated charging connector — battery, TP4056, and fuel gauge share one always-on node; ON/OFF switch only gates the system rail</text>
+
+  <!-- ===================== LiPo Battery ===================== -->
+  <rect x="30" y="380" width="150" height="100" rx="10" fill="#FFF4E5" stroke="#C08A2E" stroke-width="2"/>
+  <text x="105" y="410" font-size="15" font-weight="700" text-anchor="middle" fill="#111318">LiPo Battery</text>
+  <text x="105" y="428" font-size="12" text-anchor="middle" fill="#5B6167">1S LiPo cell</text>
+  <text x="105" y="444" font-size="11" text-anchor="middle" fill="#5B6167">(BOM line 2)</text>
+
+  <!-- Battery -> junction -> TP4056 B+/B- (raw cell, always-on/charge side) -->
+  <line x1="180" y1="415" x2="250" y2="415" stroke="#D32F2F" stroke-width="3" marker-end="url(#arrow)"/>
+  <text x="185" y="402" font-size="10.5" fill="#D32F2F">raw cell — B+ / B-</text>
+  <circle cx="215" cy="415" r="4.5" fill="#D32F2F"/>
+  <text x="215" y="470" font-size="10" text-anchor="middle" fill="#9c3b1f">raw-cell node — battery, TP4056 B+/B-,</text>
+  <text x="215" y="484" font-size="10" text-anchor="middle" fill="#9c3b1f">and the fuel gauge's BATT +/- all tie here</text>
+
+  <!-- ===================== TP4056 Charger Module ===================== -->
+  <rect x="250" y="310" width="230" height="210" rx="10" fill="#FDEBD3" stroke="#B3651A" stroke-width="2"/>
+  <text x="365" y="336" font-size="15" font-weight="700" text-anchor="middle" fill="#111318">TP4056 Charger Module</text>
+  <text x="365" y="353" font-size="11" text-anchor="middle" fill="#5B6167">protected (DW01+FS8205), 1S Li-ion/LiPo</text>
+
+  <!-- USB-C jack feeding TP4056 IN+/IN- -->
+  <rect x="310" y="222" width="110" height="40" rx="6" fill="#FFFFFF" stroke="#B3651A" stroke-width="2"/>
+  <text x="365" y="240" font-size="12" font-weight="700" text-anchor="middle" fill="#111318">USB-C</text>
+  <text x="365" y="255" font-size="10" text-anchor="middle" fill="#5B6167">charging in</text>
+  <line x1="365" y1="262" x2="365" y2="310" stroke="#B3651A" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <text x="380" y="290" font-size="10.5" fill="#B3651A" font-weight="600">dedicated charging</text>
+  <text x="380" y="304" font-size="10.5" fill="#B3651A" font-weight="600">connector (IN+/IN-)</text>
+
+  <text x="365" y="480" font-size="10.5" text-anchor="middle" fill="#8a5210">Charges the cell via USB whenever plugged</text>
+  <text x="365" y="496" font-size="10.5" text-anchor="middle" fill="#8a5210">in — independent of the ON/OFF switch</text>
+
+  <!-- TP4056 OUT+/OUT- -> ON/OFF switch (continuous — fuel gauge taps this line, does not sit inline on it) -->
+  <line x1="480" y1="415" x2="860" y2="415" stroke="#D32F2F" stroke-width="3" marker-end="url(#arrow)"/>
+  <text x="483" y="402" font-size="10.5" fill="#D32F2F">OUT+ / OUT- ≈ raw-cell node</text>
+  <text x="700" y="402" font-size="10" fill="#9c3b1f">⚠ connector-pitch mismatch — see assumptions</text>
+  <circle cx="695" cy="415" r="4.5" fill="#D32F2F"/>
+
+  <!-- ===================== MAX17043 Fuel Gauge Breakout ===================== -->
+  <rect x="560" y="90" width="270" height="215" rx="10" fill="#EAF6EE" stroke="#2E7D46" stroke-width="2"/>
+  <text x="695" y="116" font-size="15" font-weight="700" text-anchor="middle" fill="#111318">MAX17043 Fuel Gauge</text>
+  <text x="695" y="132" font-size="11.5" text-anchor="middle" fill="#5B6167">HiLetgo-style module — has a 2-pin JST battery plug</text>
+  <text x="695" y="147" font-size="11" text-anchor="middle" fill="#5B6167">I2C addr 0x36 · ModelGauge</text>
+
+  <!-- 6-pin header: VCC/GND/SDA/SCL/ALRT/QST -->
+  <rect x="575" y="158" width="240" height="26" rx="4" fill="#ffffff" stroke="#2E7D46"/>
+  <text x="695" y="175" font-size="10" text-anchor="middle" fill="#111318">VCC · GND · SDA · SCL · ALRT · QST</text>
+
+  <text x="695" y="200" font-size="9.5" text-anchor="middle" fill="#8a6d00">No new GPIO — VCC/GND/SDA/SCL ride the shared touch I2C bus</text>
+  <text x="695" y="213" font-size="9.5" text-anchor="middle" fill="#9c3b1f">ALRT: low-batt alert (active-low, open-drain) — optional, leave NC if unused</text>
+  <text x="695" y="226" font-size="9.5" text-anchor="middle" fill="#9c3b1f">QST: quick-start reset input — leave floating; do NOT tie to GND (holds gauge in reset)</text>
+  <text x="695" y="239" font-size="9.5" text-anchor="middle" fill="#8a6d00">(same I2C addr/regs as lock_config.py's BAT_GAUGE_ADDR — no firmware change needed)</text>
+
+  <!-- Battery tap: single input (no pass-through), taps the raw-cell node directly -->
+  <rect x="645" y="252" width="100" height="24" rx="4" fill="#ffffff" stroke="#2E7D46"/>
+  <text x="695" y="268" font-size="11" text-anchor="middle" fill="#111318">BATT +/-</text>
+  <text x="695" y="292" font-size="9.5" text-anchor="middle" fill="#9c3b1f">single input, no pass-through — parallel tap on the raw-cell node</text>
+
+  <!-- BATT tap wire down to the raw-cell / system-rail junction -->
+  <line x1="695" y1="276" x2="695" y2="415" stroke="#D32F2F" stroke-width="3" marker-end="url(#arrow)"/>
+  <text x="700" y="360" font-size="10" fill="#D32F2F">JST-PH 2-pin</text>
+  <text x="700" y="374" font-size="10" fill="#D32F2F">battery plug</text>
+
+  <!-- Fuel gauge I2C header -> board touch bus -->
+  <path d="M 720 184 L 720 615 L 1042 615" fill="none" stroke="#1565C0" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <text x="1000" y="601" font-size="11" fill="#1565C0" text-anchor="end">VCC / GND / SDA / SCL — jumper wires to</text>
+  <text x="1000" y="646" font-size="11" fill="#1565C0" text-anchor="end">Waveshare GPIO41(SDA)/42(SCL) pin header</text>
+
+  <!-- ===================== ON/OFF Switch ===================== -->
+  <rect x="860" y="380" width="130" height="70" rx="10" fill="#F3E9FB" stroke="#6A3FA0" stroke-width="2.5"/>
+  <text x="925" y="404" font-size="13" font-weight="700" text-anchor="middle" fill="#111318">ON/OFF Switch</text>
+  <text x="925" y="420" font-size="10" text-anchor="middle" fill="#5B6167">SPST, panel-mount</text>
+  <text x="925" y="434" font-size="9.5" text-anchor="middle" fill="#5B6167">(BOM: on/off button ×1)</text>
+  <!-- switch symbol -->
+  <line x1="878" y1="446" x2="900" y2="446" stroke="#6A3FA0" stroke-width="2"/>
+  <line x1="900" y1="446" x2="925" y2="432" stroke="#6A3FA0" stroke-width="2"/>
+  <line x1="925" y1="446" x2="972" y2="446" stroke="#6A3FA0" stroke-width="2"/>
+  <circle cx="900" cy="446" r="2.5" fill="#6A3FA0"/>
+  <circle cx="925" cy="446" r="2.5" fill="#6A3FA0"/>
+
+  <text x="925" y="470" font-size="10" text-anchor="middle" fill="#9c3b1f" font-weight="600">cuts system power only —</text>
+  <text x="925" y="484" font-size="10" text-anchor="middle" fill="#9c3b1f" font-weight="600">TP4056 keeps charging when open</text>
+
+  <!-- Switch -> Board battery input -->
+  <line x1="990" y1="415" x2="1026" y2="415" stroke="#D32F2F" stroke-width="3" marker-end="url(#arrow)"/>
+
+  <!-- ===================== Waveshare ESP32-S3 board ===================== -->
+  <rect x="1026" y="120" width="420" height="600" rx="12" fill="#EAF1FB" stroke="#1D4E89" stroke-width="2.5"/>
+  <text x="1236" y="148" font-size="16" font-weight="700" text-anchor="middle" fill="#111318">Waveshare ESP32-S3-Touch-LCD-1.47</text>
+  <text x="1236" y="166" font-size="12" text-anchor="middle" fill="#5B6167">172×320 cap-touch (AXS5106L) · 240 MHz LX7 · Wi-Fi/BLE radio (unused)</text>
+  <text x="1236" y="182" font-size="11" text-anchor="middle" fill="#5B6167">Onboard LiPo charge IC (unused in this design) · MX1.25 batt connector</text>
+
+  <!-- Board's own USB-C: data/flashing only, NOT charging -->
+  <rect x="1146" y="204" width="180" height="56" rx="6" fill="#FFFFFF" stroke="#1D4E89" stroke-width="2"/>
+  <text x="1236" y="222" font-size="12" font-weight="700" text-anchor="middle" fill="#111318">USB-C</text>
+  <text x="1236" y="238" font-size="10.5" text-anchor="middle" fill="#5B6167">data / firmware flashing only</text>
+  <text x="1236" y="253" font-size="9.5" text-anchor="middle" fill="#9c3b1f">⚠ do not also charge here — see assumptions</text>
+  <line x1="1236" y1="180" x2="1236" y2="204" stroke="#1D4E89" stroke-width="2"/>
+
+  <!-- Board battery input pad -->
+  <rect x="1042" y="394" width="140" height="46" rx="6" fill="#FFFFFF" stroke="#1D4E89"/>
+  <text x="1112" y="412" font-size="11" text-anchor="middle" fill="#111318">MX1.25 BATT IN</text>
+  <text x="1112" y="427" font-size="9.5" text-anchor="middle" fill="#5B6167">post-switch, protected</text>
+
+  <!-- Board touch/I2C pin header -->
+  <rect x="1042" y="592" width="150" height="46" rx="6" fill="#FFFFFF" stroke="#1D4E89"/>
+  <text x="1117" y="610" font-size="11" text-anchor="middle" fill="#111318">GPIO41/42 (SDA/SCL)</text>
+  <text x="1117" y="625" font-size="10" text-anchor="middle" fill="#5B6167">+ board's 3V3 / GND pins</text>
+
+  <!-- Internal note: touch RST/INT not shared -->
+  <text x="1066" y="656" font-size="10" fill="#9c3b1f">GPIO47/48 = AXS5106L RST/INT (touch-only, not shared)</text>
+
+  <!-- GPIO breakout pins along right edge -->
+  <rect x="1356" y="210" width="70" height="30" rx="5" fill="#FFFFFF" stroke="#1D4E89"/>
+  <text x="1391" y="230" font-size="11" text-anchor="middle" fill="#111318">VBAT/VBUS</text>
+
+  <rect x="1356" y="256" width="70" height="30" rx="5" fill="#FFFFFF" stroke="#1D4E89"/>
+  <text x="1391" y="276" font-size="11" text-anchor="middle" fill="#111318">GND</text>
+
+  <rect x="1356" y="302" width="70" height="30" rx="5" fill="#FFFFFF" stroke="#1D4E89"/>
+  <text x="1391" y="322" font-size="11" text-anchor="middle" fill="#111318">GPIO5</text>
+
+  <rect x="1356" y="380" width="70" height="30" rx="5" fill="#FFFFFF" stroke="#1D4E89"/>
+  <text x="1391" y="400" font-size="11" text-anchor="middle" fill="#111318">GPIO1</text>
+
+  <rect x="1356" y="426" width="70" height="30" rx="5" fill="#FFFFFF" stroke="#1D4E89"/>
+  <text x="1391" y="446" font-size="11" text-anchor="middle" fill="#111318">GND</text>
+
+  <rect x="1356" y="472" width="70" height="30" rx="5" fill="#FFFFFF" stroke="#1D4E89"/>
+  <text x="1391" y="492" font-size="11" text-anchor="middle" fill="#111318">GPIO10</text>
+
+  <rect x="1356" y="518" width="70" height="30" rx="5" fill="#FFFFFF" stroke="#1D4E89"/>
+  <text x="1391" y="538" font-size="11" text-anchor="middle" fill="#111318">GND</text>
+
+  <!-- ===================== Servo ===================== -->
+  <rect x="1546" y="180" width="180" height="158" rx="10" fill="#FDECEC" stroke="#B23A3A" stroke-width="2"/>
+  <text x="1636" y="208" font-size="15" font-weight="700" text-anchor="middle" fill="#111318">Lock Servo — MG90S (Miuzei)</text>
+  <text x="1636" y="226" font-size="11" text-anchor="middle" fill="#5B6167">45°(lock)/0°(unlock)</text>
+  <text x="1636" y="242" font-size="10.5" text-anchor="middle" fill="#5B6167">50 Hz PWM, 500–2500 µs</text>
+  <rect x="1566" y="256" width="140" height="40" rx="4" fill="#ffffff" stroke="#B23A3A"/>
+  <text x="1636" y="271" font-size="10.5" text-anchor="middle" fill="#111318">470–1000 µF electrolytic</text>
+  <text x="1636" y="286" font-size="9.5" text-anchor="middle" fill="#9c3b1f">+ lead → V+, spliced at servo leads</text>
+  <text x="1636" y="322" font-size="8.5" text-anchor="middle" fill="#9c3b1f">⚠ µF/voltage unconfirmed — see assumptions</text>
+
+  <!-- Servo wires -->
+  <line x1="1546" y1="225" x2="1426" y2="225" stroke="#D32F2F" stroke-width="3" marker-end="url(#arrow)"/>
+  <text x="1429" y="216" font-size="10.5" fill="#D32F2F">V+ · red — VBAT/VBUS, NOT 3V3</text>
+
+  <line x1="1546" y1="299" x2="1426" y2="271" stroke="#222222" stroke-width="3" marker-end="url(#arrow)"/>
+  <text x="1429" y="288" font-size="10.5" fill="#222222">GND · brown (common)</text>
+
+  <line x1="1546" y1="245" x2="1426" y2="317" stroke="#E07B00" stroke-width="3" marker-end="url(#arrow)"/>
+  <text x="1429" y="336" font-size="10.5" fill="#E07B00">Signal · orange (PWM) — GPIO5</text>
+
+  <!-- ===================== Lock / Sense Button ===================== -->
+  <rect x="1546" y="360" width="180" height="90" rx="10" fill="#F1EEFB" stroke="#5B3FA6" stroke-width="2"/>
+  <text x="1636" y="386" font-size="14" font-weight="700" text-anchor="middle" fill="#111318">Lock / Sense Button</text>
+  <text x="1636" y="404" font-size="10.5" text-anchor="middle" fill="#5B6167">internal pull-up, pressed = LOW</text>
+  <text x="1636" y="420" font-size="10.5" text-anchor="middle" fill="#5B6167">tactile, panel-mount</text>
+
+  <line x1="1546" y1="392" x2="1426" y2="395" stroke="#E07B00" stroke-width="3" marker-end="url(#arrow)"/>
+  <text x="1429" y="410" font-size="10.5" fill="#E07B00">GPIO1</text>
+
+  <line x1="1546" y1="410" x2="1426" y2="441" stroke="#222222" stroke-width="3" marker-end="url(#arrow)"/>
+
+  <!-- ===================== Override Button ===================== -->
+  <rect x="1546" y="470" width="180" height="90" rx="10" fill="#F1EEFB" stroke="#5B3FA6" stroke-width="2"/>
+  <text x="1636" y="496" font-size="14" font-weight="700" text-anchor="middle" fill="#111318">Override Button</text>
+  <text x="1636" y="514" font-size="10.5" text-anchor="middle" fill="#5B6167">internal pull-up, pressed = LOW</text>
+  <text x="1636" y="530" font-size="10.5" text-anchor="middle" fill="#5B6167">25 presses (default) to unlock</text>
+
+  <line x1="1546" y1="487" x2="1426" y2="487" stroke="#E07B00" stroke-width="3" marker-end="url(#arrow)"/>
+  <text x="1429" y="478" font-size="10.5" fill="#E07B00">GPIO10</text>
+
+  <line x1="1546" y1="505" x2="1426" y2="533" stroke="#222222" stroke-width="3" marker-end="url(#arrow)"/>
+
+  <!-- ===================== Legend ===================== -->
+  <rect x="30" y="770" width="520" height="160" rx="8" fill="#FAFAFA" stroke="#B7BEC7"/>
+  <text x="46" y="794" font-size="13" font-weight="700" fill="#111318">Legend</text>
+  <line x1="46" y1="812" x2="76" y2="812" stroke="#D32F2F" stroke-width="3"/>
+  <text x="82" y="816" font-size="11" fill="#111318">Power (raw cell / protected rail / VBAT/VBUS/3V3)</text>
+  <line x1="46" y1="832" x2="76" y2="832" stroke="#222222" stroke-width="3"/>
+  <text x="82" y="836" font-size="11" fill="#111318">Ground</text>
+  <line x1="46" y1="852" x2="76" y2="852" stroke="#1565C0" stroke-width="2.5"/>
+  <text x="82" y="856" font-size="11" fill="#111318">I2C (SDA/SCL, shared touch bus)</text>
+  <line x1="46" y1="872" x2="76" y2="872" stroke="#E07B00" stroke-width="3"/>
+  <text x="82" y="876" font-size="11" fill="#111318">Digital signal / PWM (GPIO)</text>
+  <text x="46" y="898" font-size="11" fill="#5B6167">Connector types: JST-PH 2-pin (battery, TP4056, HiLetgo fuel gauge),</text>
+  <text x="46" y="914" font-size="11" fill="#5B6167">MX1.25 (board batt in — mismatched, see assumptions), USB-C ×2</text>
+
+  <!-- ===================== Assumptions / flags ===================== -->
+  <rect x="570" y="770" width="1400" height="420" rx="8" fill="#FFF8E1" stroke="#C08A2E"/>
+  <text x="586" y="794" font-size="13" font-weight="700" fill="#111318">Assumptions to verify before soldering</text>
+  <text x="586" y="818" font-size="11.5" fill="#111318">1. Charge-while-off topology: the on/off switch sits only on TP4056's OUT+ / system rail (feeding the board, fuel gauge logic,</text>
+  <text x="596" y="835" font-size="11.5" fill="#111318">   and servo). TP4056's B+/B- stays wired straight to the raw cell, so USB charging keeps working with the switch open.</text>
+  <text x="596" y="852" font-size="11.5" fill="#111318">   Do not move the switch onto the B+/B- side — that would cut charging along with system power.</text>
+  <text x="586" y="874" font-size="11.5" fill="#111318">2. Dual-charger caution: do not plug USB into the Waveshare board's own USB-C while TP4056 is also connected to the</text>
+  <text x="596" y="891" font-size="11.5" fill="#111318">   same cell — two charge ICs in parallel on one pack is not a supported configuration. This design treats the board's</text>
+  <text x="596" y="908" font-size="11.5" fill="#111318">   USB-C as data/firmware-flashing only; TP4056 is the sole charge path.</text>
+  <text x="586" y="930" font-size="11.5" fill="#111318">3. Connector-pitch mismatch: the battery, TP4056, and this HiLetgo-style fuel gauge all use JST-PH (2.0 mm) 2-pin plugs,</text>
+  <text x="596" y="947" font-size="11.5" fill="#111318">   so those three share one connector standard. The Waveshare board's onboard battery input is MX1.25 (1.25 mm) instead —</text>
+  <text x="596" y="964" font-size="11.5" fill="#111318">   not JST-PH-compatible. Plan A: solder a bare lead there, bypassing its housing. Plan B: source a JST-PH↔MX1.25 pigtail.</text>
+  <text x="586" y="986" font-size="11.5" fill="#111318">4. Exact SDA vs. SCL assignment within GPIO41/42/47/48 is inferred from code.py's board.TOUCH_I2C() call and typical</text>
+  <text x="596" y="1003" font-size="11.5" fill="#111318">   touch-panel wiring (I2C + RST + INT), not read off a Waveshare schematic — confirm before wiring GPIO47/48 into anything.</text>
+  <text x="596" y="1020" font-size="11.5" fill="#111318">   The board's 3V3/GND pin locations are similarly assumed present on its header but not pinned down here — check silkscreen.</text>
+  <text x="586" y="1042" font-size="11.5" fill="#111318">5. Servo V+ must come from VBAT/VBUS, not 3V3, with a 470–1000 µF electrolytic cap spliced onto the MG90S's own</text>
+  <text x="596" y="1059" font-size="11.5" fill="#111318">   V+/GND leads (+ lead → V+), per AI_CONTEXT.md §8 — exact µF/voltage pulled from a generic cap kit is unconfirmed; pick 16V+ rated for margin over the 3.7–5V rail.</text>
+  <text x="586" y="1081" font-size="11.5" fill="#111318">6. Battery/TP4056/fuel-gauge tie point: the fuel gauge's BATT +/- is drawn as a direct parallel tap on the same raw-cell</text>
+  <text x="596" y="1097" font-size="11.5" fill="#111318">   node as TP4056's B+/B- and OUT+/OUT- — not a series pass-through (this generic module has no BAT-OUT to pass through).</text>
+  <text x="586" y="1119" font-size="11.5" fill="#111318">7. Part-vs-driver naming (resolved): the on-device driver was Box-code/lib/max17048.py; it shared the MAX17043's I2C address</text>
+  <text x="596" y="1135" font-size="11.5" fill="#111318">   (0x36) and VCELL/SOC/VERSION register layout, so it has now been renamed to Box-code/lib/max17043.py with no functional</text>
+  <text x="596" y="1151" font-size="11.5" fill="#111318">   change (bom.md updated to match). Leave the MAX17043's QST pin floating (grounding it holds the gauge in reset) and its</text>
+  <text x="596" y="1167" font-size="11.5" fill="#111318">   ALRT pin NC unless you add interrupt-driven low-battery handling to the firmware.</text>
+
+  <text x="30" y="1205" font-size="10.5" fill="#8a8f96">Source: Box-code/lib/lock_config.py, lock_battery.py, max17043.py, axs5106l.py, lock_servo.py; docs/procurement/bom.md; docs/procurement/battery-fuel-gauge/02-fuel-gauge-longlist-and-shortlist-2026-07-23.md (rows 6/8/9 — SparkFun/DFRobot/HiLetgo MAX17043 options)</text>
+  <text x="30" y="1223" font-size="10.5" fill="#8a8f96">This is a functional wiring/block diagram (not a KiCad schematic) for build/assembly reference.</text>
+</svg>

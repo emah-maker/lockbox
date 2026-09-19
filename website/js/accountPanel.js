@@ -47,7 +47,7 @@ import {
   linkWithPopup,
   unlink,
 } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js';
-import { doc, setDoc } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
+import { doc, setDoc, runTransaction } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
 import { resolveTheme, ACCENT_NAMES, DEFAULT_ACCENT } from './theme.js';
 import { showMessage } from './dashMessage.js';
 import { friendlyErrorMessage, isIgnorableAuthError, logAuthError } from './authErrors.js';
@@ -319,16 +319,50 @@ function buildAppearanceSection(els, ctx) {
  * (callAlertsEnabled, customLabels, excludedTopicKeys) unchanged. */
 async function writeAppearance(themeMode, accent, els, ctx) {
   const settings = ctx.getSettings();
+  const db = ctx.getDb();
+  const uid = ctx.getUid();
+  const ref = doc(db, 'users', uid, 'settings', 'app');
+  // What the transaction actually read, handed back to dashboard.js below.
+  // Reading fresh values and then leaving the page rendering the stale ones
+  // is half a fix: excludedTopicKeys in particular feeds aggregate,
+  // lastNDays, renderFacts and computeGoalProgress, so the total focus time,
+  // trend chart, best-day banner and goal rings all kept showing figures
+  // computed from the old exclusion list -- on the very interaction that had
+  // just proved the list moved.
+  let fresh = null;
   try {
-    await setDoc(doc(ctx.getDb(), 'users', ctx.getUid(), 'settings', 'app'), {
-      themeMode,
-      accent,
-      callAlertsEnabled: settings.callAlertsEnabled,
-      customLabels: ctx.getCustomLabels(),
-      // See writeCustomLabels in labelsPanel.js: a whole-document write that
-      // omits a field deletes it, and the phone then syncs the deletion down.
-      excludedTopicKeys: settings.excludedTopicKeys,
-      updatedAt: Date.now(),
+    await runTransaction(db, async (tx) => {
+      // Fresh read for the fields this writer does not own -- see
+      // writeCustomLabels in labelsPanel.js for the full reasoning. ctx's
+      // getSettings()/getCustomLabels() both read dashboard.js state captured
+      // at page load, so resending them wrote values that could be hours
+      // stale, under a newer updatedAt that made the phone accept them:
+      // clicking Light here undid a label created on the phone after this tab
+      // was opened.
+      const snap = await tx.get(ref);
+      const remote = snap.exists() ? snap.data() : {};
+      // `??`, not `||`: callAlertsEnabled is a boolean whose stored `false`
+      // must not fall through to the local snapshot.
+      fresh = {
+        callAlertsEnabled: remote.callAlertsEnabled ?? settings.callAlertsEnabled,
+        customLabels: remote.customLabels ?? ctx.getCustomLabels(),
+        excludedTopicKeys: remote.excludedTopicKeys ?? settings.excludedTopicKeys,
+      };
+      tx.set(doc(db, 'users', uid, 'settings', 'app'), {
+        themeMode, // owned by this writer
+        accent, // owned by this writer
+        callAlertsEnabled: fresh.callAlertsEnabled,
+        customLabels: fresh.customLabels,
+        // See writeCustomLabels in labelsPanel.js: a whole-document write that
+        // omits a field deletes it, and the phone then syncs the deletion down.
+        // The key set is pinned by tests/website/settingsDoc.test.js, which
+        // finds this payload by scanning for the document path followed by an
+        // object literal -- hence the spelled-out doc() call rather than
+        // reusing `ref`, and why no comment here should reproduce that
+        // pattern (it would read as a second writer and fail that suite).
+        excludedTopicKeys: fresh.excludedTopicKeys,
+        updatedAt: Date.now(),
+      });
     });
   } catch (err) {
     logAuthError('appearance write', err);
@@ -338,8 +372,14 @@ async function writeAppearance(themeMode, accent, els, ctx) {
   // Updates dashboard.js's own theme state + re-renders the data views
   // (the calendar heatmap/breakdown bars are tinted with this same accent),
   // then this panel re-renders itself below to reflect the new pressed state.
-  ctx.onThemeWritten(themeMode, accent);
-  renderAccountPanel(ctx.getAuth().currentUser, els, ctx);
+  ctx.onThemeWritten(themeMode, accent, fresh);
+  // Guarded: this runs after two awaited round trips, and the user can have
+  // signed out (or the session been revoked) in between, which leaves
+  // getAuth() null. Unguarded it threw a TypeError out here -- outside the
+  // try above, and from a click handler nobody attached a .catch to -- so the
+  // only trace was an unhandled rejection in the console.
+  const auth = ctx.getAuth();
+  if (auth) renderAccountPanel(auth.currentUser, els, ctx);
 }
 
 function buildPrivacySection() {

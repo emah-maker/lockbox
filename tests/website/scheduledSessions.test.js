@@ -21,6 +21,7 @@ import {
   MAX_NOTE_LENGTH,
   MAX_PER_DAY,
   MAX_SCHEDULED_SESSIONS,
+  formatClockTime,
   fromRemote,
   leadLabel,
   makeScheduledSessionId,
@@ -203,5 +204,50 @@ describe('the rest of the model', () => {
     assert.ok(!DATE_RE.test('2026-13-01'));
     assert.ok(!DATE_RE.test('2026-09-32'));
     assert.ok(!DATE_RE.test('26-09-01'));
+  });
+
+  // Regression, and the app twin has the identical one (see
+  // app/src/ui/time.test.ts). formatClockTime used to build its Date from
+  // `new Date()` and then setHours(h, m), which pulled TODAY's DST rules
+  // into a pure formatting call on a bare wall-clock string: on the
+  // browser's own spring-forward day the requested time does not exist
+  // locally, setHours normalized it forward, and '02:30' formatted as
+  // "3:30 AM".
+  //
+  // It matters on this surface beyond display, because toRemote writes
+  // formatClockTime(plan.time) into the scheduledSessions document as
+  // `timeLabel`, and functions/src/reminders.ts trusts that field and puts
+  // it verbatim in the push body -- so a plan saved from the dashboard on
+  // the transition day carried a wrong "Starts at ..." string for whatever
+  // future date it was scheduled on.
+  //
+  // Asserted as "the answer does not depend on the date" rather than against
+  // a literal, because this twin takes no locale argument and so cannot pin
+  // one. Only discriminates in a runner zone that observes DST.
+  it('formats the same clock time on a DST transition day as on an ordinary one', () => {
+    const RealDate = globalThis.Date;
+    const pinTodayTo = (year, monthIndex, day) => {
+      globalThis.Date = class extends RealDate {
+        constructor(...args) {
+          super(...(args.length ? args : [year, monthIndex, day, 12, 0, 0]));
+        }
+        static now() {
+          return new RealDate(year, monthIndex, day, 12, 0, 0).getTime();
+        }
+      };
+    };
+    const times = ['02:00', '02:30', '02:59', '03:00', '00:00', '23:59'];
+    try {
+      pinTodayTo(2026, 5, 15); // an ordinary day
+      const onOrdinary = times.map((t) => formatClockTime(t));
+      pinTodayTo(2026, 2, 8); // spring forward across the US and Europe
+      const onSpringForward = times.map((t) => formatClockTime(t));
+      pinTodayTo(2026, 10, 1); // fall back
+      const onFallBack = times.map((t) => formatClockTime(t));
+      assert.deepEqual(onSpringForward, onOrdinary);
+      assert.deepEqual(onFallBack, onOrdinary);
+    } finally {
+      globalThis.Date = RealDate;
+    }
   });
 });

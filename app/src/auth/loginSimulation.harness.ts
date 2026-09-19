@@ -39,6 +39,12 @@ export type FakeKeychain = {
   entries: Map<string, string>;
   failWrites: boolean;
   failDeletes: boolean;
+  /** Reads fail too. Not the same switch as failWrites: a phone LAUNCHED
+   * while locked (this app declares the bluetooth-central background mode, so
+   * iOS can start it for a box event with the screen off) fails every
+   * WHEN_UNLOCKED_THIS_DEVICE_ONLY operation, reads included -- which is what
+   * decides whether a stored session is found at all. */
+  failReads: boolean;
 };
 
 /** The Auth instance getFirebaseAuth() hands back. `signOut` lives on it
@@ -150,7 +156,8 @@ export function firebaseConfigMock(actual: any) {
 
 export function secureStoreMock() {
   const g = globalThis as any;
-  g.__keychain = g.__keychain || { entries: new Map<string, string>(), failWrites: false, failDeletes: false };
+  g.__keychain =
+    g.__keychain || { entries: new Map<string, string>(), failWrites: false, failDeletes: false, failReads: false };
   // The real iOS failure this reproduces: SECURE_STORE_OPTS pins
   // keychainAccessible to WHEN_UNLOCKED_THIS_DEVICE_ONLY, so a read or write
   // while the device is locked comes back as errSecInteractionNotAllowed.
@@ -161,7 +168,10 @@ export function secureStoreMock() {
       if (keychain().failWrites) throw locked();
       keychain().entries.set(key, value);
     }),
-    getItemAsync: jest.fn(async (key: string) => keychain().entries.get(key) ?? null),
+    getItemAsync: jest.fn(async (key: string) => {
+      if (keychain().failReads) throw locked();
+      return keychain().entries.get(key) ?? null;
+    }),
     deleteItemAsync: jest.fn(async (key: string) => {
       if (keychain().failDeletes) throw locked();
       keychain().entries.delete(key);
@@ -339,7 +349,7 @@ export function installHealthyDefaults(): void {
   const AppleAuthentication = require('expo-apple-authentication');
 
   (globalThis as any).__fakeAuth = newFakeAuth();
-  (globalThis as any).__keychain = { entries: new Map(), failWrites: false, failDeletes: false };
+  (globalThis as any).__keychain = { entries: new Map(), failWrites: false, failDeletes: false, failReads: false };
   (globalThis as any).__autoSync = false;
 
   require('./firebase').initFirebaseAuth.mockResolvedValue(undefined);
