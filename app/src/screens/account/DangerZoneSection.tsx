@@ -36,11 +36,21 @@ import { EmailPasswordFields } from './EmailPasswordFields';
 // spec §4 otherwise requires a generic message.
 const WRONG_PASSWORD_CODES = new Set(['auth/invalid-credential', 'auth/wrong-password']);
 
+// Enumerates the cloud data in the same terms the dashboard's confirm box
+// uses (accountDelete.js's buildDeleteConfirm), because App Store Review
+// Guideline 5.1.1(v) -- the account AND its data -- is judged on what the
+// user was told, and two clients telling them different things is the drift
+// this pairing exists to prevent.
+//
+// Session history is stated flatly rather than hedged on deleteAllUserData's
+// sessions sweep being permitted to fail: that is a rules-deploy-lag detail
+// a reader cannot act on, and the promise the product makes is the unhedged
+// one. A denied sweep logs (see firestoreSync.ts) -- the fix is to deploy the
+// rules, not to soften this sentence.
 const DELETE_COPY =
-  "This permanently deletes your account and its cloud profile, settings, goals, and device list. " +
-  'Your session history is retained on our servers but orphaned (unreadable by anyone) for data-' +
-  'integrity reasons -- it is not visible anywhere once your account is gone. Local stats on this ' +
-  'phone, and the box itself, are unaffected. This cannot be undone.';
+  'This permanently deletes your account and its cloud data: profile, settings, custom labels, ' +
+  'focus goals, linked devices, and your focus session history. Local stats on this phone, and ' +
+  'the box itself, are unaffected. This cannot be undone.';
 
 export function DangerZoneSection({ color }: { color: ReturnType<typeof useTheme> }) {
   const signOut = useAuthStore((s) => s.signOut);

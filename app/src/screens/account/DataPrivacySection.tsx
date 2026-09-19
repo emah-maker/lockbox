@@ -2,9 +2,9 @@
 // §3): a plain, static statement of what this account stores in the cloud
 // and what it doesn't -- no controls, just disclosure. Wording mirrors
 // firestoreSync.ts's actual schema (profile email/displayName/photoURL,
-// settings/app, goals/config, sessions); the sessions-retained-but-orphaned
-// exception on deletion is spelled out in DangerZoneSection's delete copy
-// instead of repeated here, since it only matters at deletion time.
+// settings/app, goals/config, sessions). What deletion does to all of it is
+// spelled out in DangerZoneSection's delete copy instead of repeated here,
+// since it only matters at deletion time.
 //
 // The text below is a summary, not the policy: the policy itself is linked
 // from here (and from the Settings hub's About sheet, for the signed-out
