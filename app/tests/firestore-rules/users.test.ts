@@ -20,7 +20,7 @@ afterEach(async () => {
 });
 
 afterAll(async () => {
-  await testEnv.cleanup();
+  await testEnv?.cleanup();
 });
 
 async function seedOwnerData() {

@@ -9,8 +9,9 @@
 // Requires the Firestore emulator already running on 127.0.0.1:8080 (port
 // pinned in firebase.json's "emulators" block) -- this suite does not, and
 // cannot, start the emulator itself. From the repo root:
-//   firebase emulators:exec --only firestore "npm --prefix app test -- tests/firestore-rules"
+//   npm run test:rules
 import { readFileSync } from 'fs';
+import { connect } from 'net';
 import { resolve } from 'path';
 import { initializeTestEnvironment, RulesTestEnvironment } from '@firebase/rules-unit-testing';
 
@@ -29,7 +30,35 @@ jest.setTimeout(20000);
 
 const RULES_PATH = resolve(__dirname, '../../firestore.rules');
 
+const HOST = '127.0.0.1';
+const PORT = 8080;
+
+// initializeTestEnvironment retries a closed port forever rather than
+// rejecting, so without this the suite hangs until Jest's timeout and then
+// afterAll throws "Cannot read properties of undefined (reading 'cleanup')"
+// -- an error that says nothing about the actual cause. Probe the socket
+// first so a missing emulator fails in milliseconds with the fix in hand.
+async function assertEmulatorReachable(): Promise<void> {
+  const reachable = await new Promise<boolean>((done) => {
+    const socket = connect({ host: HOST, port: PORT });
+    const settle = (ok: boolean) => {
+      socket.destroy();
+      done(ok);
+    };
+    socket.setTimeout(2000);
+    socket.once('connect', () => settle(true));
+    socket.once('timeout', () => settle(false));
+    socket.once('error', () => settle(false));
+  });
+  if (reachable) return;
+  throw new Error(
+    `No Firestore emulator on ${HOST}:${PORT}. This suite cannot start one itself. ` +
+      'Run it through the emulator from the repo root: npm run test:rules',
+  );
+}
+
 export async function createRulesTestEnv(suiteName: string): Promise<RulesTestEnvironment> {
+  await assertEmulatorReachable();
   return initializeTestEnvironment({
     projectId: `phonebox-rules-test-${suiteName}`,
     firestore: {

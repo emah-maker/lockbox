@@ -9,6 +9,8 @@
     "prebuild": "expo prebuild --clean",
     "postinstall": "patch-package",
     "test": "jest",
+    "test:app": "jest --selectProjects app",
+    "test:rules": "jest --selectProjects firestore-rules",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tests",
     "android": "expo run:android"
   },

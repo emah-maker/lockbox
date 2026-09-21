@@ -26,7 +26,7 @@ afterEach(async () => {
 });
 
 afterAll(async () => {
-  await testEnv.cleanup();
+  await testEnv?.cleanup();
 });
 
 async function seedSession(id: string, extra: Record<string, unknown> = {}) {

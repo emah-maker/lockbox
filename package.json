@@ -4,6 +4,7 @@
   "type": "module",
   "description": "Root-level test harness. tests/website/ covers website/js/ (the plain-ES-module dashboard twin of app/src/); tests/contracts/ covers claims that belong to no single sub-project, like the BLE uuids shared by the CircuitPython firmware and the app. Not a build target -- see firebase.json's hosting.public: 'website' for why the website suites can't live under website/ itself.",
   "scripts": {
-    "test": "node --test tests/website/*.test.js tests/contracts/*.test.js"
+    "test": "node --test tests/website/*.test.js tests/contracts/*.test.js",
+    "test:rules": "firebase emulators:exec --only firestore --project phonebox-d14b7 \"npm --prefix app run test:rules\""
   }
 }
