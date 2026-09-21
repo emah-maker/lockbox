@@ -304,9 +304,12 @@ async function tapDeleteAccount(DangerZoneSection: any, password?: string): Prom
 }
 
 describe('deleting the account', () => {
-  // FAILING against the current code -- see the report. DangerZoneSection's
-  // catch has no cancel branch, so both of these print "Could not delete
-  // account. Please try again." over a deletion the user themselves called off.
+  // Were failing when written: DangerZoneSection's catch had no cancel branch,
+  // so both of the first two printed "Could not delete account. Please try
+  // again." over a deletion the user themselves called off. It now routes the
+  // error through providerActionErrorMessage like every other cancel in the
+  // app (DangerZoneSection's own comment records the change), and these guard
+  // that.
   it('shows nothing when the user backs out of the re-authentication sheet', async () => {
     // A cancel is not a failure anywhere else in this app -- SignedOutAccount
     // shows nothing at all for one (signInErrorMessage returns null), and
@@ -370,8 +373,12 @@ describe('deleting the account', () => {
 // locked. App.tsx's effect then runs useAuthStore.init() -> initFirebaseAuth()
 // -> initializeAuth(app, { persistence: secureStorePersistence }) exactly as
 // it does on a normal launch -- against a Keychain that, under
-// WHEN_UNLOCKED_THIS_DEVICE_ONLY (secureStoreKeys.ts's SECURE_STORE_OPTS),
-// answers nothing at all until the phone is unlocked.
+// AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY (secureStoreKeys.ts's
+// SECURE_STORE_OPTS), answers nothing at all until the owner has unlocked the
+// phone once since it booted. The cases below still describe a Keychain that
+// refuses: that window is narrower than the one WHEN_UNLOCKED left open (every
+// locked screen, not just this one), but a reboot nobody has unlocked yet is
+// exactly when the box can wake this app over BLE.
 describe('the Keychain when the phone is locked', () => {
   it('reports itself unavailable, which is what makes the SDK pick a different store', async () => {
     const { newPersistence, keychain } = require('./loginSimulation.harness');
@@ -398,7 +405,10 @@ describe('the Keychain when the phone is locked', () => {
 // The fresh-install wipe (design doc section 2.5)
 // ---------------------------------------------------------------------------
 describe('wiping a previous install\'s Keychain session', () => {
-  // FAILING against the current code -- see the report.
+  // Was failing when written. wipeStaleSessionOnFreshInstall now sets the
+  // marker only when wipeFirebaseAuthSecureStore reports every delete
+  // succeeded, so a refused Keychain leaves it unset and the next launch
+  // retries -- this guards that.
   it('does not record a wipe that did not happen', async () => {
     // iOS Keychain entries survive an uninstall; this is the one thing
     // standing between a new owner of the phone and the previous owner's

@@ -210,7 +210,7 @@ describe('sign-in retries a failed init', () => {
       });
       return () => {};
     });
-    mockSignInWithGoogle.mockResolvedValue({ uid: 'u1', providerData: [] });
+    mockSignInWithGoogle.mockResolvedValue({ uid: 'u1', providerData: [], metadata: {} });
 
     await store.getState().signInWithGoogle();
 
@@ -236,7 +236,7 @@ describe('sign-in retries a failed init', () => {
       cb(null);
       return () => {};
     });
-    mockSignInWithGoogle.mockResolvedValue({ uid: 'u1', providerData: [] });
+    mockSignInWithGoogle.mockResolvedValue({ uid: 'u1', providerData: [], metadata: {} });
     const store = freshStore();
 
     await store.getState().init();
@@ -291,7 +291,7 @@ describe('a sign-in tap is time-bounded too', () => {
       cb(null);
       return () => {};
     });
-    mockSignInWithGoogle.mockResolvedValue({ uid: 'u1', providerData: [] });
+    mockSignInWithGoogle.mockResolvedValue({ uid: 'u1', providerData: [], metadata: {} });
     const store = freshStore();
 
     await store.getState().init();
@@ -336,7 +336,7 @@ describe('the auth-state listener is only claimed once it actually attached', ()
       cb(user);
       return () => {};
     });
-    mockSignInWithGoogle.mockResolvedValue({ uid: 'u1', providerData: [] });
+    mockSignInWithGoogle.mockResolvedValue({ uid: 'u1', providerData: [], metadata: {} });
 
     await store.getState().signInWithGoogle();
 

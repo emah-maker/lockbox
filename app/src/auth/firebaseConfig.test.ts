@@ -13,7 +13,16 @@
 // process.env.EXPO_PUBLIC_* at transform time, and Jest's transform cache
 // means a re-require under a different process.env does not actually observe
 // the new value the way a real rebuild would.
-import { firebaseConfig, findInvalidFirebaseConfigKeys, findInvalidGoogleSignInKeys } from './firebaseConfig';
+//
+// This file deliberately does NOT jest.mock('expo-secure-store'). Every other
+// auth suite does (via loginSimulation.harness), which is exactly why the two
+// build-shaped guards at the bottom -- the Keychain accessibility class, and
+// the iOS URL scheme -- have to live here: both compare a value in the source
+// against a value that only the REAL module (or app.json) knows, and a mock
+// stands in for precisely the thing being checked.
+import * as SecureStore from 'expo-secure-store';
+import { firebaseConfig, findInvalidFirebaseConfigKeys, findInvalidGoogleSignInKeys, GOOGLE_IOS_CLIENT_ID } from './firebaseConfig';
+import { SECURE_STORE_OPTS } from './secureStoreKeys';
 
 type Config = typeof firebaseConfig;
 
@@ -127,5 +136,109 @@ describe('findInvalidGoogleSignInKeys', () => {
     // still passes the gate that initFirebaseAuth() consults, regardless of
     // what the Google ids are, so Apple and email sign-in stay available.
     expect(findInvalidFirebaseConfigKeys(REAL_CONFIG)).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The Keychain accessibility class
+// ---------------------------------------------------------------------------
+//
+// One field, in one object, that decides whether a signed-in user stays signed
+// in -- and until this test existed, nothing asserted it. secureStoreKeys.ts
+// is the only file in the app that names AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY.
+//
+// Why it matters more here than in most apps: app.json declares
+// UIBackgroundModes ["bluetooth-central"] and PhoneBoxClient.ts sets
+// restoreStateIdentifier, so iOS cold-launches this process in the background,
+// screen off, to hand back a restored central. App.tsx runs the normal auth
+// startup there. If the Keychain refuses that launch, the cost is not a failed
+// read: secureStorePersistence._isAvailable() probes with a write, returns
+// false, and @firebase/auth's PersistenceUserManager.create() drops to
+// inMemoryPersistence for the life of the process. The user unlocks,
+// foregrounds that SAME process, and is signed out -- and a fresh sign-in is
+// then written to memory only, so they are signed out again next launch.
+// WHEN_UNLOCKED makes that the outcome of every locked-screen launch;
+// AFTER_FIRST_UNLOCK narrows it to the window between a reboot and the owner's
+// first unlock.
+describe('SECURE_STORE_OPTS.keychainAccessible', () => {
+  it('is AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY, the value a background launch can actually read', () => {
+    expect(SECURE_STORE_OPTS.keychainAccessible).toBe(SecureStore.AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY);
+  });
+
+  it('is not WHEN_UNLOCKED_THIS_DEVICE_ONLY, which fails every locked-screen launch', () => {
+    // Spelled out separately from the positive assertion because this is the
+    // specific regression: the two constants differ by one word, and the wrong
+    // one produces no error anywhere -- only "the app keeps signing me out".
+    expect(SECURE_STORE_OPTS.keychainAccessible).not.toBe(SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY);
+  });
+
+  it('is set at all, so a mock that omits the constant cannot pass for the real one', () => {
+    // `undefined` is what SecureStore treats as "use the platform default"
+    // (WHEN_UNLOCKED), so an unset field is the same bug as the wrong field --
+    // and it is what loginSimulation.harness's mock used to produce.
+    expect(SECURE_STORE_OPTS.keychainAccessible).toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The iOS URL scheme
+// ---------------------------------------------------------------------------
+//
+// Google Sign-In returns to the app through a custom URL scheme that must be
+// the iOS client id reversed. Two copies of that id exist and neither knows
+// about the other: app.json hardcodes the scheme (it is consumed by the
+// config plugin at prebuild, before any JS runs, so it cannot read an env
+// var), while GOOGLE_IOS_CLIENT_ID comes from EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID
+// -- which on a real build is an EAS environment variable, editable from the
+// dashboard by someone who will never see app.json.
+//
+// Rotate the client id there and the scheme silently stops matching. Nothing
+// fails at build time: the native sheet opens, the user picks an account, and
+// iOS has no registered handler for the callback, so the app is simply never
+// returned to. There is no error to map and no message to show -- which is the
+// one sign-in failure mode this codebase's error strings cannot describe.
+//
+// How much of that this suite can actually prove, honestly stated: Jest does
+// not load app/.env (only the Expo CLI does), so GOOGLE_IOS_CLIENT_ID is the
+// REPLACE_ME_* placeholder in every local run and a value-level comparison
+// against it would pass vacuously. The shape check below therefore runs
+// unconditionally and is the part that always has teeth; the equality check
+// runs only where a real id is present in the environment -- a CI job with the
+// EAS variables exported, or `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID=... npx jest`.
+// It is written to be skipped loudly (the shape check still covers the scheme)
+// rather than to look like coverage that is not there.
+describe('the Google iOS URL scheme in app.json', () => {
+  const iosUrlScheme: unknown = require('../../app.json').expo.plugins.find(
+    (p: unknown) => Array.isArray(p) && p[0] === '@react-native-google-signin/google-signin',
+  )?.[1]?.iosUrlScheme;
+
+  /** An id straight from the env, or null when only the placeholder is here. */
+  const realIosClientId = (): string | null => {
+    const fromEnv = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID ?? GOOGLE_IOS_CLIENT_ID;
+    const placeholder =
+      findInvalidGoogleSignInKeys({ webClientId: 'x.apps.googleusercontent.com', iosClientId: fromEnv }).length > 0;
+    return placeholder ? null : fromEnv;
+  };
+
+  it('is declared on the google-signin plugin, in reversed-domain form', () => {
+    // The shape iOS needs: the client id's labels in reverse order. A
+    // truncated, hand-edited or half-rotated scheme fails here even with no
+    // real id to compare against.
+    expect(iosUrlScheme).toEqual(expect.stringMatching(/^com\.googleusercontent\.apps\.\d+-[A-Za-z0-9]+$/));
+  });
+
+  it('carries no leftover placeholder', () => {
+    expect(iosUrlScheme).not.toEqual(expect.stringContaining('REPLACE_ME'));
+  });
+
+  it('is the exact reverse of the iOS client id, wherever a real one is available', () => {
+    const clientId = realIosClientId();
+    if (clientId === null) {
+      // Not silently passing: the scheme itself is still asserted above. This
+      // branch only records that no real id was in scope to compare against.
+      expect(GOOGLE_IOS_CLIENT_ID).toEqual(expect.stringContaining('REPLACE_ME'));
+      return;
+    }
+    expect(iosUrlScheme).toBe(clientId.split('.').reverse().join('.'));
   });
 });

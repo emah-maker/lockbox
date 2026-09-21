@@ -109,6 +109,12 @@ export function firebaseAuthMock() {
     sendPasswordResetEmail: jest.fn(),
     sendEmailVerification: jest.fn(),
     linkWithCredential: jest.fn(),
+    // appleAuth.applyAppleDisplayName writes the name Apple sends once and
+    // never again. Mutates the fake user the way the real SDK does, so an
+    // assertion can read `user.displayName` back after a sign-in.
+    updateProfile: jest.fn(async (user: any, patch: any) => {
+      Object.assign(user, patch);
+    }),
     reauthenticateWithCredential: jest.fn(),
     deleteUser: jest.fn(),
     unlink: jest.fn(),
@@ -159,11 +165,25 @@ export function secureStoreMock() {
   g.__keychain =
     g.__keychain || { entries: new Map<string, string>(), failWrites: false, failDeletes: false, failReads: false };
   // The real iOS failure this reproduces: SECURE_STORE_OPTS pins
-  // keychainAccessible to WHEN_UNLOCKED_THIS_DEVICE_ONLY, so a read or write
-  // while the device is locked comes back as errSecInteractionNotAllowed.
+  // keychainAccessible to AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY, so a read or
+  // write BEFORE the first unlock since boot comes back as
+  // errSecInteractionNotAllowed. (Under the older WHEN_UNLOCKED_THIS_DEVICE_ONLY
+  // the same failure happened on every locked-screen access, not just the
+  // pre-first-unlock window -- see secureStoreKeys.ts for why that changed.)
+  //
+  // Both constants carry the REAL numeric values expo-secure-store exports
+  // (AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY = 1, WHEN_UNLOCKED_THIS_DEVICE_ONLY = 6),
+  // not stand-in strings, and AFTER_FIRST_UNLOCK is here at all because
+  // secureStoreKeys.ts reads it: a mock that omits it silently makes
+  // SECURE_STORE_OPTS.keychainAccessible `undefined` in every test that loads
+  // this harness, which is how the one setting that decides whether a session
+  // survives a background launch came to be asserted nowhere. The real-module
+  // guard lives in firebaseConfig.test.ts, which deliberately does not mock
+  // expo-secure-store.
   const locked = () => new Error('User interaction is not allowed. (-25308)');
   return {
-    WHEN_UNLOCKED_THIS_DEVICE_ONLY: 'WHEN_UNLOCKED_THIS_DEVICE_ONLY',
+    AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY: 1,
+    WHEN_UNLOCKED_THIS_DEVICE_ONLY: 6,
     setItemAsync: jest.fn(async (key: string, value: string) => {
       if (keychain().failWrites) throw locked();
       keychain().entries.set(key, value);

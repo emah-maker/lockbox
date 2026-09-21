@@ -86,10 +86,13 @@ export class SecureStorePersistence implements AuthPersistenceImpl {
   // message verbatim (design doc §5 checklist item 3).
   //
   // Reachable without anything being corrupt: SECURE_STORE_OPTS pins
-  // keychainAccessible to WHEN_UNLOCKED_THIS_DEVICE_ONLY, so any write while
-  // the device is locked fails -- and this app runs locked, in the
-  // background, off its BLE connection, where Firebase's proactive token
-  // refresh writes through here on its own schedule.
+  // keychainAccessible to AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY, so any write
+  // before the first unlock since boot fails -- and this app runs locked, in
+  // the background, off its BLE connection, where Firebase's proactive token
+  // refresh writes through here on its own schedule. (It was WHEN_UNLOCKED,
+  // which failed on EVERY locked-screen write rather than only that window;
+  // secureStoreKeys.ts records why it changed, and firebaseConfig.test.ts now
+  // asserts the value against the real module.)
   //
   // Degrading costs the persisted session (the user signs in again next cold
   // start) against costing them the sign-in they just completed. Logged, so
@@ -160,3 +163,29 @@ export class SecureStorePersistence implements AuthPersistenceImpl {
 
 // The class itself is the value initializeAuth() wants -- it instantiates it.
 export const secureStorePersistence = SecureStorePersistence as unknown as Persistence;
+
+/**
+ * The same probe `_isAvailable()` runs, exposed so firebase.ts can ask the
+ * question BEFORE handing this class to initializeAuth().
+ *
+ * It has to be asked there because initializeAuth() only asks it once, ever.
+ * @firebase/auth's PersistenceUserManager.create() filters out every
+ * persistence whose _isAvailable() says no and keeps what is left for the
+ * LIFE OF THE PROCESS -- so a single unlucky moment picks inMemoryPersistence
+ * and nothing re-examines it. There is no API to reconsider afterwards:
+ * initializeAuth() throws auth/already-initialized on a second call, and the
+ * instance it hands back is the degraded one.
+ *
+ * That unlucky moment is reachable here. SECURE_STORE_OPTS pins
+ * AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY, and this app declares
+ * UIBackgroundModes ["bluetooth-central"] with a restoreStateIdentifier, so
+ * iOS cold-launches it in the background for a box event -- including in the
+ * window between a reboot and the owner's first unlock, where the Keychain
+ * answers nothing. The user then unlocks, foregrounds that same process, and
+ * finds themselves signed out; signing in again writes the session to memory
+ * only, so the next launch signs them out once more. Nothing throws and
+ * nothing is logged: it reads purely as "the app keeps signing me out".
+ */
+export async function isSecureStoreAvailable(): Promise<boolean> {
+  return new SecureStorePersistence()._isAvailable();
+}

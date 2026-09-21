@@ -12,7 +12,7 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { useAuthStore } from '../../auth/useAuthStore';
+import { useAuthStore, type SignInErrorSource } from '../../auth/useAuthStore';
 import { signInErrorMessage } from '../../auth/accountDisplay';
 import type { AuthProviderKind } from '../../auth/accountLinking';
 import { useTheme } from '../../theme/useTheme';
@@ -61,8 +61,16 @@ export function SignedOutAccount({ color, ready }: { color: ReturnType<typeof us
   const createAccountWithEmail = useAuthStore((s) => s.createAccountWithEmail);
   const sendPasswordReset = useAuthStore((s) => s.sendPasswordReset);
 
+  // Both from the store, not useState: this sheet can be swiped away while a
+  // sign-in is still running, and a failure that lands afterwards used to
+  // setState on an unmounted component -- nothing rendered, and reopening
+  // Account showed no trace that the attempt had failed at all. See
+  // useAuthStore's signInError.
+  const signInError = useAuthStore((s) => s.signInError);
+  const signInErrorSource = useAuthStore((s) => s.signInErrorSource);
+  const reportSignInError = useAuthStore((s) => s.reportSignInError);
+
   const [busy, setBusy] = React.useState(false);
-  const [signInError, setSignInError] = React.useState<string | null>(null);
   // Runtime capability check, shared with SignInMethodsSection's "Link
   // Apple" action -- see useAppleAuthAvailable.ts.
   const appleAvailable = useAppleAuthAvailable();
@@ -77,9 +85,9 @@ export function SignedOutAccount({ color, ready }: { color: ReturnType<typeof us
   // one exists" -- see the copy below.
   const [resetSent, setResetSent] = React.useState(false);
 
-  const handleSignIn = async (signIn: () => Promise<void>) => {
+  const handleSignIn = async (signIn: () => Promise<void>, source: SignInErrorSource) => {
     setBusy(true);
-    setSignInError(null);
+    reportSignInError(null, source);
     try {
       await signIn();
     } catch (e: any) {
@@ -89,7 +97,7 @@ export function SignedOutAccount({ color, ready }: { color: ReturnType<typeof us
       // anything" (a plain cancel, or AccountExistsError -- whose prompt
       // pendingLink, rendered below, already carries).
       console.warn('[SignedOutAccount] sign-in failed:', e?.name ?? e?.code ?? e?.message ?? e);
-      setSignInError(signInErrorMessage(e));
+      reportSignInError(signInErrorMessage(e), source);
     } finally {
       setBusy(false);
     }
@@ -101,7 +109,7 @@ export function SignedOutAccount({ color, ready }: { color: ReturnType<typeof us
   // back) would be a pointless tax on the one field every mode shares.
   const switchMode = (mode: EmailAuthMode) => {
     setEmailMode(mode);
-    setSignInError(null);
+    reportSignInError(null, 'email');
     setResetSent(false);
     setPassword('');
     setConfirmPassword('');
@@ -109,13 +117,13 @@ export function SignedOutAccount({ color, ready }: { color: ReturnType<typeof us
 
   const handlePasswordReset = async () => {
     setBusy(true);
-    setSignInError(null);
+    reportSignInError(null, 'email');
     try {
       await sendPasswordReset(email);
       setResetSent(true);
     } catch (e: any) {
       console.warn('[SignedOutAccount] password reset failed:', e?.name ?? e?.code ?? e?.message ?? e);
-      setSignInError(signInErrorMessage(e));
+      reportSignInError(signInErrorMessage(e), 'email');
     } finally {
       setBusy(false);
     }
@@ -124,7 +132,7 @@ export function SignedOutAccount({ color, ready }: { color: ReturnType<typeof us
   const handleEmailSubmit = () => {
     if (emailMode === 'forgotPassword') {
       if (!isValidEmail(email)) {
-        setSignInError('Enter a valid email address.');
+        reportSignInError('Enter a valid email address.', 'email');
         return;
       }
       handlePasswordReset();
@@ -136,11 +144,12 @@ export function SignedOutAccount({ color, ready }: { color: ReturnType<typeof us
       emailMode === 'createAccount' ? confirmPassword : undefined,
     );
     if (validationError) {
-      setSignInError(validationError);
+      reportSignInError(validationError, 'email');
       return;
     }
-    handleSignIn(() =>
-      emailMode === 'createAccount' ? createAccountWithEmail(email, password) : signInWithEmail(email, password),
+    handleSignIn(
+      () => (emailMode === 'createAccount' ? createAccountWithEmail(email, password) : signInWithEmail(email, password)),
+      'email',
     );
   };
 
@@ -163,7 +172,6 @@ export function SignedOutAccount({ color, ready }: { color: ReturnType<typeof us
       ) : null}
       {initError ? <Text style={[styles.subtitle, { color: color.danger }]}>{initError}</Text> : null}
       {syncError ? <Text style={[styles.subtitle, { color: color.danger }]}>{syncError}</Text> : null}
-      {signInError ? <Text style={[styles.subtitle, { color: color.danger }]}>{signInError}</Text> : null}
       {pendingLink ? (
         <Text style={[styles.subtitle, { color: color.danger, marginBottom: 8 }]}>
           {pendingLink.email ? `An account already exists for ${pendingLink.email}` : 'An account already exists for this email'}
@@ -171,10 +179,16 @@ export function SignedOutAccount({ color, ready }: { color: ReturnType<typeof us
           {joinCandidateProviders(pendingLink.candidateProviders)} to link your accounts.
         </Text>
       ) : null}
+      {/* Each error renders against the control that produced it, rather than
+          in one slot at the top of the page. This sheet scrolls, and the email
+          form sits below the fold on a smaller phone: a user who scrolled down,
+          submitted, and got "Enter a valid email address." saw the screen not
+          change at all, which is indistinguishable from a dead button. */}
+      <SignInError message={signInErrorSource === 'provider' ? signInError : null} color={color} />
       <View style={styles.chipRow}>
         <Button
           label="Sign in with Google"
-          onPress={() => handleSignIn(signInWithGoogle)}
+          onPress={() => handleSignIn(signInWithGoogle, 'provider')}
           disabled={busy || !ready}
           loading={busy}
           color={color}
@@ -183,7 +197,7 @@ export function SignedOutAccount({ color, ready }: { color: ReturnType<typeof us
         {appleAvailable ? (
           <Button
             label="Sign in with Apple"
-            onPress={() => handleSignIn(signInWithApple)}
+            onPress={() => handleSignIn(signInWithApple, 'provider')}
             disabled={busy || !ready}
             loading={busy}
             color={color}
@@ -212,8 +226,13 @@ export function SignedOutAccount({ color, ready }: { color: ReturnType<typeof us
             onChangeConfirmPassword={emailMode === 'createAccount' ? setConfirmPassword : undefined}
             newPassword={emailMode === 'createAccount'}
             editable={!busy}
+            // The keyboard's return key runs the same submit the button does,
+            // so a form whose button is behind the keyboard is still
+            // completable -- see EmailPasswordFields' onSubmit.
+            onSubmit={handleEmailSubmit}
             color={color}
           />
+          <SignInError message={signInErrorSource === 'email' ? signInError : null} color={color} />
           <Button
             label={EMAIL_SUBMIT_LABEL[emailMode]}
             onPress={handleEmailSubmit}
@@ -238,6 +257,24 @@ export function SignedOutAccount({ color, ready }: { color: ReturnType<typeof us
         </View>
       )}
     </>
+  );
+}
+
+/** One sign-in error line. `accessibilityLiveRegion`/`accessibilityRole` so a
+ * screen reader announces the failure instead of leaving the user to hunt for
+ * why nothing happened -- the same reason the message moved next to its own
+ * control. Renders nothing at all when there is no message, so it costs no
+ * layout in the normal case. */
+function SignInError({ message, color }: { message: string | null; color: ReturnType<typeof useTheme> }) {
+  if (!message) return null;
+  return (
+    <Text
+      accessibilityRole="alert"
+      accessibilityLiveRegion="polite"
+      style={[styles.subtitle, { color: color.danger }]}
+    >
+      {message}
+    </Text>
   );
 }
 

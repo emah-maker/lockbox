@@ -28,7 +28,7 @@ import * as AppleAuthentication from 'expo-apple-authentication';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import {
   onAuthStateChanged, signInWithCredential, signInWithEmailAndPassword,
-  createUserWithEmailAndPassword, sendPasswordResetEmail,
+  createUserWithEmailAndPassword, sendPasswordResetEmail, updateProfile,
 } from 'firebase/auth';
 import { initFirebaseAuth, FirebaseConfigError } from './firebase';
 import { findInvalidGoogleSignInKeys } from './firebaseConfig';
@@ -323,6 +323,80 @@ describe('Apple sign-in', () => {
     const { store } = await coldStart();
     expect(await signInErrorLine(() => store.getState().signInWithApple())).toBeTruthy();
     expect(signInWithCredential).not.toHaveBeenCalled();
+  });
+
+  // Apple sends `fullName` on the FIRST authorization for this Apple ID and
+  // never again -- it is not in the identity token either, so a name dropped
+  // here is gone permanently, on every device, for the life of the account.
+  // IdentityHeader and SettingsScreen both render
+  // `displayName ?? email ?? 'Signed in'`, and a user who picked "Hide My
+  // Email" has a relay address for `email` -- so dropping it meant greeting
+  // them by a random @privaterelay.appleid.com string forever.
+  describe('the name Apple only ever sends once', () => {
+    const withAppleName = (fullName: unknown) =>
+      (AppleAuthentication.signInAsync as jest.Mock).mockResolvedValue({
+        identityToken: 'apple-identity-token',
+        fullName,
+      });
+
+    it('is saved, and is what the Account page then shows', async () => {
+      withAppleName({ givenName: 'Ada', familyName: 'Lovelace' });
+      const { store } = await coldStart();
+      await store.getState().signInWithApple();
+      // Read off the STORE, not the mock: onAuthStateChanged fires mid-sign-in
+      // with the name still null and Firebase never fires it again for a
+      // uid-preserving change, so asserting updateProfile was called would
+      // pass just as happily while the header stayed wrong.
+      expect(store.getState().user?.displayName).toBe('Ada Lovelace');
+    });
+
+    it('uses whichever half Apple actually filled in', async () => {
+      withAppleName({ givenName: null, familyName: 'Lovelace' });
+      const { store } = await coldStart();
+      await store.getState().signInWithApple();
+      expect(store.getState().user?.displayName).toBe('Lovelace');
+    });
+
+    it('writes nothing on the later sign-ins, where Apple sends no name at all', async () => {
+      withAppleName(null);
+      const { store } = await coldStart();
+      await store.getState().signInWithApple();
+      expect(updateProfile).not.toHaveBeenCalled();
+      expect(store.getState().user?.displayName).toBeNull();
+    });
+
+    it('treats a fullName of all-blank strings as no name', async () => {
+      withAppleName({ givenName: '   ', familyName: '' });
+      const { store } = await coldStart();
+      await store.getState().signInWithApple();
+      expect(updateProfile).not.toHaveBeenCalled();
+    });
+
+    it('never overwrites a name the account already has from another provider', async () => {
+      withAppleName({ givenName: 'Ada', familyName: 'Lovelace' });
+      (signInWithCredential as jest.Mock).mockImplementationOnce(async () =>
+        require('./loginSimulation.harness').firebaseSignsIn({
+          ...makeUser('uid-1', 'me@example.com', ['apple.com', 'google.com']),
+          displayName: 'Ada L. (from Google)',
+        }),
+      );
+      const { store } = await coldStart();
+      await store.getState().signInWithApple();
+      expect(updateProfile).not.toHaveBeenCalled();
+      expect(store.getState().user?.displayName).toBe('Ada L. (from Google)');
+    });
+
+    it('still signs the user in when saving the name fails', async () => {
+      // The user is already authenticated by this point -- Firebase accepted
+      // them and the listener has fired. Letting an updateProfile rejection
+      // (an offline phone) out of signInWithApple would report a sign-in that
+      // WORKED as one that failed, which is strictly worse than no name.
+      withAppleName({ givenName: 'Ada', familyName: 'Lovelace' });
+      (updateProfile as jest.Mock).mockRejectedValueOnce(new Error('network request failed'));
+      const { store } = await coldStart();
+      expect(await signInErrorLine(() => store.getState().signInWithApple())).toBeUndefined();
+      expect(store.getState().user?.uid).toBe('uid-1');
+    });
   });
 
   it('hides the Apple button rather than crashing when the native module is not in the build', async () => {

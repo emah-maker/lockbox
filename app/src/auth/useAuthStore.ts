@@ -95,6 +95,11 @@ export interface AccountUser {
  * only two members. */
 type OAuthProviderKind = Exclude<AuthProviderKind, 'password'>;
 
+/** The two places a sign-in can be started from on the signed-out Account
+ * page: the Google/Apple buttons, or the email/password form below them. See
+ * signInErrorSource in AuthState. */
+export type SignInErrorSource = 'provider' | 'email';
+
 const LAST_SYNCED_KEY = 'lastSyncedAt';
 
 function toAccountUser(u: User): AccountUser {
@@ -105,8 +110,15 @@ function toAccountUser(u: User): AccountUser {
     displayName: u.displayName,
     photoURL: u.photoURL,
     emailVerified: u.emailVerified,
-    creationTime: u.metadata.creationTime ?? null,
-    lastSignInTime: u.metadata.lastSignInTime ?? null,
+    // `?.` on metadata, which the User type declares as always present: this
+    // runs on the sign-in path AFTER Firebase has accepted the user, so a
+    // TypeError here would come back out of signInWithGoogle/Apple/Email and
+    // be rendered as a failed sign-in for one that completely succeeded --
+    // the same trap secureStorePersistence._set and appleAuth's
+    // applyAppleDisplayName each avoid. Two display-only date strings are not
+    // worth that, and they are already allowed to be null.
+    creationTime: u.metadata?.creationTime ?? null,
+    lastSignInTime: u.metadata?.lastSignInTime ?? null,
     providerIds,
     linkedProviders: toProviderKinds(providerIds),
   };
@@ -143,6 +155,27 @@ interface AuthState {
    * Google"/"Link Apple" button) lives. Cleared on sign-out and by the next
    * link/unlink action. */
   linkError: string | null;
+  /** The message for a sign-in ATTEMPT that failed -- distinct from initError
+   * (auth never started) and syncError (auth is up, Firestore failed).
+   *
+   * In the store rather than in SignedOutAccount's own useState, for exactly
+   * the reason linkError already is: the Account sheet can be swiped away at
+   * any moment, including while a sign-in is still in flight, and a failure
+   * that landed after that wrote its message into an unmounted component.
+   * Nothing was shown, and reopening Account started clean -- so a sign-in
+   * that failed and a sign-in that was abandoned looked identical, which is
+   * the report this flow keeps generating. Surviving the unmount is the whole
+   * point.
+   *
+   * Set through reportSignInError below, never assigned directly, so the
+   * source field underneath can never drift out of step with it. */
+  signInError: string | null;
+  /** Which control the failed attempt came from, so the page can render the
+   * message beside it. The provider buttons sit at the top of a scrolling
+   * sheet and the email form at the bottom: a single error slot at the top
+   * meant that submitting the email form scrolled-down showed the user
+   * nothing at all, and the sign-in simply appeared to do nothing. */
+  signInErrorSource: SignInErrorSource | null;
   lastSyncedAt: number | null;
   /** Set when a sign-in attempt hit auth/account-exists-with-different-credential:
    * surfaces "sign in with one of your other providers to link" to
@@ -155,6 +188,14 @@ interface AuthState {
    * initFirebaseAuth(), §2.5's ordering requirement) before attaching the
    * auth-state listener. */
   init: () => Promise<void>;
+  /** Records (or with `message: null` clears) the sign-in error for `source`.
+   *
+   * The mapping from a thrown error to a sentence stays in SignedOutAccount,
+   * where accountDisplay.signInErrorMessage already lives, because the page
+   * also raises errors no store action ever sees -- "Enter a valid email
+   * address." is decided before any provider is called. This action only
+   * holds the result somewhere that outlives the component. */
+  reportSignInError: (message: string | null, source: SignInErrorSource) => void;
   signInWithGoogle: () => Promise<void>;
   signInWithApple: () => Promise<void>;
   /** Signs in with an existing email/password account. Can still complete a
@@ -288,7 +329,10 @@ async function clearSignedInState(set: (partial: Partial<AuthState>) => void): P
   // its own update or it keeps showing the previous account's sessions until
   // the next BLE history event or an app restart.
   useStore.getState().setSessions([]);
-  set({ user: null, lastSyncedAt: null, syncError: null, linkError: null });
+  // signInError too: it belongs to the signed-OUT page this is about to
+  // return the user to, and a message left over from before they signed in
+  // would greet them there as if their sign-out had failed.
+  set({ user: null, lastSyncedAt: null, syncError: null, linkError: null, signInError: null, signInErrorSource: null });
   // A credential stashed by an earlier conflict is now both moot and unsafe
   // to keep -- without this it survived sign-out entirely, ready for the NEXT
   // person to sign in on this device to have it silently linked onto their
@@ -348,6 +392,31 @@ function ownsPendingLink(pending: PendingAccountLink, user: User): boolean {
   return pending.email.trim().toLowerCase() === user.email.trim().toLowerCase();
 }
 
+/**
+ * Tears down a session that was created after the user had already left.
+ *
+ * Runs the same provider sign-out the Sign out button would have, so the
+ * Google OAuth grant is revoked and the Keychain wiped exactly as on the
+ * deliberate path -- a half-undone stale sign-in would leave precisely the
+ * residue signOutFully exists to remove.
+ *
+ * Never throws: its caller is a sign-in nobody is waiting on any more, and
+ * the store is already in the signed-out state this is trying to restore.
+ */
+async function undoStaleSignIn(
+  provider: AuthProviderKind,
+  set: (partial: Partial<AuthState>) => void,
+): Promise<void> {
+  try {
+    if (provider === 'apple') await signOutAppleFully();
+    else if (provider === 'password') await signOutEmailFully();
+    else await signOutGoogleFully();
+    await clearSignedInState(set);
+  } catch (e: any) {
+    console.warn('[useAuthStore] could not undo a stale sign-in:', e?.code ?? e?.name ?? e?.message ?? e);
+  }
+}
+
 /** Shared by signInWithGoogle/signInWithApple/signInWithEmail below: runs the
  * provider's own sign-in, and if it succeeds while a link conflict was
  * pending and this provider is one of its candidateProviders (i.e. this
@@ -359,9 +428,22 @@ async function handleProviderSignIn(
   provider: AuthProviderKind,
   doSignIn: () => Promise<User>,
   set: (partial: Partial<AuthState>) => void,
+  get: () => AuthState,
 ): Promise<void> {
+  const startedAt = sessionGeneration;
   try {
     const user = await doSignIn();
+    // Before anything is applied: the user signed out (or deleted the
+    // account) while the native picker this just awaited was still open, and
+    // Firebase has now authenticated them anyway. Undoing it is the only
+    // honest outcome -- the session is real, so simply declining to store it
+    // would leave the device signed in as far as Firebase is concerned, with
+    // a page saying otherwise. See sessionGeneration.
+    if (sessionGeneration !== startedAt) {
+      console.warn('[useAuthStore] a sign-in completed after the session was ended; signing it back out.');
+      await undoStaleSignIn(provider, set);
+      return;
+    }
     const pending = getPendingLink();
     set({ pendingLink: null });
     if (pending && pending.candidateProviders.includes(provider) && ownsPendingLink(pending, user)) {
@@ -392,6 +474,28 @@ async function handleProviderSignIn(
       // e.g. the user retries Google and picks a different Google account.
       dismissPendingLink(set);
     }
+    // Re-read the user AFTER doSignIn() and any link above, for the same
+    // reason linkProvider does it: `user` in this store was written by the
+    // onAuthStateChanged callback, which fired in the MIDDLE of doSignIn() --
+    // the moment Firebase accepted the credential -- and Firebase does not
+    // fire it a second time for a change that leaves the uid alone
+    // (AuthImpl.notifyAuthListeners only forwards to authStateSubscription
+    // when lastNotifiedUid differs; a profile edit reaches onIdTokenChanged
+    // only, which nothing here subscribes to).
+    //
+    // So anything written onto the User object after that instant was
+    // invisible until the next cold start. Concretely: appleAuth's
+    // applyAppleDisplayName, which saves the name Apple sends exactly once,
+    // and completePendingLink, which adds a providerId. Without this line an
+    // Apple user who had chosen "Hide My Email" saw their relay address in
+    // the Account header for the rest of the session, and firestoreSync wrote
+    // the same null name to their cloud profile.
+    //
+    // Guarded on the uid exactly as linkProvider's own re-read is: the native
+    // sheet doSignIn() awaited can stay open indefinitely, so a sign-out can
+    // land first, and applying unconditionally would put a signed-in user
+    // back on a signed-out page.
+    if (get().user?.uid === user.uid) set({ user: toAccountUser(user) });
   } catch (e: any) {
     if (e instanceof AccountExistsError) {
       set({ pendingLink: e.pending });
@@ -412,10 +516,20 @@ const AUTH_INIT_ERROR = "Couldn't start sign-in. Check your connection and try a
 // fixes that, so it gets its own message rather than AUTH_INIT_ERROR's
 // "check your connection" wording, which would send a user chasing the
 // wrong problem.
+/** Named separately from AUTH_INIT_ERROR because "check your connection" is
+ * not merely unhelpful for this cause, it is false: the network is fine and
+ * the phone has not been unlocked since it booted, so the Keychain is
+ * refusing (firebase.ts's KeychainUnavailableError). Reachable because iOS
+ * cold-launches this app in the background for a box event -- App.tsx retries
+ * init on the next foreground, so in the ordinary case this is never read;
+ * it is what remains if the retry also fails. */
+const KEYCHAIN_UNAVAILABLE_ERROR =
+  "Couldn't open secure storage on this phone. Open Phone Box again once it's unlocked.";
+
 function initErrorMessageFor(e: any): string {
-  return e?.name === 'FirebaseConfigError'
-    ? SIGN_IN_NOT_CONFIGURED_MESSAGE
-    : `${AUTH_INIT_ERROR} ${initFailureTag(e)}`;
+  if (e?.name === 'FirebaseConfigError') return SIGN_IN_NOT_CONFIGURED_MESSAGE;
+  if (e?.name === 'KeychainUnavailableError') return `${KEYCHAIN_UNAVAILABLE_ERROR} ${initFailureTag(e)}`;
+  return `${AUTH_INIT_ERROR} ${initFailureTag(e)}`;
 }
 
 /** The stall stage, plus the error's name/code when there was an error at all,
@@ -529,6 +643,98 @@ function releaseWhenSettled(work: Promise<unknown>, release: () => void): void {
  * process), so a second registration would be a permanent duplicate --
  * every auth change would fire syncNow() twice. */
 let authListenerAttached = false;
+
+/**
+ * Bumped the moment the user deliberately ends a session (signOut,
+ * deleteAccount). A sign-in that started before the bump belongs to a session
+ * the user has since abandoned.
+ *
+ * The case: the user taps Google, the native picker opens, they lose interest
+ * and dismiss the sheet WITHOUT cancelling the picker (or they tapped Apple
+ * first and Google's sheet is still behind it), then sign out. The forgotten
+ * picker finally returns a real credential, Firebase accepts it, and
+ * onAuthStateChanged -- which applies every auth-state change it is handed --
+ * signs them back in. No tap, no prompt, nothing on screen to explain it. On
+ * the shared-or-resold-device case clearSignedInState exists to protect, that
+ * is the whole leak reopening on its own.
+ *
+ * A generation counter rather than a boolean because sign-ins can overlap:
+ * each call captures the value it started at and compares, so a later,
+ * legitimate sign-in is never mistaken for the abandoned one.
+ */
+let sessionGeneration = 0;
+
+/**
+ * The sign-in currently running, or null.
+ *
+ * SignedOutAccount's `busy` disables the buttons, but it is screen-local React
+ * state set after the handler has already started: it cannot stop a second
+ * call that is in flight by the time the button visually greys out, and it is
+ * gone entirely once the sheet is dismissed. Two taps therefore opened two
+ * native Google pickers, and a Google tap followed by an Apple tap let
+ * whichever finished LAST overwrite the identity already on screen -- signing
+ * the user in as an account they did not choose second.
+ *
+ * A second call joins the first rather than being rejected: the user asked to
+ * sign in once, one sign-in is running, and its outcome is the honest answer
+ * to both taps. Rejecting would put an error on screen for a sign-in that is
+ * about to succeed, and resolving immediately would clear the caller's
+ * spinner while the real attempt was still going.
+ */
+let inFlightSignIn: Promise<void> | null = null;
+/** When inFlightSignIn was claimed -- see SIGN_IN_CLAIM_TTL_MS. */
+let inFlightSignInAt = 0;
+
+/**
+ * How long one attempt may hold the exclusivity claim above.
+ *
+ * The claim exists to collapse rapid taps, and it must not be able to outlive
+ * the thing it is de-duplicating. Every Firebase REST call on this path is
+ * bounded (authSession.ts's withAuthNetworkTimeout), but the native picker
+ * deliberately is NOT -- a person choosing a Google account or typing an
+ * Apple ID password is allowed to take as long as they like. That leaves one
+ * way for an attempt to never settle: the sheet goes away without resolving
+ * or rejecting its promise. Without an expiry the claim would then be held
+ * forever and EVERY later tap would join a dead promise -- turning one stuck
+ * attempt into a permanently unusable sign-in, which is worse than the
+ * double-tap this guard was added for.
+ *
+ * Long enough that a real person at a real picker is never treated as stuck.
+ * The stale promise itself is left alone: it is not cancellable, and if it
+ * ever does settle, sessionGeneration decides whether its result still counts.
+ */
+const SIGN_IN_CLAIM_TTL_MS = 120_000;
+
+/** Runs `work` unless a sign-in is already in flight, in which case the
+ * caller waits on that one instead. See inFlightSignIn. */
+function exclusiveSignIn(work: () => Promise<void>): Promise<void> {
+  if (inFlightSignIn) {
+    if (Date.now() - inFlightSignInAt < SIGN_IN_CLAIM_TTL_MS) return inFlightSignIn;
+    // Evicting an expired claim invalidates the attempt that held it, exactly
+    // as a sign-out would. Without this bump the abandoned attempt keeps a
+    // generation that still looks current, so if its sheet is finally
+    // dismissed with a real result -- minutes later, with somebody else
+    // already signed in through a second, successful attempt --
+    // onAuthStateChanged applies it and handleProviderSignIn sees no
+    // generation change to undo it. The session someone actually chose is
+    // then silently replaced by the one they walked away from.
+    //
+    // Reusing sessionGeneration rather than adding a second mechanism: "this
+    // attempt's result no longer counts" is the same statement whether the
+    // reason was a sign-out or a superseded claim, and handleProviderSignIn
+    // already checks exactly that. Bumped BEFORE work() runs, so the new
+    // attempt captures the incremented value as its own baseline.
+    sessionGeneration += 1;
+  }
+  const attempt = work().finally(() => {
+    // Identity-checked: a slow attempt that has already been superseded must
+    // not clear a newer one's claim on the way out.
+    if (inFlightSignIn === attempt) inFlightSignIn = null;
+  });
+  inFlightSignIn = attempt;
+  inFlightSignInAt = Date.now();
+  return attempt;
+}
 
 /** Rejects `promise` if it hasn't settled within AUTH_INIT_TIMEOUT_MS.
  *
@@ -667,8 +873,15 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   syncingUid: null,
   syncError: null,
   linkError: null,
+  signInError: null,
+  signInErrorSource: null,
   lastSyncedAt: null,
   pendingLink: null,
+
+  reportSignInError: (message, source) =>
+    // Source is cleared alongside a null message so a stale 'email' does
+    // not survive to position the NEXT error under the wrong control.
+    set({ signInError: message, signInErrorSource: message === null ? null : source }),
 
   init: async () => {
     // Its own catch: a read failure here is cosmetic (a missing "last synced"
@@ -713,46 +926,56 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 
-  signInWithGoogle: async () => {
-    set({ syncError: null });
-    await requireFirebaseAuth(set, get); // no-op once started; retries a failed init()
-    await handleProviderSignIn('google', signInWithGoogleAuth, set);
-    // onAuthStateChanged (above) picks up the new user and triggers syncNow().
-  },
+  signInWithGoogle: async () =>
+    // Guarded so a second tap -- on this button or the other one -- joins the
+    // attempt already running instead of opening a second native picker. See
+    // exclusiveSignIn.
+    exclusiveSignIn(async () => {
+      set({ syncError: null });
+      await requireFirebaseAuth(set, get); // no-op once started; retries a failed init()
+      await handleProviderSignIn('google', signInWithGoogleAuth, set, get);
+      // onAuthStateChanged (above) picks up the new user and triggers syncNow().
+    }),
 
-  signInWithApple: async () => {
-    set({ syncError: null });
-    await requireFirebaseAuth(set, get); // no-op once started; retries a failed init()
-    await handleProviderSignIn('apple', signInWithAppleAuth, set);
-    // onAuthStateChanged (above) picks up the new user and triggers syncNow().
-  },
+  signInWithApple: async () =>
+    // Guarded so a second tap -- on this button or the other one -- joins the
+    // attempt already running instead of opening a second native picker. See
+    // exclusiveSignIn.
+    exclusiveSignIn(async () => {
+      set({ syncError: null });
+      await requireFirebaseAuth(set, get); // no-op once started; retries a failed init()
+      await handleProviderSignIn('apple', signInWithAppleAuth, set, get);
+      // onAuthStateChanged (above) picks up the new user and triggers syncNow().
+    }),
 
-  signInWithEmail: async (email, password) => {
-    set({ syncError: null });
-    await requireFirebaseAuth(set, get); // no-op once started; retries a failed init()
-    await handleProviderSignIn('password', () => signInWithEmailAuth(email, password), set);
-    // onAuthStateChanged (above) picks up the new user and triggers syncNow().
-  },
+  signInWithEmail: async (email, password) =>
+    exclusiveSignIn(async () => {
+      set({ syncError: null });
+      await requireFirebaseAuth(set, get); // no-op once started; retries a failed init()
+      await handleProviderSignIn('password', () => signInWithEmailAuth(email, password), set, get);
+      // onAuthStateChanged (above) picks up the new user and triggers syncNow().
+    }),
 
-  createAccountWithEmail: async (email, password) => {
-    set({ syncError: null });
-    await requireFirebaseAuth(set, get); // no-op once started; retries a failed init()
-    await createAccountWithEmailAuth(email, password);
-    // Deliberately NOT handleProviderSignIn/completePendingLink: that path
-    // exists to complete a link once the user has PROVEN ownership of the
-    // SAME email a previous sign-in attempt conflicted on. This call always
-    // creates a brand-new Firebase user under whatever email was typed,
-    // which proves nothing about a pending conflict's (possibly different)
-    // email -- and if the two happen to be the same email, Firebase itself
-    // already refuses this call outright with auth/email-already-in-use
-    // (that email is already the other provider's account), so there is no
-    // legitimate case here that needs completing. Any stale prompt is
-    // cleared instead, since a newly-created and signed-in account makes it
-    // moot either way -- and cleared through dismissPendingLink so the
-    // stashed credential goes with the prompt, not just the prompt.
-    dismissPendingLink(set);
-    // onAuthStateChanged (above) picks up the new user and triggers syncNow().
-  },
+  createAccountWithEmail: async (email, password) =>
+    exclusiveSignIn(async () => {
+      set({ syncError: null });
+      await requireFirebaseAuth(set, get); // no-op once started; retries a failed init()
+      await createAccountWithEmailAuth(email, password);
+      // Deliberately NOT handleProviderSignIn/completePendingLink: that path
+      // exists to complete a link once the user has PROVEN ownership of the
+      // SAME email a previous sign-in attempt conflicted on. This call always
+      // creates a brand-new Firebase user under whatever email was typed,
+      // which proves nothing about a pending conflict's (possibly different)
+      // email -- and if the two happen to be the same email, Firebase itself
+      // already refuses this call outright with auth/email-already-in-use
+      // (that email is already the other provider's account), so there is no
+      // legitimate case here that needs completing. Any stale prompt is
+      // cleared instead, since a newly-created and signed-in account makes it
+      // moot either way -- and cleared through dismissPendingLink so the
+      // stashed credential goes with the prompt, not just the prompt.
+      dismissPendingLink(set);
+      // onAuthStateChanged (above) picks up the new user and triggers syncNow().
+    }),
 
   sendPasswordReset: async (email) => {
     await requireFirebaseAuth(set, get); // no-op once started; retries a failed init()
@@ -760,6 +983,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   signOut: async () => {
+    // FIRST, before any await: from here on, a sign-in that is still waiting
+    // on its native picker belongs to a session the user has ended, and must
+    // not be applied when it finally returns. See sessionGeneration.
+    sessionGeneration += 1;
     // All three providers' signOutFully() do the same generic Firebase
     // auth.signOut() + SecureStore wipe (redundant but harmless if more than
     // one run); only Google's additionally revokes its native OAuth grant,
@@ -801,6 +1028,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   deleteAccount: async (password) => {
     const user = get().user;
     if (!user) return;
+    // Same invalidation as signOut's, and for a stronger reason: once the
+    // Auth user is gone a stale credential would not restore this account but
+    // CREATE a fresh one under the same email, moments after the user asked
+    // for it to be erased.
+    sessionGeneration += 1;
     // Order matters, and this order is the fix for a real data-loss bug: the
     // re-auth step -- the one step in this whole flow the user can cancel or
     // fail -- MUST complete successfully BEFORE deleteAllUserData runs.
@@ -863,7 +1095,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       throw new PasswordRequiredError();
     }
     let reauthenticateForDeletion: () => Promise<void>;
-    let deleteUserAccount: () => Promise<void>;
+    // Takes the uid the deletion started on -- see authSession.deleteFirebaseUser.
+    let deleteUserAccount: (expectedUid: string) => Promise<void>;
     if (chosenProvider === 'google') {
       reauthenticateForDeletion = reauthenticateGoogleForDeletion;
       deleteUserAccount = deleteGoogleUserAccount;
@@ -906,7 +1139,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       );
       // Step 3: only after the wipe succeeds, remove the Auth user itself.
       try {
-        await deleteUserAccount();
+        // The uid captured before step 1, so a session swapped in while the
+        // re-auth picker was open cannot redirect this -- see
+        // authSession.deleteFirebaseUser.
+        await deleteUserAccount(user.uid);
       } catch (e) {
         // The one abnormal outcome this flow can produce: cloud data is
         // already gone but the Auth user survived. Tag it so

@@ -27,6 +27,7 @@ import {
   reauthenticateCurrentUser,
   signOutFirebaseSession,
   deleteFirebaseUser,
+  withAuthNetworkTimeout,
 } from './authSession';
 
 /**
@@ -77,7 +78,12 @@ function normalizeEmail(email: string): string {
  * how that sign-in got there.
  */
 export async function signInWithEmail(email: string, password: string): Promise<User> {
-  const result = await signInWithEmailAndPassword(getFirebaseAuth(), normalizeEmail(email), password);
+  // Bounded like every other auth REST call -- see withAuthNetworkTimeout.
+  // There is no native sheet on this path, so the whole call is network.
+  const result = await withAuthNetworkTimeout(
+    signInWithEmailAndPassword(getFirebaseAuth(), normalizeEmail(email), password),
+    'signInWithEmailAndPassword',
+  );
   // `password` falls out of scope here -- used once, never persisted.
   return result.user;
 }
@@ -93,7 +99,10 @@ export async function signInWithEmail(email: string, password: string): Promise<
  * website/js/emailAuthForm.js's identical best-effort send and comment).
  */
 export async function createAccountWithEmail(email: string, password: string): Promise<User> {
-  const result = await createUserWithEmailAndPassword(getFirebaseAuth(), normalizeEmail(email), password);
+  const result = await withAuthNetworkTimeout(
+    createUserWithEmailAndPassword(getFirebaseAuth(), normalizeEmail(email), password),
+    'createUserWithEmailAndPassword',
+  );
   await sendEmailVerification(result.user).catch((e: any) =>
     console.warn('[emailAuth] createAccountWithEmail: sendEmailVerification failed', e?.message),
   );
@@ -110,7 +119,10 @@ export async function createAccountWithEmail(email: string, password: string): P
  * emailAuthForm.js's identical handling and comment).
  */
 export async function sendPasswordReset(email: string): Promise<void> {
-  await sendPasswordResetEmail(getFirebaseAuth(), normalizeEmail(email));
+  await withAuthNetworkTimeout(
+    sendPasswordResetEmail(getFirebaseAuth(), normalizeEmail(email)),
+    'sendPasswordResetEmail',
+  );
 }
 
 /**
@@ -185,6 +197,6 @@ export async function reauthenticateForDeletion(password: string): Promise<void>
  * runs here -- reauthenticateForDeletion already proved recent presence, so
  * this is the one place deleteUser() itself is invoked.
  */
-export async function deleteUserAccount(): Promise<void> {
-  await deleteFirebaseUser('[emailAuth] deleteUserAccount');
+export async function deleteUserAccount(expectedUid?: string): Promise<void> {
+  await deleteFirebaseUser('[emailAuth] deleteUserAccount', undefined, expectedUid);
 }

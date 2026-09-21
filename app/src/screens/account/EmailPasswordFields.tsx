@@ -11,6 +11,7 @@
 // pair, an email-only forgot-password field, and a password-only reauth
 // field alike -- callers wrap it in their own <View style={{ gap: 8 }}>
 // (a Fragment carries no layout of its own).
+import React from 'react';
 import { TextInput, StyleSheet } from 'react-native';
 import { useTheme } from '../../theme/useTheme';
 import { textInputStyle } from '../SettingsPrimitives';
@@ -59,6 +60,7 @@ export function EmailPasswordFields({
   onChangeConfirmPassword,
   newPassword,
   editable = true,
+  onSubmit,
   color,
 }: {
   /** Omitted for a password-only field (DangerZoneSection's delete-account
@@ -79,8 +81,32 @@ export function EmailPasswordFields({
    * since it only ever appears alongside a password being set. */
   newPassword?: boolean;
   editable?: boolean;
+  /** Submits the form the keyboard's return key belongs to.
+   *
+   * Without it the return key did nothing and the only way to submit was to
+   * find and tap the button -- which on the Account sheet can sit behind the
+   * keyboard on a shorter phone, since the email form comes after the intro
+   * copy and both provider buttons. Return-key submit is the fallback for
+   * exactly that, wired here rather than left to each caller to forget
+   * differently. Optional: DangerZoneSection's reauth field has its own
+   * confirm/cancel pair and wants no return-key action. */
+  onSubmit?: () => void;
   color: ReturnType<typeof useTheme>;
 }) {
+  // Focus advances to the next field the user actually HAS, so the chain is
+  // derived from which handlers were passed rather than assumed: sign-in has
+  // no confirm field, and forgot-password has no password field at all. The
+  // last field in whichever chain that leaves submits instead.
+  const passwordRef = React.useRef<TextInput>(null);
+  const confirmRef = React.useRef<TextInput>(null);
+  const advance = (next: React.RefObject<TextInput | null>) => () => {
+    if (next.current) next.current.focus();
+    else onSubmit?.();
+  };
+  // 'next' keeps the keyboard up for the field being moved to; 'go' submits.
+  // blurOnSubmit must be false wherever focus is moving, or the keyboard
+  // dismisses and immediately re-presents, which reads as a flicker.
+  const goOr = (hasNext: boolean) => (hasNext ? ('next' as const) : ('go' as const));
   return (
     <>
       {onChangeEmail ? (
@@ -90,11 +116,20 @@ export function EmailPasswordFields({
           editable={editable}
           placeholder="Email"
           placeholderTextColor={color.textDim}
+          // Explicit, not left to the placeholder: a placeholder disappears
+          // the moment there is text in the field, and with it the only thing
+          // naming that field to VoiceOver -- so a user reviewing what they
+          // typed hears the value with nothing saying which field it is. The
+          // same reason SettingsPrimitives' Button sets one.
+          accessibilityLabel="Email"
           autoCapitalize="none"
           autoCorrect={false}
           keyboardType="email-address"
           autoComplete="email"
           textContentType="emailAddress"
+          returnKeyType={goOr(!!onChangePassword)}
+          blurOnSubmit={!onChangePassword}
+          onSubmitEditing={advance(passwordRef)}
           style={[styles.input, { color: color.text, borderColor: color.textDim }]}
         />
       ) : null}
@@ -105,7 +140,12 @@ export function EmailPasswordFields({
           editable={editable}
           placeholder="Password"
           placeholderTextColor={color.textDim}
+          accessibilityLabel="Password"
           secureTextEntry
+          ref={passwordRef}
+          returnKeyType={goOr(!!onChangeConfirmPassword)}
+          blurOnSubmit={!onChangeConfirmPassword}
+          onSubmitEditing={advance(confirmRef)}
           textContentType={newPassword ? 'newPassword' : 'password'}
           autoComplete={newPassword ? 'new-password' : 'password'}
           style={[styles.input, { color: color.text, borderColor: color.textDim }]}
@@ -118,7 +158,11 @@ export function EmailPasswordFields({
           editable={editable}
           placeholder="Confirm password"
           placeholderTextColor={color.textDim}
+          accessibilityLabel="Confirm password"
           secureTextEntry
+          ref={confirmRef}
+          returnKeyType="go"
+          onSubmitEditing={() => onSubmit?.()}
           textContentType="newPassword"
           autoComplete="new-password"
           style={[styles.input, { color: color.text, borderColor: color.textDim }]}

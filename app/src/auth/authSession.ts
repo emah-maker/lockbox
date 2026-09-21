@@ -29,6 +29,55 @@ import { wipeFirebaseAuthSecureStore } from './secureStoreKeys';
 import { signInDetectingLinkConflict, type AuthProviderKind } from './accountLinking';
 
 /**
+ * How long one Firebase Auth REST call may hang before the caller stops
+ * waiting.
+ *
+ * useAuthStore bounds Firebase Auth starting up, the Firestore sync, the
+ * deletion wipe and the push cleanup, for a reason its own comment states
+ * plainly: an await that never settles is "not a slow operation; it is a
+ * permanently disabled control with no error and no way back short of
+ * force-quitting". The auth calls themselves were the gap. A stalled TCP
+ * connection -- not a refused one, which rejects promptly as
+ * auth/network-request-failed -- left signInWithCredential pending forever,
+ * and with it SignedOutAccount's `busy`, which disables every sign-in control
+ * on the page while it is true. One tap on a bad connection, and the only way
+ * out was force-quitting the app.
+ *
+ * Generous, because the failure being prevented is infinite rather than slow.
+ */
+const AUTH_NETWORK_TIMEOUT_MS = 30_000;
+
+/**
+ * Bounds a Firebase Auth network call.
+ *
+ * Wraps ONLY the REST calls, never the native picker or sheet that precedes
+ * them: choosing a Google account, or typing an Apple ID password, is paced by
+ * a person and is allowed to take as long as it takes. Bounding the whole
+ * sign-in would have turned a slow human into a failed sign-in -- so each call
+ * site below wraps the SDK call alone, after the credential already exists.
+ *
+ * The message is one of accountDisplay.ts's authored sign-in strings, chosen
+ * deliberately: a timeout here IS the no-connection case from the user's side,
+ * and signInErrorMessage renders a `.code`-less error's message verbatim, so
+ * anything else written here would reach the screen as novel copy. `name` is
+ * for the logs, which are the only place the difference matters.
+ */
+export function withAuthNetworkTimeout<T>(work: Promise<T>, what: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      console.warn(`[authSession] ${what} did not finish within ${AUTH_NETWORK_TIMEOUT_MS}ms.`);
+      const e = new Error('No connection. Check your network and try again.');
+      e.name = 'AuthNetworkTimeoutError';
+      reject(e);
+    }, AUTH_NETWORK_TIMEOUT_MS);
+  });
+  // Cleared on the success path too, or every call would leave a live timer
+  // behind in the RN timer queue (and keep a Jest run alive past its test).
+  return Promise.race([work, timeout]).finally(() => clearTimeout(timer));
+}
+
+/**
  * Exchanges a provider credential for a Firebase session, routed through
  * accountLinking.ts's conflict handler so a user who already has an account
  * under this email via a DIFFERENT provider gets the "sign in with X to link"
@@ -43,7 +92,7 @@ export async function signInWithProviderCredential(
   credential: AuthCredential,
 ): Promise<User> {
   const userCredential = await signInDetectingLinkConflict(kind, credential, () =>
-    signInWithCredential(getFirebaseAuth(), credential),
+    withAuthNetworkTimeout(signInWithCredential(getFirebaseAuth(), credential), 'signInWithCredential'),
   );
   // `credential` falls out of scope in the caller -- used once, never persisted.
   return userCredential.user;
@@ -60,7 +109,7 @@ export async function signInWithProviderCredential(
  * signed in. Callers must pass the CURRENT signed-in user.
  */
 export async function linkCredentialToUser(user: User, credential: AuthCredential): Promise<User> {
-  const result = await linkWithCredential(user, credential);
+  const result = await withAuthNetworkTimeout(linkWithCredential(user, credential), 'linkWithCredential');
   return result.user;
 }
 
@@ -91,8 +140,10 @@ export async function reauthenticateCurrentUser(
   // having been asked for anything. Its one caller is the deletion retry, so
   // a false success here is what lets the destructive step proceed.
   if (!user) throw new Error('No signed-in user to re-authenticate.');
+  // getCredential runs the native picker/sheet and is deliberately NOT
+  // bounded -- see withAuthNetworkTimeout. Only the call after it is.
   const credential = await getCredential(user);
-  await reauthenticateWithCredential(user, credential);
+  await withAuthNetworkTimeout(reauthenticateWithCredential(user, credential), 'reauthenticateWithCredential');
 }
 
 /**
@@ -132,9 +183,28 @@ export async function signOutFirebaseSession(
 export async function deleteFirebaseUser(
   context: string,
   providerCleanup?: () => Promise<void>,
+  expectedUid?: string,
 ): Promise<void> {
   const auth = getFirebaseAuth();
   const user = auth.currentUser;
+  // Delete the account the flow STARTED on, or nothing.
+  //
+  // `auth.currentUser` is read here, at the end of a sequence whose first
+  // step opens a native picker -- so the identity it returns is whoever is
+  // signed in NOW, not necessarily whoever the user asked to delete. A
+  // sign-in that was still waiting on its own forgotten picker can land in
+  // that window and swap it (useAuthStore's sessionGeneration exists because
+  // that really is reachable), and deleteUser() would then erase an account
+  // the user never chose -- irreversibly, after their own account's data had
+  // already been wiped under the uid captured up front.
+  //
+  // Throwing rather than deleting is the only safe branch: deleteAccount's
+  // catch turns it into AccountDataWipedError, which tells the user exactly
+  // what happened -- their data is gone but the account remains -- and that
+  // is recoverable. Deleting a stranger's account is not.
+  if (expectedUid !== undefined && user && user.uid !== expectedUid) {
+    throw new Error('The signed-in account changed before it could be deleted.');
+  }
   // Throw, never return. This runs as step 3 of deleteAccount, AFTER the
   // cloud data has already been wiped, so a silent return here is the one
   // outcome the flow must never produce: deleteAccount does not throw,
@@ -148,7 +218,7 @@ export async function deleteFirebaseUser(
   // catch already turns anything thrown here into it. Returning quietly was
   // the one way to route around that message.
   if (!user) throw new Error('No signed-in user to delete.');
-  await deleteUser(user);
+  await withAuthNetworkTimeout(deleteUser(user), 'deleteUser');
   await providerCleanup?.();
   await wipeFirebaseAuthSecureStore(context);
 }

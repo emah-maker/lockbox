@@ -185,8 +185,8 @@ describe('an account that already exists under another provider', () => {
 // --- Storage failures must cost a session, never a sign-in -----------------
 describe('when the Keychain will not cooperate', () => {
   it('does not fail a sign-in the user already completed, when the session write fails', async () => {
-    // SECURE_STORE_OPTS pins WHEN_UNLOCKED_THIS_DEVICE_ONLY, so any write
-    // while the device is locked fails -- and Firebase writes through here on
+    // SECURE_STORE_OPTS pins AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY, so a write
+    // before the first unlock since boot fails -- and Firebase writes here on
     // its own token-refresh schedule, from the background, off the BLE
     // connection. Firebase awaits _set inside directlySetCurrentUser, on the
     // path of every sign-in call: a rejection comes back out of the sign-in

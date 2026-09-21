@@ -180,6 +180,6 @@ export async function reauthenticateForDeletion(): Promise<void> {
  * already proved recent presence, so this is the one place deleteUser()
  * itself is invoked.
  */
-export async function deleteUserAccount(): Promise<void> {
-  await deleteFirebaseUser('[googleAuth] deleteUserAccount', revokeGoogleGrant);
+export async function deleteUserAccount(expectedUid?: string): Promise<void> {
+  await deleteFirebaseUser('[googleAuth] deleteUserAccount', revokeGoogleGrant, expectedUid);
 }

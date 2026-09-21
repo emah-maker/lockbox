@@ -44,8 +44,14 @@ jest.mock('firebase/auth', () => ({
   deleteUser: jest.fn(),
   reauthenticateWithCredential: jest.fn(),
 }));
+// Real numeric constants, and AFTER_FIRST_UNLOCK present: secureStoreKeys.ts
+// reads SecureStore.AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY, so a mock that omits
+// it leaves SECURE_STORE_OPTS.keychainAccessible `undefined` here -- which is
+// how the setting that decides whether a session survives a background launch
+// ended up asserted nowhere. firebaseConfig.test.ts guards the real value.
 jest.mock('expo-secure-store', () => ({
-  WHEN_UNLOCKED_THIS_DEVICE_ONLY: 'WHEN_UNLOCKED_THIS_DEVICE_ONLY',
+  AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY: 1,
+  WHEN_UNLOCKED_THIS_DEVICE_ONLY: 6,
   deleteItemAsync: jest.fn(),
 }));
 jest.mock('./firebase', () => ({ getFirebaseAuth: jest.fn() }));

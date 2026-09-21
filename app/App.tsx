@@ -23,6 +23,7 @@ import { isCallObserverAvailable } from './modules/call-observer';
 import { hydrateCallDiagnostics } from './src/calls/callDiagnostics';
 import { getLaunchReason, onBackgroundWake } from './modules/background-wake';
 import { useAuthStore } from './src/auth/useAuthStore';
+import { startForegroundAuthRetry } from './src/auth/foregroundAuthRetry';
 import { startSettingsSyncBridge } from './src/sync/settingsSyncBridge';
 import { startSessionsSyncBridge } from './src/sync/sessionsSyncBridge';
 import { startGoalsSyncBridge } from './src/sync/goalsSyncBridge';
@@ -202,7 +203,19 @@ export default function App() {
         useStore.getState().connect();
       }
     });
-    return () => sub.remove();
+
+    // Retry a failed auth init the next time the app is foregrounded. iOS
+    // cold-launches this process in the background for a box event (the BLE
+    // restoration just above), and a launch that happens before the phone's
+    // first unlock since boot finds the Keychain shut -- which used to leave
+    // auth down for the whole life of the process, so the owner opened the
+    // app later and was simply signed out. See foregroundAuthRetry.ts.
+    const authRetrySub = startForegroundAuthRetry();
+
+    return () => {
+      sub.remove();
+      authRetrySub.remove();
+    };
   }, []);
 
   const Screen = SCREENS[tab];

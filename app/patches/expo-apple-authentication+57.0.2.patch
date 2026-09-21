@@ -1,0 +1,52 @@
+diff --git a/node_modules/expo-apple-authentication/ios/AppleAuthenticationExceptions.swift b/node_modules/expo-apple-authentication/ios/AppleAuthenticationExceptions.swift
+index b4d01e7..6308dc3 100644
+--- a/node_modules/expo-apple-authentication/ios/AppleAuthenticationExceptions.swift
++++ b/node_modules/expo-apple-authentication/ios/AppleAuthenticationExceptions.swift
+@@ -55,6 +55,12 @@ final class RequestMatchedExcludedCredentialException: Exception {
+   }
+ }
+ 
++final class WindowUnavailableException: Exception {
++  override var reason: String {
++    "Couldn't present the Sign in with Apple sheet because no active window is available"
++  }
++}
++
+ func exceptionForAuthorizationError(_ error: ASAuthorizationError) -> Exception {
+   switch error.code {
+   case .unknown:
+diff --git a/node_modules/expo-apple-authentication/ios/AppleAuthenticationRequest.swift b/node_modules/expo-apple-authentication/ios/AppleAuthenticationRequest.swift
+index d933f9c..d869fd9 100644
+--- a/node_modules/expo-apple-authentication/ios/AppleAuthenticationRequest.swift
++++ b/node_modules/expo-apple-authentication/ios/AppleAuthenticationRequest.swift
+@@ -11,6 +11,7 @@ final class AppleAuthenticationRequest: NSObject, ASAuthorizationControllerPrese
+   let options: AppleAuthenticationRequestOptions
+   var callback: AuthenticationRequestCallback?
+   var authController: ASAuthorizationController?
++  private var presentationAnchorWindow: UIWindow?
+ 
+   init(options: AppleAuthenticationRequestOptions) {
+     self.options = options
+@@ -20,6 +21,11 @@ final class AppleAuthenticationRequest: NSObject, ASAuthorizationControllerPrese
+     self.callback = callback
+ 
+     do {
++      guard let window = Utilities.keyWindow() else {
++        throw WindowUnavailableException()
++      }
++      presentationAnchorWindow = window
++
+       let appleIdProvider = ASAuthorizationAppleIDProvider()
+       let request = appleIdProvider.createRequest()
+ 
+@@ -81,9 +87,6 @@ final class AppleAuthenticationRequest: NSObject, ASAuthorizationControllerPrese
+   // MARK: - ASAuthorizationControllerPresentationContextProviding
+ 
+   func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
+-    guard let window = UIApplication.shared.keyWindow else {
+-      fatalError("Unable to present authentication modal because UIApplication.shared.keyWindow is not available")
+-    }
+-    return window
++    return presentationAnchorWindow ?? UIWindow()
+   }
+ }

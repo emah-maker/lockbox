@@ -12,7 +12,7 @@ import { initializeApp, getApps, FirebaseApp } from 'firebase/app';
 import { initializeAuth, getAuth, Auth } from 'firebase/auth';
 import { getFirestore, Firestore } from 'firebase/firestore';
 import { firebaseConfig, findInvalidFirebaseConfigKeys } from './firebaseConfig';
-import { secureStorePersistence } from './secureStorePersistence';
+import { secureStorePersistence, isSecureStoreAvailable } from './secureStorePersistence';
 import { wipeStaleSessionOnFreshInstall } from './wipeStaleSessionOnFreshInstall';
 
 const app: FirebaseApp = getApps().length ? getApps()[0]! : initializeApp(firebaseConfig);
@@ -47,6 +47,21 @@ export class FirebaseConfigError extends Error {
   }
 }
 
+/**
+ * Thrown by initFirebaseAuth() when the Keychain will not answer, so Firebase
+ * Auth is never initialized against a store that would silently fall back to
+ * memory. Its own class (not a bare Error) so useAuthStore can say something
+ * true about it -- "check your connection" is exactly wrong for a locked
+ * phone -- and so the retry that fixes it is distinguishable in a log from
+ * the failures that no retry will fix.
+ */
+export class KeychainUnavailableError extends Error {
+  constructor() {
+    super('Secure storage is unavailable, so the sign-in session could not be loaded.');
+    this.name = 'KeychainUnavailableError';
+  }
+}
+
 function assertFirebaseConfigValid(): void {
   const missingEnvVars = findInvalidFirebaseConfigKeys();
   if (missingEnvVars.length > 0) {
@@ -64,7 +79,13 @@ function assertFirebaseConfigValid(): void {
  * secureStorePersistence.ts's _get), which is invisible from out here
  * otherwise because initializeAuth() itself resolves fine in that case.
  */
-export type AuthInitStage = 'not-started' | 'config-check' | 'stale-session-wipe' | 'initialize-auth' | 'done';
+export type AuthInitStage =
+  | 'not-started'
+  | 'config-check'
+  | 'stale-session-wipe'
+  | 'keychain-probe'
+  | 'initialize-auth'
+  | 'done';
 let initStage: AuthInitStage = 'not-started';
 export function getAuthInitStage(): AuthInitStage {
   return initStage;
@@ -86,6 +107,27 @@ export function initFirebaseAuth(): Promise<void> {
       .then(() => {
         initStage = 'stale-session-wipe';
         return wipeStaleSessionOnFreshInstall();
+      })
+      .then(async () => {
+        initStage = 'keychain-probe';
+        // Refuse to initialize against a Keychain that is not answering,
+        // rather than letting the SDK quietly downgrade to in-memory
+        // persistence for the rest of the process -- see
+        // isSecureStoreAvailable's comment for why that downgrade is
+        // permanent and invisible.
+        //
+        // Failing here is what makes it recoverable: the catch below clears
+        // `initPromise`, so the next caller genuinely retries, and
+        // useAuthStore's requireFirebaseAuth already re-runs a failed init on
+        // the next sign-in tap. By then the phone has been unlocked (the user
+        // is looking at it), the probe succeeds, and auth comes up with the
+        // real persistence and the stored session intact.
+        //
+        // Deliberately not a bare `if (!auth)` style guard elsewhere: the one
+        // moment this can be asked usefully is before initializeAuth().
+        if (!(await isSecureStoreAvailable())) {
+          throw new KeychainUnavailableError();
+        }
       })
       .then(() => {
         initStage = 'initialize-auth';

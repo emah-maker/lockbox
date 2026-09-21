@@ -356,6 +356,21 @@ export function Sheet({
               // dismisses the keyboard. 'handled' lets the child's own press
               // win while a plain tap on empty body space still dismisses.
               keyboardShouldPersistTaps="handled"
+              // Nothing else in this tree accounts for the keyboard: the sheet
+              // is sized from `maxHeight` (windowHeight * 0.9) with no
+              // keyboard term, so whatever the keyboard covers is simply
+              // unreachable. The Account sheet is where that bites -- its
+              // email/password form sits below the intro copy and the two
+              // provider buttons, so on a shorter phone the "Create account"
+              // button lands under the keyboard, and the fields have no
+              // return-key submit to fall back on.
+              //
+              // This prop rather than a KeyboardAvoidingView wrapper: it is a
+              // UIScrollView content-inset adjustment, so it behaves correctly
+              // inside a transparent Modal, where KeyboardAvoidingView's own
+              // frame math is unreliable. iOS-only and inert until a keyboard
+              // is actually up, so it costs the sheets with no input nothing.
+              automaticallyAdjustKeyboardInsets
             >
               {children}
             </ScrollView>

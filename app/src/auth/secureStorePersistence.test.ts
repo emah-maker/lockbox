@@ -46,7 +46,10 @@ jest.mock('expo-secure-store', () => {
   // Resolved lazily: jest hoists this factory above the assignment below.
   const store = (): Map<string, string> => (globalThis as any).__secureStoreBacking;
   return {
-    WHEN_UNLOCKED_THIS_DEVICE_ONLY: 'WHEN_UNLOCKED_THIS_DEVICE_ONLY',
+    // Real values, and AFTER_FIRST_UNLOCK present because secureStoreKeys.ts
+    // reads it -- see the note on emailAuth.test.ts's own SecureStore mock.
+    AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY: 1,
+    WHEN_UNLOCKED_THIS_DEVICE_ONLY: 6,
     setItemAsync: jest.fn(async (key: string, value: string) => {
       check(key);
       if (typeof value !== 'string') {
@@ -215,9 +218,9 @@ describe('FIREBASE_AUTH_SECURE_STORE_KEYS', () => {
 // _remove were not, and they fail on the same device conditions.
 //
 // SECURE_STORE_OPTS pins keychainAccessible to
-// WHEN_UNLOCKED_THIS_DEVICE_ONLY, so a write while the device is locked
-// fails -- and this app runs locked and in the background off its BLE
-// connection, which is exactly when Firebase's proactive token refresh
+// AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY, so a write before the first unlock
+// since boot fails -- and this app runs locked and in the background off its
+// BLE connection, which is exactly when Firebase's proactive token refresh
 // writes through here.
 describe('SecureStorePersistence write failures do not break the caller', () => {
   it('does not reject _set when the Keychain write fails', async () => {
