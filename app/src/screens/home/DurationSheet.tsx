@@ -77,7 +77,25 @@ export function DurationSheet({
           box itself (tap LOCK once the phone is physically inside it); this
           just previews/pushes the duration live so the box's own clock
           reflects it -- same behavior as before, just relocated. */}
-      <View style={styles.pickerRow}>
+      {/* The three-way gesture handoff every other wheel row in this app
+          already had, and this one -- the lock-duration picker, i.e. the
+          control in every "the timer screen froze" report -- did not.
+          Without the touch-phase claim the lock is only taken at
+          onDragStart, which is AFTER the wheel's ScrollView has won the
+          gesture, so `scrollEnabled={!wheelActive}` reaches the Sheet body
+          a render too late and its ScrollView is still live for the frame
+          the touch lands on -- two vertical scrollers pulling on one drag.
+          dragBodyToDismiss={false} above blocks the body's capture-phase
+          dismiss, but not the body ScrollView's own pan. onTouchEnd/-Cancel
+          release a touch that never became a drag; a touch that DID is
+          released by the wheel's own onDragEnd. See ClockWheels.tsx, which
+          carries the same block. */}
+      <View
+        style={styles.pickerRow}
+        onTouchStart={() => setWheelActive(true, 'touch')}
+        onTouchEnd={() => setWheelActive(false)}
+        onTouchCancel={() => setWheelActive(false)}
+      >
         <WheelPicker
           labels={hourLabels}
           selectedIndex={hoursIndex}

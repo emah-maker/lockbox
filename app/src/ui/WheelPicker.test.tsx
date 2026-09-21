@@ -772,3 +772,159 @@ describe('onDragEnd for a gesture that never ends', () => {
     expect(onDragEnd).toHaveBeenCalledTimes(2);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Two holes that survived every earlier fix, because every earlier fix
+// guarded ISSUING a scroll and neither of these is about issuing one.
+//
+// A wheel with spies on the three callbacks a caller actually wires up.
+// Uncontrolled on purpose: what matters below is what the component reports
+// and when, not where a parent decides to park it.
+function renderSpyWheel(selectedIndex = 3) {
+  const onChange = jest.fn();
+  const onDragStart = jest.fn();
+  const onDragEnd = jest.fn();
+  let tree: TestRenderer.ReactTestRenderer;
+  act(() => {
+    tree = TestRenderer.create(
+      <WheelPicker
+        labels={LABELS}
+        selectedIndex={selectedIndex}
+        onChange={onChange}
+        onDragStart={onDragStart}
+        onDragEnd={onDragEnd}
+        accessibilityLabel="spy wheel"
+      />,
+    );
+  });
+  mounted.push(tree!);
+  const matches = tree!.root.findAll((n) => n.props?.snapToInterval === WHEEL_ITEM_SIZE);
+  const scrollView = matches[0];
+  const scrollHost = matches.find((n) => typeof n.props?.onScroll === 'function');
+  if (!scrollHost) throw new Error('no node carries onScroll as a function');
+  return {
+    tree: tree!,
+    props: () => scrollView.props,
+    fireScroll: (e: unknown) => scrollHost.props.onScroll(e),
+    onChange,
+    onDragStart,
+    onDragEnd,
+  };
+}
+
+/** One frame of a drag that is still moving, followed by `ms` of time.
+ *
+ * Fired through the node that carries onScroll as a plain FUNCTION. The
+ * outer Animated.ScrollView holds it as an AnimatedEvent object instead --
+ * the native-driver attach -- and the function further down the tree is
+ * AnimatedEvent's own __getHandler() result, i.e. exactly what RN invokes
+ * when a scroll frame arrives. Going through it is what exercises the JS
+ * `listener` the watchdog's liveness signal rides on. */
+function scrollFrame(w: ReturnType<typeof renderSpyWheel>, y: number, ms: number) {
+  act(() => {
+    w.fireScroll(scrollEvent(y));
+    jest.advanceTimersByTime(ms);
+  });
+}
+
+describe('a settle belonging to an abandoned scroll is not the live drag settle', () => {
+  it('ignores an onMomentumScrollEnd that lands while a finger is down', () => {
+    const w = renderSpyWheel();
+
+    // Gesture 1 releases off-snap, so commit() leaves a corrective animated
+    // scrollTo in flight.
+    act(() => w.props().onScrollBeginDrag());
+    act(() => w.props().onScrollEndDrag(scrollEvent(172)));
+    expect(scrolledOffsets()).toEqual([160]);
+    w.onChange.mockClear();
+    scrollTo.mockClear();
+
+    // Gesture 2 grabs the wheel before that correction finishes.
+    // onScrollBeginDrag's cancelCorrecting() clears the FLAG, but nothing in
+    // JS can cancel an animation already running inside the native view.
+    act(() => w.props().onScrollBeginDrag());
+
+    // ...so it lands anyway, mid-drag. Pre-fix this committed an index the
+    // finger was merely passing through: onChange fired with it, and a fresh
+    // corrective scrollTo went out UNDER the live touch.
+    act(() => w.props().onMomentumScrollEnd(scrollEvent(160)));
+
+    expect(w.onChange).not.toHaveBeenCalled();
+    expect(scrolledOffsets()).toEqual([]);
+  });
+
+  it('leaves the drag watchdog armed, so a cancelled gesture still releases', () => {
+    // The damaging half, and the one measured to strand the caller's lock:
+    // that stale commit() also ran clearBusy(), disarming BUSY_MAX_DRAG_MS.
+    // A gesture CANCELLED by the platform fires neither onScrollEndDrag nor
+    // onMomentumScrollEnd, so the watchdog is the only thing left that can
+    // report the release -- and it had just been switched off.
+    const w = renderSpyWheel();
+
+    act(() => w.props().onScrollBeginDrag());
+    act(() => w.props().onScrollEndDrag(scrollEvent(172)));
+    act(() => w.props().onScrollBeginDrag());
+    act(() => w.props().onMomentumScrollEnd(scrollEvent(160)));
+    w.onDragEnd.mockClear();
+
+    // Gesture 2 is now cancelled: nothing else will ever arrive for it.
+    act(() => {
+      jest.advanceTimersByTime(5000);
+    });
+
+    expect(w.onDragEnd).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('the drag watchdog measures from activity, not from the gesture start', () => {
+  it('does not release a drag that is still moving past BUSY_MAX_DRAG_MS', () => {
+    // A slow scrub of a long wheel (the ~100-step Override-presses picker,
+    // or a deliberate hour scrub) runs past 4s without trying. The watchdog
+    // used to fire anyway and do precisely the damage it exists to prevent:
+    // hand the caller's scroll lock back under a live finger, and un-gate
+    // the resync effect to scrollTo into the touch still driving the view.
+    const w = renderSpyWheel();
+    act(() => w.props().onScrollBeginDrag());
+
+    for (let i = 0; i < 30; i++) scrollFrame(w, 120 + i, 200); // 6s, still moving
+
+    expect(w.onDragEnd).not.toHaveBeenCalled();
+    expect(scrolledOffsets()).toEqual([]);
+  });
+
+  it('still rescues a gesture that goes quiet -- and sooner than before', () => {
+    const w = renderSpyWheel();
+    act(() => w.props().onScrollBeginDrag());
+    for (let i = 0; i < 30; i++) scrollFrame(w, 120 + i, 200);
+
+    // The frames stop and no release ever arrives -- a cancelled gesture.
+    // Recovery is now keyed to the silence, not to a fixed 4s from the
+    // start, so it lands one BUSY_ACTIVITY_MS later instead.
+    act(() => {
+      jest.advanceTimersByTime(400);
+    });
+
+    expect(w.onDragEnd).toHaveBeenCalledTimes(1);
+  });
+
+  it('re-claims the caller lock while the drag is live, but not after release', () => {
+    // useWheelScrollLock arms its own BUSY_MAX_DRAG_MS window once, at
+    // onDragStart, and never refreshes it -- so the same start-relative
+    // deadline dropped the sheet's scroll lock mid-scrub. Re-claiming keeps
+    // it rolling; every call site's onDragStart is idempotent.
+    const w = renderSpyWheel();
+    act(() => w.props().onScrollBeginDrag());
+    expect(w.onDragStart).toHaveBeenCalledTimes(1);
+
+    for (let i = 0; i < 15; i++) scrollFrame(w, 120 + i, 200); // 3s of drag
+    expect(w.onDragStart.mock.calls.length).toBeGreaterThan(1);
+
+    // After the finger lifts, the coast is this wheel's own animation -- it
+    // must NOT keep extending a lock the caller was already told to drop.
+    act(() => w.props().onScrollEndDrag(scrollEvent(500, 2))); // fast flick
+    const claimsAtRelease = w.onDragStart.mock.calls.length;
+    for (let i = 0; i < 15; i++) scrollFrame(w, 500 + i, 200);
+
+    expect(w.onDragStart).toHaveBeenCalledTimes(claimsAtRelease);
+  });
+});

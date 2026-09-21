@@ -65,6 +65,28 @@ const BODY_DRAG_SLOP = 8;
 // throw the sheet away in the middle of the adjustment. 2x still reads as
 // "swipe down" for anyone actually meaning to.
 const BODY_DRAG_VERTICAL_RATIO = 2;
+// Ceiling on how long `presented` may disagree with `visible`, enforced by
+// the convergence effect below regardless of what any animation did.
+//
+// The exit animation's completion callback is the ONLY thing that unmounts
+// the <Modal>, and an Animated callback is not a guarantee it will ever say
+// "finished". AnimatedValue.setValue() stops whatever animation is running
+// on that value (RN's AnimatedValue.setValue calls this._animation.stop()),
+// Animated.parallel defaults to stopTogether, and the interrupted parallel
+// then reports `finished: false` to its callback. onPanResponderMove below
+// calls setValue on sheetY on every frame of a drag -- so a finger landing
+// on the sheet during its ~250-400ms exit spring killed that spring, and an
+// exit callback that only unmounted `if (finished)` simply never ran.
+//
+// What that left on screen is the whole reason this constant exists: a
+// <Modal> still mounted over a full-screen Pressable scrim, faded to an
+// opacity of ~0 -- and opacity has no effect on hit testing in RN, so that
+// invisible Pressable swallowed every touch on the app, including the tab
+// bar. Its onPress calls onClose, which sets an already-false state, so
+// React bailed out and no re-render could ever recover it. The only way out
+// was force-quitting the app. Comfortably longer than either exit path
+// (SHEET_SPRING's settle, DISMISS_MS) so it never pre-empts a real one.
+const PRESENT_SETTLE_MS = 600;
 
 export function Sheet({
   visible,
@@ -153,13 +175,33 @@ export function Sheet({
   // mid-gesture drops the gesture), so they must not close over props or
   // state directly: they would keep answering with the values from the render
   // that created them. Everything they need goes through this ref instead.
-  const latest = useRef({ onClose, reducedMotion, scrollEnabled, dragBodyToDismiss });
+  // `visible` rides along because the exit callback below has to ask what the
+  // caller wants NOW, not what it wanted when the animation started.
+  const latest = useRef({ onClose, reducedMotion, scrollEnabled, dragBodyToDismiss, visible });
   const sheetHeight = useRef(0);
   const bodyAtTop = useRef(true);
 
+  // Declared before the animation effect below so it commits first on any
+  // render that flips `visible` -- the exit callback reads this ref, and a
+  // re-open has to have landed in it before that callback can fire.
   useEffect(() => {
-    latest.current = { onClose, reducedMotion, scrollEnabled, dragBodyToDismiss };
-  }, [onClose, reducedMotion, scrollEnabled, dragBodyToDismiss]);
+    latest.current = { onClose, reducedMotion, scrollEnabled, dragBodyToDismiss, visible };
+  }, [onClose, reducedMotion, scrollEnabled, dragBodyToDismiss, visible]);
+
+  // Still here? The transition callbacks below no longer key on `finished`,
+  // and the one thing that guard did cover for free was this: an unmount
+  // detaches the animated nodes, which stopped the springs, which reported
+  // `finished: false`, which swallowed the callback. Now that intent decides
+  // instead, "the tree is gone" has to be asked explicitly -- onOpened is
+  // the caller's own handler and must not run against a screen that has
+  // already been torn down (see animationCleanup.test.tsx).
+  const mountedRef = useRef(true);
+  useEffect(
+    () => () => {
+      mountedRef.current = false;
+    },
+    [],
+  );
 
   useEffect(() => {
     const id = sheetY.addListener(({ value }) => {
@@ -190,8 +232,18 @@ export function Sheet({
       Animated.parallel([
         Animated.spring(backdropOpacity, { toValue: BACKDROP_OPACITY, ...SHEET_SPRING }),
         Animated.spring(sheetY, { toValue: 0, ...SHEET_SPRING }),
-      ]).start(({ finished }) => {
-        if (finished) onOpened?.();
+      ]).start(() => {
+        // Keyed on intent, like the exit below, and for the third instance
+        // of the same reason: grabbing the sheet while it is still springing
+        // up calls setValue on sheetY and stops this parallel, so a
+        // `finished` guard here silently swallowed onOpened. That one is not
+        // a freeze, but it is a dead end -- StatsScreen's "Start adding
+        // goals" chains the goal form off this callback, so flicking the
+        // manage sheet as it opened left the user looking at a sheet that
+        // never produced the form they asked for. Still gated on `visible`,
+        // because an OPEN that was interrupted by an immediate close must
+        // not announce itself as opened.
+        if (mountedRef.current && latest.current.visible) onOpened?.();
       });
       return;
     }
@@ -204,10 +256,32 @@ export function Sheet({
     Animated.parallel([
       Animated.spring(sheetY, { toValue: SHEET_TRAVEL, ...SHEET_SPRING }),
       Animated.spring(backdropOpacity, { toValue: 0, ...SHEET_SPRING }),
-    ]).start(({ finished }) => {
-      if (finished) setPresented(false);
+    ]).start(() => {
+      // Keyed on the caller's CURRENT intent, not on `finished` -- see
+      // PRESENT_SETTLE_MS for what the `finished` guard used to cost.
+      //
+      // The guard was not pointless: it also stopped a re-open from being
+      // unmounted by the exit it interrupted. Starting the enter spring on
+      // sheetY stops this one, so this callback still fires for that case
+      // too -- but by then `visible` is true again, so asking the ref is
+      // strictly more accurate than asking whether the animation completed.
+      // Every OTHER interruption (a finger on the sheet) leaves `visible`
+      // false, which is exactly the case that must still unmount.
+      if (mountedRef.current && !latest.current.visible) setPresented(false);
     });
   }, [visible, reducedMotion, backdropOpacity, sheetY]);
+
+  // The unconditional backstop: `presented` converges to `visible` whatever
+  // happens to the animation above -- including the callback never arriving
+  // at all, which is not a case any amount of reasoning about Animated can
+  // rule out. Costs one timer per close and nothing at all while open; on
+  // the normal path the exit callback has already unmounted well inside
+  // PRESENT_SETTLE_MS and the cleanup below cancels this before it fires.
+  useEffect(() => {
+    if (visible || !presented) return;
+    const timer = setTimeout(() => setPresented(false), PRESENT_SETTLE_MS);
+    return () => clearTimeout(timer);
+  }, [visible, presented]);
 
   // Rides a committed swipe the rest of the way down and only then tells the
   // caller to close, so the sheet leaves along the direction the finger was
@@ -233,8 +307,19 @@ export function Sheet({
         easing: Easing.out(Easing.quad),
         useNativeDriver: true,
       }),
-    ]).start(({ finished }) => {
-      if (finished) latest.current.onClose();
+    ]).start(() => {
+      // Unconditional, for the same reason the exit effect above is: a
+      // second finger landing on the sheet mid-ride-down calls setValue on
+      // sheetY, which stops this timing and reports `finished: false`. The
+      // old guard swallowed onClose there, and the state it left was worse
+      // than the exit path's -- sheetY parked off-screen, backdropOpacity at
+      // 0, and the PARENT still holding visible === true, so the scrim kept
+      // eating touches and tapping the control that opened the sheet was a
+      // no-op (it sets a state that is already true). There is no re-open
+      // race to protect against here the way there is above: this only runs
+      // from a release the user already committed to a dismiss, so closing
+      // is the correct answer however the ride-down ended.
+      if (mountedRef.current) latest.current.onClose();
     });
   }, [backdropOpacity, sheetY]);
 
@@ -243,7 +328,23 @@ export function Sheet({
   const dragHandlers = useMemo(() => {
     const dragStartY = { current: 0 };
     const springBack = () => {
-      Animated.spring(sheetY, { toValue: 0, ...SHEET_SPRING }).start();
+      // Restores the BACKDROP as well as the sheet. A drag can begin while
+      // the backdrop is mid-fade -- grabbing the sheet during its exit, or
+      // during a dismiss that was itself interrupted -- and springing only
+      // sheetY back left the sheet sitting at rest over a scrim faded to
+      // ~0: a visible sheet with no dimming behind it, and (until the
+      // convergence effect above unmounts it) a transparent full-screen
+      // Pressable still on top of the app. Targeted at where the caller
+      // currently stands rather than unconditionally at BACKDROP_OPACITY,
+      // so a spring-back during an exit doesn't fade the scrim back IN for
+      // the moment before it unmounts.
+      Animated.parallel([
+        Animated.spring(sheetY, { toValue: 0, ...SHEET_SPRING }),
+        Animated.spring(backdropOpacity, {
+          toValue: latest.current.visible ? BACKDROP_OPACITY : 0,
+          ...SHEET_SPRING,
+        }),
+      ]).start();
     };
     return {
       onPanResponderGrant: () => {
@@ -264,7 +365,7 @@ export function Sheet({
       // take the gesture back mid-drag.
       onPanResponderTerminationRequest: () => false,
     };
-  }, [dismissWithMomentum, sheetY]);
+  }, [dismissWithMomentum, sheetY, backdropOpacity]);
 
   // The grabber/title header: any vertical drag here is a sheet drag, since
   // there is nothing else in that strip to interact with.
@@ -316,7 +417,18 @@ export function Sheet({
 
   return (
     <Modal visible={presented} transparent animationType="none" onRequestClose={onClose}>
-      <Animated.View style={[styles.scrim, { opacity: backdropOpacity }]}>
+      <Animated.View
+        // Belt-and-braces against the freeze described on PRESENT_SETTLE_MS:
+        // opacity has no effect on hit testing in RN, so this absolutely-
+        // filled layer swallows every touch in the app for as long as it is
+        // mounted, however invisible it looks. The convergence effect above
+        // is what guarantees it comes down; this guarantees that even during
+        // the exit -- and in any window where the two disagree -- a scrim
+        // the caller has already closed cannot take a touch it would only
+        // answer by calling an onClose that is now a no-op.
+        pointerEvents={visible ? 'auto' : 'none'}
+        style={[styles.scrim, { opacity: backdropOpacity }]}
+      >
         <Pressable
           style={styles.scrimTouch}
           onPress={onClose}

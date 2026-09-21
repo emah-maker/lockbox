@@ -9,7 +9,7 @@
 // since the interaction (drag, momentum-snap, VoiceOver increment/decrement)
 // is identical either way and only the scroll axis changes.
 import * as Haptics from 'expo-haptics';
-import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import {
   Animated,
   NativeScrollEvent,
@@ -61,6 +61,32 @@ const BUSY_SETTLE_MS = 900;
 // enough that a genuine drag effectively never trips it, but finite so a
 // cancelled gesture can't wedge the wheel forever.
 const BUSY_MAX_DRAG_MS = 4000;
+// ...but "effectively never" was a probability argument, not a guarantee, and
+// it loses: the Override-presses wheel is ~100 steps, and a deliberate slow
+// scrub of the hour wheel passes 4s without trying. When it lost, the
+// watchdog did the exact damage it exists to prevent -- fireDragEnd() handed
+// the caller's scroll lock back under a live finger, and forceResync() let
+// the resync effect fire a scrollTo into the touch still driving the view.
+//
+// So the deadline is no longer measured from the START of the gesture. It is
+// measured from the last sign of LIFE: onScroll fires at scrollEventThrottle
+// (16ms) for every frame the view actually moves, drag and momentum alike, so
+// a gesture that is still happening keeps saying so. endBusy re-arms itself on
+// this shorter window whenever the last frame is recent, and only speaks for a
+// gesture that has genuinely gone quiet. That makes a mid-drag trip
+// unreachable rather than unlikely, AND makes a real dropped release recover
+// in ~this long instead of waiting out the full window above.
+const BUSY_ACTIVITY_MS = 300;
+// How often a live drag re-asserts the CALLER's lock (useWheelScrollLock's
+// own BUSY_MAX_DRAG_MS window, armed once at onDragStart and never refreshed
+// -- the same start-relative deadline, and so the same mid-drag expiry, as
+// the watchdog above had). Re-claiming turns that window into a rolling one
+// without touching any call site: every onDragStart handler in the app does
+// nothing but `onWheelActiveChange(true, 'drag')`, which is idempotent --
+// re-arming a deadline and setting an already-true boolean React then bails
+// on. Comfortably inside the shortest window it has to keep alive, and rare
+// enough (once a second, against a 16ms scroll event) to cost nothing.
+const LOCK_RENEW_MS = 1000;
 
 export function WheelPicker({
   labels,
@@ -177,6 +203,31 @@ export function WheelPicker({
   // whichever sibling drag is live by then.
   const dragEndFiredRef = useRef(false);
 
+  // When the scroll view last actually moved -- the liveness signal endBusy
+  // measures its deadline from. Written by the onScroll listener below.
+  const lastScrollAtRef = useRef(0);
+  // When this drag last re-claimed the caller's lock (see LOCK_RENEW_MS).
+  const lockRenewedAtRef = useRef(0);
+  // Read through a ref so noteScrollActivity below can stay dependency-free.
+  const onDragStartRef = useRef(onDragStart);
+  useEffect(() => {
+    onDragStartRef.current = onDragStart;
+  }, [onDragStart]);
+  // Stable by construction: it touches nothing but refs, and the
+  // Animated.event it is handed to MUST keep its identity across renders
+  // (see the onScroll memo's own comment on AnimatedProps' identity keying).
+  const noteScrollActivity = useCallback(() => {
+    const now = Date.now();
+    lastScrollAtRef.current = now;
+    // Only while a finger is actually down: isBusyRef set with no onDragEnd
+    // yet is exactly that window, and momentum frames after the release must
+    // NOT keep extending a lock the caller was already told to drop.
+    if (!isBusyRef.current || dragEndFiredRef.current) return;
+    if (now - lockRenewedAtRef.current < LOCK_RENEW_MS) return;
+    lockRenewedAtRef.current = now;
+    onDragStartRef.current?.();
+  }, []);
+
   const fireDragEnd = () => {
     if (dragEndFiredRef.current) return;
     dragEndFiredRef.current = true;
@@ -246,6 +297,14 @@ export function WheelPicker({
   // paired wheel row.
   const endBusy = () => {
     if (!isBusyRef.current) return;
+    // The view moved within the last BUSY_ACTIVITY_MS, so this gesture is
+    // alive and this deadline is simply too early -- a long scrub, not a
+    // dropped release. Re-arm on the short window and ask again; nothing
+    // below may run while a finger can still be down (see BUSY_ACTIVITY_MS).
+    if (Date.now() - lastScrollAtRef.current < BUSY_ACTIVITY_MS) {
+      beginBusy(BUSY_ACTIVITY_MS);
+      return;
+    }
     clearBusy();
     fireDragEnd();
     forceResync();
@@ -346,8 +405,15 @@ export function WheelPicker({
     () =>
       Animated.event([{ nativeEvent: { contentOffset: horizontal ? { x: scrollPos } : { y: scrollPos } } }], {
         useNativeDriver: true,
+        // Still delivered in JS alongside the native attach: AnimatedEvent's
+        // __getHandler() returns _callListeners as the JS handler when
+        // __isNative, so the native driver keeps owning the animation while
+        // this only stamps a timestamp. That is the whole cost -- no state,
+        // no render -- and it is what lets endBusy tell a long scrub from a
+        // gesture that died.
+        listener: noteScrollActivity,
       }),
-    [horizontal, scrollPos],
+    [horizontal, scrollPos, noteScrollActivity],
   );
 
   const contentContainerStyle = useMemo(
@@ -408,6 +474,35 @@ export function WheelPicker({
   );
 
   const commit = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    // A settle that arrives while a finger is still down is not this
+    // gesture's settle -- it is the trailing onMomentumScrollEnd of an
+    // ANIMATED scrollTo the new touch abandoned. cancelCorrecting() at
+    // onScrollBeginDrag clears our flag, but it cannot cancel an animation
+    // already running inside the native scroll view, so that animation lands
+    // a few hundred ms later and calls in here mid-drag.
+    //
+    // Every other guard in this component is on ISSUING a scroll. This is
+    // the one on ACTING ON a completion event for a scroll that no longer
+    // has an owner, and it is the last way the wheel could still hurt
+    // itself: such a call committed an index the finger was merely passing
+    // through (firing onChange with it), issued its own corrective scrollTo
+    // UNDER the live touch, and then -- via clearBusy() below -- disarmed
+    // the BUSY_MAX_DRAG_MS watchdog, so this gesture's onDragEnd never fired
+    // at all and the caller's scroll lock was left to the hook's own
+    // backstop to rescue.
+    //
+    // On the Dashboard that phantom onChange is not merely cosmetic: it
+    // writes pick -> pickSeconds -> setDuration() to the box over BLE, the
+    // box echoes the wrong duration back, and DashboardScreen's box-sync
+    // effect mirrors it in as a fresh external selectedIndex -- which is the
+    // precondition for this very bug. Left open, it re-arms itself.
+    //
+    // isBusyRef is set the instant a drag begins and dragEndFiredRef is
+    // cleared alongside it, so the pair reads exactly "a drag began and the
+    // finger has not lifted". A real momentum settle cannot happen in that
+    // window: onScrollEndDrag always runs first, and it always fires
+    // fireDragEnd() before deferring to momentum.
+    if (isBusyRef.current && !dragEndFiredRef.current) return;
     const pos = horizontal ? e.nativeEvent.contentOffset.x : e.nativeEvent.contentOffset.y;
     const index = Math.max(0, Math.min(labels.length - 1, Math.round(pos / itemSize)));
     const snappedPos = index * itemSize;
@@ -575,6 +670,7 @@ export function WheelPicker({
           // would be pure noise.
           cancelCorrecting();
           committedRef.current = null; // a fresh gesture -- the dedupe below must not carry over from the last one
+          lockRenewedAtRef.current = Date.now(); // the claim below IS this gesture's first renewal
           onDragStart?.();
         }}
         onMomentumScrollEnd={commit}

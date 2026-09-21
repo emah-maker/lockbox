@@ -43,6 +43,13 @@ import { AnimatedCircle } from '../../ui/AnimatedCircle';
 // on any other math here (every angle below derives from this one constant).
 const DEFAULT_GAP_DEGREES = 100;
 
+// Roughly one pixel of swept arc at the default size (2*pi*122 * 260/360 is
+// ~554px of drawn arc, so 1/554 ~= 0.0018). Below this a change in `progress`
+// cannot be seen, so it is applied instantly instead of tweened -- see the
+// effect in the component for why that matters on a screen driven by a 1Hz
+// BLE tick.
+const PROGRESS_EPSILON = 0.0018;
+
 export function ProgressRing({
   // Bigger than the pre-redesign default (208) so the ring reads as the
   // screen's anchor (manager brief) -- FocusHero mounts this with no size
@@ -97,15 +104,36 @@ export function ProgressRing({
   const clamped = Math.max(0, Math.min(1, progress));
   const anim = useRef(new Animated.Value(clamped)).current;
 
+  const animatedTo = useRef(clamped);
+
   useEffect(() => {
     if (reducedMotion) {
       anim.setValue(clamped);
+      animatedTo.current = clamped;
       return;
     }
-    // Same 400ms timing DashboardScreen's old linear meter used for the
-    // identical purpose (tracking a BLE status tick smoothly rather than
-    // snapping) -- carried over unchanged now that it drives a ring instead
-    // of a bar.
+    // A running countdown re-targets this on every BLE status tick (~1Hz),
+    // and each of those steps is invisible: the swept arc is ~554px at the
+    // default size, so a 25-minute session advances it by 0.37px per tick
+    // and an hour-long one by 0.15px. Tweening that costs ~24 JS frames a
+    // second -- strokeDashoffset cannot use the native driver (react-native-svg
+    // #684), so every frame is an interpolate plus a prop write on the same
+    // JS thread that handles touch -- for the entire length of the session,
+    // to animate less than a pixel.
+    //
+    // So only animate a step big enough to see. PROGRESS_EPSILON is ~1px of
+    // arc; a countdown tick lands under it and simply snaps, while the jumps
+    // that actually read as motion (switching idle-ring source, a session
+    // starting or ending) still get the 400ms timing DashboardScreen's old
+    // linear meter used. Compared against the last TARGET rather than the
+    // value's current position, so a run of sub-pixel ticks can't accumulate
+    // into a visible lag.
+    if (Math.abs(clamped - animatedTo.current) < PROGRESS_EPSILON) {
+      anim.setValue(clamped);
+      animatedTo.current = clamped;
+      return;
+    }
+    animatedTo.current = clamped;
     Animated.timing(anim, { toValue: clamped, duration: 400, useNativeDriver: false }).start();
   }, [clamped, reducedMotion]);
 

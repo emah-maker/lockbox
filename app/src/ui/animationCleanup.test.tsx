@@ -29,6 +29,7 @@
 // Kept as a test rather than a comment because it is an assumption about a
 // DEPENDENCY, silently load-bearing for seven components, and the cheapest
 // possible warning if a React Native upgrade ever changes it.
+import { useEffect, useState } from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
 import { Animated, Text } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -45,13 +46,31 @@ import { ProgressRing } from '../screens/home/ProgressRing';
 import { GoalRing } from '../screens/stats/GoalRing';
 import { InteractiveTopicDonut } from '../screens/stats/InteractiveTopicDonut';
 
+/** ProgressRing seeds its Animated.Value AT `progress` and only tweens a
+ * CHANGE, so -- unlike the other three, which start at 0 and animate up to
+ * their prop -- mounting it at a fixed value starts nothing. It used to
+ * appear to: the mount effect tweened `clamped` to `clamped`, a
+ * zero-distance timing that called Animated.timing and satisfied the
+ * assertions below while never actually running, which made this row of the
+ * table vacuous. (That no-op is now skipped outright -- see ProgressRing's
+ * PROGRESS_EPSILON, which exists to stop a 1Hz countdown re-arming a 400ms
+ * JS tween to move the arc a fraction of a pixel.) Driving a real change
+ * after mount is what gives this row an in-flight animation to freeze. */
+function ProgressRingWithChange() {
+  const [progress, setProgress] = useState(0);
+  useEffect(() => {
+    setProgress(0.8);
+  }, []);
+  return <ProgressRing progress={progress} color="#4ade80" trackColor="#1f2937" />;
+}
+
 /** Every component that starts a JS-driven Animated.timing on mount, with
  * how long that timing runs. All four are forced onto the JS driver:
  * AnimatedFill animates height/width-percent and the three rings animate
  * SVG strokeDashoffset, none of which the native driver supports. */
 const TIMED: [name: string, render: () => React.ReactElement, durationMs: number][] = [
   ['AnimatedFill', () => <AnimatedFill axis="height" toValue={100} style={{}} color="#4ade80" />, 500],
-  ['ProgressRing', () => <ProgressRing progress={0.8} color="#4ade80" trackColor="#1f2937" />, 400],
+  ['ProgressRing', () => <ProgressRingWithChange />, 400],
   ['GoalRing', () => <GoalRing ratio={0.8} color="#4ade80" trackColor="#1f2937" />, 450],
   [
     'InteractiveTopicDonut',

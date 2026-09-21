@@ -70,6 +70,43 @@ function renderSheet(props: Partial<React.ComponentProps<typeof Sheet>> = {}) {
   return tree!;
 }
 
+/** renderSheet's controlled sibling: hands back a `setVisible` that
+ * re-renders the same Sheet with a new `visible`, which is how a caller
+ * actually closes one (DashboardScreen's auto-close on a box state change,
+ * for instance). The freeze tests below all turn on what happens BETWEEN
+ * `visible` going false and the exit animation resolving. */
+function renderControlled(props: Partial<React.ComponentProps<typeof Sheet>> = {}) {
+  const render = (visible: boolean) => (
+    <SafeAreaProvider initialMetrics={{ frame, insets }}>
+      <Sheet visible={visible} onClose={() => {}} {...props}>
+        <Text>content</Text>
+      </Sheet>
+    </SafeAreaProvider>
+  );
+  let tree: TestRenderer.ReactTestRenderer;
+  act(() => {
+    tree = TestRenderer.create(render(true));
+  });
+  mounted.push(tree!);
+  return {
+    tree: tree!,
+    setVisible: (visible: boolean) => {
+      act(() => {
+        tree.update(render(visible));
+      });
+    },
+  };
+}
+
+/** Is the <Modal> still up? This is the question the whole freeze turns on:
+ * the Modal wraps a full-screen Pressable scrim, and opacity does not affect
+ * hit testing in RN -- so a Modal left mounted after its sheet has faded out
+ * swallows every touch in the app, invisibly. Found by `animationType`,
+ * which Sheet.tsx sets on the Modal and nowhere else. */
+function modalIsUp(tree: TestRenderer.ReactTestRenderer): boolean {
+  return tree.root.findAll((n) => n.props?.animationType === 'none')[0].props.visible;
+}
+
 /** The View carrying the sheet's own maxHeight/height -- identified by the
  * `onLayout` it alone takes (Sheet.tsx measures ONLY this View, to know how
  * far "off the bottom" a committed swipe has to travel). */
@@ -225,6 +262,147 @@ describe('a committed swipe rides down before calling onClose', () => {
 
     act(() => {
       finishCallbacks.forEach((cb) => cb({ finished: true }));
+    });
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The freeze: a <Modal> left mounted after its sheet was told to close.
+//
+// Sheet.tsx used to unmount only `if (finished)`. Three facts in RN 0.86 make
+// that guard unreachable on interruption, all verified against the installed
+// source rather than assumed:
+//
+//   1. AnimatedValue.setValue() calls this._animation.stop() -- so anything
+//      that writes the value kills the animation running on it. Sheet's own
+//      onPanResponderMove does exactly that, on every frame of a drag.
+//   2. Animated.parallel defaults to stopTogether, so stopping one member
+//      stops the rest (AnimatedImplementation's parallelImpl).
+//   3. The interrupted parallel then reports `finished: false` to its
+//      callback -- which is the one code path that unmounts the Modal.
+//
+// The result is not a cosmetic glitch. The Modal wraps a full-screen
+// Pressable scrim; opacity has no effect on hit testing in RN, so a Modal
+// stuck at opacity ~0 swallows every touch in the app -- including the tab
+// bar -- while the screen underneath keeps updating. Its onPress calls
+// onClose, which sets an already-false state, so React bails out and nothing
+// re-renders: there is no recovery short of force-quitting.
+//
+// Reached from the Home/timer screen, where DashboardScreen auto-closes the
+// tag sheet on a box state change: a session ending while the user is
+// dragging in that sheet is all it takes.
+describe('the Modal always comes down when the caller closes the sheet', () => {
+  /** Replaces Animated.parallel with a recorder, so a test can deliver the
+   * exact `{finished: false}` RN delivers on interruption without depending
+   * on how jest's fake timers happen to drive a real spring. Returns the
+   * captured start callbacks in call order: [enter, exit, ...]. */
+  function recordParallels() {
+    const callbacks: Array<(r: { finished: boolean }) => void> = [];
+    jest.spyOn(Animated, 'parallel').mockImplementation(
+      () =>
+        ({
+          start: (cb?: (r: { finished: boolean }) => void) => {
+            if (cb) callbacks.push(cb);
+          },
+          stop: () => {},
+          reset: () => {},
+        }) as any,
+    );
+    return callbacks;
+  }
+
+  it('unmounts it when a drag interrupts the exit animation', () => {
+    const callbacks = recordParallels();
+    const { tree, setVisible } = renderControlled();
+
+    setVisible(false);
+    expect(modalIsUp(tree)).toBe(true); // still riding the exit animation
+
+    // What a finger landing on the sheet mid-exit produces. Pre-fix this
+    // callback hit `if (finished)` and returned, stranding the Modal up for
+    // the rest of the app's life.
+    act(() => {
+      callbacks[callbacks.length - 1]({ finished: false });
+    });
+
+    expect(modalIsUp(tree)).toBe(false);
+  });
+
+  it('unmounts it even if the exit animation never reports back at all', () => {
+    // No callback is ever delivered here -- the case no amount of reasoning
+    // about Animated can rule out, and the reason the convergence effect is
+    // a timer rather than more callback bookkeeping.
+    recordParallels();
+    const { tree, setVisible } = renderControlled();
+
+    setVisible(false);
+    expect(modalIsUp(tree)).toBe(true);
+
+    act(() => {
+      jest.advanceTimersByTime(700); // past PRESENT_SETTLE_MS
+    });
+
+    expect(modalIsUp(tree)).toBe(false);
+  });
+
+  it('keeps it up when the interruption was the sheet being re-opened', () => {
+    // The half the old `finished` guard got right, and which the fix has to
+    // preserve: starting the enter spring stops the exit one, so the exit
+    // callback still fires with `finished: false` -- but the caller now
+    // wants the sheet OPEN, and unmounting here would close a sheet the
+    // user just asked for.
+    const callbacks = recordParallels();
+    const { tree, setVisible } = renderControlled();
+
+    setVisible(false);
+    const exitCallback = callbacks[callbacks.length - 1];
+    setVisible(true);
+
+    act(() => {
+      exitCallback({ finished: false });
+    });
+    expect(modalIsUp(tree)).toBe(true);
+
+    // ...and the backstop must not quietly take it down a moment later
+    // either -- it converges on `visible`, which is true again.
+    act(() => {
+      jest.advanceTimersByTime(700);
+    });
+    expect(modalIsUp(tree)).toBe(true);
+  });
+
+  it('still tells the caller to close when a committed swipe is interrupted', () => {
+    // dismissWithMomentum's own copy of the same guard. Its stranded state
+    // was the worse one: sheetY parked off-screen, backdrop at 0, and the
+    // PARENT still holding visible === true -- so the scrim kept eating
+    // touches and re-tapping the control that opened the sheet did nothing,
+    // because it sets a state that is already true.
+    const finishCallbacks: Array<(r: { finished: boolean }) => void> = [];
+    jest.spyOn(Animated, 'timing').mockImplementation(
+      () =>
+        ({
+          start: (cb?: (r: { finished: boolean }) => void) => {
+            if (cb) finishCallbacks.push(cb);
+          },
+          stop: () => {},
+          reset: () => {},
+        }) as any,
+    );
+
+    const onClose = jest.fn();
+    const tree = renderSheet({ onClose });
+    const body = bodyPanNode(tree).props;
+
+    act(() => {
+      body.onResponderGrant(touchMove(0, 0));
+      body.onResponderMove(touchMove(150, 0)); // past DISMISS_DISTANCE
+      body.onResponderRelease(touchMove(150, 0));
+    });
+
+    act(() => {
+      finishCallbacks.forEach((cb) => cb({ finished: false }));
     });
 
     expect(onClose).toHaveBeenCalledTimes(1);

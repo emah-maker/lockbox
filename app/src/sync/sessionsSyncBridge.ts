@@ -75,14 +75,35 @@ export function startSessionsSyncBridge(): void {
   // syncNow() that onAuthStateChanged fires at launch.
   let awaitingHydration = !useStore.getState().initialized;
   markSessionsSeen(useStore.getState().sessions);
+  // The previous `sessions` array, for the reference guard below.
+  let prevSessions = useStore.getState().sessions;
 
   useStore.subscribe((state) => {
     if (awaitingHydration) {
       if (!state.initialized) return;
       awaitingHydration = false;
       markSessionsSeen(state.sessions);
+      prevSessions = state.sessions;
       return;
     }
+    // This is a SELECTORLESS subscribe, so it runs on every useStore
+    // emission -- and while the box is connected, handleStatus set()s a new
+    // `status` roughly once a second for the whole length of a session. The
+    // scan below is O(sessions.length) with a template-string key and a Map
+    // lookup per entry, against a log that holds up to MAX_RECORDS (2000)
+    // entries, so without this guard a long-standing account paid that scan
+    // every single second the timer screen was open -- growing with account
+    // age, which is why it presented as an intermittent stall rather than a
+    // consistent one. Nothing above this line depends on a status tick.
+    //
+    // Reference compare only, exactly as goals/goalNotificationWatch.ts:31
+    // and battery/batterySamplingBridge.ts do against this same store:
+    // sessionHistory.ts's writers all return a FRESH array (applyTopicUpdate
+    // maps, replaceSessions slices, appendSessions concats), so there is no
+    // in-place mutation of `sessions` for this to miss -- including a retag,
+    // which is the one path whose identity actually had to be checked.
+    if (state.sessions === prevSessions) return;
+    prevSessions = state.sessions;
     const fresh: LoggedSession[] = [];
     const retagged: LoggedSession[] = [];
     for (const s of state.sessions) {
