@@ -15,14 +15,18 @@
 // The patch is a backport of the fix expo shipped in expo-apple-authentication
 // 58.0.0, verbatim apart from that version's Swift-6 `@unchecked Sendable`
 // conformances (which 57's sibling exception classes do not carry): resolve the
-// window up front via ExpoModulesCore's `Utilities.keyWindow()`, throw a normal
+// window up front via ExpoModulesCore's `SceneGeometry.keyWindow()`, throw a normal
 // `WindowUnavailableException` if there isn't one -- which reaches JS as a
 // catchable error like any other -- and make the delegate callback total.
 // Backported rather than taken by upgrading the package, because 58.x belongs
 // to the SDK 58 line and `expo install --check` would flag it against this
 // project's SDK 57; the two versions' podspecs are identical
 // (`s.dependency 'ExpoModulesCore'`, unversioned, swift 5.9) and
-// `Utilities.keyWindow()` exists in the installed expo-modules-core 57.0.18.
+// `SceneGeometry.keyWindow()` exists in the installed expo-modules-core 57.0.18.
+// The helper is on `SceneGeometry`, not `Utilities` -- naming the wrong type
+// compiles here and fails only on an EAS builder, with
+// `type 'Utilities' has no member 'keyWindow'`, so the assertions below check
+// the call site and the declaring type together.
 //
 // WHY A TEST AND NOT JUST A PATCH FILE: the patch only takes effect through
 // `postinstall: patch-package`. An `npm install --no-scripts`, a lockfile
@@ -48,7 +52,7 @@ describe('the Sign in with Apple crash patch is applied', () => {
 
   it('resolves the presentation window before presenting, and throws instead of crashing', () => {
     const source = requestSwift();
-    expect(source).toMatch(/guard let window = Utilities\.keyWindow\(\) else \{/);
+    expect(source).toMatch(/guard let window = SceneGeometry\.keyWindow\(\) else \{/);
     expect(source).toMatch(/throw WindowUnavailableException\(\)/);
   });
 
@@ -63,13 +67,26 @@ describe('the Sign in with Apple crash patch is applied', () => {
     expect(exceptions).toMatch(/final class WindowUnavailableException: Exception \{/);
   });
 
-  it('uses a keyWindow helper the installed expo-modules-core actually provides', () => {
+  it('calls the keyWindow helper on the type that actually declares it', () => {
     // The one thing the backport depends on that the package does not ship
-    // itself. If a future expo-modules-core drops or renames it, the build
-    // breaks at compile time -- catching it here names the reason instead.
+    // itself. If a future expo-modules-core drops, renames or moves it, the
+    // build breaks at compile time -- catching it here names the reason
+    // instead. Matching the owning type matters as much as the file: the first
+    // draft of this patch said `Utilities.keyWindow()` and only the EAS build
+    // caught it, because the file existed and the member did not.
     const helper = join(appDir, 'node_modules', 'expo-modules-core', 'ios', 'Utilities', 'SceneGeometry.swift');
     expect(existsSync(helper)).toBe(true);
-    expect(readFileSync(helper, 'utf8')).toMatch(/public static func keyWindow\(/);
+    const source = readFileSync(helper, 'utf8');
+    expect(source).toMatch(/public enum SceneGeometry \{/);
+    expect(source).toMatch(/public static func keyWindow\(/);
+
+    // And nothing named keyWindow hangs off `Utilities`, the type the broken
+    // draft reached for.
+    const utilities = readFileSync(
+      join(appDir, 'node_modules', 'expo-modules-core', 'ios', 'Utilities', 'Utilities.swift'),
+      'utf8'
+    );
+    expect(utilities).not.toMatch(/func keyWindow\(/);
   });
 });
 

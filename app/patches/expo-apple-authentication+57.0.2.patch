@@ -31,7 +31,7 @@ index d933f9c..d869fd9 100644
      self.callback = callback
  
      do {
-+      guard let window = Utilities.keyWindow() else {
++      guard let window = SceneGeometry.keyWindow() else {
 +        throw WindowUnavailableException()
 +      }
 +      presentationAnchorWindow = window
