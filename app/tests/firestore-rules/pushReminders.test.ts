@@ -47,7 +47,7 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
-  await testEnv.clearFirestore();
+  await testEnv?.clearFirestore();
 });
 
 describe('users/{uid}/pushTokens/{tokenId}', () => {
