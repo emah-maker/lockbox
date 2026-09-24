@@ -15,7 +15,7 @@
    palette (charcoal bg, coral accent). One palette across marketing site +
    dashboard + app now, instead of two. Status colors (--locked/--closed/
    --unlocked below) still map to the real firmware theme
-   (Box-code/lib/lock_config.py) exactly as before -- locked/SEIZED,
+   (firmware/lib/lock_config.py) exactly as before -- locked/SEIZED,
    closed/HOLDING, unlocked/CLEARED -- just re-expressed as the app's own
    danger/warn/success roles, whose hex values already read as the same
    coral/amber/mint family (danger #ef4444 vs the old coral #ef5350; warn

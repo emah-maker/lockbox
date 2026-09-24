@@ -23,7 +23,7 @@ import sys
 import types
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-LIB = os.path.join(REPO, "Box-code", "lib")
+LIB = os.path.join(REPO, "firmware", "lib")
 sys.path.insert(0, LIB)
 
 _passed = 0

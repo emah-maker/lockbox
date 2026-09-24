@@ -5,7 +5,7 @@
 
 ## Improved task prompt (use this instead)
 
-Audit `app/` (the Expo/React Native Phone Box companion app only -- `Box-code/` firmware
+Audit `app/` (the Expo/React Native Phone Box companion app only -- `firmware/` firmware
 is out of scope, it does not ship through Apple's pipeline) for bugs and issues that would
 block TestFlight/App Store Connect acceptance. This is a re-audit, not a first pass: read
 these two artifacts before starting, and do not re-report anything they already cover as

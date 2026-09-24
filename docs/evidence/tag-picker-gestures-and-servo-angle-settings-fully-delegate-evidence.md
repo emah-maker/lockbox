@@ -16,7 +16,7 @@ new phone-adjustable settings (servo lock/unlock angle; a free-text one-time
 session label on the Dashboard).
 
 **What was built**:
-- Box (`Box-code/lib/lock_ui.py`, `lock_controller.py`, `lock_config.py`,
+- Box (`firmware/lib/lock_ui.py`, `lock_controller.py`, `lock_config.py`,
   `lock_settings.py`): fixed the swipe-up-cancel bug, replaced tap-to-tag with
   hold-to-confirm (green fill), replaced the cancel gesture's feedback with a
   live red fill bar, and added an app-adjustable `lock_angle`/`unlock_angle`
@@ -52,7 +52,7 @@ infrastructure did not pick it up.
      child agent at all -- the delegation infrastructure had stalled, not
      just run slowly. Rather than continue waiting, MANdy implemented the
      already-fully-specified correction directly in
-     `Box-code/lib/lock_controller.py` and `lock_ui.py`: replaced the
+     `firmware/lib/lock_controller.py` and `lock_ui.py`: replaced the
      deferred, fixed-duration flash (`_picker_cancel_until`,
      `TAG_PICKER_CANCEL_ANIM_S`, the up-arrow widget, row slide/fade) with a
      live red bar driven every touch-poll tick by drag distance
@@ -94,7 +94,7 @@ infrastructure did not pick it up.
 
 ## Human Approval Checklist
 
-- [ ] Review the box firmware diff (`Box-code/lib/lock_ui.py`,
+- [ ] Review the box firmware diff (`firmware/lib/lock_ui.py`,
       `lock_controller.py`, `lock_config.py`, `lock_settings.py`), especially
       the iteration-2 correction MANdy authored directly.
 - [ ] Review the app diff (`app/src/ble/protocol.ts`,

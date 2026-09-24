@@ -88,7 +88,7 @@ independently verified before the human's instruction.
 
 ### box-ui-rework
 
-- Files changed: `Box-code/lib/lock_config.py`, `Box-code/lib/lock_controller.py`, `Box-code/lib/lock_ui.py`, `Box-code/lib/lock_motion.py` (new)
+- Files changed: `firmware/lib/lock_config.py`, `firmware/lib/lock_controller.py`, `firmware/lib/lock_ui.py`, `firmware/lib/lock_motion.py` (new)
 - Evidence: `docs/evidence/deepen-apple-fluid-ui-box-feature-implementation-evidence.md`
 - Retrospective: `docs/retrospectives/emah@kitchenlab.org-session-2026-08-11-deepen-apple-fluid-ui-box.md`
 - Pull request: none (conversational mode)
@@ -151,7 +151,7 @@ has since been written (by MANdy, disclosed above) rather than left absent.
 
 - `app/App.tsx`, `app/src/ui/useReducedMotion.ts`, `app/src/screens/CalendarScreen.tsx`, `app/src/screens/CustomLabelsSection.tsx`, `app/src/screens/DashboardScreen.tsx`, `app/src/screens/StatsScreen.tsx`
 - `website/css/styles.css`, `website/js/script.js`, `website/css/dashboard.css`, `website/js/dashboard.js`, `website/index.html`, `website/dashboard.html`, `website/js/nav.js` (new, unclaimed - see above)
-- `Box-code/lib/lock_config.py`, `Box-code/lib/lock_controller.py`, `Box-code/lib/lock_ui.py`, `Box-code/lib/lock_motion.py` (new)
+- `firmware/lib/lock_config.py`, `firmware/lib/lock_controller.py`, `firmware/lib/lock_ui.py`, `firmware/lib/lock_motion.py` (new)
 
 ## Catalog Job Coverage
 

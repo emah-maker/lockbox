@@ -1,5 +1,5 @@
-"""Host tests for the BLE transport itself -- Box-code/lib/lock_ble.py's
-PhoneBoxBLE -- and for the run loop that calls it (Box-code/code.py).
+"""Host tests for the BLE transport itself -- firmware/lib/lock_ble.py's
+PhoneBoxBLE -- and for the run loop that calls it (firmware/code.py).
 
 WHY THIS FILE EXISTS. test_lock_protocol.py covers the wire CODEC, which is
 pure and needs no stubs; it deliberately imports nothing hardware-shaped. But
@@ -28,7 +28,7 @@ import types
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
-sys.path.insert(0, os.path.join(REPO, "Box-code", "lib"))
+sys.path.insert(0, os.path.join(REPO, "firmware", "lib"))
 
 _passed = 0
 _failed = 0
@@ -199,7 +199,7 @@ check("`connected` is False when BLE never came up at all", _off.connected is Fa
 # Checked structurally against code.py's real AST rather than by re-stating
 # the loop here, for the same reason test_screen_sleep.py lifts its
 # predicate out of the file: a copy would not notice the file changing.
-_CODE_PY = os.path.join(REPO, "Box-code", "code.py")
+_CODE_PY = os.path.join(REPO, "firmware", "code.py")
 _code_tree = ast.parse(open(_CODE_PY, encoding="utf-8").read(), _CODE_PY)
 
 _loops = [n for n in _code_tree.body if isinstance(n, ast.While)]
@@ -296,7 +296,7 @@ class FakeCtrl:
         self._pending_app_topic = None
 
 
-_states = os.path.join(REPO, "Box-code", "lib", "lock_controller_states.py")
+_states = os.path.join(REPO, "firmware", "lib", "lock_controller_states.py")
 _go_running = next(
     n for n in ast.walk(ast.parse(open(_states, encoding="utf-8").read()))
     if isinstance(n, ast.FunctionDef) and n.name == "go_running")

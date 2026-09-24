@@ -1,4 +1,4 @@
-"""Host tests for the screen-sleep predicate in Box-code/code.py.
+"""Host tests for the screen-sleep predicate in firmware/code.py.
 
 WHAT SLEEPS, AND WHY IT IS WORTH A TEST. On battery the box blanks the LCD
 after `sleep_s` idle seconds, and `backlight.is_on` is then the single input
@@ -31,7 +31,7 @@ import types
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
-sys.path.insert(0, os.path.join(REPO, "Box-code", "lib"))
+sys.path.insert(0, os.path.join(REPO, "firmware", "lib"))
 
 for _name in ("board", "pwmio", "supervisor", "microcontroller"):
     if _name not in sys.modules:
@@ -59,7 +59,7 @@ def check(name, cond, detail=""):
 # Located by what it DOES (its body turns the backlight off), not by line
 # number or source text, so moving or rewording it keeps this test pointed at
 # the right statement instead of silently testing nothing.
-_CODE_PY = os.path.join(REPO, "Box-code", "code.py")
+_CODE_PY = os.path.join(REPO, "firmware", "code.py")
 _tree = ast.parse(open(_CODE_PY, encoding="utf-8").read(), _CODE_PY)
 
 

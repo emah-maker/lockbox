@@ -5,8 +5,8 @@
 - This is CircuitPython, not CPython. Only use modules available in the
 - CircuitPython runtime (board, busio, digitalio, microcontroller,
 - supervisor, displayio, etc.) and libraries already vendored under
-- Box-code/lib/. Do not introduce CPython-only or pip-only dependencies.
-- Box-code/lib/lock_config.py is the single source of truth for tunables,
+- firmware/lib/. Do not introduce CPython-only or pip-only dependencies.
+- firmware/lib/lock_config.py is the single source of truth for tunables,
 - the GPIO pin map, and calibration. Change hardware/behavior constants there,
 - not scattered across modules.
 - Respect the pin map. When assigning pins, avoid strapping pins
@@ -17,7 +17,7 @@
 - lock/sense button GPIO1,
 - override button GPIO10. GPIO13-18 (formerly reserved for the SD card's 4-bit
 - SDIO bus) are free since the SD-card feature was removed (2026-07-24).
-- The live entry point is Box-code/code.py.
+- The live entry point is firmware/code.py.
 - Keep the on-device run loop responsive: touch is read before the heavier
 - clock redraw, and CPU-frequency switches must not interrupt an active
 - touch/servo interaction. Preserve this ordering when editing code.py.

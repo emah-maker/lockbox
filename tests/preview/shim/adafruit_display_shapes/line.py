@@ -1,6 +1,6 @@
 # line.py -- host stand-in for adafruit_display_shapes.line.Line.
 # Not used by the current firmware (grepped: no Line( call sites in
-# Box-code/lib/*.py) -- included for the shim's own completeness per the
+# firmware/lib/*.py) -- included for the shim's own completeness per the
 # adafruit_display_shapes surface, but untested against any real call site.
 from _shapes_common import _ShapeBase, rgb
 

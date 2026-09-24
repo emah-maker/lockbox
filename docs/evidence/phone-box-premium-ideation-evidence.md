@@ -32,14 +32,14 @@ branded band (**$59–$89**), with an optional **family/accountability subscript
 
 | Capability | Evidence |
 |---|---|
-| Timed physical lock; idle/closed/running/done state machine | `Box-code/lib/lock_controller.py` |
-| Servo-driven latch (PWM re-assert, hold-then-relax) | `Box-code/lib/lock_servo.py` |
-| Touchscreen H:M:S timer set by swipes; 3 countdown styles | `Box-code/lib/lock_ui.py` |
+| Timed physical lock; idle/closed/running/done state machine | `firmware/lib/lock_controller.py` |
+| Servo-driven latch (PWM re-assert, hold-then-relax) | `firmware/lib/lock_servo.py` |
+| Touchscreen H:M:S timer set by swipes; 3 countdown styles | `firmware/lib/lock_ui.py` |
 | Emergency override by press-count (default 25, GPIO10) | `lock_controller.py`, `lock_config.py` (`OVERRIDE_PRESSES`, `BTN_OVERRIDE_PIN`) |
-| LiPo voltage sense + % curve; **coarse** watt *estimate* | `Box-code/lib/lock_battery.py`, `lock_config.py` (`BAT_*`) |
-| USB/battery power policy + CPU scaling (240/80 MHz) | `Box-code/code.py`, `Box-code/lib/lock_power.py` |
-| User settings persisted in NVM (override, sleep, brightness, auto-open) | `Box-code/lib/lock_settings.py` (`_MAGIC=0x5D`) |
-| Brownout-safe boot recovery | `Box-code/safemode.py` |
+| LiPo voltage sense + % curve; **coarse** watt *estimate* | `firmware/lib/lock_battery.py`, `lock_config.py` (`BAT_*`) |
+| USB/battery power policy + CPU scaling (240/80 MHz) | `firmware/code.py`, `firmware/lib/lock_power.py` |
+| User settings persisted in NVM (override, sleep, brightness, auto-open) | `firmware/lib/lock_settings.py` (`_MAGIC=0x5D`) |
+| Brownout-safe boot recovery | `firmware/safemode.py` |
 
 ## 2. Architectural patterns (why premium features slot in cleanly)
 
@@ -61,7 +61,7 @@ branded band (**$59–$89**), with an optional **family/accountability subscript
 |---|---|---|
 | **Wi-Fi + BLE radio** (ESP32-S3) | In BOM, **zero code uses it** (grep-verified) | Companion app, scheduling, accountability, OTA — **no BOM cost** |
 | **SD-card interface** (GPIO13–18) | Reserved, unused (noted in `lock_config.py`) | Local session history for analytics |
-| **Free I²C bus @ 0x40** | Unused (per `AI_CONTEXT.md` §7) | INA219/INA226 → real current/power vs. today's estimate |
+| **Free I²C bus @ 0x40** | Unused (per `docs/handoff/firmware-ai-context.md` §7) | INA219/INA226 → real current/power vs. today's estimate |
 | **Wall-clock time (RTC/NTP)** | None (countdown only) | Scheduled/recurring locks (ESP32-S3 internal RTC + NTP over Wi-Fi) |
 
 ---
@@ -138,7 +138,7 @@ folded into the next enclosure revision independently.
 ## 6. Accuracy / verification notes
 
 - "Currently exists" claims each cite a file. Unused-radio claim is grep-verified
-  (no `wifi`/`bleio`/`socketpool`/`adafruit_requests` in `Box-code/`).
+  (no `wifi`/`bleio`/`socketpool`/`adafruit_requests` in `firmware/`).
 - I²C @0x40 and SD interface are **capabilities, not current code** — listed under
   "could be built," not "exists."
 - Competitor prices: kSafe exact 2026 pricing and Kairos Kickstarter tiers were not

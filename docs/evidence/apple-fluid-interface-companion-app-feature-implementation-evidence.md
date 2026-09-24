@@ -76,7 +76,7 @@ Source of truth: manager directive (conversational, this session) — "deepen th
 | Every implicit `LayoutAnimation` transition must respect the OS reduced-motion setting | `app/src/ui/useReducedMotion.ts` (`configureLayoutAnimation`); called from `App.tsx` (`selectTab`), `CalendarScreen.tsx` (month-prev, month-next, day-select), `StatsScreen.tsx` (`toggleAdvancedStats`), `CustomLabelsSection.tsx` (`toggleEditing`) | Repo-wide grep confirms 0 remaining unguarded `LayoutAnimation.configureNext` calls under `app/`; `npm run typecheck` + `npm test` pass (8/8 suites, 60/60 tests) | Met |
 | Every progress/fill `Animated.timing` must respect the OS reduced-motion setting | `DashboardScreen.tsx` (`meterAnim` effect), `StatsScreen.tsx` (`AnimatedFill`) | Source inspection: both branch on `reducedMotion` and call `.setValue(toValue)` directly instead of animating, matching the pre-existing `useDisabledFade` pattern in the same file; `npm test` green | Met |
 | Deepen the rework with genuinely new motion, not just an audit/gating pass | `CalendarScreen.tsx` (`animateMonthChange`, wraps the day grid in `Animated.View`) | Source inspection: directional slide (`monthSlideX`) + fade (`monthOpacity`) on month nav, values traceable to `motion-and-animation.md`'s tables, not invented; `npm run typecheck` passes | Met |
-| Scope limited to the companion app (`app/`) — website/box-UI belong to sibling workstreams | All changed files under `app/` | `git diff --stat` shows only `app/App.tsx` and 5 files under `app/src/` touched by this workstream; no `website/` or `Box-code/` files modified | Met |
+| Scope limited to the companion app (`app/`) — website/box-UI belong to sibling workstreams | All changed files under `app/` | `git diff --stat` shows only `app/App.tsx` and 5 files under `app/src/` touched by this workstream; no `website/` or `firmware/` files modified | Met |
 | No new dependency introduced | All changed files | `app/package.json` unmodified by this workstream; all motion built on RN core `Animated`/`LayoutAnimation` | Met |
 
 ### Technical Design Traceability Matrix
@@ -203,14 +203,14 @@ N/A — no active compliance framework configured for this repo (`fraim/config.j
 - Added all tests suggested in tech spec: N/A — this pass is UI-motion/accessibility-correctness code with no new business logic; existing `jest` suites cover `stats/`, `ble/`, `sync/` pure logic and were unaffected. No new pure-logic units were introduced that need unit coverage; the changed code is React Native `Animated`/`LayoutAnimation` wiring, which this app's existing test suite does not (and does not attempt to) cover — visual/behavioral confirmation is the correct validation mode here, not a unit test, consistent with how `AnimatedPressable`/`useReducedMotion` shipped in 844cb93 without dedicated tests.
 
 ## Regression Run (implement-regression phase)
-Full project regression suite re-run at the start of this phase: `npm run typecheck` (0 errors) and `npm test -- --watchAll=false` (8/8 suites, 60/60 tests, ~0.8s) in `app/`. No failures to triage. `fraim/config.json` has no `customizations.validation.testSuiteCommand` configured; `app/package.json`'s own `typecheck`/`test` scripts are this project's only defined regression commands (per project rules, `Box-code/` has no host-runnable build/test — firmware only runs on-device).
+Full project regression suite re-run at the start of this phase: `npm run typecheck` (0 errors) and `npm test -- --watchAll=false` (8/8 suites, 60/60 tests, ~0.8s) in `app/`. No failures to triage. `fraim/config.json` has no `customizations.validation.testSuiteCommand` configured; `app/package.json`'s own `typecheck`/`test` scripts are this project's only defined regression commands (per project rules, `firmware/` has no host-runnable build/test — firmware only runs on-device).
 
 ## Existing Test Suites Run
 | Test Suite | Was it Run | Failing Tests | Failure Analysis |
 |---|---|---|---|
 | `app/` jest suite (8 files, 60 tests: stats, ble/protocol, sync/sessionMerge) | Yes | 0 | — |
 | `app/` tsc --noEmit | Yes | 0 | — |
-| Box-code (CircuitPython firmware) | Not run | N/A | No files under `Box-code/` touched by this workstream |
+| firmware (CircuitPython firmware) | Not run | N/A | No files under `firmware/` touched by this workstream |
 | website/ | Not run | N/A | No files under `website/` touched by this workstream |
 
 ## Pre-Completion Reflection

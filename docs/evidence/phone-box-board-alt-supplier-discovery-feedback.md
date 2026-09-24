@@ -17,7 +17,7 @@
 
 ### Item 2 (round 1) — ADDRESSED
 - **Feedback**: Read the CAD files to see if a larger battery could fit in the box.
-- **Action**: Parsed `Main Case.STEP` and `Lid.STEP` (units = mm) and computed
+- **Action**: Parsed `hardware/cad/main-case.step` and `hardware/cad/lid.step` (units = mm) and computed
   part bounding boxes. Main Case ≈ 196×195 mm footprint, ~27 mm wall height
   (usable interior depth ~20–25 mm); interior footprint ~190×190 mm after walls.
 - **Conclusion**: Space is not the constraint. The 1000 mAh cell (~50×34×5 mm)

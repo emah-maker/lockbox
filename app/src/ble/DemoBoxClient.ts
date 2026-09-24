@@ -15,7 +15,7 @@
 // special-case the UI: a demo that took a different code path would
 // demonstrate the different code path.
 //
-// The state machine mirrors Box-code/lib/lock_controller_states.py and
+// The state machine mirrors firmware/lib/lock_controller_states.py and
 // lock_controller_ble.py's apply_ble_command, including the parts that are
 // inconvenient (a `dur` write is ignored while running; `unlock` is gated on
 // the box's own remote-unlock setting; a session under
@@ -30,7 +30,7 @@ import type { BoxState, HistoryEntry, Settings, Status } from './protocol';
 import { MIN_LOGGED_SESSION_S } from '../stats/sessionHistory';
 
 /** How often a demo status notify goes out. Matched to the real box's
- * ~1Hz `_push_outbound` cadence (Box-code/lib/lock_ble.py) rather than
+ * ~1Hz `_push_outbound` cadence (firmware/lib/lock_ble.py) rather than
  * something smoother, because this tick is also what drives
  * CallMonitor.checkNow() and battery sampling in the real app -- a demo
  * running at 5Hz would exercise those at a rate no box produces. */
@@ -147,7 +147,7 @@ export class DemoBoxClient implements BoxClient {
   private settings: Settings = { ...DEMO_SETTINGS };
   /** Finished sessions the app has not acked yet. Held, not dropped, when
    * the notify goes out -- the box only clears its own queue once it hears
-   * ackHistory back (Box-code/lib/lock_log.py's SessionLog.ack), and
+   * ackHistory back (firmware/lib/lock_log.py's SessionLog.ack), and
    * reproducing that is what exercises the app's ack path rather than
    * bypassing it. */
   private pending: HistoryEntry[] = [];
@@ -241,7 +241,7 @@ export class DemoBoxClient implements BoxClient {
   }
 
   // ----- commands -----
-  // Each mirrors its opcode in Box-code/lib/lock_controller_ble.py's
+  // Each mirrors its opcode in firmware/lib/lock_controller_ble.py's
   // apply_ble_command, including the state guards -- a command the firmware
   // would ignore is ignored here too, so the app cannot learn a behaviour in
   // demo mode that a real box does not honour.

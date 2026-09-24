@@ -1,5 +1,5 @@
 // BatteryIcon.tsx -- tiny battery glyph whose fill tracks the box's reported
-// charge level, mirroring Box-code/lib/lock_ui.py's own battery-view icon
+// charge level, mirroring firmware/lib/lock_ui.py's own battery-view icon
 // (outline + terminal nub + a variable-width fill) instead of the fixed
 // Feather "battery" glyph it replaces, which only ever changed color, never
 // how full it looked. Built on AnimatedFill's existing width axis -- the

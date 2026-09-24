@@ -14,7 +14,7 @@ import type { Settings } from '../ble/protocol';
 import { CustomLabel, sanitizeCustomLabels, sanitizeExcludedTopicKeys } from '../stats/customLabels';
 import type { RingBaselineWindow, RingSourceKind } from '../screens/home/idleRingState';
 
-// Mirrors the firmware's own defaults (Box-code/lib/lock_config.py /
+// Mirrors the firmware's own defaults (firmware/lib/lock_config.py /
 // lock_settings.py) so the Settings screen shows sane values before the
 // first successful connection.
 export const DEFAULT_BOX_SETTINGS: Settings = { ovr: 25, auto: 1, sleep: 20, bright: 50, unlk: 0, ucal: 0, thm: 0, acc: 0, flip: 0, langle: 45, uangle: 0, ovrt: 10 };

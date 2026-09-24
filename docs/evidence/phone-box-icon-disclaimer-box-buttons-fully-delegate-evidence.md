@@ -30,7 +30,7 @@ code-level verified only (no host simulator exists for this CircuitPython projec
   gradient padlock-in-phone mark, ambient glow — same composition as the prior icon). Removed the
   disclaimer line "When locked, an incoming call lights up the box screen (it never unlocks)." from
   `app/src/screens/DashboardScreen.tsx`. `tsc --noEmit` reported clean.
-- **box-ui-cleanup (firmware-dev)**: In `Box-code/lib/lock_ui.py`, `show_idle()`/`show_closed()` no
+- **box-ui-cleanup (firmware-dev)**: In `firmware/lib/lock_ui.py`, `show_idle()`/`show_closed()` no
   longer draw/label the LOCK button (hidden instead); the `in_button()` tap region in
   `LockController._handle_release` is unchanged, so tap-to-lock still works identically. `show_done()`
   now always shows the OPEN button regardless of `auto_open`. Stale comments updated in both files.

@@ -152,7 +152,7 @@ Ran all test suites.
 | Test Suite | Run? | Failing Tests | Notes |
 |---|---|---|---|
 | app/ jest suite (all 9 files) | Yes | 0 | 89/89 passing, no regressions |
-| Box-code (firmware) | No | N/A | Out of scope -- this job only touches app/; firmware has no host-runnable suite per project rules |
+| firmware (firmware) | No | N/A | Out of scope -- this job only touches app/; firmware has no host-runnable suite per project rules |
 
 ## Pre-Completion Reflection
 

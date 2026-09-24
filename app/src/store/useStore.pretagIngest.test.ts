@@ -25,7 +25,7 @@
 // If that BLE write never lands on the box (not connected yet, write
 // rejected, box busy -- the common case when a topic is picked before
 // walking over to actually press LOCK), the box starts the session with NO
-// topic: its own `_session_topic` stays None for the whole run (Box-code/
+// topic: its own `_session_topic` stays None for the whole run (firmware/
 // lib/lock_controller.py), so every status broadcast's `tp` field is `''`
 // for the entire session. Before the fix below, useStore.ts's handleStatus
 // only refreshed PENDING_TOPIC_KEY's `at` when `status.tp` was truthy, so a
@@ -229,7 +229,7 @@ describe('a pre-session topic pick that finishes as a logged session', () => {
     const startedAt = pickAt + PENDING_TOPIC_PRE_SLACK_MS + 10_000;
 
     // This time the box DID learn the pick (LOCK press validates and
-    // applies `_pending_app_topic`, Box-code/lib/lock_controller_ble.py),
+    // applies `_pending_app_topic`, firmware/lib/lock_controller_ble.py),
     // so its status echoes tp: 'reading' once running -- handleStatus's
     // tp-truthy freshRun branch refreshes PENDING_TOPIC_KEY's `at` to right
     // now, comfortably inside buildLoggedSessions' window.

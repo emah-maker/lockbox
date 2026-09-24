@@ -6,7 +6,7 @@
 ### Comment 1 - ADDRESSED
 - **Author**: Human manager (project owner)
 - **Type**: conversation_feedback
-- **File**: Box-code/lib/lock_ui.py (done-state reveal), Box-code/lib/lock_controller.py (done-state update branch)
+- **File**: firmware/lib/lock_ui.py (done-state reveal), firmware/lib/lock_controller.py (done-state update branch)
 - **Comment**: "make a new animation, not a ring animation, I would like you to move the unlock button to the middle though during the open animation"
 - **Status**: ADDRESSED
 

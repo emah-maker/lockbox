@@ -59,7 +59,7 @@ from this website but share the same product story and BLE feature set
   a digital touchscreen. Any visual metaphor (vault, time-lock, etc.) must
   stay in the site's chrome/graphic language, never claim the physical box
   itself is metal or has a rotary dial.
-- The firmware's real on-device palette (`Box-code/lib/lock_config.py`) is a
+- The firmware's real on-device palette (`firmware/lib/lock_config.py`) is a
   muted slate dark theme (`#0D1117` bg / `#161B22` surface / `#F0F3F6` ink /
   `#7D8590` grey) with calmer mint/coral/amber accents (`#35D07F` /
   `#EF5350` / `#F2B84B`), deliberately less saturated than pure primaries.

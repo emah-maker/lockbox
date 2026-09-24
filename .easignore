@@ -34,7 +34,7 @@
 /*
 
 # ...except the Expo project, which is all a build actually needs. Everything
-# else here -- website/, tests/, docs/, Box-code/, the CAD and video files --
+# else here -- website/, tests/, docs/, firmware/, the CAD and video files --
 # is not part of the app build.
 !/app
 

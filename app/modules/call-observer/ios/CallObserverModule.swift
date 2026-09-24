@@ -19,7 +19,7 @@
 // `calls`, though, is a live snapshot property, not a transition. So the app
 // also polls getCurrentCalls() every time it happens to be awake -- and while
 // the box is connected it is woken about once a second by the box's own status
-// notify (Box-code/lib/lock_ble.py's _push_outbound) under the
+// notify (firmware/lib/lock_ble.py's _push_outbound) under the
 // bluetooth-central background mode. A call rings for ~20-30s, so a
 // once-a-second poll catches it comfortably. See app/src/calls/CallMonitor.ts.
 import ExpoModulesCore

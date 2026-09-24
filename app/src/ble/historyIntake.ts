@@ -5,7 +5,7 @@
 // reconnect policy is: this is the ONLY path by which focus time is ever
 // recorded, and its failure modes are permanent rather than transient. The
 // box holds each finished session in RAM and drops its queue only when it
-// hears an ack (Box-code/lib/lock_log.py's SessionLog.ack), so acking a batch
+// hears an ack (firmware/lib/lock_log.py's SessionLog.ack), so acking a batch
 // that was not stored loses it for good, while failing to ack one that WAS
 // stored costs a duplicate delivery that dedupes. Everything below keeps that
 // asymmetry pointing the right way.
@@ -82,7 +82,7 @@ export interface HistoryIntakeDeps {
   demo?: boolean;
 }
 
-// The box queues every finished session in RAM (see Box-code/lib/lock_log.py
+// The box queues every finished session in RAM (see firmware/lib/lock_log.py
 // SessionLog.record, called unconditionally from go_done) and pushes +
 // clears that queue on its very next service tick whenever connected -- so
 // this is the *only* source of session records, live or not. There is
@@ -93,7 +93,7 @@ export interface HistoryIntakeDeps {
 // matched here to whichever incoming history entry's time window contains
 // the tag's timestamp -- the box has no keyboard/topic input of its own
 // (touchscreen swipe timer only) and keeps no long-term session store (see
-// Box-code/lib/lock_log.py's 2026-07-24 SD-card removal), so topic tagging
+// firmware/lib/lock_log.py's 2026-07-24 SD-card removal), so topic tagging
 // is entirely app-side and only ever needs to survive to this hand-off.
 export function handleHistoryEntries(entries: HistoryEntry[], deps: HistoryIntakeDeps): void {
   if (!entries.length) return;
@@ -131,7 +131,7 @@ export function handleHistoryEntries(entries: HistoryEntry[], deps: HistoryIntak
     return deps.demo ? logged.map((s) => ({ ...s, demo: true as const })) : logged;
   }).then((logged) => {
     // Ack by the original entry count once handled, whether or not any of
-    // them were durably logged -- see Box-code/lib/lock_log.py's
+    // them were durably logged -- see firmware/lib/lock_log.py's
     // SessionLog.ack and
     // docs/rfcs/ios-call-greenlist-and-force-quit-logging-technical-design.md
     // §3.2: the box only drops its own pending queue once it hears this

@@ -1,7 +1,7 @@
 # Phone Box — AI Handoff / Context
 
 Context for another AI instance continuing this project. Written 2026‑07 by the
-prior assistant. Reflects the deployed state of the code in `Box-code/`.
+prior assistant. Reflects the deployed state of the code in `firmware/`.
 
 ---
 
@@ -23,11 +23,11 @@ timer ends (or via a manual override). Runs on battery or USB.
 
 ## 2. Deploy workflow (IMPORTANT — read before writing to the device)
 
-- **Edit the copy in `Box-code/`**, then copy to the device drive **`D:\`**
-  (CIRCUITPY). `Box-code/` is the source of truth (in OneDrive); `D:` is the board.
+- **Edit the copy in `firmware/`**, then copy to the device drive **`D:\`**
+  (CIRCUITPY). `firmware/` is the source of truth (in OneDrive); `D:` is the board.
 - **Routine:** compile‑check every file with `python -m py_compile`, then
   **batch‑copy all changed files in one pass**, `sync`, and **md5‑verify** each
-  (compare `Box-code/...` vs `/d/...`). Use the Bash tool (Git Bash): `D:` is `/d`.
+  (compare `firmware/...` vs `/d/...`). Use the Bash tool (Git Bash): `D:` is `/d`.
 - **`D:` frequently goes read‑only** ("Read‑only file system") — that's **FAT
   corruption** on the board from rapid writes + CircuitPython auto‑reload. Recovery
   is user‑side: replug / press RESET, or elevated `chkdsk D: /f`. It usually comes
@@ -45,7 +45,7 @@ timer ends (or via a manual override). Runs on battery or USB.
 
 ## 3. Files
 
-Root of `Box-code/` (→ `D:\`):
+Root of `firmware/` (→ `D:\`):
 - **`code.py`** — entry point + main loop. Creates display, touch, backlight,
   controller. Reads touch, drives CPU scaling + backlight/sleep policy, runs the
   buttons, calls `ctrl.process()` and `ctrl.update()`.
@@ -53,7 +53,7 @@ Root of `Box-code/` (→ `D:\`):
   mode; resets to retry, capped via NVM byte 0).
 - **`boot.py`** — local stub only; NOT on the device (there is no boot.py on `D:`).
 
-`Box-code/lib/`:
+`firmware/lib/`:
 - **`lock_config.py`** — all tunables, colours, `fmt_hms`, `batt_pct`. **Tune here.**
 - **`lock_controller.py`** — state machine, gesture handling, view/nav, buttons,
   servo/battery/settings wiring.
@@ -155,7 +155,7 @@ read touch → process touch/gesture → run buttons → `ctrl.update()` → sle
   reads three registers only: VCELL (0x02), SOC (0x04), VERSION (0x08).
 - **There is no ADC fallback.** `BAT_SENSE_PIN`, `BAT_DIVIDER`, `BAT_CURVE`,
   `BAT_CHG_COMP`, `BAT_PIN_CANDIDATES` and `BAT_VALID_*` no longer exist anywhere
-  in `Box-code/` — the divider + voltage‑curve path was deleted, not kept as a
+  in `firmware/` — the divider + voltage‑curve path was deleted, not kept as a
   backup. If the gauge doesn't ACK at 0x36, `Battery.available` goes False and no
   reading is shown. (The board's own 200K/100K divider on net BAT_ADC → GPIO12 is
   still physically present, so GPIO12 is still worth avoiding when picking a free

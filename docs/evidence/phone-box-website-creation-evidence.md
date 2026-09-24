@@ -17,7 +17,7 @@ Manager corrections applied after two session-limit-interrupted sub-agent runs l
 - Fixed asset paths in `index.html` (`css/styles.css`, `js/script.js`).
 - Fixed a `[hidden]` override so the waitlist thank-you state no longer shows on load.
 
-Content sourced from `docs/business-development/competitive-analysis-2026-07-19.md`, `fraim/personalized-employee/context/project_context.md`, and `Box-code/lib/lock_config.py`.
+Content sourced from `docs/business-development/competitive-analysis-2026-07-19.md`, `fraim/personalized-employee/context/project_context.md`, and `firmware/lib/lock_config.py`.
 
 ## Pricing decision
 Recommended: **$99 one-time (anchor), $79 founding pre-order, no subscription.** Rationale and competitor math in the synthesis draft. Needs human sign-off; not market-validated.

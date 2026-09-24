@@ -2,7 +2,7 @@
 #
 # Pure encode/decode: no hardware, no state-machine dispatch, no side
 # effects. Plain-Python importable (no CircuitPython-only modules) so it can
-# be unit-tested off-device -- see Box-code/tests/test_lock_protocol.py.
+# be unit-tested off-device -- see firmware/tests/test_lock_protocol.py.
 # LockController (lock_controller.py) owns everything this module is NOT:
 # self.state checks, calling go_running/go_closed/go_done, and applying
 # decoded settings/labels onto self.settings.

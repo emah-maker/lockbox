@@ -1,5 +1,5 @@
 """Host tests for the physical override button's press handler,
-LockController.press_override (Box-code/lib/lock_controller_gestures.py).
+LockController.press_override (firmware/lib/lock_controller_gestures.py).
 
 WHAT THIS PATH IS. The override button is the box's only always-available
 emergency unlock: press it settings.override_presses times (default 25), each
@@ -30,7 +30,7 @@ import types
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
-sys.path.insert(0, os.path.join(REPO, "Box-code", "lib"))
+sys.path.insert(0, os.path.join(REPO, "firmware", "lib"))
 
 for _name in ("board", "pwmio", "supervisor", "microcontroller"):
     if _name not in sys.modules:

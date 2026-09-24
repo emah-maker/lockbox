@@ -1,5 +1,5 @@
 // batteryColor.ts -- theme-aware battery status color (>=50 accent / >=20
-// warn / else danger / <0 textDim, Box-code/lib/lock_ui.py's
+// warn / else danger / <0 textDim, firmware/lib/lock_ui.py's
 // update_battery_view thresholds). Used to live as a private copy inside
 // StatusStrip.tsx; promoted here once home/BatteryBadge.tsx needed the exact
 // same rule, so the two call sites can't drift apart the way "each screen

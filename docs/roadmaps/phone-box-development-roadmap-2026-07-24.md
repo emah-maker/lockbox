@@ -10,7 +10,7 @@
 
 ## 1. Current-State Snapshot
 
-### Firmware (`Box-code/`)
+### Firmware (`firmware/`)
 
 | Feature | State | Notes |
 |---|---|---|
@@ -57,7 +57,7 @@ Ordered to de-risk: cheap, local, verifiable work first; expensive Apple-toolcha
 - **Goal:** Get `lock_ble.py` to initialize with `enabled=True`, unlocking BLE + command hooks + time-sync + call overlay in one move.
 - **Builds on / depends on:** Nothing upstream, but gates almost everything downstream.
 - **Effort & cost:** ~0.5–1 day. $0 BOM (radio already on board).
-- **Current blocker:** `adafruit_ble`/`_bleio` is **not vendored** in `Box-code/lib/` and its presence in the board's CP 10.2.1 build is unconfirmed. On ImportError the whole peripheral early-returns disabled. **This single blocker kills four firmware features at once** — highest-leverage fix in the project. (Blocker **B1**.)
+- **Current blocker:** `adafruit_ble`/`_bleio` is **not vendored** in `firmware/lib/` and its presence in the board's CP 10.2.1 build is unconfirmed. On ImportError the whole peripheral early-returns disabled. **This single blocker kills four firmware features at once** — highest-leverage fix in the project. (Blocker **B1**.)
 
 ### Phase 3 — Verify MAX17048 battery gauge (optional accuracy upgrade)
 - **Goal:** Confirm accurate battery % reporting via the fuel gauge.
@@ -136,7 +136,7 @@ Ranked by how many downstream roadmap steps each blocker gates (most-gating firs
 
 | ID | Blocker | Gates (steps) | How to clear it |
 |---|---|---|---|
-| **B1** | `adafruit_ble`/`_bleio` not vendored in `Box-code/lib/`; unconfirmed in CP 10.2.1 build → BLE peripheral early-returns disabled | 2, 6, 7, 8, 9, 10, 11, 12 | On-board REPL: `import _bleio` to confirm native support; if missing/incomplete, vendor the matching `adafruit_ble` bundle for CP 10.x into `Box-code/lib/` and re-run. Verify `lock_ble.py` reports `enabled=True`. |
+| **B1** | `adafruit_ble`/`_bleio` not vendored in `firmware/lib/`; unconfirmed in CP 10.2.1 build → BLE peripheral early-returns disabled | 2, 6, 7, 8, 9, 10, 11, 12 | On-board REPL: `import _bleio` to confirm native support; if missing/incomplete, vendor the matching `adafruit_ble` bundle for CP 10.x into `firmware/lib/` and re-run. Verify `lock_ble.py` reports `enabled=True`. |
 | **B2** | No Apple build toolchain (needs macOS + Xcode + paid Apple Dev account + physical iPhone) | 6, 7, 8, 10, 11 | Acquire macOS access (Mac, or EAS cloud-macOS via B9) + enroll in Apple Developer Program ($99/yr) + have a test iPhone. |
 | **B4** | Missing `.podspec` for `CallObserverModule.swift` → autolinking/prebuild won't compile the native module | 6, 11 | Author a `.podspec` for the Expo native module so prebuild/autolink picks it up; validate with a clean `expo prebuild`. |
 | **B3** | No verified writable microSD + `sdioio` in build → logging silently disabled | 1, 7 (history data source) | Insert a known-good, writable microSD; confirm `sdioio` in the CP build; verify a session row is written and read back. |
@@ -156,7 +156,7 @@ The single highest-leverage node is **B1** — it gates eight downstream steps a
 
 **Recommended next 3 actions (all cheap, local, and de-risking):**
 
-1. **Clear B1 today.** On the board's REPL, test `import _bleio`; if unsupported, vendor the CP-10.x `adafruit_ble` bundle into `Box-code/lib/` and confirm `lock_ble.py` comes up `enabled=True`. This alone revives BLE, command hooks, time-sync, and the call overlay.
+1. **Clear B1 today.** On the board's REPL, test `import _bleio`; if unsupported, vendor the CP-10.x `adafruit_ble` bundle into `firmware/lib/` and confirm `lock_ble.py` comes up `enabled=True`. This alone revives BLE, command hooks, time-sync, and the call overlay.
 2. **Run Phase 1 + Phase 4 on the bench.** Insert a writable microSD, confirm `sdioio`, verify a logged session round-trips, and re-run `npm test` + `npm run typecheck`. This proves the two "built-but-unverified" pillars and produces the runtime data needed to decide the 1000mAh battery cost cut.
 3. **Kick off the parallel cost-down (Phase 5).** Switch board sourcing to The Pi Hut and start bulk-sourcing quotes — ~$12+/unit of savings with zero code risk while the firmware verification proceeds.
 

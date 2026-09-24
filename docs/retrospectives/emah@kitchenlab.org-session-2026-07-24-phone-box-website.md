@@ -12,7 +12,7 @@ Goal: create a visually appealing marketing website for Phone Box. Delivered a s
 
 ## What went well
 - **Positioning was already solved.** The existing `competitive-analysis-2026-07-19.md` gave a ready, defensible frame ("smart focus lockbox"), four pillars, objection handling, and a competitor matrix. Reusing it meant the copy did not have to be invented and stayed truthful.
-- **Authentic product visual without photography.** Pulling the real palette and UI facts from `Box-code/lib/lock_config.py` (green #00C040, amber, red, H:M:S, override count) produced a CSS/SVG device mockup that looks like the actual product rather than a stock placeholder.
+- **Authentic product visual without photography.** Pulling the real palette and UI facts from `firmware/lib/lock_config.py` (green #00C040, amber, red, H:M:S, override count) produced a CSS/SVG device mockup that looks like the actual product rather than a stock placeholder.
 - **In-browser verification caught a real defect.** Loading the page and probing computed styles surfaced the `[hidden]` override bug (thank-you state showing on load) that a file-only review would have missed.
 - **Pricing recommendation was grounded.** The $99/$79 anchor was derived from the BOM and the competitor price ladder in the analysis, and presented as a judgment call needing sign-off rather than a fact. It was approved as-is.
 

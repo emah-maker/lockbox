@@ -4,7 +4,7 @@ Tech Spec: manager brief (inline, no separate RFC)
 PR: N/A (working-tree deliverable, reviewed by MANdy before any device deploy)
 
 ## Work List
-Scope is Box-code/lib/lock_ui.py, lock_controller.py, lock_config.py, lock_settings.py ONLY. app/ is out of scope (sibling task).
+Scope is firmware/lib/lock_ui.py, lock_controller.py, lock_config.py, lock_settings.py ONLY. app/ is out of scope (sibling task).
 
 ### Scope
 - [x] lock_controller.py - `_handle_release`'s "picking" swipe-up-cancel branch now defers to the cancel-flash completion, which calls `self.ui.hide_tag_picker()` before `go_closed()`/`go_idle()` - bug fix ✅
@@ -18,7 +18,7 @@ Scope is Box-code/lib/lock_ui.py, lock_controller.py, lock_config.py, lock_setti
 ### Validation Requirements
 - `uiValidationRequired`: No (CircuitPython displayio UI, no host-runnable renderer for this display stack per existing lock_config.py comments — visual verification is on-device only, which is out of scope unless the human asks to deploy)
 - `mobileValidationRequired`: No (app/ is a sibling task)
-- Required suites/modes: `python -m py_compile` on every changed file (no automated test suite exists for Box-code, confirmed against repo state)
+- Required suites/modes: `python -m py_compile` on every changed file (no automated test suite exists for firmware, confirmed against repo state)
 
 ### Decisions
 - Hold duration: 600ms (`TAG_HOLD_S`, lock_config.py) -- middle of the requested 500-800ms band.
@@ -76,7 +76,7 @@ Source of truth: manager (MANdy) inline brief (this conversation) — no separat
 | Apply the settings in `engage_lock`/`release_lock` instead of the fixed constants | lock_controller.py `engage_lock`/`release_lock` | Code-trace: `self.servo.move(self.settings.lock_angle)` / `self.servo.move(self.settings.unlock_angle)`, replacing the old fixed-constant calls | Met |
 | Wire into `ble_settings_json` (`langle`/`uangle`) and `apply_ble_settings_json` (same per-field try/except clamp pattern as `ovr`/`sleep`/`bright`); exact key names fixed by contract with the app-side task | lock_controller.py `ble_settings_json`/`apply_ble_settings_json` | Code-trace: `"langle":{}` / `"uangle":{}` added to the JSON template with `st.lock_angle`/`st.unlock_angle`; `apply_ble_settings_json` has matching `if "langle" in d: try: ... except (ValueError, TypeError): pass` blocks, same shape as the `ovr` block | Met |
 | Scope limited to lock_ui.py/lock_controller.py/lock_config.py/lock_settings.py; app/ untouched | N/A (negative requirement) | `git status --porcelain` scoped to the repo shows only the 4 files + this evidence doc changed; no changes under `app/` | Met |
-| Verify via `python -m py_compile` (no test suite exists) | All 4 changed files + full `Box-code` package | Validation Results + Existing Test Suites Run sections: exit 0 on every file | Met |
+| Verify via `python -m py_compile` (no test suite exists) | All 4 changed files + full `firmware` package | Validation Results + Existing Test Suites Run sections: exit 0 on every file | Met |
 
 ### Technical Design Traceability Matrix
 No RFC/technical design doc exists for this subtask — the manager brief is both the requirements and the design source (it specifies exact mechanisms: reuse the existing update-loop tier, model hold timing on `_update_hold`/`_drag_direction`, pick concrete values and note them). Patterns not explicitly named in the brief (`lerp_color`/`step_color_transitions` for the fade, the `bat_fill_group`/`ov_bar_fill_group` rebuild-on-change idiom for the growing fill) were discovered during implementation to satisfy the brief's "reuse the existing loop, don't invent new machinery" constraint and are recorded in the Work List's Decisions section.
@@ -108,10 +108,10 @@ No RFC/technical design doc exists for this subtask — the manager brief is bot
 
 | Validation Step | Result | Notes |
 |---|---|---|
-| `python -m py_compile Box-code/lib/lock_config.py` | Pass | |
-| `python -m py_compile Box-code/lib/lock_settings.py` | Pass | |
-| `python -m py_compile Box-code/lib/lock_controller.py` | Pass | |
-| `python -m py_compile Box-code/lib/lock_ui.py` | Pass | |
+| `python -m py_compile firmware/lib/lock_config.py` | Pass | |
+| `python -m py_compile firmware/lib/lock_settings.py` | Pass | |
+| `python -m py_compile firmware/lib/lock_controller.py` | Pass | |
+| `python -m py_compile firmware/lib/lock_ui.py` | Pass | |
 | `git status` scope check | Pass | Only the 4 scoped files + this evidence doc changed; no untracked artifact pollution |
 | Placeholder/TODO scan (`TODO\|FIXME\|XXX\|fix.?me`, case-insensitive) on lock_ui.py/lock_controller.py | Pass | 0 matches |
 | NVM offset collision check | Pass | lock_settings.py now uses `_BASE(8)+11`/`_BASE+12` (max offset 20); lock_log.py's own persisted queue starts at `_BASE=24` -- no overlap, 3-byte gap preserved |
@@ -136,7 +136,7 @@ Traced edge cases (no host-runnable harness exists for this displayio/hardware s
 ### Review Scope
 - `reviewType`: embedded-diff-review
 - `reviewScope`: diff
-- `surfaceAreaPaths`: Box-code/lib/lock_ui.py, Box-code/lib/lock_controller.py, Box-code/lib/lock_config.py, Box-code/lib/lock_settings.py
+- `surfaceAreaPaths`: firmware/lib/lock_ui.py, firmware/lib/lock_controller.py, firmware/lib/lock_config.py, firmware/lib/lock_settings.py
 
 ### Threat Surface Summary
 - No surface in the closed set `{web, api, llm-app, data-pipeline, mobile, capability-authoring, docs-only}` matched: all 4 changed files are CircuitPython on-device firmware (displayio UI, NVM settings, BLE GATT peripheral wiring), which none of the surface heuristics cover (the `mobile` heuristic is specifically iOS/Android app code, not embedded firmware). Per threat-surface-classification's "no heuristic matches" case: `surfaces: []`.
@@ -173,7 +173,7 @@ N/A -- no active compliance framework specified for this workstream.
 
 ### Run Metadata
 - Run date: 2026-08-24
-- Reviewed diff: working-tree changes to Box-code/lib/{lock_ui,lock_controller,lock_config,lock_settings}.py (uncommitted; no commit SHA yet per manager brief -- working-tree-only deliverable)
+- Reviewed diff: working-tree changes to firmware/lib/{lock_ui,lock_controller,lock_config,lock_settings}.py (uncommitted; no commit SHA yet per manager brief -- working-tree-only deliverable)
 - Skill errors: none
 - Caps hit: none
 - Environment notes: no repo-configured OWASP/capability-authoring skills were loaded since no matching surface was detected; this is expected for an embedded-firmware-only diff, not a gap
@@ -182,15 +182,15 @@ N/A -- no active compliance framework specified for this workstream.
 TBD.
 
 ## New Tests Added
-N/A — no automated test suite exists for Box-code (CircuitPython on-device firmware, no host-runnable harness).
+N/A — no automated test suite exists for firmware (CircuitPython on-device firmware, no host-runnable harness).
 
 ## Existing Test Suites Run
-N/A — no automated suite exists for Box-code (no `testSuiteCommand` configured in fraim/config.json either, confirmed by FRAIM at the implement-regression phase).
+N/A — no automated suite exists for firmware (no `testSuiteCommand` configured in fraim/config.json either, confirmed by FRAIM at the implement-regression phase).
 
 ### Regression Check (in place of a test suite)
-- `python -m py_compile` on every `.py` file under `Box-code/lib/` and `Box-code/*.py` (not just the 4 changed files) — exit 0, confirms the import-list change in lock_controller.py (dropped `SERVO_LOCK_ANGLE`/`SERVO_UNLOCK_ANGLE`, added `SERVO_ANGLE_MIN`/`SERVO_ANGLE_MAX`/`TAG_HOLD_S`/`TAG_PICKER_CANCEL_ANIM_S`) didn't break any other module in the package.
-- Grepped the whole `Box-code/` tree for every renamed/changed LockUI method (`tag_picker_topic_at`, `cancel_tag_picker_hold`, `hide_tag_picker`) and both BLE settings functions — only lock_ui.py/lock_controller.py/lock_settings.py/lock_ble.py reference them, and lock_ble.py's calls (`ctrl.ble_settings_json()`/`ctrl.apply_ble_settings_json(sett)`) are unchanged call shapes (same 0-arg / 1-arg signatures), so no other file needed updating.
-- Checked for a fixed max-length on the BLE `settings` characteristic (`Box-code/lib/lock_ble.py`'s `StringCharacteristic` definition) that the ~26 extra bytes from `"langle":...,"uangle":...` could overflow — no `max_length` kwarg is set on any of this service's characteristics (including `history`/`labels`, which already carry longer variable-length JSON), so this predates the current change and is not a regression it introduces.
+- `python -m py_compile` on every `.py` file under `firmware/lib/` and `firmware/*.py` (not just the 4 changed files) — exit 0, confirms the import-list change in lock_controller.py (dropped `SERVO_LOCK_ANGLE`/`SERVO_UNLOCK_ANGLE`, added `SERVO_ANGLE_MIN`/`SERVO_ANGLE_MAX`/`TAG_HOLD_S`/`TAG_PICKER_CANCEL_ANIM_S`) didn't break any other module in the package.
+- Grepped the whole `firmware/` tree for every renamed/changed LockUI method (`tag_picker_topic_at`, `cancel_tag_picker_hold`, `hide_tag_picker`) and both BLE settings functions — only lock_ui.py/lock_controller.py/lock_settings.py/lock_ble.py reference them, and lock_ble.py's calls (`ctrl.ble_settings_json()`/`ctrl.apply_ble_settings_json(sett)`) are unchanged call shapes (same 0-arg / 1-arg signatures), so no other file needed updating.
+- Checked for a fixed max-length on the BLE `settings` characteristic (`firmware/lib/lock_ble.py`'s `StringCharacteristic` definition) that the ~26 extra bytes from `"langle":...,"uangle":...` could overflow — no `max_length` kwarg is set on any of this service's characteristics (including `history`/`labels`, which already carry longer variable-length JSON), so this predates the current change and is not a regression it introduces.
 
 ## Pre-Completion Reflection
 TBD.

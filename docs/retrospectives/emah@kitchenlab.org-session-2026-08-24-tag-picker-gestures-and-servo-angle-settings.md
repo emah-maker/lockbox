@@ -64,7 +64,7 @@ later correction; `ListAgents` subsequently showed zero reachable agents.
 
 ### Phase 2-3: understand-delegation-path / create-delegation-graph
 - [done] Selected `feature-implementation` for both tasks (only catalog job needed)
-- [done] Split the graph by file ownership (`Box-code/` vs `app/`) rather than by feature, so the
+- [done] Split the graph by file ownership (`firmware/` vs `app/`) rather than by feature, so the
   two tasks stayed genuinely file-disjoint under conversational mode's lack of worktree
   isolation -- directly informed by the `custom-focus-labels` retrospective's collision finding
 - [done] Pre-specified the shared BLE contract (`langle`/`uangle` field names, defaults, clamp

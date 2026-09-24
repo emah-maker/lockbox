@@ -1,5 +1,5 @@
 """Host tests for the pre-session CONFIRM/CHANGE wiring in
-Box-code/lib/lock_controller.py (LockController.apply_ble_pending_topic /
+firmware/lib/lock_controller.py (LockController.apply_ble_pending_topic /
 go_confirming / _apply_topic_confirm_result / go_running / the LOCK-button
 branch of _handle_release).
 
@@ -17,7 +17,7 @@ import os
 import sys
 import types
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "Box-code", "lib"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "firmware", "lib"))
 
 for _name in ("board", "pwmio", "supervisor", "microcontroller"):
     if _name not in sys.modules:

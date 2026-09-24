@@ -15,7 +15,7 @@ unexpected/arbitrary time value, and asked for the default to be pushed back to 
 **Root cause**: `app/src/screens/DashboardScreen.tsx`'s duration-picker state was initialized to
 `{ hours: 0, minutes: 25 }`. Because that picker pushes a live BLE preview to the box as soon as it
 mounts, opening the app on a fresh connection moved the box's clock off its own correct 5-minute
-boot default (`Box-code/lib/lock_config.py`'s `DEFAULT_SECONDS = 5 * 60`) up to 25 minutes -- the
+boot default (`firmware/lib/lock_config.py`'s `DEFAULT_SECONDS = 5 * 60`) up to 25 minutes -- the
 "forces you to a random number" behavior described.
 
 **Outcome**: Delivered and independently re-verified. **Confidence: high** -- single node, passed
@@ -46,9 +46,9 @@ flagged this run as possibly interrupted before its completion message arrived, 
 state was checked directly rather than trusted):
 - `git diff` confirms exactly one line changed in one file: `DashboardScreen.tsx:113`, matching the
   brief precisely.
-- The new default (5 minutes / 300s) matches `Box-code/lib/lock_config.py`'s `DEFAULT_SECONDS` and
+- The new default (5 minutes / 300s) matches `firmware/lib/lock_config.py`'s `DEFAULT_SECONDS` and
   `app/src/stats/stats.ts`'s `MIN_LOCK_SECONDS`, both already 300s.
-- `clampLockSeconds`, the box-sync effect, and the six pre-existing uncommitted `Box-code/lib/*.py`
+- `clampLockSeconds`, the box-sync effect, and the six pre-existing uncommitted `firmware/lib/*.py`
   files (unrelated in-progress hardware work) are all untouched, confirmed via `git status`.
 - Checked for duplicate sub-agent pollution (a previously recorded failure mode for this job): no
   duplicate evidence file or diff was produced; the other `lock-duration-picker-*` evidence files

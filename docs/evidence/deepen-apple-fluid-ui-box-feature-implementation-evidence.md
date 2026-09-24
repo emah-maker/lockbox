@@ -6,7 +6,7 @@
 Parent objective (Mandy, manager): deepen the Apple fluid-interface rework started in
 commit `844cb93` across app, website, and box UI, going beyond that first pass rather
 than auditing it. This workstream covers only the **on-device box UI**
-(`Box-code/lib/lock_ui.py`, `lock_controller.py`, `lock_config.py`) — the companion app
+(`firmware/lib/lock_ui.py`, `lock_controller.py`, `lock_config.py`) — the companion app
 and website are separate workstreams.
 
 The first pass on the box (844cb93) added exactly one static change: a fixed
@@ -26,7 +26,7 @@ job is to find and ship genuine *motion*, not just audit that decision.
 - `adafruit_display_text.label.Label.anchored_position` is a plain settable property,
   already used at construction throughout; reassigning it every frame is the same
   class of operation, so used for label motion.
-- The run loop (`Box-code/code.py`) calls `LockController.update(now)` unconditionally
+- The run loop (`firmware/code.py`) calls `LockController.update(now)` unconditionally
   every iteration (~50 Hz while awake, `time.sleep(0.02)`), so a per-frame spring
   stepper has a real, adequate cadence without new plumbing in `code.py`.
 - No host build/test — this is CircuitPython; all validation is code-review plus

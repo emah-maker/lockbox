@@ -48,7 +48,7 @@ round 0 through approval; all four feedback rounds were additive.
 ## Timeline of Events
 
 ### Phase 1–2: codebase-analysis / categorized-analysis
-- [done] Inventoried firmware from `AI_CONTEXT.md`, `project_context.md`, and
+- [done] Inventoried firmware from `docs/handoff/firmware-ai-context.md`, `project_context.md`, and
   `lock_config.py`; grep-verified the radio is unused.
 - [done] Categorized exists vs. could-be-built; mapped premium features onto the modular
   driver/state-machine/NVM architecture.

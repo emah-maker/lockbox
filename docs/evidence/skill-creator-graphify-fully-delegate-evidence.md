@@ -54,7 +54,7 @@ The human's response to the first pass was "that sounds about right, currently I
 graphify is used" — read as a request for empirical proof, not just reassurance. The manager
 spawned a fresh, blind subagent (no memory of authoring the edit) with a realistic FRAIM-invoking
 prompt that names specific files ("explain how override-click handling works in
-`Box-code/lib/lock_controller.py` and `lock_ui.py`").
+`firmware/lib/lock_controller.py` and `lock_ui.py`").
 
 - **Before the fix**: the subagent noticed `graphify-out/` existed but went straight to
   Glob/Grep/Read anyway. Root cause: the original addition was appended at the end of the file

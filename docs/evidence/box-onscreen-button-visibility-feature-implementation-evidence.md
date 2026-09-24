@@ -6,11 +6,11 @@ PR: n/a (local project folder, no CI/remote workflow per project_context.md)
 ## Work List
 
 ### Scope
-- [x] `Box-code/lib/lock_ui.py` - `show_idle()`: drop `set_button('LOCK', ...)` + `_show_button(True)`, hide instead - Done
-- [x] `Box-code/lib/lock_ui.py` - `show_closed()`: same as show_idle - Done
-- [x] `Box-code/lib/lock_ui.py` - `show_done()`: always `set_button('OPEN', ...)` + `_show_button(True)` regardless of `auto_open` - Done
-- [x] `Box-code/lib/lock_ui.py` / `Box-code/lib/lock_controller.py` - update stale "tap LOCK" / "finger landing on the LOCK button" comments - Done
-- [x] `Box-code/lib/lock_controller.py` - `LockController._handle_release` in_button() tap region: verified untouched (hit-test coords + state transitions unchanged) - Verified by reading, no edit needed
+- [x] `firmware/lib/lock_ui.py` - `show_idle()`: drop `set_button('LOCK', ...)` + `_show_button(True)`, hide instead - Done
+- [x] `firmware/lib/lock_ui.py` - `show_closed()`: same as show_idle - Done
+- [x] `firmware/lib/lock_ui.py` - `show_done()`: always `set_button('OPEN', ...)` + `_show_button(True)` regardless of `auto_open` - Done
+- [x] `firmware/lib/lock_ui.py` / `firmware/lib/lock_controller.py` - update stale "tap LOCK" / "finger landing on the LOCK button" comments - Done
+- [x] `firmware/lib/lock_controller.py` - `LockController._handle_release` in_button() tap region: verified untouched (hit-test coords + state transitions unchanged) - Verified by reading, no edit needed
 
 ### Validation Requirements
 - `uiValidationRequired`: Yes, but **cannot be executed this session** — no on-device run available (CircuitPython, no host test/build suite per `project_context.md`). Validation performed by reasoning through the state machine and touch dispatch path instead of live/browser/device testing.
@@ -20,7 +20,7 @@ PR: n/a (local project folder, no CI/remote workflow per project_context.md)
 ### Decisions
 - Kept `show_done(auto_open=True)`'s parameter even though it's now unused inside the button-visibility branch, to avoid touching the call site (`go_done` -> `self.ui.show_done(self.settings.auto_open)`) — out of the requested scope.
 - Left `_handle_release`'s in-region comment "Button press is checked FIRST..." (lock_controller.py:598-599) unchanged — it describes hit-test geometry, not button visibility, so it isn't stale.
-- Did not touch `Box-code/_timer_backup.py` (confirmed via project_context.md as a non-live backup copy, not the entry point).
+- Did not touch `firmware/_timer_backup.py` (confirmed via project_context.md as a non-live backup copy, not the entry point).
 
 ### Deferrals
 - None.
@@ -61,7 +61,7 @@ PR: n/a (local project folder, no CI/remote workflow per project_context.md)
 | No change to hit-test coords or state transitions | `lock_ui.py: in_button()`, `lock_controller.py: _handle_release` | Confirmed no diff to `in_button()`, `BTN_X/BTN_Y/BTN_W/BTN_H`, or any `go_*` call | Met |
 | Physical GPIO10 (override) / GPIO1 (sense) untouched | `lock_controller.py: press_lock, press_override` | Docstring-only edit to `press_lock`; `press_override` untouched entirely | Met |
 | Stale comments updated | `lock_ui.py`, `lock_controller.py` | Code diff — all "LOCK button" / "tap LOCK" references reworded | Met |
-| Preserve 7 fixed functions | `Box-code/lib/*` | No touch/servo/battery/settings/boot logic touched; only display show_* calls + comments | Met |
+| Preserve 7 fixed functions | `firmware/lib/*` | No touch/servo/battery/settings/boot logic touched; only display show_* calls + comments | Met |
 
 ## Feedback Received
 ### PR Comments
@@ -98,7 +98,7 @@ None.
 None — no host test suite exists for this firmware; validation is on-device only (deferred to hardware review).
 
 ## Existing Test Suites Run
-None exist for `Box-code/` (CircuitPython, on-device only, per `project_context.md`).
+None exist for `firmware/` (CircuitPython, on-device only, per `project_context.md`).
 
 ## Pre-Completion Reflection
 **Reflection Summary:** Re-read both target functions and the full tap-dispatch path (`LockController.process` -> `_handle_release` -> `in_button()`) line by line to confirm no hit-test/state-machine code was touched — only `set_button`/`_show_button` calls and comments. Confirmed via grep that no other code path depends on the button being visible in idle/closed (the press-ring feedback in `on_touch_down` already self-gates on `button.hidden`, so it naturally stops appearing for the now-hidden idle/closed tap region without further changes). Confirmed the physical GPIO10/GPIO1 button handlers (`press_override`, `press_lock`) have no behavioral changes — only `press_lock`'s docstring wording changed.

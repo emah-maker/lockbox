@@ -192,7 +192,7 @@ RADIUS_BTN_LG = 12    # primary LOCK/OPEN button (larger element)
 # no ADC divider and no voltage curve. The gauge is compensated for load and
 # temperature in hardware, so we do NOT re-smooth or charge-compensate the value.
 # It sits on the AXS5106L touch I2C bus (GPIO41/42/47/48) at a distinct address,
-# so it consumes zero additional GPIO. See Box-code/lib/max17043.py for the
+# so it consumes zero additional GPIO. See firmware/lib/max17043.py for the
 # register-level driver and decode.
 BAT_GAUGE_ADDR = 0x36        # MAX17043 I2C address (fixed in silicon)
 BAT_CAPACITY_MAH = 5000      # battery pack size (set to your cell) -- watt estimate only
@@ -382,7 +382,7 @@ BLE_UUID_LABELS = "6b9a7e00-4c2a-4f8e-9b21-9d7a5e3c0008"   # WRITE (label list)
 # already uses.
 BLE_UUID_PENDING_TOPIC = "6b9a7e00-4c2a-4f8e-9b21-9d7a5e3c0009"  # WRITE (topic id)
 
-# ----- Session log (Box-code/lib/lock_log.py) -----
+# ----- Session log (firmware/lib/lock_log.py) -----
 # Cap on the box's own on-device queue of sessions finished while no phone
 # was connected -- see lock_log.py's header. Raised from 40 (kept the box
 # from growing memory without limit, but wasn't sized for a multi-day phone

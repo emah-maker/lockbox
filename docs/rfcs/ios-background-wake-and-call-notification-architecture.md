@@ -58,7 +58,7 @@ BLE log drain) are then two independent consumers of that foundation.
    **user-initiated termination** (swiping the app away in the switcher) — and is
    explicit that the latter is not guaranteed to be revived by either mechanism. This
    design does not promise it will be. The box's own RAM session queue
-   (`Box-code/lib/lock_log.py`) is the only truly lossless component: it holds every
+   (`firmware/lib/lock_log.py`) is the only truly lossless component: it holds every
    finished session until the *next* BLE connection, however that connection happens,
    including the user simply reopening the app by hand.
 
@@ -327,7 +327,7 @@ Greenlisted contact          Backend relay             Phone (app, backgrounded 
 
 | Layer | What | When | Mechanism | Loss characteristics |
 |---|---|---|---|---|
-| **Box** | Every finished session (`planned_s`, `actual_s`, `completed`, `epoch`) | Unconditionally at every `go_done()` transition | `Box-code/lib/lock_log.py` `SessionLog.record()` — RAM-only, no SD/NVM (explicit prior decision) | Bounded FIFO, `_MAX_PENDING = 40`; oldest dropped only if 40 sessions accumulate with *no* phone connection at all. This is the true backstop — it does not care what the phone did. |
+| **Box** | Every finished session (`planned_s`, `actual_s`, `completed`, `epoch`) | Unconditionally at every `go_done()` transition | `firmware/lib/lock_log.py` `SessionLog.record()` — RAM-only, no SD/NVM (explicit prior decision) | Bounded FIFO, `_MAX_PENDING = 40`; oldest dropped only if 40 sessions accumulate with *no* phone connection at all. This is the true backstop — it does not care what the phone did. |
 | **Phone (existing, unchanged)** | Same session records, deduplicated | On every `history` characteristic notify, i.e. every successful BLE connect while the app process is alive | `useStore.ts` `handleHistory` → `appendSessions` → `app/src/storage/storage.ts` (AsyncStorage) | Works today whenever the app is foregrounded, or backgrounded-but-alive with a live connection (`UIBackgroundModes: bluetooth-central`) |
 | **Phone (new, this design)** | Same, but reachable from a **terminated** process | On a CB-restoration-triggered cold launch | `BackgroundWakeModule` launch detection (§3) → `onBackgroundWake('ble-restoration')` → `useStore.connect()` reused verbatim (re-creates `BleManager` with the same `restoreStateIdentifier`) → same `handleHistory` path | **Best-effort.** Fires only when iOS chooses to relaunch for a *system-initiated* termination + a qualifying CoreBluetooth event. Never guaranteed; never fires after a user swipe-kill in the general case. |
 
@@ -405,7 +405,7 @@ edits a file it does not own; the only shared file either touches is
 | `app/src/calls/CallMonitor.ts` | **Feature A** | `resolveLabel()` extension (§4.5); no other file needs to change for this |
 | `app/src/screens/GreenlistScreen.tsx`, `app/src/store/useGreenlistStore.ts` | **Feature A** | New, exclusive |
 | `app/src/store/useStore.ts` | **Feature B** | `handleHistory`/`connect()` reused as-is; only touch if the headless-launch path needs a variant entry point |
-| `Box-code/**` | **Neither** | No firmware changes required for either feature as designed |
+| `firmware/**` | **Neither** | No firmware changes required for either feature as designed |
 | `app/app.json` | **Both, additive only** | Feature A adds `voip` to `UIBackgroundModes` + `NSContactsUsageDescription`; Foundation adds the background-wake config plugin; no line either task adds should require editing a line the other added |
 
 **Sequencing implication:** the foundation module should land first (it is a
@@ -460,4 +460,4 @@ exists.
 - Current code read for this design: `app/modules/call-observer/ios/CallObserverModule.swift`,
   `app/modules/call-observer/index.ts`, `app/src/calls/CallMonitor.ts`,
   `app/src/store/useStore.ts`, `app/src/ble/PhoneBoxClient.ts`, `app/app.json`,
-  `app/src/ble/protocol.ts`, `Box-code/lib/lock_controller.py`, `Box-code/lib/lock_log.py`
+  `app/src/ble/protocol.ts`, `firmware/lib/lock_controller.py`, `firmware/lib/lock_log.py`

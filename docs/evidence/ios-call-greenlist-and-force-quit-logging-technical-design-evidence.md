@@ -65,4 +65,4 @@ and specific existing source files. The matrix below traces the manager's stated
 
 | Learning | Agent rule update |
 |---|---|
-| `project_context.md` says the SD-card/session-logging subsystem was removed (2026-07-24), but `Box-code/lib/lock_log.py` and `lock_ble.py` are present and wired up in the current tree — the context doc is stale on this point. | Not updated here (out of scope for a design task); flagged so a future `project-onboarding`/context-refresh pass corrects it rather than a future agent trusting the stale claim. |
+| `project_context.md` says the SD-card/session-logging subsystem was removed (2026-07-24), but `firmware/lib/lock_log.py` and `lock_ble.py` are present and wired up in the current tree — the context doc is stale on this point. | Not updated here (out of scope for a design task); flagged so a future `project-onboarding`/context-refresh pass corrects it rather than a future agent trusting the stale claim. |

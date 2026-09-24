@@ -283,10 +283,10 @@ cheaper to ship if a smaller step is preferred.
 
 ## Evidence traceability
 
-- Currently-exists claims trace to: `Box-code/lib/lock_controller.py`, `lock_servo.py`,
+- Currently-exists claims trace to: `firmware/lib/lock_controller.py`, `lock_servo.py`,
   `lock_battery.py`, `lock_settings.py`, `lock_ui.py`, `lock_power.py`, `lock_config.py`,
-  `Box-code/code.py`, `Box-code/safemode.py`.
-- Unused-radio claim: grep of `Box-code/` finds no `wifi` / `bleio` / `socketpool` /
+  `firmware/code.py`, `firmware/safemode.py`.
+- Unused-radio claim: grep of `firmware/` finds no `wifi` / `bleio` / `socketpool` /
   `adafruit_requests` usage.
 - SD (`sdioio`/`sdcardio`) and BLE (`_bleio`) are capabilities to build and verify in this
   board's CircuitPython 10.2.1 build, not existing code.

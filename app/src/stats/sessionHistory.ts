@@ -2,7 +2,7 @@
 // entries come live from BLE status transitions (see useStore's
 // handleStatus); the rest are drained in a batch from the box's small
 // RAM-only queue of sessions that finished while no phone was connected (see
-// Box-code/lib/lock_log.py and useStore's handleHistory). Either way, this
+// firmware/lib/lock_log.py and useStore's handleHistory). Either way, this
 // is the durable, per-session, timestamped copy -- the box keeps nothing
 // long-term (no SD card, no NVM) once it has handed a session off here.
 import type { SessionRecord } from './stats';
@@ -78,7 +78,7 @@ export async function loadSessions(): Promise<LoggedSession[]> {
 /** Append a batch (e.g. a drained box history queue) in one read/write.
  * De-duped against what's already stored by (startedAt, plannedS): the box
  * resends an un-acked `history` batch verbatim on its next connection (see
- * Box-code/lib/lock_log.py's SessionLog.ack and
+ * firmware/lib/lock_log.py's SessionLog.ack and
  * docs/rfcs/ios-call-greenlist-and-force-quit-logging-technical-design.md
  * §3.2) -- if the app already durably stored that batch but the box never
  * heard the ack (e.g. a disconnect right after), the resend would otherwise

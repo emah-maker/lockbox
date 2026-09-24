@@ -56,7 +56,7 @@ runtime allows — pick capacity by measured runtime need.
 
 *Full analysis: [battery-fuel-gauge shortlist](battery-fuel-gauge/02-supplier-longlist-and-shortlist-2026-07-23.md)
 (rows 6/8/9 cover the MAX17043 options below); wiring in
-[phone-box-wiring-diagram.svg](../hardware/phone-box-wiring-diagram.svg).*
+[wiring-diagram.svg](../../hardware/wiring-diagram.svg).*
 
 **Problem:** the current build doesn't measure battery percentage *accurately*.
 It reads VBAT through a resistor divider and maps voltage → % with a static
@@ -69,7 +69,7 @@ hardware limitation of voltage-only sensing.
 tracking + voltage + temperature and reports state-of-charge directly (~±1–2%),
 with **no sense resistor**. Talks I2C at 0x36 (shares the existing touch bus or a
 spare `busio.I2C`; frees GPIO12). The firmware uses its own minimal register-level
-driver (`Box-code/lib/max17043.py`, reading only VCELL/SOC/VERSION) rather than
+driver (`firmware/lib/max17043.py`, reading only VCELL/SOC/VERSION) rather than
 Adafruit's `adafruit_max1704x` library, so no external CircuitPython dependency
 is needed either way.
 

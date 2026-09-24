@@ -1,7 +1,7 @@
 // protocol.ts -- the PhoneBox BLE GATT contract.
 //
 // These UUIDs and payload shapes are shared VERBATIM with the firmware in
-// Box-code/lib/lock_config.py (UUIDs) and Box-code/lib/lock_ble.py /
+// firmware/lib/lock_config.py (UUIDs) and firmware/lib/lock_ble.py /
 // lock_controller.py (payloads). If you change one side you MUST change the
 // other -- they are a single wire contract.
 
@@ -19,7 +19,7 @@ export const CHAR = {
 } as const;
 
 // ----- box -> app payloads -----
-// Every value Box-code/lib/lock_controller_states.py can assign to
+// Every value firmware/lib/lock_controller_states.py can assign to
 // `self.state`, because ble_status_json passes that attribute to
 // encode_status VERBATIM (lock_controller_ble.py) -- this union is not a
 // subset the app gets to choose, it is the firmware's own state machine.
@@ -43,7 +43,7 @@ export type BoxState = 'idle' | 'closed' | 'running' | 'done' | 'picking' | 'con
 
 // The runtime half of BoxState, so parseStatus can actually enforce the union
 // rather than casting whatever string arrived into it. Keep in lockstep with
-// Box-code/lib/lock_controller_states.py's own state names -- and with
+// firmware/lib/lock_controller_states.py's own state names -- and with
 // useStore.ts's BOX_STATE_LABELS, which is a total Record<BoxState, string>
 // precisely so the compiler makes the next addition here impossible to
 // forget on the display side.
@@ -106,7 +106,7 @@ export interface Status {
   rem: number; // remaining seconds (running only, else 0)
   set: number; // configured lock seconds
   bat: number; // battery percent, -1 if unavailable
-  // Topic id tagged via the box's OWN pre-session picker (Box-code/lib/
+  // Topic id tagged via the box's OWN pre-session picker (firmware/lib/
   // lock_controller.py go_picking/go_running's `topic` arg), echoed back
   // live while running -- '' whenever no on-box tag was chosen (including
   // any session tagged only from the app's own TopicPicker, which the box
@@ -119,7 +119,7 @@ export interface Status {
 }
 
 // A session the box finished while no phone was connected to see it live
-// (see Box-code/lib/lock_log.py). The box holds these in RAM only -- no SD
+// (see firmware/lib/lock_log.py). The box holds these in RAM only -- no SD
 // card, no NVM -- and clears its queue as soon as it has handed them to the
 // app over the `history` characteristic, so the app is the durable copy.
 export interface HistoryEntry {
@@ -145,11 +145,11 @@ export interface Settings {
   // The box applies this to its decorative accent elements -- the LOCK/OPEN
   // button, the analog clock's second hand, the settings screen's values
   // (list + detail page), and the elapsed-clock style's time text (see
-  // Box-code/lib/lock_ui.py set_theme/_accent_widgets) -- but never recolors
+  // firmware/lib/lock_ui.py set_theme/_accent_widgets) -- but never recolors
   // lock/closed/unlocked status indicators.
   flip: 0 | 1; // rotate the box's own screen 180° -- lets it be mounted
   // upside-down and still read right-side-up. Off by default. Applied via
-  // Box-code/lib/lock_ui.py LockUI.set_screen_flipped (display rotation) and
+  // firmware/lib/lock_ui.py LockUI.set_screen_flipped (display rotation) and
   // LockController._map (touch coordinate correction).
   langle: number; // servo angle (degrees) the box drives to when locking.
   // Was a fixed lock_servo.py constant (45°); now phone-adjustable. Range
@@ -265,7 +265,7 @@ export function parseSettings(json: string): Settings | null {
       // imported here to keep this wire-parsing module UI-independent, same
       // reasoning as the manually-synced UUIDs above. Was hardcoded to 5
       // (the old 6-accent set's last index); bump this by hand alongside
-      // ACCENT_KEYS/Box-code/lib/lock_config.py's ACCENT_COLORS_DARK/LIGHT
+      // ACCENT_KEYS/firmware/lib/lock_config.py's ACCENT_COLORS_DARK/LIGHT
       // if the accent count ever changes again.
       acc: Math.max(0, Math.min(7, Number(d.acc) || 0)),
       flip: d.flip ? 1 : 0,
@@ -289,7 +289,7 @@ export const cmdStart = (seconds: number) => `start:${Math.max(0, Math.floor(sec
 // changes, so the on-screen clock tracks the picked time without pressing
 // Lock (which is what cmdStart above still does -- set AND start in one
 // write). Ignored by the box while a countdown is already running -- see
-// Box-code/lib/lock_controller.apply_ble_command's "dur" opcode.
+// firmware/lib/lock_controller.apply_ble_command's "dur" opcode.
 export const cmdSetDuration = (seconds: number) => `dur:${Math.max(0, Math.floor(seconds))}`;
 export const cmdLock = () => 'lock';
 export const cmdUnlock = () => 'unlock'; // ignored if the box's remote-unlock setting is off
@@ -341,7 +341,7 @@ export const encodeAlert = (nonce: number, label: string) => `${nonce}|${label}`
 // existing `command` characteristic (no new BLE UUID) -- see
 // docs/rfcs/ios-call-greenlist-and-force-quit-logging-technical-design.md
 // §3.2 for why the box needs this at all: it now only clears its own pending
-// queue (Box-code/lib/lock_log.py SessionLog) once it hears this back,
+// queue (firmware/lib/lock_log.py SessionLog) once it hears this back,
 // instead of on every notify, which had no delivery guarantee. `seq` is just
 // the number of entries in the batch being acked -- the box's queue is
 // strictly FIFO/append-only and `history` always serializes the *entire*
@@ -354,17 +354,17 @@ export const cmdHistoryAck = (seq: number) => `historyAck:${Math.max(0, Math.flo
 // Best-effort push of the app's custom-label catalog (stats/customLabels.ts)
 // to the box, so its own pre-session tag picker can offer the same labels
 // the app does (name only, abbreviated to BLE_LABEL_NAME_MAX_LEN chars to
-// fit the screen -- see Box-code/lib/lock_ui.py show_tag_picker; the color
+// fit the screen -- see firmware/lib/lock_ui.py show_tag_picker; the color
 // still crosses the wire per label but the box's own picker doesn't render
 // a swatch with it today). Writes CHAR.labels directly
-// (Box-code/lib/lock_config.py's dedicated BLE_UUID_LABELS characteristic),
+// (firmware/lib/lock_config.py's dedicated BLE_UUID_LABELS characteristic),
 // NOT CHAR.command -- unlike cmdHistoryAck/cmdSetDuration etc., this isn't
 // an opcode apply_ble_command recognizes, it's read straight off its own
 // characteristic by lock_ble.py's _drain_inbound. Raw JSON, no opcode
 // prefix, and compact keys (i/n/c) to save BLE payload bytes -- mirrors
-// Box-code/lib/lock_controller.py's apply_ble_labels_json exactly; keep the
+// firmware/lib/lock_controller.py's apply_ble_labels_json exactly; keep the
 // two in lockstep.
-// Mirrors Box-code/lib/lock_config.py's BLE_LABEL_MAX_COUNT/
+// Mirrors firmware/lib/lock_config.py's BLE_LABEL_MAX_COUNT/
 // BLE_LABEL_NAME_MAX_LEN exactly. The box already re-applies both limits
 // defensively on receipt (apply_ble_labels_json), so this isn't the only
 // thing standing between an oversized catalog and a dropped/truncated
@@ -384,7 +384,7 @@ export const cmdSetLabels = (labels: { id: string; name: string; color: string }
 // One-way app -> box push of the topic the user already picked in the app,
 // *before* a session exists -- so pressing LOCK on the box can show a
 // confirm screen for it instead of falling back to the box's own picker.
-// Writes CHAR.pendingTopic directly (Box-code/lib/lock_ble.py's dedicated
+// Writes CHAR.pendingTopic directly (firmware/lib/lock_ble.py's dedicated
 // `pending_topic` characteristic / LockController.apply_ble_pending_topic),
 // NOT an opcode through CHAR.command -- apply_ble_command is rate-limited to
 // one accepted command per second (BLE_CMD_MIN_INTERVAL = 1.0), so an opcode

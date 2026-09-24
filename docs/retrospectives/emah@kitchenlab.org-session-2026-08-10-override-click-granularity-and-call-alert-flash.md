@@ -33,7 +33,7 @@ vs. progressive) to the user before delegating, since "more adjustable" was ambi
 **What changes next time**: when a request asks to make a numeric setting "more adjustable" with no
 explicit step curve specified, state the proposed step design explicitly and let the user correct it
 before implementation starts, not after.
-**Example**: the override-presses setting in `Box-code/lib/lock_config.py` / `app/src/screens/SettingsScreen.tsx`.
+**Example**: the override-presses setting in `firmware/lib/lock_config.py` / `app/src/screens/SettingsScreen.tsx`.
 
 ## Architectural Impact
 

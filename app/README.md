@@ -5,12 +5,16 @@ It connects to the box over BLE to show **live status + focus stats**, and it
 detects **incoming calls** so the box can light up its screen for important calls
 while it stays locked.
 
-> **Status: source scaffold, not yet built or run.** It was authored on Windows
-> with no macOS/Xcode/iOS device and no box available, so **nothing here has been
-> compiled, run, or tested on hardware.** The pure logic (`src/stats`, protocol
-> parsers) has Jest tests; everything touching BLE, the native call module, and
-> the box is unverified and needs a Mac + device to validate. Treat this as the
-> developer starting point the RFC's §6a "hire-out the viewer MVP" step calls for.
+> **Status:** built for iOS with EAS (see `eas.json` and
+> `docs/handoff/testflight-deploy-handoff.md`). The Jest suite covers the pure
+> logic, screens, sync and BLE protocol parsing; the Firestore rules suites under
+> `tests/firestore-rules/` need the emulator (`npm run test:rules` from the repo
+> root). Anything that touches the radio, the native call module or the box
+> itself can only be verified on a real iPhone paired with the hardware.
+>
+> The MVP sections below describe the original scope. The app has since grown
+> sign-in (Apple / Google / email), Firestore sync, goals, scheduled sessions and
+> push reminders.
 
 ## What it does (MVP)
 
@@ -24,7 +28,7 @@ while it stays locked.
 ## Architecture
 
 ```
-Phone (this app)                         Box (CircuitPython, Box-code/)
+Phone (this app)                         Box (CircuitPython, firmware/)
 ─────────────────                        ─────────────────────────────
 CallObserver (native, CXCallObserver) ─┐
   onCall: incoming                     │
@@ -36,7 +40,7 @@ DashboardScreen ─────────────────────�
 ```
 
 The BLE wire contract lives in **`src/ble/protocol.ts`** and is shared verbatim
-with the firmware **`Box-code/lib/lock_config.py`** (UUIDs) and
+with the firmware **`firmware/lib/lock_config.py`** (UUIDs) and
 **`lock_ble.py` / `lock_controller.py`** (payloads). Change one side → change both.
 
 ### The honest iOS call boundary (verified in the RFC)

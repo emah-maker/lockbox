@@ -7,7 +7,7 @@ PR: N/A — conversational mode (no repo configured in `fraim/config.json`); cha
 Created at scoping; updated throughout the job.
 
 ### Scope
-Bug: `Box-code/code.py`'s run loop never wakes the backlight when `lock_controller.notify_call()`
+Bug: `firmware/code.py`'s run loop never wakes the backlight when `lock_controller.notify_call()`
 fires the incoming-call overlay (`ui.show_call_alert`). If the screen was already asleep
 (`backlight.is_on == False`) when a call rings, the alert is drawn to a dark screen and the user
 never sees it — the alert-through feature is silently useless exactly when it matters most (screen
@@ -18,16 +18,16 @@ Feature: a new opt-in **"unlock when called"** setting, distinct from the existi
 incoming call releases the lock instead of just alert-through. Off by default, matching the
 project's "alert-through, never auto-open by default" convention (RFC §4.2, §8).
 
-- [x] `Box-code/lib/lock_controller.py` — `_call_event` flag set in `notify_call()`, consumed via
+- [x] `firmware/lib/lock_controller.py` — `_call_event` flag set in `notify_call()`, consumed via
   `consume_call_event()`; `notify_call()` branches on `self.settings.unlock_on_call` to either
   release the lock (`go_done(now, OVERRIDDEN)`) or alert-through (existing overlay path); BLE
   settings JSON round-trip gets a new `ucal` field — ✅ done
-- [x] `Box-code/code.py` — wake the backlight + reset `last_activity` when `consume_call_event()`
+- [x] `firmware/code.py` — wake the backlight + reset `last_activity` when `consume_call_event()`
   is true, after `ble.service(...)` — ✅ done
-- [x] `Box-code/lib/lock_config.py` — `BLE_UNLOCK_ON_CALL = False` default constant — ✅ done
-- [x] `Box-code/lib/lock_settings.py` — `unlock_on_call` field, NVM persistence (bumped `_MAGIC`),
+- [x] `firmware/lib/lock_config.py` — `BLE_UNLOCK_ON_CALL = False` default constant — ✅ done
+- [x] `firmware/lib/lock_settings.py` — `unlock_on_call` field, NVM persistence (bumped `_MAGIC`),
   `adjust()` index 5, `toggle_unlock_on_call()` — ✅ done
-- [x] `Box-code/lib/lock_ui.py` — 6th settings row "C Unlock" (tight 172px-wide-panel label,
+- [x] `firmware/lib/lock_ui.py` — 6th settings row "C Unlock" (tight 172px-wide-panel label,
   matching the precedent set by "R Unlock"); `update_settings`/`_fmt_setting`/`_SET_NAMES` — ✅ done
 - [x] `app/src/ble/protocol.ts` — `ucal: 0 | 1` on `Settings`, `parseSettings`/`encodeSettings` — ✅ done
 - [x] `app/src/store/useSettingsStore.ts` — `DEFAULT_BOX_SETTINGS.ucal` — ✅ done
@@ -93,7 +93,7 @@ Latest run only.
 
 | Validation Step | Result | Notes |
 |---|---|---|
-| `python -m py_compile` on `Box-code/code.py`, `lock_controller.py`, `lock_config.py`, `lock_settings.py`, `lock_ui.py`, `lock_ble.py` | ✅ Pass | Syntax gate only — these modules import `board`/`pwmio`/`busio` transitively and cannot be executed on host. |
+| `python -m py_compile` on `firmware/code.py`, `lock_controller.py`, `lock_config.py`, `lock_settings.py`, `lock_ui.py`, `lock_ble.py` | ✅ Pass | Syntax gate only — these modules import `board`/`pwmio`/`busio` transitively and cannot be executed on host. |
 | `npx tsc --noEmit` (app) | ✅ Pass | Clean, no errors — checked against the full current working tree, including a concurrent teammate's in-flight Stats/visuals changes (`useStore.ts`, `comparisons.ts`, `sessionHistory.ts`, `theme.ts`, `CalendarScreen.tsx`, `DashboardScreen.tsx`), confirming no type conflict with the new `ucal` field. |
 | `npx jest src/ble/protocol.test.ts` | ✅ Pass | 4/4 — round-trip incl. `ucal`, default-to-0 on a pre-upgrade box's payload, truthy coercion, garbled-JSON → null. |
 | `npx jest` (full app suite) | ⚠️ 4/5 suites pass, 24/24 tests pass | `src/stats/trend.test.ts` fails with `AsyncStorage native module is null` via `src/storage/storage.ts` → `src/stats/sessionHistory.ts` → `src/stats/trend.ts`. **Pre-existing/unrelated**: none of those three files were touched by this workstream; `trend.ts`/`trend.test.ts` are new files from a concurrent teammate's Stats workstream, not introduced here. |
@@ -101,7 +101,7 @@ Latest run only.
 | UI polish check | N/A — no web/browser UI; box UI and RN app UI have no host-renderable surface to screenshot in this session |  |
 
 ## Bug Bash Findings
-- **Fixed during validation**: the new 6th settings row (40px pitch, 6 rows in the space previously fitting 5 at 43px pitch) narrowed the gap between adjacent rows' hit-test zones (`settings_row_at`'s `±22` tolerance vs. the new 40px pitch would have created a 4px zone where a tap could resolve to the wrong row). Tightened tolerance to `±19` (`Box-code/lib/lock_ui.py`) so all 6 rows have a clean 1px gap between hit zones — no ambiguity, and this also tightens (slightly improves) the original 5 rows' precision.
+- **Fixed during validation**: the new 6th settings row (40px pitch, 6 rows in the space previously fitting 5 at 43px pitch) narrowed the gap between adjacent rows' hit-test zones (`settings_row_at`'s `±22` tolerance vs. the new 40px pitch would have created a 4px zone where a tap could resolve to the wrong row). Tightened tolerance to `±19` (`firmware/lib/lock_ui.py`) so all 6 rows have a clean 1px gap between hit zones — no ambiguity, and this also tightens (slightly improves) the original 5 rows' precision.
 - Checked: call rings while box is `idle`/`done` → `notify_call` returns early (existing guard); no spurious wake, no unlock. Correct — matches "only meaningful while locked."
 - Checked: call rings from `closed` (before LOCK was tapped) with `unlock_on_call` on → `go_done` runs from a non-`running` state, so no session is logged (same no-log behavior as the existing physical-override-from-closed path) — consistent, not a new gap.
 - Checked: a second call arriving after `unlock_on_call` already released the box (state now `done`) → guard returns early, no double action.
@@ -120,15 +120,15 @@ Latest run only.
 ## Follow-up: manager coaching — "more insistent, harder to miss" alert (this session)
 Manager reported the call-alert overlay was still a static banner and asked for it to be more
 insistent. Addressed:
-- [x] `Box-code/lib/lock_config.py` — `CALL_ALERT_BLINK_HZ = 3` — ✅ done
-- [x] `Box-code/lib/lock_controller.py` — `_call_alert_started`/`_call_anim_on` state; `notify_call`
+- [x] `firmware/lib/lock_config.py` — `CALL_ALERT_BLINK_HZ = 3` — ✅ done
+- [x] `firmware/lib/lock_controller.py` — `_call_alert_started`/`_call_anim_on` state; `notify_call`
   seeds the flash phase on each new alert (including re-triggers via the nonce); `update()` toggles
   the flash on `CALL_ALERT_BLINK_HZ` and only redraws on the flip (same pattern as `animate_done`);
   new `call_alert_active` property — ✅ done
-- [x] `Box-code/lib/lock_ui.py` — `_build_call_alert` keeps live refs to the background tile and
+- [x] `firmware/lib/lock_ui.py` — `_build_call_alert` keeps live refs to the background tile and
   border (`call_bg`, `call_border`); new `animate_call_alert(on)` alternates red/amber full-screen
   background + border each flash tick, white text throughout so it reads on either color — ✅ done
-- [x] `Box-code/code.py` — screen-sleep guarded with `not ctrl.call_alert_active`, so the backlight
+- [x] `firmware/code.py` — screen-sleep guarded with `not ctrl.call_alert_active`, so the backlight
   can no longer go dark mid-alert if `sleep_s` (as low as 10s) is shorter than `BLE_CALL_ALERT_S`
   (20s) — this was a real gap in the original backlight-wake fix (it woke the screen once on
   arrival but didn't hold it awake for the full alert) — ✅ done

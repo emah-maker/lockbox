@@ -150,7 +150,7 @@ conventions, not design taste or motion values.
        "network" — scan → connect → subscribe to status/history
        notifications → read/write characteristics. `protocol.ts`'s wire format
        must stay in lockstep with the firmware contract in
-       `Box-code/lib/lock_config.py`; treat that pairing as the source of
+       `firmware/lib/lock_config.py`; treat that pairing as the source of
        truth, not something to redefine app-side.
    - Local persistence: `app/src/storage/storage.ts` (`getJSON`/`setJSON` over
      `AsyncStorage`) for non-sensitive local state, `expo-secure-store` for
@@ -209,7 +209,7 @@ conventions, not design taste or motion values.
   inline styles + `StyleSheet.create` + `theme/tokens.ts`. Do not suggest or
   scaffold Tailwind setup here.
 - **Never redefine the BLE wire format app-side.** `app/src/ble/protocol.ts`
-  is a contract with `Box-code/lib/lock_config.py`; a UI change should consume
+  is a contract with `firmware/lib/lock_config.py`; a UI change should consume
   that contract, not adjust it to make a screen easier to build.
 - **Firestore sync is additive, never a gate.** Nothing in the app should
   block on sign-in or sync completing (§4's fail-open convention) — a UI

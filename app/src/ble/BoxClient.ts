@@ -22,7 +22,7 @@ import type { Status, HistoryEntry, Settings } from './protocol';
 export interface ClientCallbacks {
   onStatus?: (s: Status) => void;
   // Sessions the box finished while no phone was connected -- see
-  // Box-code/lib/lock_log.py. Fires at most once per connection since the
+  // firmware/lib/lock_log.py. Fires at most once per connection since the
   // box clears its queue as soon as it pushes this notify.
   onHistory?: (entries: HistoryEntry[]) => void;
   onDisconnect?: () => void;

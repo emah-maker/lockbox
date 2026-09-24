@@ -28,7 +28,7 @@ physical board or a real device/simulator.
 All three tasks had no dependency on each other and ran in the same parallel layer.
 
 ### Deliverables
-- `Box-code/code.py`, `lib/lock_controller.py`, `lib/lock_config.py`, `lib/lock_settings.py`, `lib/lock_ui.py` — backlight-wake fix + `unlock_on_call` setting
+- `firmware/code.py`, `lib/lock_controller.py`, `lib/lock_config.py`, `lib/lock_settings.py`, `lib/lock_ui.py` — backlight-wake fix + `unlock_on_call` setting
 - `app/src/ble/protocol.ts`, `PhoneBoxClient.ts`, `CallMonitor.ts`, `store/useSettingsStore.ts`, `screens/SettingsScreen.tsx`, `ble/protocol.test.ts` — app-side half of the same feature
 - `app/src/stats/topics.ts`, `topics.test.ts`, `trend.ts`, `trend.test.ts` — new pure data helpers (topic breakdown, 7-day trend)
 - `app/src/store/useStore.ts`, `sessionHistory.ts`, `theme.ts` — session topic-tagging plumbing + `withAlpha()` helper
@@ -46,7 +46,7 @@ All three tasks had no dependency on each other and ran in the same parallel lay
 
 ## Key Findings
 
-- **Root cause of the alert bug**: `Box-code/code.py`'s run loop only woke the backlight on
+- **Root cause of the alert bug**: `firmware/code.py`'s run loop only woke the backlight on
   touch, button press, or countdown-finish. The incoming-call overlay could fire while the
   screen was already asleep and be completely invisible. Fixed with a `consume_call_event()`
   flag that covers both the alert-overlay path and the new unlock-on-call path.
@@ -59,7 +59,7 @@ All three tasks had no dependency on each other and ran in the same parallel lay
   no way to capture a topic (touchscreen swipe-timer only), a tag is applied app-side while a
   session is running and reconciled against the box's BLE history hand-off by timestamp.
 - **Post-acceptance addition to the already-approved call-alert fix**: between the last manager
-  re-verification pass and this submission, `Box-code/code.py`, `lock_controller.py`,
+  re-verification pass and this submission, `firmware/code.py`, `lock_controller.py`,
   `lock_config.py`, and `lock_ui.py` grew further without an accompanying coaching message —
   the alert overlay now flashes (alternating red/amber, `CALL_ALERT_BLINK_HZ`) and the screen is
   held awake for the full alert duration via a new `call_alert_active` property, instead of
@@ -79,7 +79,7 @@ All three tasks had no dependency on each other and ran in the same parallel lay
   these modules cannot execute on host).
 - BLE wire contract cross-checked by hand: all 7 UUIDs and the full `Settings` JSON field set
   (`ovr, auto, sleep, bright, unlk, ucal`) match exactly between `app/src/ble/protocol.ts` and
-  `Box-code/lib/lock_config.py`/`lock_controller.py`.
+  `firmware/lib/lock_config.py`/`lock_controller.py`.
 - **Not validated**: nothing in this batch has been flashed to the physical board or run in a
   real iOS/Android build. All verification above is host-side (types, unit tests, syntax,
   manual code reading) — stated plainly per project rules, not implied to be more than that.

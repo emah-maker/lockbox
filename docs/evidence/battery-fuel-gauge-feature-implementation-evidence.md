@@ -14,11 +14,11 @@ with a read from the **Adafruit MAX17048 (#5580)** ModelGauge fuel gauge over th
 resistor and **zero new GPIO**. The public `BatteryReading` shape and every UI
 consumer stay identical, so the swap is invisible above `Battery.read()`.
 
-- [x] `Box-code/lib/max17048.py` (NEW) — minimal raw-`busio` MAX17048 driver (VCELL/SOC/VERSION), pure host-testable decode helpers — ✅ done
-- [x] `Box-code/lib/lock_battery.py` — rewrite `Battery` to read the gauge over the shared bus; keep `BatteryReading` shape, USB-based charging flag, and the watts estimate — ✅ done
-- [x] `Box-code/lib/lock_config.py` — replace ADC/curve tunables with gauge tunables (I2C address); keep `BAT_CAPACITY_MAH` (watts) — ✅ done
-- [x] `Box-code/lib/lock_controller.py` — accept the shared `i2c` bus and pass it to `Battery(i2c)` — ✅ done
-- [x] `Box-code/code.py` — pass the already-created shared `i2c` bus into `LockController` — ✅ done
+- [x] `firmware/lib/max17048.py` (NEW) — minimal raw-`busio` MAX17048 driver (VCELL/SOC/VERSION), pure host-testable decode helpers — ✅ done
+- [x] `firmware/lib/lock_battery.py` — rewrite `Battery` to read the gauge over the shared bus; keep `BatteryReading` shape, USB-based charging flag, and the watts estimate — ✅ done
+- [x] `firmware/lib/lock_config.py` — replace ADC/curve tunables with gauge tunables (I2C address); keep `BAT_CAPACITY_MAH` (watts) — ✅ done
+- [x] `firmware/lib/lock_controller.py` — accept the shared `i2c` bus and pass it to `Battery(i2c)` — ✅ done
+- [x] `firmware/code.py` — pass the already-created shared `i2c` bus into `LockController` — ✅ done
 - [x] `tests/test_max17048_decode.py` (NEW) — host unit test for the register-decode math — ✅ done (15/15 pass)
 - [ ] `docs/procurement/bom.md` — reflect the MAX17048 as the SoC source (accuracy add, not a cost cut) — pending (procurement doc; confirm with manager)
 
@@ -78,7 +78,7 @@ checked on the PC was checked; the rest is explicitly on-device-only and marked 
 | Host unit test — `python tests/test_max17048_decode.py` | **PASS** | 15 passed, 0 failed. Exercises the real driver: VCELL/SOC decode vs datasheet anchors, MSB-first byte assembly, correct register pointer, try_lock/unlock sharing discipline, `present()` ACK/error paths (via injected fake I2C). Full output below. |
 | Regression — `python tests/test_lock_log_stats.py` | **PASS** | 15 passed, 0 failed. Unrelated module; confirms the config edit did not break the other host-testable logic. |
 | Static syntax — `python -m py_compile` on all 13 firmware modules | **PASS** | `ALL COMPILE OK`. Catches syntax errors; cannot exercise `import busio`/hardware behavior. |
-| Placeholder scan (TODO/FIXME/console.log) in `Box-code` | **PASS** | None. (`NotImplementedError` hits in `lock_power.py` are legitimate `except` handlers, pre-existing.) |
+| Placeholder scan (TODO/FIXME/console.log) in `firmware` | **PASS** | None. (`NotImplementedError` hits in `lock_power.py` are legitimate `except` handlers, pre-existing.) |
 | On-device: MAX17048 ACKs at 0x36 on the shared touch bus alongside AXS5106L | **UNTESTED** | No board this session. `present()` degrades to `available=False` ("no gauge") if absent, so worst case is graceful, not a crash. |
 | On-device: `.cell_voltage`/`.cell_percent` read sane; battery view shows real %/V | **UNTESTED** | Requires a board run. `writeto_then_readfrom` is a standard `busio.I2C` method but unverified on this build. |
 | On-device: no bus contention with touch (shared-bus `try_lock`) | **UNTESTED** | Reasoned through (see Bug Bash); battery reads ~1 Hz only while the battery view is open. |
@@ -145,9 +145,9 @@ through, since no board is available):
 
 ### Review Scope
 - `reviewType`: embedded-diff-review · `reviewScope`: **diff**
-- `surfaceAreaPaths`: `Box-code/lib/max17048.py` (new), `Box-code/lib/lock_battery.py`,
-  `Box-code/lib/lock_config.py`, `Box-code/lib/lock_controller.py`, `Box-code/lib/lock_ui.py`,
-  `Box-code/code.py`, `tests/test_max17048_decode.py`,
+- `surfaceAreaPaths`: `firmware/lib/max17048.py` (new), `firmware/lib/lock_battery.py`,
+  `firmware/lib/lock_config.py`, `firmware/lib/lock_controller.py`, `firmware/lib/lock_ui.py`,
+  `firmware/code.py`, `tests/test_max17048_decode.py`,
   `docs/evidence/battery-fuel-gauge-feature-implementation-evidence.md`.
 
 ### Threat Surface Summary
@@ -221,7 +221,7 @@ is unchanged, so `lock_ui.update_battery_view` needed no interface change.
 
 **Feature Requirements Source**: the approved issue/decision note (#local: "Adafruit MAX17048 (#5580)
 fuel gauge, I2C on the shared touch bus (0x36). Swap replaces the ADC voltage-divider estimate in
-`Box-code/lib/lock_battery.py`; `adafruit_max1704x` gives cell_voltage + cell_percent") plus the
+`firmware/lib/lock_battery.py`; `adafruit_max1704x` gives cell_voltage + cell_percent") plus the
 approved recommendation in `docs/procurement/battery-fuel-gauge/02-fuel-gauge-longlist-and-shortlist-2026-07-23.md`.
 **Technical Design Source**: no separate RFC for this swap. The alternate design source of truth is the
 recommendation doc's firmware-swap note (risk register row: "`adafruit_max1704x` gives `.cell_voltage`

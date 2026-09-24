@@ -14,12 +14,12 @@ task (already completed and evidenced separately at
 ## Work List
 
 ### Scope
-- [x] `Box-code/code.py` -- `fresh_boot = supervisor.runtime.run_reason == supervisor.RunReason.STARTUP`,
+- [x] `firmware/code.py` -- `fresh_boot = supervisor.runtime.run_reason == supervisor.RunReason.STARTUP`,
       threaded into `LockController(..., fresh_boot=fresh_boot)`. Already implemented; re-verified.
-- [x] `Box-code/lib/lock_controller.py` -- `__init__(..., fresh_boot=False)` threads `fresh_boot` into
+- [x] `firmware/lib/lock_controller.py` -- `__init__(..., fresh_boot=False)` threads `fresh_boot` into
       `self.ui.establish_base_rotation(self.settings.screen_flipped, fresh_boot=fresh_boot)`. Already
       implemented; re-verified.
-- [x] `Box-code/lib/lock_ui.py` -- `establish_base_rotation(currently_flipped, fresh_boot=False)` skips
+- [x] `firmware/lib/lock_ui.py` -- `establish_base_rotation(currently_flipped, fresh_boot=False)` skips
       the 180-degree undo when `fresh_boot` is `True` (`if currently_flipped and not fresh_boot`).
       Already implemented; re-verified.
 - [x] Confirm sibling task `screen-flip-app-box-sync` is complete and needs no further action (it is --
@@ -42,7 +42,7 @@ task (already completed and evidenced separately at
   independent re-derivation exactly. Re-implementing or "improving" already-correct code with no
   identified defect would violate the "no placeholders / don't fix what isn't broken" principle, so
   this session's deliverable is independent verification, not a rewrite.
-- **No new permanent test file added.** `Box-code/lib/lock_ui.py` imports `displayio`, `terminalio`,
+- **No new permanent test file added.** `firmware/lib/lock_ui.py` imports `displayio`, `terminalio`,
   `bitmaptools`, and `adafruit_display_text` unconditionally at module scope and its `__init__`
   constructs the entire UI, so unlike `tests/test_max17043_decode.py` / `tests/test_lock_log_stats.py`
   (whose target modules were specifically written to guard/avoid hardware imports so they import
@@ -75,9 +75,9 @@ task (already completed and evidenced separately at
 
 ### Implementation Checklist
 #### Part 1: Firmware orientation-recovery fix (already implemented, this session's job = verify)
-- [x] `Box-code/code.py` -- `fresh_boot` detection via `supervisor.runtime.run_reason` -- ✅ Verified
-- [x] `Box-code/lib/lock_controller.py` -- `fresh_boot` threaded into `establish_base_rotation` -- ✅ Verified
-- [x] `Box-code/lib/lock_ui.py` -- `establish_base_rotation` skips correction on fresh boot -- ✅ Verified
+- [x] `firmware/code.py` -- `fresh_boot` detection via `supervisor.runtime.run_reason` -- ✅ Verified
+- [x] `firmware/lib/lock_controller.py` -- `fresh_boot` threaded into `establish_base_rotation` -- ✅ Verified
+- [x] `firmware/lib/lock_ui.py` -- `establish_base_rotation` skips correction on fresh boot -- ✅ Verified
 
 #### Part 2: App<->box screen-flip setting sync (already implemented and evidenced by a sibling task)
 - [x] Confirmed complete via `docs/evidence/screen-flip-app-box-sync-feature-implementation-evidence.md`
@@ -105,10 +105,10 @@ task (already completed and evidenced separately at
 ### Feature Requirement Traceability Matrix
 | Requirement | Implemented File/Function | Proof | Status |
 |---|---|---|---|
-| Fresh power-cycle boot never undoes a 180° rotation that was never actually applied this boot | `Box-code/lib/lock_ui.py` `establish_base_rotation` | Independent hand-trace of all 4 `fresh_boot` x `currently_flipped` combinations (below) + standalone arithmetic repro/fix script | Met |
-| Soft reload (auto-reload/supervisor-reload/REPL-reload) still recovers native rotation from the NVM flip flag, unchanged from prior behavior | `Box-code/lib/lock_ui.py` `establish_base_rotation` | Same hand-trace, soft-reload cases unaffected by the `fresh_boot` branch | Met |
-| `fresh_boot` correctly reflects a genuine cold boot, including the brownout-safe-mode retry path | `Box-code/code.py` (`supervisor.runtime.run_reason`), `Box-code/safemode.py` (`microcontroller.reset()`) | Read `safemode.py`: `microcontroller.reset()` is a hard reset, and CircuitPython's `RunReason` enum has no separate "watchdog/brownout" value distinct from `STARTUP`, so a brownout-retry reboot correctly reports `STARTUP` | Met |
-| Touch mapping (`LockController._map`) always agrees with the screen's real visual orientation | `Box-code/lib/lock_controller.py` `_map`, `Box-code/lib/lock_ui.py` `is_flipped` | Read: `_map` derives `flipped` from `self.ui.is_flipped`, which reads the display's live rotation against the now-correctly-recovered `_base_rotation` -- single source of truth, no second copy to drift | Met |
+| Fresh power-cycle boot never undoes a 180° rotation that was never actually applied this boot | `firmware/lib/lock_ui.py` `establish_base_rotation` | Independent hand-trace of all 4 `fresh_boot` x `currently_flipped` combinations (below) + standalone arithmetic repro/fix script | Met |
+| Soft reload (auto-reload/supervisor-reload/REPL-reload) still recovers native rotation from the NVM flip flag, unchanged from prior behavior | `firmware/lib/lock_ui.py` `establish_base_rotation` | Same hand-trace, soft-reload cases unaffected by the `fresh_boot` branch | Met |
+| `fresh_boot` correctly reflects a genuine cold boot, including the brownout-safe-mode retry path | `firmware/code.py` (`supervisor.runtime.run_reason`), `firmware/safemode.py` (`microcontroller.reset()`) | Read `safemode.py`: `microcontroller.reset()` is a hard reset, and CircuitPython's `RunReason` enum has no separate "watchdog/brownout" value distinct from `STARTUP`, so a brownout-retry reboot correctly reports `STARTUP` | Met |
+| Touch mapping (`LockController._map`) always agrees with the screen's real visual orientation | `firmware/lib/lock_controller.py` `_map`, `firmware/lib/lock_ui.py` `is_flipped` | Read: `_map` derives `flipped` from `self.ui.is_flipped`, which reads the display's live rotation against the now-correctly-recovered `_base_rotation` -- single source of truth, no second copy to drift | Met |
 | App<->box `flip` setting sync has no divergence path | (sibling task, not re-implemented) `protocol.ts`, `useStore.ts`, `lock_controller.py` | `docs/evidence/screen-flip-app-box-sync-feature-implementation-evidence.md` (0 findings) + this session's independent re-run of `npx jest` (19/19 `protocol.test.ts`, 115/115 total) | Met |
 
 Note: physical on-device power-cycle observation is a *validation mode*, not a discrete requirement with
@@ -138,7 +138,7 @@ run; on-device power-cycle observation was not possible in this environment (no 
 
 | Validation Step | Result | Notes |
 |---|---|---|
-| `python -m py_compile` on `Box-code/code.py`, `Box-code/lib/lock_controller.py`, `Box-code/lib/lock_ui.py`, `Box-code/lib/lock_settings.py` | **pass** | `COMPILE_OK`, no syntax errors |
+| `python -m py_compile` on `firmware/code.py`, `firmware/lib/lock_controller.py`, `firmware/lib/lock_ui.py`, `firmware/lib/lock_settings.py` | **pass** | `COMPILE_OK`, no syntax errors |
 | Independent hand-trace, all 4 `fresh_boot` x `currently_flipped` combinations | **pass** | Fresh+never-flipped: unaffected. Fresh+flipped (the bug case): correction now skipped, `_base_rotation` stays native, `is_flipped` matches real rotation. Soft-reload+never-flipped: unaffected. Soft-reload+flipped: unaffected, byte-for-byte the pre-existing (already-working) path. |
 | Standalone host script simulating `establish_base_rotation`'s exact arithmetic, old (unconditional) vs. new (fresh_boot-aware) | **pass** | OLD logic: `base_rotation` wrongly recomputed to 180 on a fresh boot with `screen_flipped=True`, leaving `display.rotation=0` (visually still native) while `is_flipped` incorrectly reports `True` -- reproduces the reported "touch wrong after power-cycle" symptom exactly. NEW logic: `base_rotation` stays 0 (correct), `display.rotation=180` and `is_flipped=True` agree with the screen's real state. Both assertions passed (see script output below). |
 | `npx jest` (`app/`) | **pass** | 12/12 suites, 115/115 tests (regression check on the sibling sync task; unchanged from that task's own evidence) |
@@ -174,7 +174,7 @@ combinations:
    handler calls `LockUI.set_screen_flipped` directly, never `establish_base_rotation`. Since
    `_base_rotation` is already correct from boot and doesn't need re-deriving mid-session, this is
    correct as-is, not a gap.
-3. **Brownout-triggered safe-mode retry** (`Box-code/safemode.py`) -- calls `microcontroller.reset()`,
+3. **Brownout-triggered safe-mode retry** (`firmware/safemode.py`) -- calls `microcontroller.reset()`,
    a genuine hardware reset, so the next boot's `run_reason` is `STARTUP` (CircuitPython's
    `RunReason` enum has no separate brownout/watchdog value) and `board.DISPLAY` is genuinely
    re-initialized to its hardware default -- same correct handling as an ordinary power cycle, not a
@@ -208,14 +208,14 @@ and fix; it is reproduced in full under Validation Results above for auditabilit
 ### Executive Summary
 0 Critical, 0 High, 0 Medium, 0 Low findings. No escalation items. No remediation required. No firmware
 code was changed this session (verification only) -- reviewed is the manager's pre-existing uncommitted
-3-file diff (`Box-code/code.py`, `Box-code/lib/lock_controller.py`, `Box-code/lib/lock_ui.py`).
+3-file diff (`firmware/code.py`, `firmware/lib/lock_controller.py`, `firmware/lib/lock_ui.py`).
 
 ### Review Scope
 - `reviewType`: embedded-diff-review
 - `reviewScope`: diff (the uncommitted working-tree diff on the 3 firmware files above; produced by
   the manager's prior session, not this one, but reviewed here as this job's implementation diff)
-- `surfaceAreaPaths`: `Box-code/code.py`, `Box-code/lib/lock_controller.py`, `Box-code/lib/lock_ui.py`
-  (the changed lines); `Box-code/safemode.py`, `Box-code/boot.py` referenced (not changed) for the
+- `surfaceAreaPaths`: `firmware/code.py`, `firmware/lib/lock_controller.py`, `firmware/lib/lock_ui.py`
+  (the changed lines); `firmware/safemode.py`, `firmware/boot.py` referenced (not changed) for the
   brownout-reset interaction check in Bug Bash Findings above.
 
 ### Threat Surface Summary
@@ -284,7 +284,7 @@ N/A -- no active regulation/compliance framework configured for this issue.
   (`py_compile`, hand-trace, repro/fix script, `jest`, `tsc`). The one item the validation plan called
   for that could not be run (on-device power-cycle) is explicitly named as unmet, not silently skipped
   or asserted as passing.
-- **Self-audit**: this session's only filesystem change is this evidence file. `Box-code/` and `app/src/`
+- **Self-audit**: this session's only filesystem change is this evidence file. `firmware/` and `app/src/`
   were read/executed against, not edited -- the firmware fix and the app-side sync were both already
   correct and needed no code change.
 - Confidence level: **92%** -- high confidence in the logical correctness of the fix (independently

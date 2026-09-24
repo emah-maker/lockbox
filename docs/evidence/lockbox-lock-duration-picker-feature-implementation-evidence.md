@@ -7,7 +7,7 @@ PR: none -- conversational mode, no repository configured for this delegation; r
 
 ### Scope
 - [x] app/src/screens/DashboardScreen.tsx - add hours/minutes duration picker + "Lock for H:MM" button, gated on the same `canClose` condition as the existing Close button; calls `useStore().startLock(seconds)` - Done
-- [x] app/src/stats/stats.ts - add `clampLockSeconds(hours, minutes)`, `MAX_LOCK_HOURS`, `MAX_LOCK_SECONDS`, `LOCK_MINUTE_STEP` (mirrors `Box-code/lib/lock_config.py` `MAX_HOURS`/`MIN_STEP`) - Done
+- [x] app/src/stats/stats.ts - add `clampLockSeconds(hours, minutes)`, `MAX_LOCK_HOURS`, `MAX_LOCK_SECONDS`, `LOCK_MINUTE_STEP` (mirrors `firmware/lib/lock_config.py` `MAX_HOURS`/`MIN_STEP`) - Done
 - [x] app/src/stats/stats.test.ts - unit tests for `clampLockSeconds` (combination, 9h cap, negative/fractional flooring) - Done
 
 ### Validation Requirements
@@ -17,10 +17,10 @@ PR: none -- conversational mode, no repository configured for this delegation; r
 
 ### Decisions
 - Reused the existing pure-helpers module `app/src/stats/stats.ts` (already imported by `DashboardScreen.tsx` for `formatDuration`/`aggregate`/`completionRate`) for the new clamp helper, rather than adding a new file, per "prefer editing existing files" and to keep the pure/testable logic in one place. (Note: a same-named helper briefly existed at `app/src/ble/lockDuration.ts` from an earlier, unwired attempt at this exact task; it was consolidated into `stats.ts` and, independently of this consolidation, the stray file disappeared from disk mid-session -- see Bug Bash Findings.)
-- The firmware (`Box-code/lib/lock_controller.py` `apply_ble_command`) already clamps `start:<seconds>` to `[0, MAX_SECONDS]` on its own, so the app-side clamp is a UX correctness measure (the "Lock for H:MM" label must always match what actually happens), not the only safety net.
+- The firmware (`firmware/lib/lock_controller.py` `apply_ble_command`) already clamps `start:<seconds>` to `[0, MAX_SECONDS]` on its own, so the app-side clamp is a UX correctness measure (the "Lock for H:MM" label must always match what actually happens), not the only safety net.
 - New `DurationStepper` is a small local component in `DashboardScreen.tsx`, not extracted to a shared file: `SettingsScreen.tsx`'s `StepperRow` isn't exported and the task explicitly permitted a local component instead of forcing an extraction.
 - Default picker value: 0h 25m, an arbitrary but reasonable starting point; not persisted, resets each time the screen remounts.
-- No firmware changes -- `Box-code/lib/lock_controller.py`'s `start:<seconds>` opcode and `startLock`/`cmdStart` chain were already fully wired; this task was app-UI-only.
+- No firmware changes -- `firmware/lib/lock_controller.py`'s `start:<seconds>` opcode and `startLock`/`cmdStart` chain were already fully wired; this task was app-UI-only.
 
 ### Deferrals
 - None.
@@ -28,7 +28,7 @@ PR: none -- conversational mode, no repository configured for this delegation; r
 ## Spec and Design Completeness
 
 **Feature Requirements Source**: Manager's task description in this conversation (no formal `docs/feature-specs/` entry exists for this task).
-**Technical Design Source**: None (no RFC covers this scoped UI addition); the wire contract it relies on (`cmdStart`/`start:<seconds>`) is documented in `app/src/ble/protocol.ts` and `Box-code/lib/lock_controller.py`.
+**Technical Design Source**: None (no RFC covers this scoped UI addition); the wire contract it relies on (`cmdStart`/`start:<seconds>`) is documented in `app/src/ble/protocol.ts` and `firmware/lib/lock_controller.py`.
 
 ### Feature Requirement Traceability Matrix
 | Requirement/Acceptance Criteria | Implemented File/Function | Proof | Status |
@@ -40,7 +40,7 @@ PR: none -- conversational mode, no repository configured for this delegation; r
 | Match `SettingsScreen`'s `StepperRow` (-/+) visual convention | `DashboardScreen.tsx:270-306` `DurationStepper` | Manual comparison against `SettingsScreen.tsx:288-315` `StepperRow` -- same -/+ `Pressable` + centered value text shape | Met |
 | Respect `useSettingsStore`/`useStore` boundaries | `DashboardScreen.tsx:38-58` | Picker only calls `useStore`'s `startLock`; no new `useSettingsStore` reads/writes added | Met |
 | Run `npm test`; add/extend test for clamping logic | `stats.test.ts` `describe('clampLockSeconds')` | `npx jest` -- 9 suites / 66 tests passed | Met |
-| No firmware changes | n/a | `git diff` touches only `app/src/**`; `Box-code/` untouched | Met |
+| No firmware changes | n/a | `git diff` touches only `app/src/**`; `firmware/` untouched | Met |
 | Conversational mode: no branch/commit/PR | n/a | No `git commit`/branch commands run this session; working tree left uncommitted for in-thread review | Met |
 
 **Feature Requirements Completeness Summary**: Implemented 9/9 (100%). Deferred: 0. Missing: 0.

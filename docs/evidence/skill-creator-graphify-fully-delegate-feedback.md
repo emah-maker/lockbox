@@ -13,7 +13,7 @@
 **How addressed**: Treated as a request to empirically verify the change rather than take it on
 faith. Ran a blind behavioral test: spawned a fresh subagent with no memory of writing the edit,
 gave it a FRAIM-invoking prompt that names specific files ("explain how override-click handling
-works in Box-code/lib/lock_controller.py and lock_ui.py"), and had it report its exact tool-call
+works in firmware/lib/lock_controller.py and lock_ui.py"), and had it report its exact tool-call
 order back.
 
 **First test (against the original edit)**: confirmed the concern was valid. The subagent noticed

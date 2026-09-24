@@ -16,11 +16,11 @@ the on-device touchscreen swipe timer.
 run surfaced that the human needs to see directly (below).
 
 **What was built**: a duration picker (hours 0-9 + minutes 0-55 in 5-minute steps, capped at 9h to
-match `Box-code/lib/lock_config.py`'s `MAX_HOURS`) added to `app/src/screens/DashboardScreen.tsx`,
+match `firmware/lib/lock_config.py`'s `MAX_HOURS`) added to `app/src/screens/DashboardScreen.tsx`,
 alongside — not replacing — the existing indefinite "Close" button. A "Lock for H:MM" button calls
 the already-existing `useStore().startLock(seconds)`, which was fully wired end-to-end
 (`PhoneBoxClient.startLock` → `protocol.cmdStart` → firmware's `start:<seconds>` opcode in
-`Box-code/lib/lock_controller.py`) but never called from any UI control before this change. **No
+`firmware/lib/lock_controller.py`) but never called from any UI control before this change. **No
 firmware changes were needed.** A small pure helper, `clampLockSeconds` (+ `MAX_LOCK_HOURS`/
 `MAX_LOCK_SECONDS`), was added to `app/src/stats/stats.ts` with unit tests in `stats.test.ts`.
 

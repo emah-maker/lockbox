@@ -43,7 +43,7 @@ Delegated as two independent nodes (no dependency between them, ran in parallel)
 - Both research nodes were required to read the actual BOM (`docs/procurement/bom.md`) and the
   prior ideation document (`docs/brainstorming/phone-box-feature-ideation-2026-07-20.md`) before
   proposing anything, and the BOM node additionally read the live firmware
-  (`Box-code/lib/lock_*.py`) so nothing already implemented or already proposed was repeated.
+  (`firmware/lib/lock_*.py`) so nothing already implemented or already proposed was repeated.
 - The iOS research node was required to cite primary sources (Apple's ANCS specification,
   existing CircuitPython/ESP32 ANCS client libraries) rather than rely on unverified recall,
   given Apple's notification/accessory rules changed in March 2026.

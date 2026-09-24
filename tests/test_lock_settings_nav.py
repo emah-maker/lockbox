@@ -1,5 +1,5 @@
 """Host tests for the settings-list interaction state in
-Box-code/lib/lock_settings_nav.py.
+firmware/lib/lock_settings_nav.py.
 
 SettingsNav has no hardware imports (lock_config -> lock_util, both pure
 Python), so it runs as-is under plain CPython -- same deal as TagPicker in
@@ -21,7 +21,7 @@ Run: python tests/test_lock_settings_nav.py
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "Box-code", "lib"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "firmware", "lib"))
 
 from lock_config import SETTINGS_HOLD_S, SWIPE_MIN_PX
 from lock_settings_nav import SettingsNav, Open, Changed

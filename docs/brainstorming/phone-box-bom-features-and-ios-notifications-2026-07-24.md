@@ -11,7 +11,7 @@
 
 ## Executive summary
 
-All three research threads are complete and grounded in the actual BOM (`docs/procurement/bom.md`) and firmware (`Box-code/lib/lock_*.py`), not hypothetical hardware.
+All three research threads are complete and grounded in the actual BOM (`docs/procurement/bom.md`) and firmware (`firmware/lib/lock_*.py`), not hypothetical hardware.
 
 **Part A** found 9 net-new feature ideas that use only components already in the BOM: the servo's analog range, the fuel gauge's voltage signal, the two buttons, the touchscreen, the BLE radio's advertising and scanning modes, and the SD card slot, which is wired but has no driver in firmware today. One of these (idea 4) is not really an "idea" so much as a currently open security gap: the on-screen Settings view has no access control, so anyone can defeat the lock by lowering the override-press count.
 
@@ -25,7 +25,7 @@ All three research threads are complete and grounded in the actual BOM (`docs/pr
 
 ## Part A: BOM-derived feature ideas
 
-Grounded in the current BOM (`docs/procurement/bom.md`): Waveshare ESP32-S3-Touch-LCD-1.47 (touchscreen, BLE radio, onboard LiPo charging, SD-capable), MAX17048 fuel gauge, SG90-class servo on GPIO5, two momentary buttons (GPIO1 lock, GPIO10 override), 3D-printed enclosure. Cross-checked against both the existing ideation document and the actual firmware in `Box-code/lib/`, so nothing already built or already proposed is repeated.
+Grounded in the current BOM (`docs/procurement/bom.md`): Waveshare ESP32-S3-Touch-LCD-1.47 (touchscreen, BLE radio, onboard LiPo charging, SD-capable), MAX17048 fuel gauge, SG90-class servo on GPIO5, two momentary buttons (GPIO1 lock, GPIO10 override), 3D-printed enclosure. Cross-checked against both the existing ideation document and the actual firmware in `firmware/lib/`, so nothing already built or already proposed is repeated.
 
 1. **Progressive "crack-open" countdown reveal.** Builds on the servo's full analog range, which today is only ever driven to two fixed angles. In the final few minutes of a countdown, interpolate the servo angle so the lid visibly creeps open as time runs out, releasing fully at zero. Low effort (a firmware interpolation, no new parts). Turns a binary latch into a physical countdown cue; no competitor design does this.
 
@@ -51,7 +51,7 @@ Grounded in the current BOM (`docs/procurement/bom.md`): Waveshare ESP32-S3-Touc
 
 ## Part A2: BOM-derived feature ideas, third round
 
-A third, independent ideation pass, run after Parts A and B were approved, explicitly instructed not to repeat anything in Part A, Part B, or the original 2026-07-20 document. Grounded in the same BOM and cross-checked against the live firmware in `Box-code/lib/`.
+A third, independent ideation pass, run after Parts A and B were approved, explicitly instructed not to repeat anything in Part A, Part B, or the original 2026-07-20 document. Grounded in the same BOM and cross-checked against the live firmware in `firmware/lib/`.
 
 1. **Session-persistence across brownout or reset (fail-safe resume, not fail-open).** Verified in the firmware: on a brownout during an active lock, the board resets and unconditionally releases the lock on boot, with no record that it happened. Persisting `{state, deadline}` to NVM on each transition would let a post-reset boot restore the countdown instead of defaulting to unlocked. Medium effort (NVM write cadence, wear budgeting, safe fallback when persisted data is stale). This is a real, currently-shipped accidental-early-unlock path, not a speculative feature; recommend triaging it alongside Part A idea 4.
 

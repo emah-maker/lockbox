@@ -20,7 +20,7 @@ Run: python tests/test_lock_settings_nav_page2.py
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "Box-code", "lib"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "firmware", "lib"))
 
 from lock_config import SWIPE_MIN_PX, ACCENT_COLORS
 from lock_settings_nav import SettingsNav, Open, Changed

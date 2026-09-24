@@ -16,7 +16,7 @@ without collision or lost work.
 
 ## Executive Summary
 
-Implemented a small critically-damped spring (`Box-code/lib/lock_motion.py`) driving spring-eased
+Implemented a small critically-damped spring (`firmware/lib/lock_motion.py`) driving spring-eased
 press-depth feedback on the two existing press rings, a success "pop" on the unlock message, and a
 bump-and-settle pop on each override-counter press. Mid-session, discovered `lock_ui.py`/
 `lock_config.py` were being actively written by a second, unreachable process doing closely related
@@ -34,7 +34,7 @@ confirmed via mtime polling before every subsequent edit to the contested files.
 **What changes next time**: before editing a file this session's instructions imply might also be
 in scope for a sibling/manager-spawned process, check `git status` + file mtimes first, not just
 trust that a delegated workstream implies exclusive ownership of the files in its stated scope.
-**Example**: `Box-code/lib/lock_ui.py`, `Box-code/lib/lock_config.py`.
+**Example**: `firmware/lib/lock_ui.py`, `firmware/lib/lock_config.py`.
 
 ## Architectural Impact
 

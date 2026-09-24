@@ -40,7 +40,7 @@ Sections: sticky nav, hero with animated device mockup, "your phone always wins"
 3. **Pricing is a judgment call**, not market-tested (see above).
 
 ## Content accuracy notes
-- All product claims trace to `project_context.md`, `Box-code/lib/lock_config.py`, and the competitive analysis.
+- All product claims trace to `project_context.md`, `firmware/lib/lock_config.py`, and the competitive analysis.
 - No product photography exists; the device is rendered in pure CSS/SVG using the real firmware colors.
 - The companion app is described as optional and on the roadmap, and explicitly does not auto-unlock (matches `BLE_ALLOW_REMOTE_UNLOCK = False`).
 - Competitor prices are July 2026 snapshots from the competitive analysis.

@@ -40,7 +40,7 @@ def _clear_bytecode():
     mutation is worse than no mutation test.
     """
     import shutil
-    for d in (os.path.join(os.path.dirname(HERE), "Box-code", "lib", "__pycache__"),
+    for d in (os.path.join(os.path.dirname(HERE), "firmware", "lib", "__pycache__"),
               os.path.join(HERE, "__pycache__")):
         shutil.rmtree(d, ignore_errors=True)
 

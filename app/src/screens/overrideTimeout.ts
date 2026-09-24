@@ -13,7 +13,7 @@
 // asymmetry is the whole reason the conversion lives in one file instead of
 // being open-coded at each call site.
 //
-// Mirrors Box-code/lib/lock_config.py's OVR_TIMEOUT_MIN_TENTHS/
+// Mirrors firmware/lib/lock_config.py's OVR_TIMEOUT_MIN_TENTHS/
 // OVR_TIMEOUT_MAX_TENTHS -- keep these in lockstep with the firmware side.
 // protocol.ts hardcodes the same bounds independently rather than importing
 // this module, the same "wire-parsing module stays UI-independent" reasoning

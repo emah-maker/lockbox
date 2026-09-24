@@ -23,8 +23,8 @@ continue delegating. See Risk Areas.
 - `app/src/screens/SettingsScreen.tsx`: header account icon (`person-circle-outline` signed out,
   `person-circle` in accent color signed in) opening a new `AccountModal` bottom sheet containing
   the existing `AccountSection` content, replacing the previously always-visible inline section.
-- `Box-code/lib/lock_config.py`: new `MIN_SECONDS = MIN_STEP * 60` (5-minute floor) constant.
-- `Box-code/lib/lock_controller.py`: `adjust()` and the BLE `"start"`/`"dur"` handlers now floor
+- `firmware/lib/lock_config.py`: new `MIN_SECONDS = MIN_STEP * 60` (5-minute floor) constant.
+- `firmware/lib/lock_controller.py`: `adjust()` and the BLE `"start"`/`"dur"` handlers now floor
   at `MIN_SECONDS` instead of `0`.
 - `app/src/stats/stats.ts`: new `MIN_LOCK_SECONDS` export; `clampLockSeconds` floors at it.
 - `app/src/screens/DashboardScreen.tsx`: the duration wheels can no longer land on 0h00m.

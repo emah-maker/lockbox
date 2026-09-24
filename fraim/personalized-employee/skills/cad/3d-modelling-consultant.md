@@ -25,8 +25,8 @@ STEP/STL and say so plainly.
 ### Skill Input
 - A geometry, fit, clearance, manufacturability, or "will part X fit" question
   about the enclosure, or a request to prototype/modify a part.
-- The relevant `.STEP` file path(s). Default targets: `Lid.STEP`,
-  `Main Case.STEP` in the project root.
+- The relevant `.STEP` file path(s). Default targets: `hardware/cad/lid.step`,
+  `hardware/cad/main-case.step` in the project root.
 
 ### Skill Output
 A consultant-style answer grounded in tool measurements: the numbers with

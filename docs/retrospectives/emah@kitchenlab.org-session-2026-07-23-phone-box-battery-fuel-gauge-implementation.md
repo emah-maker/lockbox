@@ -10,7 +10,7 @@ synthesized:
 **Date**: 2026-07-23
 **Duration**: One conversational session
 **Objective**: Replace the ADC voltage-divider + voltage-curve state-of-charge estimate in
-`Box-code/lib/lock_battery.py` with a read from the approved Adafruit MAX17048 (#5580) fuel gauge
+`firmware/lib/lock_battery.py` with a read from the approved Adafruit MAX17048 (#5580) fuel gauge
 over the shared touch I2C bus (0x36).
 **Outcome**: success (approved round 1, no change requests)
 

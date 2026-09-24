@@ -71,7 +71,7 @@ Ran the `fully-delegate` job to research two independent questions grounded in t
 
 ## What Went Right
 
-1. **Grounding in live firmware, not just docs**: Both research passes were explicitly required to read `Box-code/lib/lock_*.py`, not just the BOM and prior ideation doc, which is what surfaced three separate live gaps in shipped behavior (Settings access control, brownout/reset early-unlock, no critical-battery safety net) that neither prior ideation session had found, because those sessions worked from docs and firmware snapshots rather than the current code.
+1. **Grounding in live firmware, not just docs**: Both research passes were explicitly required to read `firmware/lib/lock_*.py`, not just the BOM and prior ideation doc, which is what surfaced three separate live gaps in shipped behavior (Settings access control, brownout/reset early-unlock, no critical-battery safety net) that neither prior ideation session had found, because those sessions worked from docs and firmware snapshots rather than the current code.
 2. **Correct parallelization**: The two independent research threads were identified as having no dependency and were delegated/run in parallel, per the job's core principle.
 3. **Infra failure handled as infra, not content coaching**: When the BOM node failed on a session quota limit, it was correctly logged as a non-quality failure (no coaching-moment file written, no false "correction" narrative invented) and simply retried.
 4. **Precedent-matching for deliverable format and evidence structure**: Found and followed the exact `.docx` rendering pattern and evidence-file format used by a prior `fully-delegate` run in this same repo, rather than inventing a new convention.

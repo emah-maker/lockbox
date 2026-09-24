@@ -1,8 +1,8 @@
 # Phone Box screen recreation — asset notes
 
 Pixel-accurate recreation of the box's physical display, generated from the
-firmware source (`Box-code/lib/lock_ui.py`, `lock_config.py`), for compositing
-into the Higgsfield product video during a push-in on the display. `Box-code/`
+firmware source (`firmware/lib/lock_ui.py`, `lock_config.py`), for compositing
+into the Higgsfield product video during a push-in on the display. `firmware/`
 was treated as read-only; nothing there was modified.
 
 ## Native resolution
@@ -153,7 +153,7 @@ frame — there is no "correct" wattage to compute for a still image.
 
 ## Override view — verified against source, not the paraphrase
 
-Checked directly in `Box-code/lib/lock_config.py` and `lock_ui.py` before
+Checked directly in `firmware/lib/lock_config.py` and `lock_ui.py` before
 building this (rather than trusting the summarized brief as-is):
 - `OVERRIDE_PRESSES = 25` (default) — confirmed.
 - `OVERRIDE_TIMEOUT = 3.0` seconds — confirmed.
