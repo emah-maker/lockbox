@@ -6,7 +6,7 @@
 // restructure needed it as a standalone mountable unit, same content as
 // before -- see that file's git history for the pre-extraction version.
 //
-// Mirrors Box-code/lib/lock_config.py -- keep OVR_MIN/OVR_MAX/OVR_STEP
+// Mirrors firmware/lib/lock_config.py -- keep OVR_MIN/OVR_MAX/OVR_STEP
 // (overridePresses.ts) and SLEEP_OPTIONS/BRIGHT_OPTIONS below in lockstep
 // with the firmware side.
 import { Switch } from 'react-native';

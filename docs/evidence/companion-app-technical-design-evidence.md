@@ -4,7 +4,7 @@
 **RFC:** `docs/rfcs/companion-app-development-approach-technical-design.md` (+ `.docx`)
 **Note:** No formal feature spec (`docs/feature-specs/`) or issue tracker exists — this is a local
 project folder. Requirements were derived from the upstream feature-ideation doc
-(`docs/brainstorming/phone-box-feature-ideation-2026-07-20.md`) and the firmware in `Box-code/`.
+(`docs/brainstorming/phone-box-feature-ideation-2026-07-20.md`) and the firmware in `firmware/`.
 The matrix below traces those derived requirements to the RFC.
 
 ### Traceability Matrix

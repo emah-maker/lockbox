@@ -34,7 +34,7 @@ export interface ThemeColors {
   warn: string;
   // Fixed, accent-independent -- the BLE connection dot's "connected" color.
   // Same precedent as danger/warn: a status color that must read the same
-  // way regardless of which accent is picked, mirroring Box-code's LockUI
+  // way regardless of which accent is picked, mirroring firmware's LockUI
   // (locked=red/closed=amber/unlocked=green never follow the box's own
   // accent setting either). Before this existed, the connected dot used
   // `accent` directly, so picking a non-green accent (coral, sky, ...) made

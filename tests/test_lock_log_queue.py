@@ -1,4 +1,4 @@
-"""Host tests for the NVM-backed session queue in Box-code/lib/lock_log.py.
+"""Host tests for the NVM-backed session queue in firmware/lib/lock_log.py.
 
 lock_log.py was rewritten from a CSV/SD-card session log into a bounded,
 NVM-persisted binary queue (see its header comment and
@@ -18,7 +18,7 @@ import os
 import sys
 import types
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "Box-code", "lib"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "firmware", "lib"))
 
 _microcontroller = types.ModuleType("microcontroller")
 _microcontroller.nvm = None  # each test sets this explicitly before use
@@ -539,7 +539,7 @@ check("settings.save() therefore never reaches the queue's region",
 import glob
 import re
 
-_LIB = os.path.join(os.path.dirname(__file__), "..", "Box-code", "lib")
+_LIB = os.path.join(os.path.dirname(__file__), "..", "firmware", "lib")
 
 
 def _lib_sources(prefix):

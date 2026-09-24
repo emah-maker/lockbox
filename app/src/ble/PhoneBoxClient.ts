@@ -406,7 +406,7 @@ export class PhoneBoxClient implements BoxClient {
 
   /** Ack a drained `history` batch (by entry count) once it's durably stored
    * locally -- see protocol.ts's cmdHistoryAck and
-   * Box-code/lib/lock_log.py's SessionLog.ack for why the box waits for this
+   * firmware/lib/lock_log.py's SessionLog.ack for why the box waits for this
    * before clearing its own pending queue. Call from onHistory's consumer
    * only after the batch has actually been persisted (see useStore.ts's
    * handleHistory), not just received. */

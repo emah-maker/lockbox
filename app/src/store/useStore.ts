@@ -94,7 +94,7 @@ const CONNECT_TIMEOUT_MS = 6000;
  * still count as "this run is only just beginning".
  *
  * The box recomputes `rem` from its deadline and pushes at most once a
- * second (Box-code/lib/lock_ble.py's `now - self._last_push < 1.0`), so the
+ * second (firmware/lib/lock_ble.py's `now - self._last_push < 1.0`), so the
  * first frame of a run reports zero or one second served; three seconds
  * leaves room for a dropped frame and for BLE delivery latency, while still
  * being nowhere near the length of a session someone reconnects into the
@@ -332,7 +332,7 @@ export const useStore = create<AppState>((set, get) => {
     // resends, and appendSessions dedupes), while the box that did hear it
     // was told to drop a batch it knows nothing about. That second half is
     // refused only because SessionLog.ack compares the count against the
-    // batch it last sent (Box-code/lib/lock_log.py); two batches of the
+    // batch it last sent (firmware/lib/lock_log.py); two batches of the
     // same length is all it takes for that guard to agree.
     const owner = client;
     handleHistoryEntries(entries, {
@@ -435,7 +435,7 @@ export const useStore = create<AppState>((set, get) => {
     set((state) => {
       const freshRun = status.st === 'running' && state.status?.st !== 'running';
       // The box's own pre-session tag picker (now fed the app's synced
-      // custom labels -- see Box-code/lib/lock_controller.py's _all_topics)
+      // custom labels -- see firmware/lib/lock_controller.py's _all_topics)
       // can tag a session before Lock is even pressed at the box; status.tp
       // echoes that pick back live while running. Feed it through the same
       // pending-tag path tagCurrentSession uses, so buildLoggedSessions
@@ -485,7 +485,7 @@ export const useStore = create<AppState>((set, get) => {
       };
     });
     // The box pushes this notify about once a second while connected
-    // (Box-code/lib/lock_ble.py's _push_outbound), and under the
+    // (firmware/lib/lock_ble.py's _push_outbound), and under the
     // bluetooth-central background mode iOS resumes this app to deliver it.
     // That makes it the one dependable heartbeat of CPU time we get while the
     // phone is shut in the box -- and so the only place a call that started

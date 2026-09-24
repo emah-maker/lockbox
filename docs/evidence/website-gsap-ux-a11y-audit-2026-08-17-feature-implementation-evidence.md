@@ -126,7 +126,7 @@ None -- no test harness exists for `website/` (static, no build step, per projec
 ## Existing Test Suites Run
 | Test Suite | Was it Run | Failing Tests | Failure Analysis |
 |---|---|---|---|
-| N/A | N/A | N/A | `website/` has no automated test suite; this job's scope did not touch `app/` (Jest) or `Box-code/` (on-device only), so no existing suite in the repo applies |
+| N/A | N/A | N/A | `website/` has no automated test suite; this job's scope did not touch `app/` (Jest) or `firmware/` (on-device only), so no existing suite in the repo applies |
 
 ## Pre-Completion Reflection
 

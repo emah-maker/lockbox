@@ -24,26 +24,26 @@ delegating. No correction came back, so it stands as implemented.
 
 **What was built** (as corrected in Feedback Round 1 -- see below; the override-presses design
 described here supersedes the flat step-1 version from the initial pass):
-- `Box-code/lib/lock_config.py`: replaced flat `OVR_MIN/OVR_MAX/OVR_STEP` with a non-uniform
+- `firmware/lib/lock_config.py`: replaced flat `OVR_MIN/OVR_MAX/OVR_STEP` with a non-uniform
   staircase constant `OVR_OPTIONS = (5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 60, 70, 80, 90, 100,
   125, 150, 200, 250)` -- step 5 from 5-50, step 10 from 50-100, step 25 from 100-150, step 50 from
   150-250. Ceiling capped at 250 (not higher) because `override_presses` is stored in a single NVM
   byte (max 255) in `lock_settings.py`.
-- `Box-code/lib/lock_settings.py` / `Box-code/lib/lock_controller.py`: wired `OVR_OPTIONS` through
+- `firmware/lib/lock_settings.py` / `firmware/lib/lock_controller.py`: wired `OVR_OPTIONS` through
   `Settings.adjust()` (reusing the existing `_step_in` helper already used for `sleep_s`/
   `bright_pct`) and the BLE-settings-write clamp.
 - `app/src/screens/SettingsScreen.tsx` / `app/src/screens/SettingsPrimitives.tsx`: mirrored
   `OVR_OPTIONS` as a literal array, and generalized `SliderRow` to accept an `options: number[]`
   prop that snaps to the nearest array value (instead of a flat `step`), keeping the same compact
   single-row slider UI rather than an unwieldy 19-chip wrapped block.
-- `Box-code/lib/lock_config.py` / `Box-code/lib/lock_ui.py`: `CALL_ALERT_BLINK_HZ` 3 → 6 (doubled),
+- `firmware/lib/lock_config.py` / `firmware/lib/lock_ui.py`: `CALL_ALERT_BLINK_HZ` 3 → 6 (doubled),
   plus two new dedicated, more saturated colors (`C_ALERT_RED` = `0xFF1744`, `C_ALERT_AMBER` =
   `0xFFC400`) used only by the call-alert overlay, so the flash is materially brighter and faster
   without changing the calmer `C_RED`/`C_AMBER` used elsewhere in the UI (status labels, override
   screen, battery indicator).
 - **No new BLE settings field and no new app UI control were added** for the flash change, per the
   scope decision above — it is a firmware-only stronger default.
-- `Box-code/lib/lock_settings.py` and `Box-code/lib/lock_controller.py` needed **no changes**: both
+- `firmware/lib/lock_settings.py` and `firmware/lib/lock_controller.py` needed **no changes**: both
   already import `OVR_MIN`/`OVR_MAX`/`OVR_STEP` from `lock_config.py` rather than hardcoding them,
   so the new range/step took effect automatically. Confirmed by grep, not assumed.
 
@@ -51,7 +51,7 @@ described here supersedes the flat step-1 version from the initial pass):
 
 Single-node graph (one workstream, no dependencies). Both changes were bundled into one task rather
 than split into two parallel tasks: conversational mode has no per-agent worktree isolation, and
-both changes touch `Box-code/lib/lock_config.py`, so two parallel agents editing that file in place
+both changes touch `firmware/lib/lock_config.py`, so two parallel agents editing that file in place
 would risk clobbering each other with no git isolation to protect against it.
 
 | Task ID | Job | Persona | Depends On | Status |
@@ -115,10 +115,10 @@ corrected design. Independently re-verified: grepped the whole project for `OVR_
 
 ## Human Approval Checklist
 
-- [ ] **Approve or reject the feature as implemented**: `Box-code/lib/lock_config.py` (`OVR_OPTIONS`
+- [ ] **Approve or reject the feature as implemented**: `firmware/lib/lock_config.py` (`OVR_OPTIONS`
       progressive staircase 5-250, `CALL_ALERT_BLINK_HZ` doubled, new `C_ALERT_RED`/`C_ALERT_AMBER`
-      constants), `Box-code/lib/lock_settings.py` / `Box-code/lib/lock_controller.py` (staircase
-      wired through `Settings.adjust()`/BLE clamp), `Box-code/lib/lock_ui.py` (call-alert overlay
+      constants), `firmware/lib/lock_settings.py` / `firmware/lib/lock_controller.py` (staircase
+      wired through `Settings.adjust()`/BLE clamp), `firmware/lib/lock_ui.py` (call-alert overlay
       uses the new alert colors), `app/src/screens/SettingsScreen.tsx` / `app/src/screens/
       SettingsPrimitives.tsx` (mirrored staircase, `SliderRow` generalized to snap to nearest option).
 - [ ] **Decide whether to commit these three files now.**
@@ -127,7 +127,7 @@ corrected design. Independently re-verified: grepped the whole project for `OVR_
       task touching the BLE settings contract (`lock_settings.py`, `lock_controller.py`'s
       `ble_settings_json`/`apply_ble_settings_json`, `app/src/ble/protocol.ts`, and
       `SettingsScreen.tsx`) rather than just the firmware default changed here.
-- [ ] **Optional follow-up**: `AI_CONTEXT.md:204` still documents the old `OVR_MIN/MAX/STEP =
+- [ ] **Optional follow-up**: `docs/handoff/firmware-ai-context.md:204` still documents the old `OVR_MIN/MAX/STEP =
       10/100/10` values and is now stale. Left untouched per the sub-agent's "don't touch unrelated
       files" constraint; worth a doc pass if desired.
 

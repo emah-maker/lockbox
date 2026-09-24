@@ -84,3 +84,6 @@ ui-debug.log
 # Generated PNGs from tests/preview/render.py (host-side displayio preview
 # renderer) -- regenerate on demand, not a build deliverable.
 tests/preview/out*/
+
+# Per-machine Claude Code settings (personal paths and permission allowlists)
+.claude/settings.local.json

@@ -1,5 +1,5 @@
 """Host tests for the horizontal-swipe view-switch direction in
-Box-code/lib/lock_controller.py (LockController._handle_release).
+firmware/lib/lock_controller.py (LockController._handle_release).
 
 lock_controller.py pulls in Battery/Servo/Settings/SessionLog, which import
 CircuitPython-only modules (board, pwmio, supervisor, microcontroller) at
@@ -26,7 +26,7 @@ import os
 import sys
 import types
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "Box-code", "lib"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "firmware", "lib"))
 
 for _name in ("board", "pwmio", "supervisor", "microcontroller"):
     if _name not in sys.modules:

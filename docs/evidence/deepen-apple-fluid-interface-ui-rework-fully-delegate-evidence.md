@@ -23,7 +23,7 @@ same ledger, causing three-way file collisions on every surface. All collisions 
 verified non-destructive, but one duplicate agent's output (a complete, unclaimed mobile
 hamburger-nav and dashboard state-crossfade) was never attributed or evidenced by any
 reviewed workstream and needs an explicit human keep/remove decision. See `docs/retrospectives/`
-for this run and `fraim/personalized-employee/learnings/raw/emah@kitchenlab.org-2026-08-11T20-00-00-avoid-duplicate-subagent-spawn-in-fully-delegate.md`
+for this run and `fraim/personalized-employee/learnings/raw/2026-08-11T20-00-00-avoid-duplicate-subagent-spawn-in-fully-delegate.md`
 for the full root-cause writeup.
 
 ## Delegation Ledger
@@ -42,7 +42,7 @@ Orchestrator: MANdy, running `fully-delegate`.
 
 - Files changed: `app/App.tsx`, `app/src/ui/useReducedMotion.ts`, `app/src/screens/CalendarScreen.tsx`, `app/src/screens/CustomLabelsSection.tsx`, `app/src/screens/DashboardScreen.tsx`, `app/src/screens/StatsScreen.tsx`
 - Evidence: `docs/evidence/apple-fluid-interface-companion-app-feature-implementation-evidence.md`
-- Retrospective: `docs/retrospectives/emah@kitchenlab.org-session-2026-08-11-deepen-apple-fluid-ui-companion-app.md`
+- Retrospective: `docs/retrospectives/session-2026-08-11-deepen-apple-fluid-ui-companion-app.md`
 - Pull request: none (conversational mode)
 - Manager verdict: accepted, iteration 1
 
@@ -64,7 +64,7 @@ after the collision; see Duplicate Spawn Collision below for the root cause.
 
 - Files changed: `website/css/styles.css`, `website/js/script.js`, `website/css/dashboard.css`, `website/js/dashboard.js`, `website/index.html`, `website/dashboard.html`
 - Evidence: `docs/evidence/deepen-apple-fluid-interface-website-feature-implementation-evidence.md` (**authored by MANdy**, not the delegated sub-agent - see below)
-- Retrospective: `docs/retrospectives/emah@kitchenlab.org-session-2026-08-11-deepen-apple-fluid-interface-website.md`
+- Retrospective: `docs/retrospectives/session-2026-08-11-deepen-apple-fluid-interface-website.md`
 - Pull request: none (conversational mode)
 - Manager verdict: accepted, iteration 2
 
@@ -88,9 +88,9 @@ independently verified before the human's instruction.
 
 ### box-ui-rework
 
-- Files changed: `Box-code/lib/lock_config.py`, `Box-code/lib/lock_controller.py`, `Box-code/lib/lock_ui.py`, `Box-code/lib/lock_motion.py` (new)
+- Files changed: `firmware/lib/lock_config.py`, `firmware/lib/lock_controller.py`, `firmware/lib/lock_ui.py`, `firmware/lib/lock_motion.py` (new)
 - Evidence: `docs/evidence/deepen-apple-fluid-ui-box-feature-implementation-evidence.md`
-- Retrospective: `docs/retrospectives/emah@kitchenlab.org-session-2026-08-11-deepen-apple-fluid-ui-box.md`
+- Retrospective: `docs/retrospectives/session-2026-08-11-deepen-apple-fluid-ui-box.md`
 - Pull request: none (conversational mode)
 - Manager verdict: accepted, iteration 1, **pending human hardware validation**
 
@@ -140,7 +140,7 @@ MANdy's own three duplicate spawns were later reported by the harness as "stoppe
 completion record found" - consistent with them being the orphaned source of the
 box color-transition engine and the website hamburger-nav/crossfade, both of which
 landed in the shared working tree before their spawning agents died mid-session. Full
-root-cause writeup: `fraim/personalized-employee/learnings/raw/emah@kitchenlab.org-2026-08-11T20-00-00-avoid-duplicate-subagent-spawn-in-fully-delegate.md`.
+root-cause writeup: `fraim/personalized-employee/learnings/raw/2026-08-11T20-00-00-avoid-duplicate-subagent-spawn-in-fully-delegate.md`.
 
 ## Missing Evidence
 
@@ -151,7 +151,7 @@ has since been written (by MANdy, disclosed above) rather than left absent.
 
 - `app/App.tsx`, `app/src/ui/useReducedMotion.ts`, `app/src/screens/CalendarScreen.tsx`, `app/src/screens/CustomLabelsSection.tsx`, `app/src/screens/DashboardScreen.tsx`, `app/src/screens/StatsScreen.tsx`
 - `website/css/styles.css`, `website/js/script.js`, `website/css/dashboard.css`, `website/js/dashboard.js`, `website/index.html`, `website/dashboard.html`, `website/js/nav.js` (new, unclaimed - see above)
-- `Box-code/lib/lock_config.py`, `Box-code/lib/lock_controller.py`, `Box-code/lib/lock_ui.py`, `Box-code/lib/lock_motion.py` (new)
+- `firmware/lib/lock_config.py`, `firmware/lib/lock_controller.py`, `firmware/lib/lock_ui.py`, `firmware/lib/lock_motion.py` (new)
 
 ## Catalog Job Coverage
 

@@ -2,11 +2,11 @@
 
 ## What this is
 
-Box-code/lib/lock_ui.py builds its screens with `displayio` -- a
+firmware/lib/lock_ui.py builds its screens with `displayio` -- a
 CircuitPython-only display stack that does not exist on a laptop. Until
 now, checking whether a screen actually fit on the box's 172x320 panel
 meant deploying to real hardware; several geometry constants in
-Box-code/lib carry a comment saying exactly that ("needs an on-device
+firmware/lib carry a comment saying exactly that ("needs an on-device
 visual check, no host-runnable renderer exists for this display stack").
 
 This directory closes that gap:
@@ -14,7 +14,7 @@ This directory closes that gap:
 - `shim/` -- pure-Python stand-ins for `displayio`, `terminalio`,
   `adafruit_display_text.label`, `adafruit_display_shapes`, and empty
   stubs for the rest of the CircuitPython-only modules -- faithful enough
-  that the REAL, unmodified `Box-code/lib/lock_ui*.py` imports and runs
+  that the REAL, unmodified `firmware/lib/lock_ui*.py` imports and runs
   against them.
 - `render.py` -- imports the real `LockUI`, feeds it sample data, and
   rasterizes any screen to a PNG with Pillow.
@@ -98,7 +98,7 @@ This is a stand-in, not an emulator. Specifically:
   label's own bounding box, anchored_position as where that lands in
   parent coordinates, re-laid-out on every text/scale/anchor change) --
   this is the one piece of geometry the task cared most about getting
-  right, since it's what most of Box-code/lib's layout constants are
+  right, since it's what most of firmware/lib's layout constants are
   reasoned from.
 
 ## Known current-firmware findings

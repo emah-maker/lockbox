@@ -12,11 +12,11 @@ Add an hours+minutes duration picker and a "Lock for H:MM" button to `app/src/sc
 DashboardScreen.tsx`, additive alongside the existing indefinite "Close" button, calling the
 already-implemented `useStore().startLock(seconds)` -> `PhoneBoxClient.startLock` ->
 `protocol.cmdStart(seconds)` -> firmware `start:<seconds>` opcode. Firmware needed no changes
-(confirmed: `Box-code/lib/lock_controller.py`'s `apply_ble_command` already handles `start:<seconds>`
+(confirmed: `firmware/lib/lock_controller.py`'s `apply_ble_command` already handles `start:<seconds>`
 and independently clamps to `MAX_SECONDS`).
 
 - [x] Duration picker (hours 0-9, minutes 0-55 step 5), capped at 9h to match
-  `Box-code/lib/lock_config.py`'s `MAX_HOURS = 9`.
+  `firmware/lib/lock_config.py`'s `MAX_HOURS = 9`.
 - [x] "Lock for H:MM" button calling `useStore().startLock(totalSeconds)`.
 - [x] Existing indefinite Close button left untouched, both controls available together.
 - [x] Matches `SettingsScreen.tsx`'s `StepperRow` (-/+ button) convention -- no new UI paradigm.

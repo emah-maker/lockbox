@@ -32,7 +32,7 @@
   deliverable. New finding: the incumbent board is **£14.40 (~$18–19) at The Pi
   Hut** vs. ~$25 Amazon (~$6/unit saving, no redesign). LILYGO T-Display-S3 Touch
   confirmed ~$37 and sold out at lilygo US → **dropped** from shortlist.
-- **Item 2 — CAD battery fit:** Parsed `Main Case.STEP` / `Lid.STEP` (mm). Main
+- **Item 2 — CAD battery fit:** Parsed `hardware/cad/main-case.step` / `hardware/cad/lid.step` (mm). Main
   Case ≈ 196×195 mm footprint, ~27 mm walls (usable depth ~20–25 mm). Space is not
   the constraint; a 2000–5000 mAh cell fits. Added a "CAD check" section.
 - Full record: `docs/evidence/phone-box-board-alt-supplier-discovery-feedback.md`.

@@ -1,9 +1,9 @@
 ---
 reviewContext:
   subjectType: embedded-firmware
-  subjectLabel: Box-code/ CircuitPython firmware for the Phone Box lockbox
+  subjectLabel: firmware/ CircuitPython firmware for the Phone Box lockbox
   reviewRef: master (working tree, 2026-08-17)
-  scopeSummary: Static audit of all Box-code/ modules for correctness, brownout/safe-mode reliability, power management, and touch/servo run-loop responsiveness, checked against the 7 fixed functions and cost-down goal in project_context.md.
+  scopeSummary: Static audit of all firmware/ modules for correctness, brownout/safe-mode reliability, power management, and touch/servo run-loop responsiveness, checked against the 7 fixed functions and cost-down goal in project_context.md.
   repoIdentifier: lockbox
   branchRef: master
 quality:
@@ -20,7 +20,7 @@ quality:
     rationale: "NVM settings/session-log persistence uses a sound magic-byte-guarded, graceful-degradation pattern, but Settings.save() rewrites unconditionally on every hold-repeat tick (up to ~12/s), risking flash wear against an 'occasional settings change' usage assumption."
   observabilityOps:
     score: 4
-    rationale: "No watchdog timer anywhere in Box-code/; brownout is the only automatic recovery path. No host-runnable test suite exists (expected per project_rules.md), so nothing in this review is board-verified."
+    rationale: "No watchdog timer anywhere in firmware/; brownout is the only automatic recovery path. No host-runnable test suite exists (expected per project_rules.md), so nothing in this review is board-verified."
   releaseSafety:
     score: 6
     rationale: "Deploy routine (batch-write + sync, no unplug) is documented and consistently followed; verification is manual on-device observation only -- an accepted platform constraint, not a gap introduced here."
@@ -38,11 +38,11 @@ quality:
   coaching: "Move the brownout-retry-counter clear (code.py:11-14) from 'interpreter started' to 'proven stable', so a marginal-battery + servo-brownout failure mode still hits safemode.py's 5-retry cap."
 ---
 
-# Production Readiness Review -- Box-code/ Firmware
+# Production Readiness Review -- firmware/ Firmware
 
 ## Executive Summary
 
-Box-code/ is a mature, heavily self-documented CircuitPython codebase -- most
+firmware/ is a mature, heavily self-documented CircuitPython codebase -- most
 prior bugs (spring-integration instability, press-position drift, NVM layout
 migrations, BLE advertising drop-outs) are already fixed at the source with
 the incident preserved in a comment. This review did not find any critical
@@ -61,8 +61,8 @@ likely to actually brownout the board in the field.
 
 ## Review Context
 
-- **Scope**: `Box-code/code.py`, `boot.py`, `safemode.py`, and every module
-  under `Box-code/lib/` (`lock_config.py`, `lock_controller.py`,
+- **Scope**: `firmware/code.py`, `boot.py`, `safemode.py`, and every module
+  under `firmware/lib/` (`lock_config.py`, `lock_controller.py`,
   `lock_ui.py`, `lock_servo.py`, `lock_battery.py`, `max17048.py`,
   `lock_power.py`, `lock_settings.py`, `lock_log.py`, `lock_motion.py`,
   `lock_ble.py`, `axs5106l.py`).
@@ -105,7 +105,7 @@ likely to actually brownout the board in the field.
 ## Top Gaps / Risks
 
 ### 1. [HIGH] Brownout-retry counter is cleared before the board has proven it's stable
-**File:** `Box-code/code.py:11-14`, interacting with `Box-code/safemode.py:11-24`
+**File:** `firmware/code.py:11-14`, interacting with `firmware/safemode.py:11-24`
 
 ```python
 # code.py, lines 11-14 -- runs before ANY hardware init (display/touch/servo)
@@ -148,8 +148,8 @@ after boot, not just during it.
 board run (and certainly no deliberate brownout injection) was performed.
 
 ### 2. [MEDIUM] Settings persistence writes NVM on every hold-repeat tick, not just on release
-**File:** `Box-code/lib/lock_settings.py:79-101` (`Settings.save`), invoked from
-`Box-code/lib/lock_controller.py:715-735` (`_update_hold`)
+**File:** `firmware/lib/lock_settings.py:79-101` (`Settings.save`), invoked from
+`firmware/lib/lock_controller.py:715-735` (`_update_hold`)
 
 `_update_hold` calls `Settings.adjust(...)`, which ends in `self.save()`, on
 every hold-to-repeat tick while a user holds `[-]`/`[+]` or a swipe on a
@@ -175,7 +175,7 @@ a board); this is a code-review inference from the write pattern, not a
 verified failure.
 
 ### 3. [MEDIUM] One BLE-writable setting skips the input-validation pattern its siblings use
-**File:** `Box-code/lib/lock_controller.py:517-552` (`apply_ble_settings_json`)
+**File:** `firmware/lib/lock_controller.py:517-552` (`apply_ble_settings_json`)
 
 ```python
 if "ovr" in d:
@@ -213,7 +213,7 @@ of a payload's already-applied changes.
 static reading of the validation code path.
 
 ### 4. [LOW] Misleading comment on the BLE remote-unlock default
-**File:** `Box-code/lib/lock_controller.py`, in `apply_ble_command`'s `"unlock"` branch (~line 505-506)
+**File:** `firmware/lib/lock_controller.py`, in `apply_ble_command`'s `"unlock"` branch (~line 505-506)
 
 The inline comment reads "a remote early-release path: ON by default (see
 lock_config. BLE_ALLOW_REMOTE_UNLOCK), toggleable off in Settings." The
@@ -281,21 +281,21 @@ the physical device" requirement) before treating any of them as confirmed.
 
 ## Source Inventory
 
-- `Box-code/code.py`
-- `Box-code/boot.py`
-- `Box-code/safemode.py`
-- `Box-code/lib/lock_config.py`
-- `Box-code/lib/lock_controller.py`
-- `Box-code/lib/lock_ui.py`
-- `Box-code/lib/lock_servo.py`
-- `Box-code/lib/lock_battery.py`
-- `Box-code/lib/max17048.py`
-- `Box-code/lib/lock_power.py`
-- `Box-code/lib/lock_settings.py`
-- `Box-code/lib/lock_log.py`
-- `Box-code/lib/lock_motion.py`
-- `Box-code/lib/lock_ble.py`
-- `Box-code/lib/axs5106l.py`
+- `firmware/code.py`
+- `firmware/boot.py`
+- `firmware/safemode.py`
+- `firmware/lib/lock_config.py`
+- `firmware/lib/lock_controller.py`
+- `firmware/lib/lock_ui.py`
+- `firmware/lib/lock_servo.py`
+- `firmware/lib/lock_battery.py`
+- `firmware/lib/max17048.py`
+- `firmware/lib/lock_power.py`
+- `firmware/lib/lock_settings.py`
+- `firmware/lib/lock_log.py`
+- `firmware/lib/lock_motion.py`
+- `firmware/lib/lock_ble.py`
+- `firmware/lib/axs5106l.py`
 
 ## Launch Decision and Remediation Queue
 

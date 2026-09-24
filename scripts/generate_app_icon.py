@@ -1,5 +1,5 @@
 """generate_app_icon.py -- renders app/assets/icon.png (1024x1024) for the Expo
-app. Colors match the box's own on-device palette (Box-code/lib/lock_config.py:
+app. Colors match the box's own on-device palette (firmware/lib/lock_config.py:
 C_BG/C_GREEN) so the app icon and the box screen read as one product. Simple,
 bold shapes on purpose -- iOS shrinks this down to ~40px on a home screen.
 
@@ -8,9 +8,9 @@ Run: python scripts/generate_app_icon.py
 from PIL import Image, ImageDraw
 
 SIZE = 1024
-BG = (13, 17, 23)  # #0D1117 -- Box-code C_BG
-MINT = (53, 208, 127)  # #35D07F -- Box-code C_GREEN
-WHITE = (240, 243, 246)  # #F0F3F6 -- Box-code C_WHITE
+BG = (13, 17, 23)  # #0D1117 -- firmware C_BG
+MINT = (53, 208, 127)  # #35D07F -- firmware C_GREEN
+WHITE = (240, 243, 246)  # #F0F3F6 -- firmware C_WHITE
 
 img = Image.new('RGB', (SIZE, SIZE), BG)
 draw = ImageDraw.Draw(img)

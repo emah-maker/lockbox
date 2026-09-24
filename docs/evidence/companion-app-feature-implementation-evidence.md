@@ -13,11 +13,11 @@ no app dependency, no FAT-corruption risk. *(This is the data foundation; do it 
 The BLE viewer MVP and all app-side work are explicitly **out of scope** for this job
 (they are the next roadmap items and are developer/hire-out work per RFC §6a).
 
-- [ ] `Box-code/lib/lock_config.py` — add SD/logging/stats tunables (pins, freq, paths, enable flag) — pending
-- [ ] `Box-code/lib/lock_log.py` (NEW) — SessionLog driver: mount external TF card, append session records, compute+cache stats; pure `compute_stats` for host validation — pending
-- [ ] `Box-code/lib/lock_controller.py` — create `SessionLog`; emit a record at the `go_done` seam (completed vs overridden, planned vs actual); add `"stats"` view — pending
-- [ ] `Box-code/lib/lock_ui.py` — build the stats/dashboard view + `update_stats()`; nav-hint updates — pending
-- [ ] `Box-code/code.py` — unchanged (SessionLog is created inside the controller, like Battery/Servo/Settings; the card is mounted at boot from code.py via the controller)
+- [ ] `firmware/lib/lock_config.py` — add SD/logging/stats tunables (pins, freq, paths, enable flag) — pending
+- [ ] `firmware/lib/lock_log.py` (NEW) — SessionLog driver: mount external TF card, append session records, compute+cache stats; pure `compute_stats` for host validation — pending
+- [ ] `firmware/lib/lock_controller.py` — create `SessionLog`; emit a record at the `go_done` seam (completed vs overridden, planned vs actual); add `"stats"` view — pending
+- [ ] `firmware/lib/lock_ui.py` — build the stats/dashboard view + `update_stats()`; nav-hint updates — pending
+- [ ] `firmware/code.py` — unchanged (SessionLog is created inside the controller, like Battery/Servo/Settings; the card is mounted at boot from code.py via the controller)
 
 ### Validation Requirements
 - `uiValidationRequired`: Yes, but **on-device only** — there is no host display/test harness (project rule).
@@ -127,8 +127,8 @@ since no board is available):
 
 ### Review Scope
 - `reviewType`: embedded-diff-review · `reviewScope`: **diff**
-- `surfaceAreaPaths`: `Box-code/lib/lock_config.py`, `Box-code/lib/lock_log.py` (new),
-  `Box-code/lib/lock_controller.py`, `Box-code/lib/lock_ui.py`, `tests/test_lock_log_stats.py`,
+- `surfaceAreaPaths`: `firmware/lib/lock_config.py`, `firmware/lib/lock_log.py` (new),
+  `firmware/lib/lock_controller.py`, `firmware/lib/lock_ui.py`, `tests/test_lock_log_stats.py`,
   `docs/evidence/companion-app-feature-implementation-evidence.md`.
 
 ### Threat Surface Summary
@@ -250,19 +250,19 @@ stats, plus an on-board notification UI for important calls. This required first
 
 ### What changed
 **Firmware (buildable + syntax-verified here):**
-- `Box-code/lib/lock_config.py` — BLE section: enable flag, device name, advertising policy, command
+- `firmware/lib/lock_config.py` — BLE section: enable flag, device name, advertising policy, command
   rate-limit, `BLE_ALLOW_REMOTE_UNLOCK=False`, call-alert timeout, and the 128-bit service/characteristic
   UUIDs. (Note: the battery block in this file was concurrently refactored to a MAX17048 fuel gauge by
   the user; my BLE work is consistent with it — `_battery_pct` uses the unchanged `BatteryReading` API.)
-- `Box-code/lib/lock_ble.py` (new) — `PhoneBoxBLE`: an `adafruit_ble` GATT peripheral exposing
+- `firmware/lib/lock_ble.py` (new) — `PhoneBoxBLE`: an `adafruit_ble` GATT peripheral exposing
   `status`, `stats`, `command`, `settings`, `time_sync`, `alert`. Fully guarded (missing `adafruit_ble`/
   `_bleio` → BLE disabled, timer unaffected); non-blocking `service()`; advertising gated by policy.
-- `Box-code/lib/lock_controller.py` — BLE hooks: `ble_status_json`/`ble_stats_json`/`ble_settings_json`,
+- `firmware/lib/lock_controller.py` — BLE hooks: `ble_status_json`/`ble_stats_json`/`ble_settings_json`,
   `apply_ble_command` (maps onto existing `go_running`/`go_closed`/`go_done` — no new lock mechanism),
   `apply_ble_settings_json`, `set_wall_time`/`wall_time`, and `notify_call` (drives the on-screen alert).
-- `Box-code/lib/lock_ui.py` — a full-screen **incoming-call notification overlay** (`show_call_alert`/
+- `firmware/lib/lock_ui.py` — a full-screen **incoming-call notification overlay** (`show_call_alert`/
   `hide_call_alert`): amber border, "INCOMING CALL", caller label; auto-dismisses.
-- `Box-code/code.py` — creates `PhoneBoxBLE` and services it **last** in the run loop (after touch +
+- `firmware/code.py` — creates `PhoneBoxBLE` and services it **last** in the run loop (after touch +
   buttons + update), preserving the ordering rule; non-blocking.
 
 **iOS app (`app/`, RN + Expo + TypeScript — the RFC §5.1a stack) — SOURCE SCAFFOLD, NOT BUILT/RUN:**

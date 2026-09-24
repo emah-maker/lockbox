@@ -4,7 +4,7 @@
 *Received: 2026-08-15 (conversation)*
 
 ### Comment 1 - ADDRESSED
-- **Author**: emah@kitchenlab.org
+- **Author**: <developer email>
 - **Type**: conversation_feedback
 - **File**: .claude/skills/fraim/SKILL.md
 - **Comment**: "that sounds about right, currently I am not sure if graphify is used"
@@ -13,7 +13,7 @@
 **How addressed**: Treated as a request to empirically verify the change rather than take it on
 faith. Ran a blind behavioral test: spawned a fresh subagent with no memory of writing the edit,
 gave it a FRAIM-invoking prompt that names specific files ("explain how override-click handling
-works in Box-code/lib/lock_controller.py and lock_ui.py"), and had it report its exact tool-call
+works in firmware/lib/lock_controller.py and lock_ui.py"), and had it report its exact tool-call
 order back.
 
 **First test (against the original edit)**: confirmed the concern was valid. The subagent noticed

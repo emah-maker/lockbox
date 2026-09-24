@@ -149,7 +149,7 @@ made from its own wake handler, not a change to how the manager itself is constr
 - `app/src/calls/CallMonitor.ts` — wires Tier 1 events to `client.alertCall(label)` while the box is
   locked and the user has call-alerts enabled. `resolveLabel()` (line 67) is hardcoded to return `'Call'`
   and is explicitly documented as the Tier-2 seam.
-- Box side: `Box-code/lib/lock_controller.py` `notify_call(label, now)` (line 336) already does the
+- Box side: `firmware/lib/lock_controller.py` `notify_call(label, now)` (line 336) already does the
   right thing with a label — alert-through by default, or `release_lock()` if
   `Settings.unlock_on_call` is on. **No firmware change is needed for Tier 2** — it already accepts an
   arbitrary label string over the existing `alert` characteristic (`BLE_UUID_ALERT`,
@@ -248,7 +248,7 @@ same `client.alertCall()` box-side contract later.
 
 ### 3.1 Current gap, precisely
 
-`Box-code/lib/lock_log.py` (`SessionLog`) is the box's queue of sessions finished while no phone was
+`firmware/lib/lock_log.py` (`SessionLog`) is the box's queue of sessions finished while no phone was
 connected. Two things make it *not* actually a lossless backstop today:
 
 1. **RAM-only, cleared on power loss.** `_pending` is a plain Python list; a reboot/brownout (the box
@@ -269,7 +269,7 @@ characteristic per-transition — `useStore.ts` `handleHistory` comment, lines 1
 for the gap between "session finished" and "a phone was next connected," which is precisely the window a
 force-quit stretches out.
 
-### 3.2 Firmware fix (Box-code, no new BLE characteristics needed)
+### 3.2 Firmware fix (firmware, no new BLE characteristics needed)
 
 - **Persist `_pending` to NVM**, following `lock_settings.py`'s exact pattern: a new magic-byte-guarded
   region in `microcontroller.nvm`, sized for the existing 40-entry cap. Each entry packs into 9 bytes

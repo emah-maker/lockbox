@@ -147,7 +147,7 @@ export default function DashboardScreen() {
   // Duration picker -- local to this screen, not persisted. Preview-only: it
   // can't start a lock from the phone (that has to happen at the box, with
   // the phone physically inside it -- see show_idle/show_closed in
-  // Box-code/lib/lock_ui.py). Every stepper change pushes a live preview via
+  // firmware/lib/lock_ui.py). Every stepper change pushes a live preview via
   // setDuration below (opcode "dur:<seconds>") so the box's clock reflects
   // the picked time immediately, ready for LOCK to be tapped on the box.
   // Hours/minutes as one state object, not two separate useState calls --
@@ -208,7 +208,7 @@ export default function DashboardScreen() {
   };
 
   // Computed here, not read over BLE: the box keeps no long-term stats of its
-  // own (no SD card, no NVM -- see Box-code/lib/lock_log.py), so the app's
+  // own (no SD card, no NVM -- see firmware/lib/lock_log.py), so the app's
   // local session log (synced live + drained from the box on connect) is the
   // only copy, and the only place these aggregates can come from.
   // Headline "focus time today" comes from filterByWindow('day', ...), the
@@ -369,7 +369,7 @@ export default function DashboardScreen() {
     // NVM entries have no room for a topic id), while setPendingBoxTopic is
     // the FORWARD path (push the pick to the box over BLE so pressing LOCK
     // there opens the confirm screen for this topic instead of the plain
-    // picker -- see Box-code/lib/lock_controller.py's apply_ble_pending_topic
+    // picker -- see firmware/lib/lock_controller.py's apply_ble_pending_topic
     // and go_confirming). Neither replaces the other: the forward push is
     // best-effort and silently no-ops on an old box or while disconnected,
     // in which case the backward path is still what actually tags the

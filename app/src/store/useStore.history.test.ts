@@ -5,7 +5,7 @@
 // This is the only path by which focus time ever gets recorded, and its
 // failure modes are permanent rather than transient. The box holds each
 // finished session in RAM and drops its queue ONLY when it hears an ack
-// (Box-code/lib/lock_log.py's SessionLog.ack), so acking a batch that was not
+// (firmware/lib/lock_log.py's SessionLog.ack), so acking a batch that was not
 // actually stored loses those sessions for good, while not acking one that
 // was stored is harmless -- the box simply resends and appendSessions dedupes.
 // Every case below is about keeping that asymmetry pointing the right way.
@@ -143,7 +143,7 @@ describe('a history batch from the box', () => {
     expect(stored).toHaveLength(2);
     expect(useStore.getState().sessions).toHaveLength(2);
     // Acked by the count the box sent, which is how it knows which queue to
-    // drop -- see Box-code/lib/lock_log.py's SessionLog.ack.
+    // drop -- see firmware/lib/lock_log.py's SessionLog.ack.
     expect(mockAckHistory).toHaveBeenCalledWith(2);
   });
 

@@ -33,7 +33,7 @@ Group 1 (the two audits) ran in parallel; Group 2 (synthesis) ran after both pas
   controller command hooks, an incoming-call overlay, and a MAX17048 fuel-gauge driver are all
   written and wired into the run loop, but almost none is verified on hardware.
 - The single highest-leverage blocker is **B1**: `adafruit_ble` / `_bleio` is not vendored in
-  `Box-code/lib/` and is unconfirmed in the board's CircuitPython 10.2.1 build, so the BLE
+  `firmware/lib/` and is unconfirmed in the board's CircuitPython 10.2.1 build, so the BLE
   peripheral silently self-disables and takes four features with it. B1 gates eight downstream steps.
 - The app is mostly real source (not mocks) but has never been compiled or run; the whole
   on-device path is walled behind an Apple toolchain (macOS + Xcode + paid Apple Developer + iPhone)

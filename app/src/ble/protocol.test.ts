@@ -212,7 +212,7 @@ describe('parseStatus hardening', () => {
     }
   });
 
-  // The two pre-session screens (Box-code/lib/lock_controller_states.py's
+  // The two pre-session screens (firmware/lib/lock_controller_states.py's
   // go_picking / go_confirming) report their own state names on this wire,
   // verbatim, exactly like the other four -- and the box's tag picker has no
   // timeout, so it can stay up indefinitely. While BOX_STATES was missing

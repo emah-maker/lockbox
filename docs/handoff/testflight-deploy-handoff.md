@@ -165,7 +165,7 @@ Paste from `docs/app-store/testflight-external-testing.md` → "Copy for each Ap
 Connect field". It has final text for:
 
 - **TestFlight → Test Information**: Beta App Description (Apple marks this required for
-  external testing), Feedback Email (`emah@kitchenlab.org`), What to Test, Privacy Policy
+  external testing), Feedback Email (`<developer email>`), What to Test, Privacy Policy
   URL.
 - **Beta App Review Information**: Sign-In Required set to yes with the step-3 credentials,
   contact name/email/phone (all three required), and the review notes.

@@ -14,7 +14,7 @@
       "autoStart": true
     },
     "build123d": {
-      "command": "C:\\Users\\emah\\AppData\\Roaming\\Python\\Python314\\Scripts\\uv.exe",
+      "command": "uv",
       "args": [
         "tool",
         "run",

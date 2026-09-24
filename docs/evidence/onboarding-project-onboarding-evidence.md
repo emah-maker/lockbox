@@ -14,7 +14,7 @@
   `customizations.architectureDoc` → project context file. No validation
   commands (on-device CircuitPython firmware has no host build/test).
 - Wrote `fraim/personalized-employee/context/project_context.md` — product
-  purpose, `Box-code/` firmware layout, hardware target (Waveshare ESP32-S3
+  purpose, `firmware/` firmware layout, hardware target (Waveshare ESP32-S3
   1.47" Touch board; unused Wi-Fi/BLE noted), 7 key functions, cost baseline
   table, cost structure, and the local batch-write+sync deploy workflow.
 - Wrote `fraim/personalized-employee/rules/project_rules.md` — CircuitPython-only
@@ -39,7 +39,7 @@ radio is unused cost — the primary cost-down lever.
 ## Quality Checks
 - All three durable artifacts written and validated.
 - Context vs. rules split kept crisp ("what is true" vs. "how to behave").
-- Facts anchored to repo-relative paths (`Box-code/lib/lock_config.py`, CAD files).
+- Facts anchored to repo-relative paths (`firmware/lib/lock_config.py`, CAD files).
 
 ## Feedback History
 ### Round 1 (2026-07-19) — ADDRESSED

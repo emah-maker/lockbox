@@ -6,9 +6,9 @@ PR: none (conversational-mode project — `fraim/config.json` has `"mode": "conv
 ## Work List
 
 ### Scope
-- [x] `Box-code/lib/lock_config.py` - remove now-dead `ANIM_HZ`; add `DONE_REVEAL_S` (reveal duration) and `DONE_RING_CY`/`DONE_RING_R`/`DONE_RING_N` (ring geometry) tunables; reword the `CALL_ALERT_BLINK_HZ` comment that referenced the now-removed `ANIM_HZ` - Done
-- [x] `Box-code/lib/lock_ui.py` - replace the flashing full-screen `self.border` Rect with a persistent ring of small `Circle` dots (built once in `_build_control`, same dots-around-a-circle idiom as `_build_override`/`_set_ovr_ring`); add `_set_done_ring(frac)` / `_hide_done_ring()`; rewrite `show_done`/`animate_done` and the three `show_idle`/`show_running`/`show_closed` hide-sites to use the ring instead of the border - Done
-- [x] `Box-code/lib/lock_controller.py` - replace the `_anim_on` bool + `ANIM_HZ` blink-phase calculation in `update()`'s `state == "done"` branch with a `_done_reveal_frac` progress value driving `ui.animate_done(frac)` once over `DONE_REVEAL_S`, then stopping (no more per-frame calls once fully revealed) - Done
+- [x] `firmware/lib/lock_config.py` - remove now-dead `ANIM_HZ`; add `DONE_REVEAL_S` (reveal duration) and `DONE_RING_CY`/`DONE_RING_R`/`DONE_RING_N` (ring geometry) tunables; reword the `CALL_ALERT_BLINK_HZ` comment that referenced the now-removed `ANIM_HZ` - Done
+- [x] `firmware/lib/lock_ui.py` - replace the flashing full-screen `self.border` Rect with a persistent ring of small `Circle` dots (built once in `_build_control`, same dots-around-a-circle idiom as `_build_override`/`_set_ovr_ring`); add `_set_done_ring(frac)` / `_hide_done_ring()`; rewrite `show_done`/`animate_done` and the three `show_idle`/`show_running`/`show_closed` hide-sites to use the ring instead of the border - Done
+- [x] `firmware/lib/lock_controller.py` - replace the `_anim_on` bool + `ANIM_HZ` blink-phase calculation in `update()`'s `state == "done"` branch with a `_done_reveal_frac` progress value driving `ui.animate_done(frac)` once over `DONE_REVEAL_S`, then stopping (no more per-frame calls once fully revealed) - Done
 - [ ] On-device deploy + manual verification of the reveal animation and touch responsiveness during it - **not done, cannot be done from this environment** (see Validation Results)
 
 ### Validation Requirements
@@ -119,11 +119,11 @@ Complete validation performed as suggested in tech spec: **No** — no tech spec
 
 | Validation Step | Validation Result | Failure Analysis |
 |---|---|---|
-| `python -m py_compile Box-code/lib/lock_config.py Box-code/lib/lock_ui.py Box-code/lib/lock_controller.py` (static syntax check only — CircuitPython-only imports like `displayio`/`terminalio`/`adafruit_display_shapes` mean these files cannot actually be imported/run on this host) | Pass — `SYNTAX_OK` | N/A |
+| `python -m py_compile firmware/lib/lock_config.py firmware/lib/lock_ui.py firmware/lib/lock_controller.py` (static syntax check only — CircuitPython-only imports like `displayio`/`terminalio`/`adafruit_display_shapes` mean these files cannot actually be imported/run on this host) | Pass — `SYNTAX_OK` | N/A |
 | Manual on-device verification of the reveal animation (sweeps once to full green, holds static, no residual blink) | **Not performed** | No physical board access from this environment. Requires: batch-write all three changed files (`lock_config.py`, `lock_ui.py`, `lock_controller.py`) to the board + sync, no unplug/replug between files (per this project's documented deploy routine), then trigger an unlock and visually confirm the ring sweeps once and holds. |
 | Manual on-device verification that touch stays responsive during/after the unlock reveal (the bug this task exists to fix) | **Not performed** | Same constraint as above. This is the actual proof needed for the root-cause theory in Decisions — must be checked by hand on the physical board (attempt to tap OPEN / swipe while the reveal is playing and immediately after). |
 | Regression check: auto-dismiss after `DONE_ANIM_S`, tap-to-dismiss via OPEN, `_done_pop` spring pop-up | **Not performed** (code preserved untouched; needs the same on-device pass) | Same constraint. |
-| `git status` — working tree scoped to the intended 3 files, no stray/untracked artifacts from this change | Pass | Only `Box-code/lib/lock_config.py`, `Box-code/lib/lock_ui.py`, `Box-code/lib/lock_controller.py` modified, plus the new evidence file itself. |
+| `git status` — working tree scoped to the intended 3 files, no stray/untracked artifacts from this change | Pass | Only `firmware/lib/lock_config.py`, `firmware/lib/lock_ui.py`, `firmware/lib/lock_controller.py` modified, plus the new evidence file itself. |
 | Leftover placeholder scan (no `TODO`/`FIXME`/debug prints in the diff) | Pass | Manually re-read the full diff; no placeholders, no `print()`/`console.log`-equivalent debug output added. |
 
 UI polish check: **N/A in the standard (browser/mobile) sense** — this UI is on-device CircuitPython display code, not a web or mobile-emulator surface, so `ui-polish-validation`'s browser-based job and screenshot tooling do not apply and were not run. The equivalent check for this platform (on-device visual confirmation of the ring's layout and the reveal) is recorded above as not-yet-performed, pending physical board access.
@@ -146,7 +146,7 @@ Static-only pass (no on-device execution possible), so this is a code-reading bu
 ### Review Scope
 - `reviewType`: embedded-diff-review
 - `reviewScope`: diff
-- `surfaceAreaPaths`: `Box-code/lib/lock_config.py`, `Box-code/lib/lock_ui.py`, `Box-code/lib/lock_controller.py`
+- `surfaceAreaPaths`: `firmware/lib/lock_config.py`, `firmware/lib/lock_ui.py`, `firmware/lib/lock_controller.py`
 - Base commit: `d7ebfab` (current `HEAD` at review time, working tree not yet committed)
 - Referenced but not modified: `docs/evidence/unlock-reveal-animation-feature-implementation-evidence.md` (this file)
 
@@ -205,7 +205,7 @@ None — no host-runnable test suite exists for this firmware (see project conte
 ## Existing Test Suites Run
 | Test Suite | Was it Run | Failing Tests | Failure Analysis |
 |---|---|---|---|
-| N/A | Not run — no automated test suite exists for `Box-code/` (CircuitPython firmware, on-device only, per `fraim/personalized-employee/context/project_context.md`) | N/A | N/A |
+| N/A | Not run — no automated test suite exists for `firmware/` (CircuitPython firmware, on-device only, per `fraim/personalized-employee/context/project_context.md`) | N/A | N/A |
 
 ## Pre-Completion Reflection
 
@@ -228,9 +228,9 @@ None — no host-runnable test suite exists for this firmware (see project conte
 **Trigger:** manager coaching rejected the round-1 ring reveal outright ("make a new animation, not a ring animation") and asked for the OPEN button to move to the middle of the screen during the unlock animation. A follow-up coaching message ("I am not seeing anything happen right now can you do it youself or call in another employee") explicitly authorized the manager (MANdy) to implement this round directly instead of continuing to wait on the delegated child.
 
 **What changed (same three files as round 1):**
-- `Box-code/lib/lock_config.py`: removed `DONE_RING_CY`/`DONE_RING_R`/`DONE_RING_N` and `DONE_REVEAL_S` entirely (no longer referenced anywhere). Added `DONE_MSG_Y = 85` (new position for the "UNLOCKED" message, moved up out of the button's way) and `DONE_BTN_CENTER_Y = 155` (the button's target center y on unlock). Both reasoned from the same permanent-widget coordinates already documented in `_build_control` (corner icons end ~y=65, clock/guides are hidden during done, nav hint starts ~y=197) — not from an actual render, same caveat as round 1.
-- `Box-code/lib/lock_ui.py`: deleted all ring code (`done_ring_dots`, `_set_done_ring`, `_hide_done_ring`, `animate_done`). Added a new `Spring` instance (`self._btn_move`, same `SPRING_STIFFNESS`/`SPRING_DAMPING`/`SPRING_MASS` already used for `_done_pop`/`_ovr_pop`/press-depth — reused, not forked) whose `.value` IS the button's live top-left `y`. `show_done()` now displaces this spring from the button's bottom rest `BTN_Y` to the centered `DONE_BTN_CENTER_Y - BTN_H//2`; `_step_motion` drives it every frame while unsettled (same cheap, single-widget-position-update pattern as the other two springs — no full-screen redraw, so the touch-freeze fix from round 1 still holds by construction). `show_idle`/`show_running`/`show_closed` now call a new `_reset_button_position()` that snaps the button straight back to `BTN_Y` on any exit from the done state.
-- `Box-code/lib/lock_controller.py`: deleted `_done_reveal_frac` and the per-frame reveal-driving code in `update()`'s `state == "done"` branch entirely — the button-move animation needs no controller-side driving at all, since it rides the same unconditional `ui.step_motion(dt)` call every other spring already uses. The `done` branch is now just the `DONE_ANIM_S` auto-dismiss check, one line.
+- `firmware/lib/lock_config.py`: removed `DONE_RING_CY`/`DONE_RING_R`/`DONE_RING_N` and `DONE_REVEAL_S` entirely (no longer referenced anywhere). Added `DONE_MSG_Y = 85` (new position for the "UNLOCKED" message, moved up out of the button's way) and `DONE_BTN_CENTER_Y = 155` (the button's target center y on unlock). Both reasoned from the same permanent-widget coordinates already documented in `_build_control` (corner icons end ~y=65, clock/guides are hidden during done, nav hint starts ~y=197) — not from an actual render, same caveat as round 1.
+- `firmware/lib/lock_ui.py`: deleted all ring code (`done_ring_dots`, `_set_done_ring`, `_hide_done_ring`, `animate_done`). Added a new `Spring` instance (`self._btn_move`, same `SPRING_STIFFNESS`/`SPRING_DAMPING`/`SPRING_MASS` already used for `_done_pop`/`_ovr_pop`/press-depth — reused, not forked) whose `.value` IS the button's live top-left `y`. `show_done()` now displaces this spring from the button's bottom rest `BTN_Y` to the centered `DONE_BTN_CENTER_Y - BTN_H//2`; `_step_motion` drives it every frame while unsettled (same cheap, single-widget-position-update pattern as the other two springs — no full-screen redraw, so the touch-freeze fix from round 1 still holds by construction). `show_idle`/`show_running`/`show_closed` now call a new `_reset_button_position()` that snaps the button straight back to `BTN_Y` on any exit from the done state.
+- `firmware/lib/lock_controller.py`: deleted `_done_reveal_frac` and the per-frame reveal-driving code in `update()`'s `state == "done"` branch entirely — the button-move animation needs no controller-side driving at all, since it rides the same unconditional `ui.step_motion(dt)` call every other spring already uses. The `done` branch is now just the `DONE_ANIM_S` auto-dismiss check, one line.
 
 **Structural issues this round had to solve that round 1 didn't:**
 1. **Hit-testing a moving target.** `LockUI.in_button(x, y)` used to test against the build-time `BTN_Y` constant. Since the button now visibly moves, tapping it where it visually sits (centered) would have silently missed. Fixed by reading `self.button.y` live instead of the constant.

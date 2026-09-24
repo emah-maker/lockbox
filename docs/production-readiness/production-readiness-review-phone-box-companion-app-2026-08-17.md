@@ -57,7 +57,7 @@ Full-file review of `app/src/{screens,store,ble,stats,sync,auth,ui,theme}` and `
 the app's documented conventions. **Gate decision: FAIL** — one critical, launch-blocking privacy/data-integrity
 gap (cross-user local-storage leakage) plus 4 High, 15 Medium, and 15 Low findings across accessibility,
 BLE reliability, and correctness. The BLE↔firmware wire contract itself is verified clean (no drift against
-`Box-code/lib/lock_config.py`). Most findings are gaps in things this app does well elsewhere (error surfacing,
+`firmware/lib/lock_config.py`). Most findings are gaps in things this app does well elsewhere (error surfacing,
 accessibility, token discipline) rather than systemic architecture problems — the conventions themselves are sound
 and mostly followed.
 
@@ -217,7 +217,7 @@ speculative dual-`setState` race in the Dashboard's duration-mirror effect (`Das
 - `app/src/ui/{AnimatedFill,AnimatedPressable,TopicDonut,useReducedMotion,WheelPicker}.tsx`
 - `app/src/theme/{theme,tokens,useTheme}.ts`, `app/App.tsx`
 - `app/src/store/{useStore,useSettingsStore}.ts`
-- `app/src/ble/{PhoneBoxClient,protocol}.ts` (cross-checked against `Box-code/lib/lock_config.py`,
+- `app/src/ble/{PhoneBoxClient,protocol}.ts` (cross-checked against `firmware/lib/lock_config.py`,
   `lock_controller.py`, `lock_ble.py`, `lock_log.py`)
 - `app/src/stats/{comparisons,customLabels,sessionHistory,stats,topics,trend}.ts`
 - `app/src/sync/{firestoreSync,sessionMerge,sessionsSyncBridge,settingsSyncBridge}.ts`

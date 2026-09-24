@@ -31,14 +31,14 @@ reconnects.
 - [x] `app/src/ble/PhoneBoxClient.ts` -- `writeSettings`/`readSettings` are thin wrappers around
   `encodeSettings`/`parseSettings` over `CHAR.settings` (READ|WRITE, no NOTIFY -- by design; see
   Decisions).
-- [x] `Box-code/lib/lock_controller.py` -- `apply_ble_settings_json` parses `"flip"`, sets
+- [x] `firmware/lib/lock_controller.py` -- `apply_ble_settings_json` parses `"flip"`, sets
   `Settings.screen_flipped`, calls `LockUI.set_screen_flipped` (applies the physical rotation) and
   `Settings.save()` (persists to NVM), then `ble_settings_json` echoes `screen_flipped` back on the
   next read.
-- [x] `Box-code/lib/lock_settings.py` -- `screen_flipped` persisted at NVM `_BASE+10`, guarded by
+- [x] `firmware/lib/lock_settings.py` -- `screen_flipped` persisted at NVM `_BASE+10`, guarded by
   the existing `_MAGIC` version byte; load/save are symmetric with no off-by-one vs. the other
   fields.
-- [x] `Box-code/lib/lock_config.py` -- confirmed `Settings.adjust(idx, direction)` (the box's own
+- [x] `firmware/lib/lock_config.py` -- confirmed `Settings.adjust(idx, direction)` (the box's own
   on-screen settings-list stepper) only covers `idx` 0-5 (override/auto/sleep/bright/unlk/ucal) --
   `screen_flipped` is **not** one of them, so the box has no independent on-device path that can
   mutate the flip flag behind the app's back.
@@ -153,7 +153,7 @@ changed, since verification found the existing app<->box `flip` sync already cor
   (the only file this session created or modified). Referenced-but-not-changed files read during
   verification: `app/src/screens/SettingsScreen.tsx`, `app/src/store/useStore.ts`,
   `app/src/store/useSettingsStore.ts`, `app/src/ble/protocol.ts`, `app/src/ble/PhoneBoxClient.ts`,
-  `Box-code/lib/lock_controller.py`, `Box-code/lib/lock_settings.py`, `Box-code/lib/lock_config.py`.
+  `firmware/lib/lock_controller.py`, `firmware/lib/lock_settings.py`, `firmware/lib/lock_config.py`.
 
 ### Threat Surface Summary
 `threat-surface-classification` against this session's actual diff (one new `.md` file, no
@@ -205,7 +205,7 @@ N/A -- no active regulatory/compliance framework configured for this project.
   this session, plus a passing `npx jest` run pasted above.
 - **Risk analysis**: no code changed, so no new risk introduced. The one accepted limitation (no
   live-notify for `flip`) is pre-existing and shared by every other `Settings` field.
-- **Self-audit**: this session's only filesystem change is this evidence file; `Box-code/` and
+- **Self-audit**: this session's only filesystem change is this evidence file; `firmware/` and
   `app/src/` were read, not edited.
 - Confidence level: **90%** -- full confidence in the code-trace and passing test suite; withheld
   10% because the live BLE round trip was not observed on physical hardware in this environment.

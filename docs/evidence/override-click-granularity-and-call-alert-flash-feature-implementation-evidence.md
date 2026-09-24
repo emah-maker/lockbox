@@ -17,15 +17,15 @@ verified/validated in this session.
    session) used the theme's normal muted `C_RED`/`C_AMBER` at 3 Hz, which read as calm/on-brand
    rather than urgent.
 
-- [x] `Box-code/lib/lock_config.py` — `OVR_MIN` 10→5, `OVR_STEP` 10→1 (`OVR_MAX` unchanged at 100);
+- [x] `firmware/lib/lock_config.py` — `OVR_MIN` 10→5, `OVR_STEP` 10→1 (`OVR_MAX` unchanged at 100);
   new `C_ALERT_RED`/`C_ALERT_AMBER` (saturated 0xFF1744/0xFFC400 vs. the muted UI `C_RED`/`C_AMBER`);
   `CALL_ALERT_BLINK_HZ` 3→6 — ✅ done (pre-existing in working tree, verified)
-- [x] `Box-code/lib/lock_ui.py` — call-alert overlay build/show/animate paths (`_build_call_alert`,
+- [x] `firmware/lib/lock_ui.py` — call-alert overlay build/show/animate paths (`_build_call_alert`,
   `show_call_alert`, `animate_call_alert`) switched from `C_RED`/`C_AMBER` to
   `C_ALERT_RED`/`C_ALERT_AMBER` — ✅ done (pre-existing, verified)
 - [x] `app/src/screens/SettingsScreen.tsx` — mirrored `OVR_MIN`/`OVR_STEP` constants (5/1) to match
   the firmware — ✅ done (pre-existing, verified)
-- [x] `Box-code/lib/lock_controller.py`, `Box-code/lib/lock_settings.py` — no changes needed; both
+- [x] `firmware/lib/lock_controller.py`, `firmware/lib/lock_settings.py` — no changes needed; both
   already reference `OVR_MIN`/`OVR_MAX`/`OVR_STEP` by name (no hardcoded 10s), so the widened
   range/step apply automatically — verified by reading, not modified.
 - [x] `app/src/screens/SettingsPrimitives.tsx` (`SliderRow`) — no changes needed; it's a continuous
@@ -180,8 +180,8 @@ mechanism, rather than a new design document.
 ### Feature Requirement Traceability Matrix
 | Requirement/Acceptance Criteria | Implemented File/Function | Proof (Test Name/Curl output) | Status |
 |---|---|---|---|
-| Force-open click-count setting is more finely adjustable | `Box-code/lib/lock_config.py` (`OVR_MIN` 10→5, `OVR_STEP` 10→1); `Box-code/lib/lock_settings.py` `Settings.adjust()` (consumes the constants unmodified); `app/src/screens/SettingsScreen.tsx` (mirrored `OVR_MIN`/`OVR_STEP`); `app/src/screens/SettingsPrimitives.tsx` `SliderRow.snapValue()` | Manual proof: `snapValue` traced with `min=5, step=1` → `Math.round((v-5)/1)*1+5` = every integer 5..100 individually reachable (was every multiple of 10, 10 values, now 96 values). `python -m py_compile` pass on `lock_config.py`/`lock_settings.py`; `npx tsc --noEmit` pass on `SettingsScreen.tsx`. On-device tactile feel of the box's `[-]`/`[+]` buttons deferred (no board this session, see Deferrals). | Met |
-| Incoming-call screen flash is more attention-grabbing | `Box-code/lib/lock_config.py` (`CALL_ALERT_BLINK_HZ` 3→6; new `C_ALERT_RED`/`C_ALERT_AMBER`); `Box-code/lib/lock_ui.py` (`_build_call_alert`, `show_call_alert`, `animate_call_alert` now use the saturated alert colors instead of the muted theme `C_RED`/`C_AMBER`) | Manual proof: grep confirms all 3 call-alert render paths in `lock_ui.py` reference `C_ALERT_RED`/`C_ALERT_AMBER` (0 remaining `C_RED`/`C_AMBER` references in the call-alert build/show/animate functions); `lock_controller.py`'s flash-phase calc (`int((now - started) * CALL_ALERT_BLINK_HZ * 2) % 2`) now toggles at 12 flips/sec instead of 6. `python -m py_compile` pass on `lock_config.py`/`lock_ui.py`. On-device visual confirmation deferred (no board this session, see Deferrals). | Met |
+| Force-open click-count setting is more finely adjustable | `firmware/lib/lock_config.py` (`OVR_MIN` 10→5, `OVR_STEP` 10→1); `firmware/lib/lock_settings.py` `Settings.adjust()` (consumes the constants unmodified); `app/src/screens/SettingsScreen.tsx` (mirrored `OVR_MIN`/`OVR_STEP`); `app/src/screens/SettingsPrimitives.tsx` `SliderRow.snapValue()` | Manual proof: `snapValue` traced with `min=5, step=1` → `Math.round((v-5)/1)*1+5` = every integer 5..100 individually reachable (was every multiple of 10, 10 values, now 96 values). `python -m py_compile` pass on `lock_config.py`/`lock_settings.py`; `npx tsc --noEmit` pass on `SettingsScreen.tsx`. On-device tactile feel of the box's `[-]`/`[+]` buttons deferred (no board this session, see Deferrals). | Met |
+| Incoming-call screen flash is more attention-grabbing | `firmware/lib/lock_config.py` (`CALL_ALERT_BLINK_HZ` 3→6; new `C_ALERT_RED`/`C_ALERT_AMBER`); `firmware/lib/lock_ui.py` (`_build_call_alert`, `show_call_alert`, `animate_call_alert` now use the saturated alert colors instead of the muted theme `C_RED`/`C_AMBER`) | Manual proof: grep confirms all 3 call-alert render paths in `lock_ui.py` reference `C_ALERT_RED`/`C_ALERT_AMBER` (0 remaining `C_RED`/`C_AMBER` references in the call-alert build/show/animate functions); `lock_controller.py`'s flash-phase calc (`int((now - started) * CALL_ALERT_BLINK_HZ * 2) % 2`) now toggles at 12 flips/sec instead of 6. `python -m py_compile` pass on `lock_config.py`/`lock_ui.py`. On-device visual confirmation deferred (no board this session, see Deferrals). | Met |
 
 **Feature Requirements Completeness Summary**:
 - Implemented: 2/2 items (100%)
@@ -193,7 +193,7 @@ mechanism, rather than a new design document.
 ### Technical Design Traceability Matrix
 | Requirement/Acceptance Criteria | Implemented File/Function | Proof (Test Name/Curl output) | Status |
 |---|---|---|---|
-| Named callout: keep firmware/app numeric-range constants "in lockstep" (existing convention documented at `SettingsScreen.tsx:17-18` and `lock_config.py:157-159`) | `app/src/screens/SettingsScreen.tsx` `OVR_MIN=5`/`OVR_STEP=1` mirrors `Box-code/lib/lock_config.py` `OVR_MIN=5`/`OVR_STEP=1` exactly | Manual side-by-side value comparison of both files; `npx tsc --noEmit` + `npx jest` pass, confirming no downstream type/consumer breakage from the mirrored constants | Met |
+| Named callout: keep firmware/app numeric-range constants "in lockstep" (existing convention documented at `SettingsScreen.tsx:17-18` and `lock_config.py:157-159`) | `app/src/screens/SettingsScreen.tsx` `OVR_MIN=5`/`OVR_STEP=1` mirrors `firmware/lib/lock_config.py` `OVR_MIN=5`/`OVR_STEP=1` exactly | Manual side-by-side value comparison of both files; `npx tsc --noEmit` + `npx jest` pass, confirming no downstream type/consumer breakage from the mirrored constants | Met |
 | BLE `settings` characteristic contract (RFC §4.2/§4.3): `ovr` round-trips as a plain integer, UI-side range/step is a client-side constraint only | `app/src/ble/protocol.ts` `parseSettings`/`encodeSettings` (unchanged) | `npx jest src/ble/protocol.test.ts` — pass, round-trip unaffected since `ovr`'s wire format never encoded range/step, only the value | Met |
 
 **Technical Design Completeness Summary**:
@@ -221,12 +221,12 @@ no new input handling, network calls, storage, or auth/crypto surface.
 ### Review Scope
 - `reviewType`: embedded-diff-review
 - `reviewScope`: diff
-- `surfaceAreaPaths`: `Box-code/lib/lock_config.py`, `Box-code/lib/lock_ui.py`, `app/src/screens/SettingsScreen.tsx`
+- `surfaceAreaPaths`: `firmware/lib/lock_config.py`, `firmware/lib/lock_ui.py`, `app/src/screens/SettingsScreen.tsx`
 
 ### Threat Surface Summary
 No surface from the classification's closed set `{web, api, llm-app, data-pipeline, mobile,
 capability-authoring, docs-only}` matched:
-- `Box-code/lib/*.py` — on-device CircuitPython firmware constants/display code; not `web`/`api`/
+- `firmware/lib/*.py` — on-device CircuitPython firmware constants/display code; not `web`/`api`/
   `data-pipeline` (no DB driver imports), not `mobile` (not under `ios/**`/`android/**`, no
   `.swift`/`.kt`).
 - `app/src/screens/SettingsScreen.tsx` — React Native app source, but outside the `mobile` surface's

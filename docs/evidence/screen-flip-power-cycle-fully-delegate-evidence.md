@@ -18,7 +18,7 @@ per the job's own process but implemented directly by the manager once the orche
 proved unreachable (`ListAgents` showed no child agent for the emitted ledger task, same
 already-documented stalled-pipeline situation as the 2026-08-24 tag-picker session).
 
-**Root cause**: `Box-code/lib/lock_ui.py`'s `establish_base_rotation()` recovers the display's true
+**Root cause**: `firmware/lib/lock_ui.py`'s `establish_base_rotation()` recovers the display's true
 native rotation after a CircuitPython *soft reload* (an auto-reload triggered by a file save, which
 `board.DISPLAY` survives) by unconditionally subtracting 180 degrees whenever `Settings.screen_flipped`
 (persisted in NVM) is `True`. That assumption is correct for a soft reload but wrong for a genuine
@@ -38,12 +38,12 @@ This fix is a layer on top of that same uncommitted code, closing its one remain
 as opposed to soft reload); it is not a regression of anything committed.
 
 **What was built**:
-- `Box-code/code.py`: detects a genuine cold boot via
+- `firmware/code.py`: detects a genuine cold boot via
   `supervisor.runtime.run_reason == supervisor.RunReason.STARTUP` (confirmed against Adafruit's
   CircuitPython `supervisor` docs) and passes it to `LockController` as `fresh_boot`.
-- `Box-code/lib/lock_controller.py`: `__init__` accepts `fresh_boot=False` and threads it into
+- `firmware/lib/lock_controller.py`: `__init__` accepts `fresh_boot=False` and threads it into
   `self.ui.establish_base_rotation(...)`.
-- `Box-code/lib/lock_ui.py`: `establish_base_rotation(currently_flipped, fresh_boot=False)` now skips
+- `firmware/lib/lock_ui.py`: `establish_base_rotation(currently_flipped, fresh_boot=False)` now skips
   the 180-degree correction whenever `fresh_boot` is `True`, regardless of `currently_flipped` --
   docstring extended to explain the cold-boot-vs-soft-reload distinction.
 
@@ -67,8 +67,8 @@ work and its review verdict are both recorded directly in this file.
 **`fix-screen-flip-power-cycle-desync` -- iteration 1, PASS (self-implemented and self-verified by
 manager)**
 
-- `python -m py_compile` on all three changed files (`Box-code/code.py`,
-  `Box-code/lib/lock_controller.py`, `Box-code/lib/lock_ui.py`) -- clean.
+- `python -m py_compile` on all three changed files (`firmware/code.py`,
+  `firmware/lib/lock_controller.py`, `firmware/lib/lock_ui.py`) -- clean.
 - Statically traced all 4 boot-state combinations (`fresh_boot` x `currently_flipped`, true/false
   each) through `establish_base_rotation` -> `set_screen_flipped` -> `is_flipped` by hand:
   - Fresh boot, never flipped: unaffected, correct (no correction applied, none needed).

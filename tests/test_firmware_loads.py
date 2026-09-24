@@ -1,4 +1,4 @@
-"""Host checks that every firmware module in Box-code/ still LOADS.
+"""Host checks that every firmware module in firmware/ still LOADS.
 
 Not a behaviour test -- the other files in this directory cover behaviour for
 the modules that have any testable logic. This one covers the failure those
@@ -30,7 +30,7 @@ import sys
 import types
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-LIB = os.path.join(REPO, "Box-code", "lib")
+LIB = os.path.join(REPO, "firmware", "lib")
 sys.path.insert(0, LIB)
 
 # Snapshot taken before anything is stubbed or imported -- see the unwind at
@@ -55,8 +55,8 @@ def check(name, ok, detail=""):
 #
 # The bricking case: a file that does not compile stops the box booting, and
 # nothing upstream of the device would have said so.
-sources = sorted(glob.glob(os.path.join(REPO, "Box-code", "lib", "*.py"))) + sorted(
-    glob.glob(os.path.join(REPO, "Box-code", "*.py"))
+sources = sorted(glob.glob(os.path.join(REPO, "firmware", "lib", "*.py"))) + sorted(
+    glob.glob(os.path.join(REPO, "firmware", "*.py"))
 )
 check("found the firmware sources to check", len(sources) >= 15, "found {}".format(len(sources)))
 for path in sources:

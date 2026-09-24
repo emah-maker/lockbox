@@ -4,7 +4,7 @@
 - **Job:** supplier-discovery-and-qualification
 - **Objective:** Find a small board that measures battery percentage *accurately*,
   replacing the incumbent voltage-divider + curve estimate in
-  `Box-code/lib/lock_battery.py` (inaccurate on a single LiPo due to the flat
+  `firmware/lib/lock_battery.py` (inaccurate on a single LiPo due to the flat
   discharge curve and load sag from the servo/backlight).
 - **Deliverable:** `docs/procurement/battery-fuel-gauge/02-fuel-gauge-longlist-and-shortlist-2026-07-23.md`
   (canonical markdown) + `.docx` render (project rule: documentation in Word).

@@ -9,7 +9,7 @@
 // double registered for it. This module has zero react-native/store imports,
 // so it loads cleanly in a plain Jest environment.
 //
-// Mirrors Box-code/lib/lock_config.py's OVR_MIN/OVR_MAX/OVR_STEP -- keep
+// Mirrors firmware/lib/lock_config.py's OVR_MIN/OVR_MAX/OVR_STEP -- keep
 // these in lockstep with the firmware side.
 export const OVR_MIN = 5;
 export const OVR_MAX = 500;

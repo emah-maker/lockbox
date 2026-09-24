@@ -11,7 +11,7 @@
 **Literal ask:** find a small board to *accurately* measure the battery percentage.
 
 **Objective:** an accurate state-of-charge (SoC) readout for function #5 (battery
-sensing/display). Today the firmware (`Box-code/lib/lock_battery.py`) reads VBAT
+sensing/display). Today the firmware (`firmware/lib/lock_battery.py`) reads VBAT
 through the incumbent board's 200K/100K divider on GPIO12 and maps volts→percent
 with a fixed curve (`batt_pct()` in `lock_config.py`). That is inherently
 inaccurate on a single LiPo:

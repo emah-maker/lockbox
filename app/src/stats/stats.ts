@@ -1,6 +1,6 @@
 // stats.ts -- pure focus-stat helpers (no RN/BLE deps, so they are unit-testable
 // under plain node/jest). The box keeps no long-term aggregate of its own (see
-// Box-code/lib/lock_log.py -- a small RAM-only queue, not a stats store): the
+// firmware/lib/lock_log.py -- a small RAM-only queue, not a stats store): the
 // app is the durable copy, so these aggregates are computed here, client-side,
 // from the local session log (sessionHistory.ts) instead of read over BLE.
 import { CustomLabel, filterCountedSessions } from './customLabels';
@@ -82,14 +82,14 @@ export function completionRate(st: Stats): number {
   return Math.round((st.done / st.n) * 100);
 }
 
-// Mirrors Box-code/lib/lock_config.py MAX_HOURS/MAX_SECONDS. The firmware
+// Mirrors firmware/lib/lock_config.py MAX_HOURS/MAX_SECONDS. The firmware
 // clamps to this on its own (lock_controller.apply_ble_command), but the app
 // clamps too so a picker button never labels itself with a duration longer
 // than what will actually run. The cap is 9h55m, not a clean 9h -- MAX_SECONDS
 // is intentionally not just MAX_LOCK_HOURS * 3600.
 export const MAX_LOCK_HOURS = 9;
 export const MAX_LOCK_SECONDS = MAX_LOCK_HOURS * 3600 + 55 * 60;
-// Mirrors Box-code/lib/lock_config.py MIN_STEP*60 (MIN_SECONDS) -- the
+// Mirrors firmware/lib/lock_config.py MIN_STEP*60 (MIN_SECONDS) -- the
 // smallest step the H/M picker can express, so a duration can never be
 // floored down to an unusable 0h00m on either side of the BLE link.
 export const MIN_LOCK_SECONDS = 5 * 60;

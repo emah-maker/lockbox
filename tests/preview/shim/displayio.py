@@ -3,7 +3,7 @@
 # Faithful to the real API surface the firmware actually touches (Bitmap
 # indexed-pixel storage, Palette with transparency, TileGrid positioning,
 # Group as a list-like scene node, a Display-ish root object) so
-# Box-code/lib/lock_ui*.py imports and runs against this unmodified.
+# firmware/lib/lock_ui*.py imports and runs against this unmodified.
 #
 # Each concrete widget additionally carries a private `_paint(...)` hook --
 # NOT part of the real displayio API -- that tests/preview/render.py's

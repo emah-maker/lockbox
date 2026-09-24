@@ -45,7 +45,7 @@ Orchestrator: MANdy, running `fully-delegate`.
 
 - Artifact: `fraim/personalized-employee/skills/ux-design/ui-design-consultant.md`
 - Sub-agent evidence file: `docs/evidence/port-ui-design-skill-evolve-employee-evidence.md`
-- Sub-agent retrospective: `docs/retrospectives/emah@kitchenlab.org-session-2026-08-11-port-ui-design-skill.md`
+- Sub-agent retrospective: `docs/retrospectives/session-2026-08-11-port-ui-design-skill.md`
 - Pull request: none (conversational mode)
 - Iterations: 2
 - Manager verdict: accepted on iteration 2
@@ -88,7 +88,7 @@ rather than reintroduced silently.
 
 - Artifact: `fraim/personalized-employee/skills/ux-design/motion-and-animation.md`
 - Sub-agent evidence file: `docs/evidence/port-animation-skill-evolve-employee-evidence.md`
-- Sub-agent retrospective: `docs/retrospectives/emah@kitchenlab.org-session-2026-08-11-port-animation-skill.md`
+- Sub-agent retrospective: `docs/retrospectives/session-2026-08-11-port-animation-skill.md`
 - Pull request: none (conversational mode)
 - Iterations: 1
 - Manager verdict: accepted on iteration 1
@@ -110,7 +110,7 @@ glossary with no operational content) and the React specific GSAP variants
 
 - Artifact: `fraim/personalized-employee/skills/mobile/expo-react-native-dev.md`
 - Sub-agent evidence file: `docs/evidence/add-mobile-dev-skill-evolve-employee-evidence.md`
-- Sub-agent retrospective: `docs/retrospectives/emah@kitchenlab.org-session-2026-08-11-add-mobile-dev-skill.md`
+- Sub-agent retrospective: `docs/retrospectives/session-2026-08-11-add-mobile-dev-skill.md`
 - Pull request: none (conversational mode)
 - Iterations: 1
 - Manager verdict: accepted on iteration 1

@@ -18,7 +18,7 @@
 // So the listener is now only the fast path. The reliable path is checkNow():
 // a snapshot poll of getCurrentCalls(), driven by whatever happens to wake
 // this app. While the box is connected that is the box's own status notify,
-// about once a second (Box-code/lib/lock_ble.py's _push_outbound), delivered
+// about once a second (firmware/lib/lock_ble.py's _push_outbound), delivered
 // in the background under the bluetooth-central mode. Against a ~20-30s ring
 // that is many chances to notice, so the alert lands even though the
 // transition itself was missed.

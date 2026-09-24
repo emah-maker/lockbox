@@ -6,7 +6,7 @@
 // with no test double registered), so this module has zero react-native/
 // store imports and loads cleanly in a plain Jest environment.
 //
-// Mirrors Box-code/lib/lock_config.py's fixed servo lock/unlock angle
+// Mirrors firmware/lib/lock_config.py's fixed servo lock/unlock angle
 // constants (45/0) and the [-90, 90] range the box itself clamps to -- keep
 // SERVO_ANGLE_MIN/MAX in lockstep with the firmware side. protocol.ts
 // hardcodes the same bounds independently rather than importing this module,

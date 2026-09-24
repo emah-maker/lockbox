@@ -23,8 +23,8 @@ continue delegating. See Risk Areas.
 - `app/src/screens/SettingsScreen.tsx`: header account icon (`person-circle-outline` signed out,
   `person-circle` in accent color signed in) opening a new `AccountModal` bottom sheet containing
   the existing `AccountSection` content, replacing the previously always-visible inline section.
-- `Box-code/lib/lock_config.py`: new `MIN_SECONDS = MIN_STEP * 60` (5-minute floor) constant.
-- `Box-code/lib/lock_controller.py`: `adjust()` and the BLE `"start"`/`"dur"` handlers now floor
+- `firmware/lib/lock_config.py`: new `MIN_SECONDS = MIN_STEP * 60` (5-minute floor) constant.
+- `firmware/lib/lock_controller.py`: `adjust()` and the BLE `"start"`/`"dur"` handlers now floor
   at `MIN_SECONDS` instead of `0`.
 - `app/src/stats/stats.ts`: new `MIN_LOCK_SECONDS` export; `clampLockSeconds` floors at it.
 - `app/src/screens/DashboardScreen.tsx`: the duration wheels can no longer land on 0h00m.
@@ -104,7 +104,7 @@ remains unverified on physical hardware, per project convention (CircuitPython h
    original delegation brief's file list) and, if desired, decide whether the underlying child
    agent/job needs different instructions for this class of React effect-dependency bug going
    forward. A coaching-moment file was written for `sleep-on-learnings` to evaluate:
-   `fraim/personalized-employee/learnings/raw/emah@kitchenlab.org-2026-08-24T01-00-00-verify-hook-resync-not-just-rerender.md`.
+   `fraim/personalized-employee/learnings/raw/2026-08-24T01-00-00-verify-hook-resync-not-just-rerender.md`.
 2. **No on-device/simulator UI walkthrough was performed** for either the new account-icon modal or
    the duration-wheel reject behavior -- no Expo dev-client/simulator was available in this
    execution environment. All verification is `tsc`/`jest`/code-trace only.

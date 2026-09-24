@@ -1,5 +1,5 @@
 """Host tests for the pre-session tag-picker interaction state in
-Box-code/lib/lock_tag_picker.py.
+firmware/lib/lock_tag_picker.py.
 
 TagPicker has no hardware imports (only lock_config, itself pure Python), so
 it runs as-is under plain CPython. It's driven here through a FakeUI that
@@ -12,7 +12,7 @@ Run: python tests/test_lock_tag_picker.py
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "Box-code", "lib"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "firmware", "lib"))
 
 from lock_config import SWIPE_MIN_PX, TAG_HOLD_S, BUILTIN_TOPICS
 from lock_tag_picker import TagPicker, Select, Cancel, Page

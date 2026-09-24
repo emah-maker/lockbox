@@ -43,7 +43,7 @@ Goal: audit the whole product (box firmware, companion app, website) for improve
   - Confirmed `syncNow`'s re-entrancy guard is a bare boolean with no uid binding, and confirmed `SettingsScreen.tsx:260` gates "Sign out" on local `busy` only, not the store's `syncing` — reproducing the exact race described.
   - Confirmed `waitForPoweredOn` has no timeout/reject path, confirmed `handleHistory`'s async-read-then-clear race, and confirmed `WheelPicker.tsx` has zero accessibility props via direct grep.
 - **Critical finding**: local AsyncStorage session history and settings are never scoped or cleared by Firebase uid. On a shared/resold/reset device, or a corrected wrong-account sign-in, one person's full session history and topic labels can upload into a different person's Firestore account and merge into their Stats screen; a returning account's cloud settings can be silently overwritten. Verified this is a genuine gap, not an accepted risk — the sync RFC's own manual QA checklist ("logout performs a full wipe") only ever tested Keychain/auth state, never local storage.
-- The BLE↔firmware wire contract (`protocol.ts` vs `Box-code/lib/lock_config.py`) was cross-checked and is clean, no drift.
+- The BLE↔firmware wire contract (`protocol.ts` vs `firmware/lib/lock_config.py`) was cross-checked and is clean, no drift.
 - Iterations: 1.
 
 ## Risk areas

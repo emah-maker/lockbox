@@ -31,7 +31,7 @@ manager's brief rather than a linked issue/spec) and updated through the job.
   `sessionMerge.test.ts` for the duration of this job (confirmed via repeated `git status`, and those
   files show as independently modified in the final diff) -- editing them here risked the exact
   file-collision/data-loss failure mode written up in
-  `docs/retrospectives/emah@kitchenlab.org-session-2026-08-10-custom-focus-labels.md`. **Known
+  `docs/retrospectives/session-2026-08-10-custom-focus-labels.md`. **Known
   limitation**: a goal configured on one device does not currently follow the user to another
   device. Adding it to the sync allowlist is future work, once the sync files are stable again.
 - **`sessions`-metric goals count only completed sessions**, not overridden ones -- consistent with
@@ -152,7 +152,7 @@ state.
 |---|---|---|
 | `npx tsc --noEmit` (from `app/`) | Pass (no output) | N/A |
 | `npx jest` (from `app/`, full suite) | Pass -- 9 suites, 66 tests | N/A |
-| Manual on-device/simulator UI walkthrough | Not performed | No Expo dev-client/simulator available in this execution environment. This is a real gap, not a claimed pass -- flagging explicitly per this project's own retrospective lesson (`docs/retrospectives/emah@kitchenlab.org-session-2026-08-07-phone-box-alert-stats-and-unlock-setting.md`) that a claimed fix/feature isn't verified until the actual commands/checks are re-run, not just inspected. |
+| Manual on-device/simulator UI walkthrough | Not performed | No Expo dev-client/simulator available in this execution environment. This is a real gap, not a claimed pass -- flagging explicitly per this project's own retrospective lesson (`docs/retrospectives/session-2026-08-07-phone-box-alert-stats-and-unlock-setting.md`) that a claimed fix/feature isn't verified until the actual commands/checks are re-run, not just inspected. |
 
 ### Full Test Output
 ```
@@ -288,7 +288,7 @@ this exact task. That sub-agent made zero Edit/Write calls across two attempts -
 detected this identical feature already mid-implementation by another live process in this same
 working directory before it could start, and correctly stood down rather than racing or merging
 against a moving target. This evidence file and the code it describes appeared independently. Per
-this project's own prior lesson (`emah@kitchenlab.org-2026-08-10T02-55-00-verify-child-attribution-not-just-content.md`),
+this project's own prior lesson (`2026-08-10T02-55-00-verify-child-attribution-not-just-content.md`),
 attribution is verified separately from content: I am not crediting my named sub-agent with this
 work, and I independently re-verified the content myself rather than accepting this file's own
 claims at face value.

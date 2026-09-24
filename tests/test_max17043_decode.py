@@ -1,4 +1,4 @@
-"""Host tests for the pure logic in Box-code/lib/max17043.py.
+"""Host tests for the pure logic in firmware/lib/max17043.py.
 
 The register-decode math (VCELL/SOC raw -> volts/percent), the MSB-first byte
 assembly, the register-pointer selection, and the try_lock()/unlock() discipline
@@ -13,7 +13,7 @@ Run: python tests/test_max17043_decode.py
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "Box-code", "lib"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "firmware", "lib"))
 
 from max17043 import MAX17043, decode_voltage, decode_percent, _REG_VCELL, _REG_SOC
 

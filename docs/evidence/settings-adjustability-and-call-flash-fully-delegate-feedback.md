@@ -4,9 +4,9 @@
 *Received: 2026-08-10 (conversation-mode manager coaching)*
 
 ### Comment 1 - UNADDRESSED
-- **Author**: emah@kitchenlab.org
+- **Author**: <developer email>
 - **Type**: conversation_feedback
-- **File**: `Box-code/lib/lock_config.py`, `Box-code/lib/lock_settings.py`, `Box-code/lib/lock_controller.py`, `app/src/screens/SettingsScreen.tsx`, `app/src/screens/SettingsPrimitives.tsx`
+- **File**: `firmware/lib/lock_config.py`, `firmware/lib/lock_settings.py`, `firmware/lib/lock_controller.py`, `app/src/screens/SettingsScreen.tsx`, `app/src/screens/SettingsPrimitives.tsx`
 - **Comment**: "no force open click count should just have a higher upper limit and starting at steps for five for lower numbers, the the click count steps should increase, 5, 10, 25, 50 at depending the current number" — rejects the flat `step=1` from the first implementation. Wants a progressive/non-uniform step scale (5 at the low end, growing to 10, then 25, then 50 as the value increases), plus a higher ceiling than 100.
 - **Status**: ADDRESSED
 
@@ -15,8 +15,8 @@ was no longer reachable to resume, so a fresh instance was spawned with the same
 correction spec). Replaced the flat `OVR_MIN/OVR_MAX/OVR_STEP` (5-100 step 1) with an explicit
 non-uniform staircase constant `OVR_OPTIONS = (5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 60, 70, 80, 90,
 100, 125, 150, 200, 250)` -- step 5 from 5-50, step 10 from 50-100, step 25 from 100-150, step 50 from
-150-250 -- in `Box-code/lib/lock_config.py`, wired through `Box-code/lib/lock_settings.py` (reuses the
-existing `_step_in` helper already used for `sleep_s`/`bright_pct`), `Box-code/lib/lock_controller.py`
+150-250 -- in `firmware/lib/lock_config.py`, wired through `firmware/lib/lock_settings.py` (reuses the
+existing `_step_in` helper already used for `sleep_s`/`bright_pct`), `firmware/lib/lock_controller.py`
 (BLE-write clamp), and mirrored in `app/src/screens/SettingsScreen.tsx`. `app/src/screens/
 SettingsPrimitives.tsx`'s `SliderRow` was generalized to accept an `options: number[]` prop that snaps
 to the nearest array value, instead of switching to the chip-based `PickerGroup` (which would have

@@ -1,6 +1,6 @@
 // bleUuids.test.js -- the BLE service/characteristic uuids exist twice, in two
 // languages, in two runtimes that never import from each other:
-// Box-code/lib/lock_config.py (CircuitPython, on the box) and
+// firmware/lib/lock_config.py (CircuitPython, on the box) and
 // app/src/ble/protocol.ts (TypeScript, in a React Native bundle). Both files
 // say to keep them in step by hand. Nothing checked that anyone had.
 //
@@ -26,7 +26,7 @@ import assert from 'node:assert/strict';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.join(__dirname, '..', '..');
 
-const firmware = readFileSync(path.join(repoRoot, 'Box-code', 'lib', 'lock_config.py'), 'utf8');
+const firmware = readFileSync(path.join(repoRoot, 'firmware', 'lib', 'lock_config.py'), 'utf8');
 const appProtocol = readFileSync(path.join(repoRoot, 'app', 'src', 'ble', 'protocol.ts'), 'utf8');
 
 /** `NAME = "uuid"` in lock_config.py. */

@@ -1,5 +1,5 @@
 """Host tests for the one state that holds the latch indefinitely --
-LockController.go_done's auto-open-off branch (Box-code/lib/
+LockController.go_done's auto-open-off branch (firmware/lib/
 lock_controller_states.py) and the servo half of update()
 (lock_controller.py).
 
@@ -41,7 +41,7 @@ import types
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
-sys.path.insert(0, os.path.join(REPO, "Box-code", "lib"))
+sys.path.insert(0, os.path.join(REPO, "firmware", "lib"))
 
 for _name in ("board", "pwmio", "supervisor", "microcontroller"):
     if _name not in sys.modules:

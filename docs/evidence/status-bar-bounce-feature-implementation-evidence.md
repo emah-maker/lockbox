@@ -18,15 +18,15 @@ own distinct tap. Each retrigger both flips the state again (visible text bounce
 `LockUI.on_touch_down`'s `_begin_press`, which restarts the press-depth spring from scratch (visible
 dip bounce).
 
-- [x] `Box-code/lib/lock_config.py` — added `STATUS_TAP_COOLDOWN_S = 0.4` constant with rationale
+- [x] `firmware/lib/lock_config.py` — added `STATUS_TAP_COOLDOWN_S = 0.4` constant with rationale
   comment, placed next to the other button/override tunables — ✅ done
-- [x] `Box-code/lib/lock_controller.py` — imported `STATUS_TAP_COOLDOWN_S`; added
+- [x] `firmware/lib/lock_controller.py` — imported `STATUS_TAP_COOLDOWN_S`; added
   `self._last_status_toggle_at = -STATUS_TAP_COOLDOWN_S` in `__init__` (negative seed so the very
   first real tap of a session is never blocked); gated the status-bar branch's `go_idle()`/
   `go_closed()` calls in `_handle_release` on
   `(self._now - self._last_status_toggle_at) >= STATUS_TAP_COOLDOWN_S`, updating the timestamp only
   when a toggle actually fires — ✅ done
-- [x] `Box-code/lib/lock_ui.py` — no changes needed in the end. Two earlier submissions of this
+- [x] `firmware/lib/lock_ui.py` — no changes needed in the end. Two earlier submissions of this
   workstream claimed the press-spring restart was purely a *symptom* of the repeated toggle calls and
   would stop once `_handle_release` stopped calling `go_idle()`/`go_closed()`. That claim was wrong and
   was caught in manager review: `LockUI.on_touch_down` (`~lines 328-343`) is invoked from
@@ -35,12 +35,12 @@ dip bounce).
   `in_status(...)`, with no dependency on whether the later release actually toggles state. Fixed by
   gating the `self.ui.on_touch_down(*pt)` call itself in `process()` (not by editing `lock_ui.py`) —
   see the `in_cooldown` guard added there, iteration 3.
-- [x] `Box-code/lib/lock_controller.py` `process()` — added an `in_cooldown` check
+- [x] `firmware/lib/lock_controller.py` `process()` — added an `in_cooldown` check
   (`self.ui.in_status(*pt) and self._now - self._last_status_toggle_at < STATUS_TAP_COOLDOWN_S`)
   before calling `self.ui.on_touch_down(*pt)`, so the cosmetic press-dip is suppressed for the status
   region during the same cooldown window that already gates the real toggle — ✅ done (iteration 3, made
   directly by the manager after two prior submissions left `lock_ui.py`/this call site unchanged).
-- [x] `Box-code/lib/lock_motion.py` — no changes. Read `Spring.settled` (stiffness 300 / damping 30 /
+- [x] `firmware/lib/lock_motion.py` — no changes. Read `Spring.settled` (stiffness 300 / damping 30 /
   mass 1) to confirm it settles in a handful of frames under normal (single-tap) conditions per the
   manager's instruction to verify before touching it — verified by reading, not modified.
 - [x] LOCK/OPEN button region (`in_button` branch) and every other gesture in `_handle_release` — no
@@ -51,7 +51,7 @@ dip bounce).
 - `uiValidationRequired`: No in the browser/screenshot sense — the box UI is on-device CircuitPython
   (`displayio`), not a web/React surface, so `ui-polish-validation` does not apply. The relevant
   "visual" check is on-device behavior, covered below as a deferred manual step.
-- `mobileValidationRequired`: No — this change touches only `Box-code/lib/*.py`, not the companion app.
+- `mobileValidationRequired`: No — this change touches only `firmware/lib/*.py`, not the companion app.
 - Required suites/modes:
   - **Host (PC):** `python -m py_compile` on both touched modules (syntax gate only — per
     `project_rules.md`, "There is no host build/test command," and these modules import
@@ -96,11 +96,11 @@ Latest run only.
 
 | Validation Step | Result | Notes |
 |---|---|---|
-| `python -m py_compile Box-code/lib/lock_config.py Box-code/lib/lock_controller.py` | ✅ Pass | Syntax gate only — cannot exercise the touch/state-machine logic on host. |
+| `python -m py_compile firmware/lib/lock_config.py firmware/lib/lock_controller.py` | ✅ Pass | Syntax gate only — cannot exercise the touch/state-machine logic on host. |
 | On-device (box) | ⏸️ Untested — no physical board this session | Stated plainly per project rules; this is the only validation that can actually confirm the bounce is fixed. |
 | UI polish check | N/A — no host-renderable UI surface | Box UI is on-device CircuitPython (`displayio`); no browser/simulator available. |
 | `git status` cleanliness | ⚠️ Pre-existing untracked clutter, not from this workstream | Numerous stray untracked files/dirs (e.g. `graphify-out/`, `.impeccable/`, filename-looking code fragments) were already present before this session and are unrelated to the 2 files touched here. Left untouched. |
-| Diff scope check | ✅ Pass | `git status --short` shows exactly `Box-code/lib/lock_config.py` and `Box-code/lib/lock_controller.py` modified (`M`); no other tracked file changed. |
+| Diff scope check | ✅ Pass | `git status --short` shows exactly `firmware/lib/lock_config.py` and `firmware/lib/lock_controller.py` modified (`M`); no other tracked file changed. |
 
 ## New Tests Added
 None. No host-runnable test framework exists for this CircuitPython firmware (`project_rules.md`:
@@ -179,9 +179,9 @@ implementation.
 ### Feature Requirement Traceability Matrix
 | Requirement/Acceptance Criteria | Implemented File/Function | Proof | Status |
 |---|---|---|---|
-| Status bar no longer bounces/cycles after a tap | `Box-code/lib/lock_controller.py`: `_handle_release` status-bar branch (`_last_status_toggle_at` / `STATUS_TAP_COOLDOWN_S`) gates the real toggle; `process()`'s new `in_cooldown` guard gates the cosmetic `ui.on_touch_down(*pt)` call for the same region/window | Code trace: within 0.4s of a real toggle, a touch-chatter bounce on the status region now skips both `go_idle()`/`go_closed()` (no text flip) and `on_touch_down` (no press-spring restart). Unverified on physical hardware (deferred). | Met (code-level; hardware-unverified) |
-| No cooldown added to the LOCK/OPEN button or any other gesture | `Box-code/lib/lock_controller.py` — button branch (`in_button`), swipe branches, settings branches all unmodified | Diff review: the only new lines are inside the status-bar `if` block and its imports/init; grep of `_handle_release` shows no other branch references `_last_status_toggle_at` or `STATUS_TAP_COOLDOWN_S` | Met |
-| Press-spring math (`lock_motion.Spring`) left unmodified unless found not to be settling | `Box-code/lib/lock_motion.py` — unchanged | Read `Spring.settled`; confirmed it settles within a handful of frames under normal (single-displacement) conditions at stiffness 300/damping 30/mass 1, so no change was warranted | Met |
+| Status bar no longer bounces/cycles after a tap | `firmware/lib/lock_controller.py`: `_handle_release` status-bar branch (`_last_status_toggle_at` / `STATUS_TAP_COOLDOWN_S`) gates the real toggle; `process()`'s new `in_cooldown` guard gates the cosmetic `ui.on_touch_down(*pt)` call for the same region/window | Code trace: within 0.4s of a real toggle, a touch-chatter bounce on the status region now skips both `go_idle()`/`go_closed()` (no text flip) and `on_touch_down` (no press-spring restart). Unverified on physical hardware (deferred). | Met (code-level; hardware-unverified) |
+| No cooldown added to the LOCK/OPEN button or any other gesture | `firmware/lib/lock_controller.py` — button branch (`in_button`), swipe branches, settings branches all unmodified | Diff review: the only new lines are inside the status-bar `if` block and its imports/init; grep of `_handle_release` shows no other branch references `_last_status_toggle_at` or `STATUS_TAP_COOLDOWN_S` | Met |
+| Press-spring math (`lock_motion.Spring`) left unmodified unless found not to be settling | `firmware/lib/lock_motion.py` — unchanged | Read `Spring.settled`; confirmed it settles within a handful of frames under normal (single-displacement) conditions at stiffness 300/damping 30/mass 1, so no change was warranted | Met |
 | Untested-on-hardware status stated plainly | This evidence file (Work List Deferrals, Validation Results, Pre-Completion Reflection) | Direct textual statement in three sections | Met |
 
 **Feature Requirements Completeness Summary**:
@@ -213,7 +213,7 @@ calls, storage, or auth/crypto surface.
 ### Review Scope
 - `reviewType`: embedded-diff-review
 - `reviewScope`: diff
-- `surfaceAreaPaths`: `Box-code/lib/lock_config.py`, `Box-code/lib/lock_controller.py`
+- `surfaceAreaPaths`: `firmware/lib/lock_config.py`, `firmware/lib/lock_controller.py`
 
 ### Threat Surface Summary
 No surface from the classification's closed set `{web, api, llm-app, data-pipeline, mobile,

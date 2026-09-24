@@ -73,7 +73,7 @@ on exactly these software capabilities. The box hardware already exceeds them; t
 The app is a **second interface onto the existing state machine**, not a rewrite. The integration
 seams already exist:
 
-| Need | Existing firmware anchor (`Box-code/lib/…`) |
+| Need | Existing firmware anchor (`firmware/lib/…`) |
 |---|---|
 | Box state to report | `lock_controller.py` state = `idle` / `closed` / `running` / `done`; `deadline`, `set_seconds` |
 | Start a lock from the app | `go_running(now)` (same path the on-screen LOCK button calls) |

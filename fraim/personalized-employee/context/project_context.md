@@ -13,7 +13,7 @@ work output in project/folder terms — there is no remote, issue tracker, or CI
 to integrate with.
 
 ## Repository / folder layout
-- `Box-code/` — CircuitPython firmware for the device.
+- `firmware/` — CircuitPython firmware for the device.
   - `code.py` — main entry point / run loop (touch polling, power & sleep
     policy, CPU scaling, button handling, countdown/animation).
   - `boot.py`, `safemode.py` — boot and brownout-retry safe-mode recovery
@@ -41,8 +41,8 @@ to integrate with.
     - `axs5106l.py` — AXS5106L capacitive touch controller driver.
     - `adafruit_display_shapes/` — vendored display-shapes helper library.
 - Enclosure CAD (project root):
-  - `Lid.SLDPRT` / `Lid.STEP`
-  - `Main Case.SLDPRT` / `Main Case.STEP`
+  - `Lid.SLDPRT` / `hardware/cad/lid.step`
+  - `Main Case.SLDPRT` / `hardware/cad/main-case.step`
   (SolidWorks native + neutral STEP exports.)
 
 ## Hardware target

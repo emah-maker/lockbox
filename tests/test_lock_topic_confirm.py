@@ -1,5 +1,5 @@
 """Host tests for the pre-session CONFIRM/CHANGE interaction state in
-Box-code/lib/lock_topic_confirm.py.
+firmware/lib/lock_topic_confirm.py.
 
 TopicConfirm has no hardware imports (pure Python, like lock_tag_picker.py),
 so it runs as-is under plain CPython. It's driven here through a FakeUI that
@@ -14,7 +14,7 @@ Run: python tests/test_lock_topic_confirm.py
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "Box-code", "lib"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "firmware", "lib"))
 
 from lock_topic_confirm import TopicConfirm, Confirm, Change, find_topic
 

@@ -97,7 +97,7 @@
     return h + ":" + (m < 10 ? "0" + m : m) + ":" + (s < 10 ? "0" + s : s);
   }
 
-  // Mirrors Box-code/lib/lock_ui.py update_clock_view(): while state ==
+  // Mirrors firmware/lib/lock_ui.py update_clock_view(): while state ==
   // "running" the digital time and the LOCKED label are fixed coral-red
   // (the firmware's own locked-state color), full stop -- there is no
   // green/amber/red urgency gradient on the main clock, only on the

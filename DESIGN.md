@@ -50,7 +50,7 @@ Claim-Ticket framing, stainless tray, thermal ticket paper, rubber
 ink-stamp, steel structural chrome, the Bebas Neue/Archivo/Courier
 Prime/VT323 type system below) is unchanged — only the color roles are.
 Status colors still map to the real firmware theme
-(`Box-code/lib/lock_config.py`) exactly as before, just re-expressed through
+(`firmware/lib/lock_config.py`) exactly as before, just re-expressed through
 the app's own `danger`/`warn`/`success` roles (whose hex values already read
 as close kin to the old coral/amber/mint). The one deliberate semantic
 change: the page's primary brand accent (buttons, focus rings, selection,

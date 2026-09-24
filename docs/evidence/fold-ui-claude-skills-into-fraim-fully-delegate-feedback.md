@@ -4,7 +4,7 @@
 *Received: 2026-08-11 (conversation-mode manager coaching)*
 
 ### Comment 1 - ADDRESSED
-- **Author**: emah@kitchenlab.org
+- **Author**: <developer email>
 - **Type**: conversation_feedback
 - **File**: `fraim/personalized-employee/rules/project_rules.md`
 - **Comment**: "graphify needs to be in project rules keep it"

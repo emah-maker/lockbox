@@ -1,4 +1,4 @@
-"""Host tests for the pure BLE wire codec in Box-code/lib/lock_protocol.py.
+"""Host tests for the pure BLE wire codec in firmware/lib/lock_protocol.py.
 
 encode_status/encode_settings/decode_command/decode_settings/decode_labels
 have no hardware imports, so they run as-is under plain CPython -- no
@@ -9,7 +9,7 @@ Run: python tests/test_lock_protocol.py
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "Box-code", "lib"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "firmware", "lib"))
 
 import lock_protocol
 from lock_config import (

@@ -1,6 +1,6 @@
-"""render.py -- host-side rasterizer for the Box-code displayio UI.
+"""render.py -- host-side rasterizer for the firmware displayio UI.
 
-Builds a fake 172x320 display, imports the REAL Box-code/lib/lock_ui.LockUI
+Builds a fake 172x320 display, imports the REAL firmware/lib/lock_ui.LockUI
 against tests/preview/shim's pure-Python stand-ins for displayio/
 terminalio/adafruit_display_text/adafruit_display_shapes, and rasterizes
 any of its screen groups to a PNG -- so a screen can be looked at without
@@ -24,14 +24,14 @@ from PIL import Image, ImageDraw
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 PREVIEW_DIR = os.path.dirname(os.path.abspath(__file__))
 SHIM_DIR = os.path.join(PREVIEW_DIR, "shim")
-LIB = os.path.join(REPO, "Box-code", "lib")
+LIB = os.path.join(REPO, "firmware", "lib")
 
 DISPLAY_W = 172
 DISPLAY_H = 320
 
 
 def _install_shim():
-    """Puts the shim's stand-in modules ahead of Box-code/lib on sys.path,
+    """Puts the shim's stand-in modules ahead of firmware/lib on sys.path,
     so the real firmware's `import displayio` (etc.) resolves to
     tests/preview/shim/displayio.py instead of failing outright. Order
     matters: SHIM_DIR must come before LIB since neither directory's

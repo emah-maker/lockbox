@@ -1,0 +1,33 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="base.css"><style>
+body{width:1280px;height:520px}
+.frame{width:1280px;height:520px;display:flex}
+.left{flex:1;padding:64px 0 0 72px;position:relative;z-index:2}
+.kicker{font-size:15px;color:var(--steel)}
+h1{font-size:196px;line-height:.86;color:var(--paper);margin-top:26px;letter-spacing:.005em}
+h1 span{color:var(--accent)}
+.tag{font-size:25px;color:var(--steel);margin-top:22px;line-height:1.4;max-width:600px}
+.tag b{color:#fff;font-weight:600}
+.chips{display:flex;gap:10px;margin-top:34px}
+.chip{font-size:13px;color:var(--steel);border:1px solid var(--border);border-radius:999px;padding:8px 14px;background:rgba(255,255,255,.03)}
+.right{width:470px;position:relative}
+.photo{position:absolute;right:-40px;top:-30px;width:470px;height:600px;background:url(../../../../website/assets/photos/device-timer.webp) center/cover;filter:saturate(.9) contrast(1.05);
+ -webkit-mask-image:linear-gradient(90deg,transparent 0,#000 38%);mask-image:linear-gradient(90deg,transparent 0,#000 38%)}
+.ticket{position:absolute;left:-20px;bottom:54px;width:300px;background:var(--paper);color:var(--paper-ink);border-radius:6px;padding:16px 18px 14px;transform:rotate(-4deg);box-shadow:0 20px 50px rgba(0,0,0,.55)}
+.ticket:before{content:"";position:absolute;left:-7px;top:50%;width:14px;height:14px;border-radius:50%;background:var(--bg);transform:translateY(-50%)}
+.t-top{display:flex;justify-content:space-between;font-size:11px;color:var(--paper-dim)}
+.t-num{font-family:"VT323",monospace;font-size:44px;line-height:1;margin-top:6px}
+.t-time{font-family:"VT323",monospace;font-size:30px;color:var(--locked);margin-top:2px}
+.stamp{position:absolute;right:16px;top:40px;border:3px solid var(--locked);color:var(--locked);font-family:"Bebas Neue";font-size:24px;padding:0 8px;letter-spacing:.08em;transform:rotate(9deg);opacity:.9}
+.foot{position:absolute;left:72px;bottom:26px;font-size:12px;color:var(--steel-dim)}
+</style></head><body><div class="frame">
+<div class="left">
+ <div class="kicker mono"><span class="dot"></span>Smart focus lockbox · Summer 2026</div>
+ <h1 class="disp">Phone Box<span>.</span></h1>
+ <p class="tag body">A phone lockbox with a <b>real lock</b>. Servo latch, touchscreen countdown, tunable emergency override, and an iOS companion app over Bluetooth.</p>
+ <div class="chips mono"><span class="chip">ESP32-S3</span><span class="chip">CircuitPython</span><span class="chip">React Native</span><span class="chip">Firebase</span><span class="chip">SolidWorks</span></div>
+</div>
+<div class="right"><div class="photo"></div>
+ <div class="ticket"><div class="t-top mono"><span>Claim ticket</span><span>Tray 02</span></div><div class="t-num">No. 0417</div><div class="t-time">FOCUS 0:24:59</div><div class="stamp">Seized</div></div>
+</div>
+<div class="foot mono">Personal project · never sold</div>
+</div></body></html>

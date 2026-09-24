@@ -130,7 +130,7 @@ Leave `pushTokens` alone. Those are per-device and the app writes them itself.
 - **App Store Connect → the app version → App Review Information → Sign-In Required**:
   username and password. This is what the reviewer actually reads.
 - **TestFlight → Test Information**: beta app description, "What to Test", and the
-  feedback email (`emah@kitchenlab.org`). External testing will not start without these.
+  feedback email (`<developer email>`). External testing will not start without these.
 - **Review notes** — draft, adapt as needed:
 
   > Phone Box is the companion app for a physical Bluetooth focus lockbox. The reviewer

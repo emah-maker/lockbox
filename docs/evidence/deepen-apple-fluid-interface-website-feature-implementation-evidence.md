@@ -7,7 +7,7 @@ PR: none (conversational mode — changes live on `master` in this working copy 
 Written by MANdy (manager), not the delegated web-dev sub-agent, after that sub-agent
 reported its work complete but never produced this file. The technical content below
 was independently verified against the actual diff rather than taken on the sub-agent's
-report alone; see `docs/retrospectives/emah@kitchenlab.org-session-2026-08-11-deepen-apple-fluid-interface-website.md`
+report alone; see `docs/retrospectives/session-2026-08-11-deepen-apple-fluid-interface-website.md`
 for the sub-agent's own first-person account, which was read and found accurate.
 
 ## Work List

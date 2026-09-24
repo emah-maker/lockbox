@@ -1,7 +1,7 @@
 # Dashboard duration-picker default — feature-implementation evidence
 
 ## Summary
-- **Task**: `DashboardScreen.tsx`'s H/M duration-picker state initialized as `useState({ hours: 0, minutes: 25 })`, diverging from `Box-code/lib/lock_config.py`'s `DEFAULT_SECONDS` (5*60) and `app/src/stats/stats.ts`'s `MIN_LOCK_SECONDS` (5*60) — the two other places in the same duration pipeline that already agree on 5 minutes. Because the picker pushes a live preview to the box on mount, opening the app forced the box's on-screen clock from its own correct 5-minute default up to 25 minutes. Fix: change the initial state to `{ hours: 0, minutes: 5 }`.
+- **Task**: `DashboardScreen.tsx`'s H/M duration-picker state initialized as `useState({ hours: 0, minutes: 25 })`, diverging from `firmware/lib/lock_config.py`'s `DEFAULT_SECONDS` (5*60) and `app/src/stats/stats.ts`'s `MIN_LOCK_SECONDS` (5*60) — the two other places in the same duration pipeline that already agree on 5 minutes. Because the picker pushes a live preview to the box on mount, opening the app forced the box's on-screen clock from its own correct 5-minute default up to 25 minutes. Fix: change the initial state to `{ hours: 0, minutes: 5 }`.
 - **Workflow type**: feature-implementation (bug fix).
 - **Source of truth**: No GitHub issue or RFC exists for this task; scope was fully specified inline by the manager (MANdy), including the exact fix. Repo is in FRAIM `conversational` mode (`fraim/config.json`), with no issue tracker wired for this ad hoc task.
 
@@ -18,7 +18,7 @@
 
 ### Decisions
 - Kept the fix to the bare literal only, per explicit manager scope: did not refactor the initializer to import/derive from `MIN_LOCK_SECONDS` (which would be a structural change beyond "that one default value"), did not touch `clampLockSeconds`/`MIN_LOCK_SECONDS`, and did not touch the box-sync effect logic.
-- Did not stage, commit, or otherwise touch the six pre-existing uncommitted `Box-code/lib/*.py` files (`lock_ui.py`, `lock_controller.py`, `lock_settings.py`, `lock_ble.py`, `lock_config.py`, `lock_log.py`) — confirmed via `git status`/`git diff` to be unrelated, prior in-progress hardware work.
+- Did not stage, commit, or otherwise touch the six pre-existing uncommitted `firmware/lib/*.py` files (`lock_ui.py`, `lock_controller.py`, `lock_settings.py`, `lock_ble.py`, `lock_config.py`, `lock_log.py`) — confirmed via `git status`/`git diff` to be unrelated, prior in-progress hardware work.
 - No branch/PR created: current branch is `master` (the repo default) and `fraim/config.json` sets `"mode": "conversational"`. Per the `set-up-workspace` skill's conversational-mode rule and this repo's own established precedent for master-branch conversational work (e.g. `stats-window-persistence-feature-implementation-evidence.md`, `settings-account-icon-and-min-lock-duration-fully-delegate-evidence.md`), the change was made in place with no branch, commit, or push. This diff is the review artifact.
 
 ### Deferrals
@@ -48,11 +48,11 @@
 | Requirement/Acceptance Criteria | Implemented File/Function | Proof | Status |
 |---|---|---|---|
 | Change picker default from `{hours:0,minutes:25}` to `{hours:0,minutes:5}` | `app/src/screens/DashboardScreen.tsx:113` (`useState` initializer) | `git diff` shows exactly this one-line change (see Diff below) | Met |
-| New default must match box firmware's `DEFAULT_SECONDS` (5*60) | Same line | `Box-code/lib/lock_config.py:6` — `DEFAULT_SECONDS = 5 * 60` — `clampLockSeconds(0,5)` (app/src/stats/stats.ts) = 300s, identical | Met |
+| New default must match box firmware's `DEFAULT_SECONDS` (5*60) | Same line | `firmware/lib/lock_config.py:6` — `DEFAULT_SECONDS = 5 * 60` — `clampLockSeconds(0,5)` (app/src/stats/stats.ts) = 300s, identical | Met |
 | New default must match app's own `MIN_LOCK_SECONDS` floor (5*60) | Same line | `app/src/stats/stats.ts:69` — `MIN_LOCK_SECONDS = 5 * 60`; `stats.test.ts` line 56 (`clampLockSeconds(0, 5)` → `300`) already asserts this exact value, unchanged by this diff | Met |
 | Do not touch `clampLockSeconds`/`MIN_LOCK_SECONDS` | `app/src/stats/stats.ts` unmodified | `git diff` / `git status` show no changes to `stats.ts` | Met |
 | Do not touch the box-sync effect logic | `app/src/screens/DashboardScreen.tsx` box-sync `useEffect` unmodified | `git diff` shows only line 113 changed; the sync effect (later in the file) is untouched | Met |
-| Do not touch/commit the pre-existing uncommitted `Box-code/lib/*.py` changes | No `Box-code/lib/*.py` file modified or staged | `git status` shows the same six files ( `lock_ui.py`, `lock_controller.py`, `lock_settings.py`, `lock_ble.py`, `lock_config.py`, `lock_log.py`) already modified before this session, unchanged by it; nothing staged | Met |
+| Do not touch/commit the pre-existing uncommitted `firmware/lib/*.py` changes | No `firmware/lib/*.py` file modified or staged | `git status` shows the same six files ( `lock_ui.py`, `lock_controller.py`, `lock_settings.py`, `lock_ble.py`, `lock_config.py`, `lock_log.py`) already modified before this session, unchanged by it; nothing staged | Met |
 | 5 is a valid, reachable wheel value (not a boundary/invalid state) | `MINUTE_VALUES`/`MINUTE_STEP` constants, `app/src/screens/DashboardScreen.tsx:61,65` | `MINUTE_STEP = 5` ⇒ `MINUTE_VALUES = [0,5,10,...,55]`; 5 is the second element, not a rejected/boundary value | Met |
 | Validation: build + full test suite green | N/A (whole app) | `cd app && npx tsc --noEmit` → clean; `cd app && npx jest` → 12 suites / 115 tests passing | Met |
 
@@ -74,7 +74,7 @@ Technical Design Traceability Matrix: N/A — no RFC/technical design exists for
 |---|---|---|
 | `cd app && npx tsc --noEmit` | Pass (clean, no output) | N/A |
 | `cd app && npx jest` (full suite) | Pass — 12 suites / 115 tests, 0 failures | N/A |
-| `git status`/`git diff` scope check | Pass — only `DashboardScreen.tsx` line 113 changed; pre-existing `Box-code/lib/*.py` changes untouched | N/A |
+| `git status`/`git diff` scope check | Pass — only `DashboardScreen.tsx` line 113 changed; pre-existing `firmware/lib/*.py` changes untouched | N/A |
 | Manual code-path trace: `clampLockSeconds(0,5)` = 300s = `MIN_LOCK_SECONDS` = `DEFAULT_SECONDS` | Pass | N/A |
 | UI polish check | N/A — no visual/layout change, numeric default only (same precedent as `stats-window-persistence-feature-implementation-evidence.md`) | N/A |
 | On-device/simulator visual walkthrough | Not performed — no Expo dev-client/simulator available in this headless environment (same limitation recorded in `settings-account-icon-and-min-lock-duration-fully-delegate-evidence.md`) | N/A — mitigated by the numeric trace above; the wheel-picker's own rendering/index logic (`minutesIndex = MINUTE_VALUES.indexOf(pick.minutes)`) is unmodified by this diff |
@@ -112,7 +112,7 @@ Ran all test suites.
 |---|---|---|---|
 | `app` jest suite (12 suites, incl. `stats.test.ts`'s existing `clampLockSeconds`/`MIN_LOCK_SECONDS` assertions) | Yes | 0 | N/A |
 | `app` `tsc --noEmit` | Yes | 0 | N/A |
-| Box-code (CircuitPython) | Not run | N/A | No host test runner exists for CircuitPython in this repo (per project convention); not applicable since no `Box-code` file was touched by this diff |
+| firmware (CircuitPython) | Not run | N/A | No host test runner exists for CircuitPython in this repo (per project convention); not applicable since no `firmware` file was touched by this diff |
 
 ## Security Review
 

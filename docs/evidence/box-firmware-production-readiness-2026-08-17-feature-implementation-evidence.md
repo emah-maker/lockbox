@@ -1,4 +1,4 @@
-# Feature: Fix Box-code/ production-readiness findings (2026-08-17 review)
+# Feature: Fix firmware/ production-readiness findings (2026-08-17 review)
 Issue: N/A (no issue tracker for this local firmware project; driven by
 `docs/production-readiness/production-readiness-review-box-firmware-2026-08-17.md`)
 Tech Spec: `docs/production-readiness/production-readiness-review-box-firmware-2026-08-17.md` (Top Gaps/Risks + Launch Decision and Remediation Queue sections)
@@ -7,19 +7,19 @@ PR: N/A (conversational-mode project per `fraim/config.json`; no repository work
 ## Work List
 
 ### Scope
-- [x] `Box-code/code.py` - move `nvm[0] = 0` brownout-retry-counter clear from interpreter start to proven-stable (min. 3s uptime past a real `ctrl.update()` cycle) - Done
-- [x] `Box-code/lib/lock_config.py` - added `BROWNOUT_CLEAR_AFTER_S = 3.0` tunable, imported by `code.py` (moved here from an inline module constant during `implement-quality` -- see Implementation Quality Checkpoints) - Done
-- [x] `Box-code/lib/lock_settings.py` (`Settings.adjust`) - stop calling `self.save()` on every call (was firing on every hold-repeat tick) - Done
-- [x] `Box-code/lib/lock_controller.py` (`_handle_release`) - add debounced `self.settings.save()` once per touch release while editing a settings detail page - Done
-- [x] `Box-code/lib/lock_controller.py` (`set_view`) - added `self.settings.save()` guard for an edit interrupted by a forced view switch (e.g. BLE lock/start command mid-drag), so the debounce doesn't silently drop an unsaved in-RAM edit - Done (not in the original remediation queue; added to close a data-loss corner case introduced by the debounce fix itself -- see Decisions)
-- [x] `Box-code/lib/lock_controller.py` (`apply_ble_settings_json`) - clamp BLE `sleep` field to `SLEEP_OPTIONS` range (10-60s), same pattern as `ovr`/`bright`; wrap each numeric field's `int()` conversion in its own `try/except` so one malformed field can't skip `st.save()` for the rest of the payload - Done
-- [x] `Box-code/lib/lock_controller.py` (`apply_ble_command`, `"unlock"` branch) - fix inverted "ON by default" comment to "OFF by default" (matches actual `BLE_ALLOW_REMOTE_UNLOCK = False` behavior, which was already correct) - Done
+- [x] `firmware/code.py` - move `nvm[0] = 0` brownout-retry-counter clear from interpreter start to proven-stable (min. 3s uptime past a real `ctrl.update()` cycle) - Done
+- [x] `firmware/lib/lock_config.py` - added `BROWNOUT_CLEAR_AFTER_S = 3.0` tunable, imported by `code.py` (moved here from an inline module constant during `implement-quality` -- see Implementation Quality Checkpoints) - Done
+- [x] `firmware/lib/lock_settings.py` (`Settings.adjust`) - stop calling `self.save()` on every call (was firing on every hold-repeat tick) - Done
+- [x] `firmware/lib/lock_controller.py` (`_handle_release`) - add debounced `self.settings.save()` once per touch release while editing a settings detail page - Done
+- [x] `firmware/lib/lock_controller.py` (`set_view`) - added `self.settings.save()` guard for an edit interrupted by a forced view switch (e.g. BLE lock/start command mid-drag), so the debounce doesn't silently drop an unsaved in-RAM edit - Done (not in the original remediation queue; added to close a data-loss corner case introduced by the debounce fix itself -- see Decisions)
+- [x] `firmware/lib/lock_controller.py` (`apply_ble_settings_json`) - clamp BLE `sleep` field to `SLEEP_OPTIONS` range (10-60s), same pattern as `ovr`/`bright`; wrap each numeric field's `int()` conversion in its own `try/except` so one malformed field can't skip `st.save()` for the rest of the payload - Done
+- [x] `firmware/lib/lock_controller.py` (`apply_ble_command`, `"unlock"` branch) - fix inverted "ON by default" comment to "OFF by default" (matches actual `BLE_ALLOW_REMOTE_UNLOCK = False` behavior, which was already correct) - Done
 - [x] `fraim/personalized-employee/context/project_context.md:30` - update stale `lock_ui.py` line count (~680 -> 1763) - Done
 - [x] `fraim/personalized-employee/context/project_context.md:62-67` - narrow the 2026-07-24 removal note to name only the on-screen stats view / BLE stats characteristic, not `lock_log.py` itself (still present, still maintained) - Done
 
 ### Validation Requirements
 - `uiValidationRequired`: No (no UI/visual change; one behavior-affecting logic change with no visible effect, one persistence-timing change, one input-validation change, two comment/doc fixes)
-- `mobileValidationRequired`: No (companion app not touched; scope was explicitly Box-code/ firmware only)
+- `mobileValidationRequired`: No (companion app not touched; scope was explicitly firmware/ firmware only)
 - Required suites/modes: none exist for this platform. Per `project_rules.md` and `fraim/personalized-employee/rules/project_rules.md`: "There is no host build/test command. Do not fabricate one or claim tests passed on the PC - the firmware only runs on the board." **No board run was performed for this change.** Validation below is careful logical re-reasoning through each changed code path (syntax-checked with `ast.parse`, since CircuitPython-only modules like `board`/`microcontroller` cannot be imported on a PC to actually execute the code), exactly as the review itself was produced.
 
 ### Decisions
@@ -41,18 +41,18 @@ PR: N/A (conversational-mode project per `fraim/config.json`; no repository work
 ### Implementation Checklist
 
 #### Part 1: [HIGH] Brownout-retry counter timing
-- [x] File: `Box-code/code.py` - removed the interpreter-start `nvm[0] = 0` clear; added a proven-stable, time-gated clear after the main loop's `ctrl.update()` call - ✅ Implemented
+- [x] File: `firmware/code.py` - removed the interpreter-start `nvm[0] = 0` clear; added a proven-stable, time-gated clear after the main loop's `ctrl.update()` call - ✅ Implemented
 
 #### Part 2: [MEDIUM] NVM write-amplification during hold-repeat
-- [x] File: `Box-code/lib/lock_settings.py` - `Settings.adjust()` no longer calls `save()` - ✅ Implemented
-- [x] File: `Box-code/lib/lock_controller.py` - `_handle_release()` now calls `self.settings.save()` once per release while editing - ✅ Implemented
-- [x] File: `Box-code/lib/lock_controller.py` - `set_view()` now also saves if a settings edit was interrupted mid-drag - ✅ Implemented (extra safety beyond the literal ask, see Decisions)
+- [x] File: `firmware/lib/lock_settings.py` - `Settings.adjust()` no longer calls `save()` - ✅ Implemented
+- [x] File: `firmware/lib/lock_controller.py` - `_handle_release()` now calls `self.settings.save()` once per release while editing - ✅ Implemented
+- [x] File: `firmware/lib/lock_controller.py` - `set_view()` now also saves if a settings edit was interrupted mid-drag - ✅ Implemented (extra safety beyond the literal ask, see Decisions)
 
 #### Part 3: [MEDIUM] BLE `sleep` field validation
-- [x] File: `Box-code/lib/lock_controller.py` (`apply_ble_settings_json`) - `sleep` now clamped to `SLEEP_OPTIONS` range; every numeric field's `int()` call independently try/excepted - ✅ Implemented
+- [x] File: `firmware/lib/lock_controller.py` (`apply_ble_settings_json`) - `sleep` now clamped to `SLEEP_OPTIONS` range; every numeric field's `int()` call independently try/excepted - ✅ Implemented
 
 #### Part 4: [LOW] Inverted comment
-- [x] File: `Box-code/lib/lock_controller.py` (`apply_ble_command`, `"unlock"` branch) - comment now reads "OFF by default" / "toggleable on in Settings" - ✅ Implemented
+- [x] File: `firmware/lib/lock_controller.py` (`apply_ble_command`, `"unlock"` branch) - comment now reads "OFF by default" / "toggleable on in Settings" - ✅ Implemented
 
 #### Part 5: [LOW] Stale project_context.md
 - [x] File: `fraim/personalized-employee/context/project_context.md:30` - `lock_ui.py` line count corrected to 1763 - ✅ Implemented
@@ -82,7 +82,7 @@ PR: N/A (conversational-mode project per `fraim/config.json`; no repository work
 ### Feature Requirement Traceability Matrix
 | Requirement (remediation-queue item) | Implemented File/Function | Proof | Status |
 |---|---|---|---|
-| 1. Brownout-retry counter cleared too early | `Box-code/code.py` (main loop) | Logical trace below (Validation Results) | Met |
+| 1. Brownout-retry counter cleared too early | `firmware/code.py` (main loop) | Logical trace below (Validation Results) | Met |
 | 2. NVM write-amplification during hold-repeat | `lock_settings.Settings.adjust`, `lock_controller._handle_release`, `lock_controller.set_view` | Logical trace below | Met |
 | 3. BLE `sleep` field unvalidated | `lock_controller.apply_ble_settings_json` | Logical trace below | Met |
 | 4. Inverted "ON by default" comment | `lock_controller.apply_ble_command` | Direct read of edited comment | Met |
@@ -103,7 +103,7 @@ N/A -- manager (Mandy) instructions were the full, explicit spec for all 5 items
 - [x] No resource waste (excessive retries, delays, workarounds) -- the brownout-clear check runs a cheap comparison every loop iteration until it fires once; no new busy-waits or retries added
 - [x] Solution based on proven prototype from design phase -- N/A in the RFC sense (no separate design doc), but each fix follows the review's own "Recommendation" text directly
 - [x] All new files/functions are actually used -- no new files/functions created; only existing functions modified (see below)
-- `QUALITY CHECK FAILURE` (found during `implement-quality`, now `RESOLVED`): `BROWNOUT_CLEAR_AFTER_S = 3.0` was first added as a module-level constant inline in `code.py`, violating `project_rules.md`'s "`lock_config.py` is the single source of truth for tunables ... change hardware/behavior constants there, not scattered across modules." **Resolved**: moved the constant into `Box-code/lib/lock_config.py` (next to the other timing tunables `CPU_FAST`/`CPU_SLOW`/`INACTIVITY_S`) and imported it into `code.py`, matching the project's existing convention (e.g. `HOLD_REPEAT_MIN`, `SLEEP_OPTIONS` are defined in `lock_config.py` and imported by the modules that use them).
+- `QUALITY CHECK FAILURE` (found during `implement-quality`, now `RESOLVED`): `BROWNOUT_CLEAR_AFTER_S = 3.0` was first added as a module-level constant inline in `code.py`, violating `project_rules.md`'s "`lock_config.py` is the single source of truth for tunables ... change hardware/behavior constants there, not scattered across modules." **Resolved**: moved the constant into `firmware/lib/lock_config.py` (next to the other timing tunables `CPU_FAST`/`CPU_SLOW`/`INACTIVITY_S`) and imported it into `code.py`, matching the project's existing convention (e.g. `HOLD_REPEAT_MIN`, `SLEEP_OPTIONS` are defined in `lock_config.py` and imported by the modules that use them).
 
 ## Validation Results
 - UI polish check: N/A — no UI changes detected (all 5 fixes are logic/persistence/comment/doc changes; no `lock_ui.py` rendering code touched)
@@ -134,7 +134,7 @@ No new files or functions. All 3 code files (`code.py`, `lock_controller.py`, `l
 None -- no host-runnable test suite exists for this CircuitPython target (per `project_rules.md`); this is an accepted, pre-existing platform constraint, not a gap introduced by this change.
 
 ## Existing Test Suites Run
-None exist for `Box-code/` (see above). N/A.
+None exist for `firmware/` (see above). N/A.
 
 ## Pre-Completion Reflection
 
@@ -169,12 +169,12 @@ None exist for `Box-code/` (see above). N/A.
 - `reviewType`: embedded-diff-review
 - `reviewScope`: diff
 - `surfaceAreaPaths` (files actually changed in this job):
-  - `Box-code/code.py`
-  - `Box-code/lib/lock_controller.py`
-  - `Box-code/lib/lock_settings.py`
-  - `Box-code/lib/lock_config.py` (added during `implement-quality` to relocate a tunable out of `code.py`, per `project_rules.md`)
+  - `firmware/code.py`
+  - `firmware/lib/lock_controller.py`
+  - `firmware/lib/lock_settings.py`
+  - `firmware/lib/lock_config.py` (added during `implement-quality` to relocate a tunable out of `code.py`, per `project_rules.md`)
   - `fraim/personalized-employee/context/project_context.md`
-- Referenced-only (not modified): `docs/production-readiness/production-readiness-review-box-firmware-2026-08-17.md`, `Box-code/safemode.py`.
+- Referenced-only (not modified): `docs/production-readiness/production-readiness-review-box-firmware-2026-08-17.md`, `firmware/safemode.py`.
 
 ### Threat Surface Summary
 `threat-surface-classification` run against the diff's file list:

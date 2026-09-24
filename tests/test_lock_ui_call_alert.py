@@ -1,5 +1,5 @@
 """Host tests for who owns display.root_group while the incoming-call
-overlay is up (Box-code/lib/lock_ui*.py).
+overlay is up (firmware/lib/lock_ui*.py).
 
 WHAT THIS PATH IS. A greenlisted call arrives over BLE while the box is
 locked, and LockUI.show_call_alert takes over the whole screen with a
@@ -46,7 +46,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
 SHIM = os.path.join(HERE, "preview", "shim")
-LIB = os.path.join(REPO, "Box-code", "lib")
+LIB = os.path.join(REPO, "firmware", "lib")
 
 # Same ordering trick as render.py's _install_shim(): insert LIB first and
 # SHIM second, so SHIM ends up ahead of it and wins any name collision.

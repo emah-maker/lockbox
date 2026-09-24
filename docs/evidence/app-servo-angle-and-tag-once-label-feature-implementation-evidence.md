@@ -5,7 +5,7 @@ per `fraim/config.json`; work done in place, no branch/commit/PR).
 Source of truth: manager (MANdy)'s brief in this conversation, parent objective "Fix the box's
 pre-session tag-picker ... and add a phone-app-adjustable servo lock/unlock angle setting plus a
 free-text one-time session label on the Dashboard." Scope for this session: `app/src/**` only --
-`Box-code/` is a sibling task's scope (see
+`firmware/` is a sibling task's scope (see
 `docs/evidence/tag-picker-fixes-and-servo-angle-feature-implementation-evidence.md`, which
 independently confirms the same `langle`/`uangle` BLE key names and `[-90, 90]` clamp range this
 session used -- the two sides agree without having coordinated directly).
@@ -304,7 +304,7 @@ N/A -- no active regulatory/compliance framework configured for this project.
   regression test (`customLabels.test.ts`/`protocol.test.ts` "preserves a legitimate 0 langle").
 - **Self-audit**: `git status` after this session's edits shows changes confined to
   `app/src/ble/`, `app/src/store/`, `app/src/screens/`, `app/src/stats/`, and this evidence file --
-  no `Box-code/` files touched, per scope.
+  no `firmware/` files touched, per scope.
 - Confidence level: **90%** -- full confidence in the logic/tests (read, run, green); withheld 10%
   for the UI layer, which is unverified on a real device/simulator (no RN simulator/emulator/`adb`
   in this environment).

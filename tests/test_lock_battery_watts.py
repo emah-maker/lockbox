@@ -1,4 +1,4 @@
-"""Host tests for the discharge-power estimate in Box-code/lib/lock_battery.py.
+"""Host tests for the discharge-power estimate in firmware/lib/lock_battery.py.
 
 WHY THIS EXISTS. The battery page's "Power / estimated draw" row read a flat
 0.0W on hardware, permanently, in every state. Two bugs stacked:
@@ -27,7 +27,7 @@ import types
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
-sys.path.insert(0, os.path.join(REPO, "Box-code", "lib"))
+sys.path.insert(0, os.path.join(REPO, "firmware", "lib"))
 
 _sup = types.ModuleType("supervisor")
 _sup.runtime = types.SimpleNamespace(usb_connected=False)
