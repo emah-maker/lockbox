@@ -4,13 +4,13 @@
 
 <br><br>
 
-<a href="https://phonebox-d14b7.web.app"><img src="https://img.shields.io/badge/LIVE_SITE-phonebox--d14b7.web.app-22c55e?style=for-the-badge&labelColor=0b0b0c" alt="Live site"></a> <img src="https://img.shields.io/badge/TESTS-2%2C500%2B_passing-22c55e?style=for-the-badge&labelColor=0b0b0c" alt="2,500+ tests passing"> <img src="https://img.shields.io/badge/STATUS-working_prototype-ece6d6?style=for-the-badge&labelColor=0b0b0c" alt="Status: working prototype">
+<a href="https://phonebox-d14b7.web.app"><img src="https://img.shields.io/badge/LIVE_SITE-phonebox--d14b7.web.app-22c55e?style=for-the-badge&labelColor=0b0b0c" alt="Live site"></a> <img src="https://img.shields.io/badge/TESTS-2%2C500%2B_passing-22c55e?style=for-the-badge&labelColor=0b0b0c" alt="2,500+ tests passing"> <img src="https://img.shields.io/badge/STATUS-working_prototype-ece6d6?style=for-the-badge&labelColor=0b0b0c" alt="Status: working prototype"> <a href="LICENSE"><img src="https://img.shields.io/badge/LICENSE-MIT-ece6d6?style=for-the-badge&labelColor=0b0b0c" alt="MIT license"></a>
 
 <img src="https://img.shields.io/badge/ESP32--S3-E7352C?style=flat-square&logo=espressif&logoColor=white" alt="ESP32-S3"> <img src="https://img.shields.io/badge/CircuitPython-6E4AFF?style=flat-square&logo=python&logoColor=white" alt="CircuitPython"> <img src="https://img.shields.io/badge/React_Native-20232A?style=flat-square&logo=react&logoColor=61DAFB" alt="React Native"> <img src="https://img.shields.io/badge/Expo-000020?style=flat-square&logo=expo&logoColor=white" alt="Expo"> <img src="https://img.shields.io/badge/TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript"> <img src="https://img.shields.io/badge/Swift-F05138?style=flat-square&logo=swift&logoColor=white" alt="Swift"> <img src="https://img.shields.io/badge/Firebase-DD2C00?style=flat-square&logo=firebase&logoColor=white" alt="Firebase"> <img src="https://img.shields.io/badge/Bluetooth_LE-0082FC?style=flat-square&logo=bluetooth&logoColor=white" alt="Bluetooth LE"> <img src="https://img.shields.io/badge/SolidWorks-E2231A?style=flat-square&logo=dassaultsystemes&logoColor=white" alt="SolidWorks">
 
 <br>
 
-**[Why](#why-a-box-not-an-app)** · **[Features](#features)** · **[How it works](#how-it-works)** · **[Architecture](#system-architecture)** · **[Hardware](#hardware)** · **[Engineering](#engineering-problems-we-solved)** · **[Get started](#getting-started)** · **[Testing](#testing)** · **[Built with Claude Code](#built-with-claude-code)**
+**[Why](#why-a-box-not-an-app)** · **[Features](#features)** · **[How it works](#how-it-works)** · **[Architecture](#system-architecture)** · **[Hardware](#hardware)** · **[Engineering](#engineering-problems-we-solved)** · **[Get started](#getting-started)** · **[Testing](#testing)** · **[Built with Claude Code](#built-with-claude-code)** · **[License](#license)**
 
 <br>
 
@@ -460,11 +460,22 @@ real hardware, and there is an iOS build in TestFlight for our own testing.
 
 <br>
 
+## License
+
+Released under the [MIT License](LICENSE). That covers the code, the CAD files
+and the documentation.
+
+Vendored third-party code keeps its own license: the Adafruit CircuitPython
+libraries in `firmware/lib/adafruit_*` (MIT), the FRAIM catalog under `fraim/`,
+and the claude-flow helpers under `.claude/helpers/`.
+
+<br>
+
 <div align="center">
 
 <img src="https://img.shields.io/badge/PERSONAL_PROJECT-never_sold-ece6d6?style=for-the-badge&labelColor=0b0b0c" alt="Personal project, never sold">
 
-<sub>Phone Box has never been sold and isn't for sale. No open-source license has been chosen yet, so all rights are reserved by the authors.</sub>
+<sub>Phone Box has never been sold and isn't for sale.</sub>
 
 <sub><a href="#readme">↑ Back to top</a></sub>
 

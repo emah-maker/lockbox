@@ -104,7 +104,7 @@ remains unverified on physical hardware, per project convention (CircuitPython h
    original delegation brief's file list) and, if desired, decide whether the underlying child
    agent/job needs different instructions for this class of React effect-dependency bug going
    forward. A coaching-moment file was written for `sleep-on-learnings` to evaluate:
-   `fraim/personalized-employee/learnings/raw/emah@kitchenlab.org-2026-08-24T01-00-00-verify-hook-resync-not-just-rerender.md`.
+   `fraim/personalized-employee/learnings/raw/2026-08-24T01-00-00-verify-hook-resync-not-just-rerender.md`.
 2. **No on-device/simulator UI walkthrough was performed** for either the new account-icon modal or
    the duration-wheel reject behavior -- no Expo dev-client/simulator was available in this
    execution environment. All verification is `tsc`/`jest`/code-trace only.

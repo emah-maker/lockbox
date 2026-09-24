@@ -4,7 +4,7 @@
 *Received: 2026-08-10 (conversation-mode manager coaching)*
 
 ### Comment 1 - UNADDRESSED
-- **Author**: emah@kitchenlab.org
+- **Author**: <developer email>
 - **Type**: conversation_feedback
 - **File**: `firmware/lib/lock_config.py`, `firmware/lib/lock_settings.py`, `firmware/lib/lock_controller.py`, `app/src/screens/SettingsScreen.tsx`, `app/src/screens/SettingsPrimitives.tsx`
 - **Comment**: "no force open click count should just have a higher upper limit and starting at steps for five for lower numbers, the the click count steps should increase, 5, 10, 25, 50 at depending the current number" — rejects the flat `step=1` from the first implementation. Wants a progressive/non-uniform step scale (5 at the low end, growing to 10, then 25, then 50 as the value increases), plus a higher ceiling than 100.

@@ -232,7 +232,7 @@ failure modes that look like a sync bug and aren't.
 > call while it stays locked. The app works entirely on-device without an account; signing
 > in only adds sync across devices.
 
-**Feedback Email**: `emah@kitchenlab.org`
+**Feedback Email**: `<developer email>`
 
 **What to Test**:
 

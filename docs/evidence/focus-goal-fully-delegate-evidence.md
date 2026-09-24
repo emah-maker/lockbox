@@ -64,7 +64,7 @@ section I appended directly to `docs/evidence/focus-goal-feature-implementation-
 
 **This is the second run in a row on this project where an unidentified concurrent process was found
 live-editing the same working directory during a `fully-delegate` run** (see
-`docs/retrospectives/emah@kitchenlab.org-session-2026-08-10-custom-focus-labels.md` for the first).
+`docs/retrospectives/session-2026-08-10-custom-focus-labels.md` for the first).
 This time the concurrency was broader: in addition to the Firestore sync-merge refactor already
 known about, a `SettingsScreen.tsx` component-extraction refactor, a full lock-duration-picker
 feature (app + firmware), and website dashboard files were all in flux in the same working directory

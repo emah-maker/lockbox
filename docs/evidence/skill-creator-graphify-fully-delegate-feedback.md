@@ -4,7 +4,7 @@
 *Received: 2026-08-15 (conversation)*
 
 ### Comment 1 - ADDRESSED
-- **Author**: emah@kitchenlab.org
+- **Author**: <developer email>
 - **Type**: conversation_feedback
 - **File**: .claude/skills/fraim/SKILL.md
 - **Comment**: "that sounds about right, currently I am not sure if graphify is used"

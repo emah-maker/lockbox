@@ -69,7 +69,7 @@ protection. Conversational mode provisions no per-agent worktree isolation, and 
 to have multiple concurrent Claude Code / FRAIM sessions and/or OneDrive sync activity capable of
 silently overwriting in-progress work. **This is the third time in this project's recent history**
 (see also the focus-goal evidence file and its cross-reference to
-`docs/retrospectives/emah@kitchenlab.org-session-2026-08-10-custom-focus-labels.md`) that this
+`docs/retrospectives/session-2026-08-10-custom-focus-labels.md`) that this
 exact collision pattern has been observed.
 
 ## Review Verdict

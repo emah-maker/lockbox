@@ -92,7 +92,7 @@
   Agent-tool namespace, so nothing can `SendMessage` her by that name and
   every attempt will fail with "no agent named Mandy" (observed on every
   child workstream in the 2026-08-11 icon/disclaimer/box-button run - see
-  `fraim/personalized-employee/learnings/raw/emah@kitchenlab.org-2026-08-11T20-00-00-avoid-duplicate-subagent-spawn-in-fully-delegate.md`).
+  `fraim/personalized-employee/learnings/raw/2026-08-11T20-00-00-avoid-duplicate-subagent-spawn-in-fully-delegate.md`).
   Emit the delegation ledger via `seekMentoring` per the job's own
   `create-delegation-graph`/`execute` phase text ("the orchestration layer
   handles launching child jobs from the delegation ledger... do not do the
