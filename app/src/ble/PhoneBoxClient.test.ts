@@ -300,8 +300,42 @@ describe('scanForBox', () => {
     const client = new PhoneBoxClient();
     const scan = client.scanForBox(10_000);
     const settled = expect(scan).rejects.toThrow('No PhoneBox found in range');
-    jest.advanceTimersByTime(10_000);
+    // Two passes of half the window each (filtered, then by name).
+    await jest.advanceTimersByTimeAsync(10_000);
     await settled;
+  });
+
+  it('is called off by disconnect(), and a new scan is not starved by the old one', async () => {
+    jest.useFakeTimers();
+    const client = new PhoneBoxClient();
+    const first = client.scanForBox(10_000);
+    const firstSettled = expect(first).rejects.toThrow('Scan cancelled');
+    await jest.advanceTimersByTimeAsync(1_000);
+
+    await client.disconnect();
+    await firstSettled;
+
+    // The new scan runs its full window: the old scan's timer is gone, so
+    // nothing fires a stop into it early.
+    const stopsBefore = mockScan.stops;
+    const second = client.scanForBox(10_000);
+    await jest.advanceTimersByTimeAsync(4_000);
+    expect(mockScan.stops).toBe(stopsBefore);
+    mockScan.listener!(null, { id: 'box-3' });
+    await expect(second).resolves.toEqual({ id: 'box-3' });
+  });
+
+  it('falls back to an unfiltered scan and finds the box by its name', async () => {
+    jest.useFakeTimers();
+    const client = new PhoneBoxClient();
+    const scan = client.scanForBox(10_000);
+    // Filtered pass sees nothing and runs out its half of the window.
+    await jest.advanceTimersByTimeAsync(5_000);
+    // A stranger is ignored; the box is taken by name.
+    mockScan.listener!(null, { id: 'tv', name: 'Living Room TV', serviceUUIDs: null });
+    mockScan.listener!(null, { id: 'box-2', name: null, localName: 'PhoneBox', serviceUUIDs: null });
+
+    await expect(scan).resolves.toMatchObject({ id: 'box-2' });
   });
 
   it('resolves with the box even if stopping the scan rejects', async () => {
@@ -314,6 +348,7 @@ describe('scanForBox', () => {
     mockScan.stopError = new Error('scan already stopped');
 
     const scan = client.scanForBox(10_000);
+    await jest.advanceTimersByTimeAsync(0); // scanForBox checks for a held link before it scans
     mockScan.listener!(null, { id: 'box-1' });
 
     await expect(scan).resolves.toEqual({ id: 'box-1' });
@@ -324,6 +359,7 @@ describe('scanForBox', () => {
     jest.useFakeTimers();
     const client = new PhoneBoxClient();
     const scan = client.scanForBox(10_000);
+    await jest.advanceTimersByTimeAsync(0);
     mockScan.listener!(new Error('scan failed mid-flight'), null);
 
     await expect(scan).rejects.toThrow('scan failed mid-flight');

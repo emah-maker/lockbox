@@ -28,6 +28,16 @@ import {
 // -- nothing outside this file ever imported it from here.
 import type { BoxClient, ClientCallbacks } from './BoxClient';
 
+// Matches the box by what it advertises when no service filter is in play:
+// the service UUID if the packet lists it, else the name lock_config.BLE_NAME
+// sets (iOS reports it as localName when the name rides in the scan response).
+const isPhoneBox = (d: Device) =>
+  d.name === 'PhoneBox' ||
+  d.localName === 'PhoneBox' ||
+  !!d.serviceUUIDs?.some((u) => u.toLowerCase() === SERVICE_UUID);
+
+const HANDSHAKE_TIMEOUT_MS = 10000;
+
 const b64 = (s: string) => Buffer.from(s, 'utf8').toString('base64');
 const fromB64 = (s: string | null) => (s ? Buffer.from(s, 'base64').toString('utf8') : '');
 
@@ -95,6 +105,13 @@ export class PhoneBoxClient implements BoxClient {
   // afterConnect so a session that gets superseded by a newer connect can be
   // torn down by the session replacing it -- see closeSession().
   private sessionSubs: Subscription[] = [];
+  // Bumped by disconnect() so a scan already in flight knows it was called
+  // off, and the hook that ends that scan early. Without them a Disconnect
+  // followed by Connect inside the scan window leaves two scans sharing
+  // ble-plx's single scan subscription: the old one's timeout or match calls
+  // stopDeviceScan() and starves the new one into a false "not found".
+  private scanGen = 0;
+  private endActiveScan: (() => void) | null = null;
 
   /** Drop every listener from the current session. Safe to call repeatedly,
    * and safe to call from inside one of the very subscriptions it removes.
@@ -142,6 +159,13 @@ export class PhoneBoxClient implements BoxClient {
 
   /** Scan for the first box advertising our service UUID.
    *
+   * The 30s default (was 10s) and the "wake it" hint in the timeout error are
+   * firmware facts, not politeness: lock_ble.py's _want_advertise only
+   * advertises while the box's screen is on or a session is locked
+   * (BLE_ADV_WHEN_LOCKED). An idle box with its screen asleep is invisible
+   * to any scan, and the firmware can no longer be changed in the field, so
+   * the app has to wait out a wake-up and tell the user to cause one.
+   *
    * Both scan calls return promises -- react-native-ble-plx documents each
    * as rejecting "if the operation is impossible to perform" -- and both
    * were invoked bare. That cost this method its only honest failure
@@ -157,22 +181,69 @@ export class PhoneBoxClient implements BoxClient {
    * so it is swallowed rather than allowed to overturn an outcome, or
    * escape (which on Node 24 and on Hermes with no handler is not a
    * warning; it takes the process down). */
-  scanForBox(timeoutMs = 10000): Promise<Device> {
+  async scanForBox(timeoutMs = 30000): Promise<Device> {
+    // Two passes. The service-UUID filter is the precise one, but it is also
+    // the one thing CoreBluetooth can quietly fail to satisfy -- it matches
+    // only UUIDs carried in the advertisement itself, so a box whose packet
+    // does not list the service (or whose cached advertisement is stale
+    // after an iOS update) is invisible to it while plainly present. The
+    // second pass drops the filter and recognises the box by its advertised
+    // name instead. Foreground only, which is where a user-visible connect
+    // runs; iOS returns nothing for an unfiltered scan in the background,
+    // and that case just falls through to the same timeout as before.
+    const gen = ++this.scanGen;
+    const cancelled = () => gen !== this.scanGen;
+    // A box the OS still holds a link to has stopped advertising, so no scan
+    // can find it -- the usual leftover of an app killed or crashed mid-
+    // session. Hand the link back first; the box then advertises again.
+    try {
+      const held = (await this.manager.connectedDevices?.([SERVICE_UUID])) ?? [];
+      for (const d of held) await this.manager.cancelDeviceConnection(d.id).catch(() => {});
+    } catch {
+      // Best effort -- scanning proceeds either way.
+    }
+    if (cancelled()) throw new Error('Scan cancelled');
+    const half = Math.floor(timeoutMs / 2);
+    const found =
+      (await this.scanOnce([SERVICE_UUID], half, () => true)) ??
+      (cancelled() ? null : await this.scanOnce(null, timeoutMs - half, isPhoneBox));
+    if (cancelled()) throw new Error('Scan cancelled');
+    if (found) return found;
+    throw new Error('No PhoneBox found in range -- tap the screen on the box to wake it, then try again.');
+  }
+
+  /** One scan pass: the first device `accept` likes, or null on timeout.
+   * A failed START rejects (see scanForBox's history above); a failed STOP is
+   * swallowed. */
+  private scanOnce(
+    uuids: string[] | null,
+    timeoutMs: number,
+    accept: (d: Device) => boolean,
+  ): Promise<Device | null> {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
+        this.endActiveScan = null;
         this.manager.stopDeviceScan().catch(() => {});
-        reject(new Error('No PhoneBox found in range'));
+        resolve(null);
       }, timeoutMs);
+      this.endActiveScan = () => {
+        clearTimeout(timer);
+        this.endActiveScan = null;
+        this.manager.stopDeviceScan().catch(() => {});
+        resolve(null);
+      };
       this.manager
-        .startDeviceScan([SERVICE_UUID], null, (error, device) => {
+        .startDeviceScan(uuids, null, (error, device) => {
           if (error) {
             clearTimeout(timer);
+            this.endActiveScan = null;
             this.manager.stopDeviceScan().catch(() => {});
             reject(error);
             return;
           }
-          if (device) {
+          if (device && accept(device)) {
             clearTimeout(timer);
+            this.endActiveScan = null;
             this.manager.stopDeviceScan().catch(() => {});
             resolve(device);
           }
@@ -182,6 +253,7 @@ export class PhoneBoxClient implements BoxClient {
           // the point: without it the caller waits out the full window for
           // an answer that already exists, and then gets the wrong one.
           clearTimeout(timer);
+          this.endActiveScan = null;
           reject(e);
         });
     });
@@ -243,8 +315,21 @@ export class PhoneBoxClient implements BoxClient {
    * connected rejects with DeviceAlreadyConnected (203). Every rung of the
    * ladder fails the same way until someone power-cycles the box. */
   private async afterConnect(d: Device, cb: ClientCallbacks): Promise<void> {
+    let stall: ReturnType<typeof setTimeout> | undefined;
     try {
-      await this.afterConnectInner(d, cb);
+      // Discovery and the clock write have no timeout of their own -- the
+      // native connect timeout covers only the link. A peripheral that
+      // accepts the link and then stalls would otherwise leave the app on
+      // "Connecting" for good, every retry a no-op behind the store's guard.
+      await Promise.race([
+        this.afterConnectInner(d, cb),
+        new Promise<never>((_, reject) => {
+          stall = setTimeout(
+            () => reject(new Error('Connected, but the box did not finish setting up (timed out).')),
+            HANDSHAKE_TIMEOUT_MS,
+          );
+        }),
+      ]);
     } catch (e) {
       // Tear the half-built session back down so "connect failed" means
       // disconnected -- rather than the opposite of what the caller has
@@ -261,6 +346,8 @@ export class PhoneBoxClient implements BoxClient {
         // the link dropping in the first place.
       }
       throw e;
+    } finally {
+      clearTimeout(stall);
     }
   }
 
@@ -453,6 +540,8 @@ export class PhoneBoxClient implements BoxClient {
     // the app silently reconnected to the box the user had just disconnected
     // from. That is the same class of bug pendingDeviceId was added for, just
     // the case where `this.device` is non-null rather than null.
+    this.scanGen += 1;
+    this.endActiveScan?.();
     const targets = [this.device?.id, this.pendingDeviceId].filter(
       (id, i, all): id is string => !!id && all.indexOf(id) === i,
     );
