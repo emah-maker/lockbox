@@ -97,6 +97,7 @@ export default function DashboardScreen() {
   // the only whole-store subscription left in the app; every other read here
   // (and on every other screen) is already a selector.
   const conn = useStore((st) => st.conn);
+  const connError = useStore((st) => st.error);
   const status = useStore((st) => st.status);
   const sessions = useStore((st) => st.sessions);
   const currentTopic = useStore((st) => st.currentTopic);
@@ -421,6 +422,16 @@ export default function DashboardScreen() {
           <Text style={s.connectBtnText}>{connected ? 'Disconnect' : 'Connect'}</Text>
         </AnimatedPressable>
       </View>
+
+      {/* The store's own error text, back on screen: with it hidden, every
+          failure -- Bluetooth off or denied, scan timeout, a refused
+          connect, a failed handshake -- reads as the same "Not Connected",
+          and the fix for each is different. */}
+      {conn === 'error' && connError ? (
+        <Text style={{ color: theme.danger, ...typeScale.label }} accessibilityRole="alert">
+          {connError}
+        </Text>
+      ) : null}
 
       <FocusHero
         status={status}
