@@ -28,6 +28,14 @@ import {
 // -- nothing outside this file ever imported it from here.
 import type { BoxClient, ClientCallbacks } from './BoxClient';
 
+// Matches the box by what it advertises when no service filter is in play:
+// the service UUID if the packet lists it, else the name lock_config.BLE_NAME
+// sets (iOS reports it as localName when the name rides in the scan response).
+const isPhoneBox = (d: Device) =>
+  d.name === 'PhoneBox' ||
+  d.localName === 'PhoneBox' ||
+  !!d.serviceUUIDs?.some((u) => u.toLowerCase() === SERVICE_UUID);
+
 const b64 = (s: string) => Buffer.from(s, 'utf8').toString('base64');
 const fromB64 = (s: string | null) => (s ? Buffer.from(s, 'base64').toString('utf8') : '');
 
@@ -164,21 +172,46 @@ export class PhoneBoxClient implements BoxClient {
    * so it is swallowed rather than allowed to overturn an outcome, or
    * escape (which on Node 24 and on Hermes with no handler is not a
    * warning; it takes the process down). */
-  scanForBox(timeoutMs = 30000): Promise<Device> {
+  async scanForBox(timeoutMs = 30000): Promise<Device> {
+    // Two passes. The service-UUID filter is the precise one, but it is also
+    // the one thing CoreBluetooth can quietly fail to satisfy -- it matches
+    // only UUIDs carried in the advertisement itself, so a box whose packet
+    // does not list the service (or whose cached advertisement is stale
+    // after an iOS update) is invisible to it while plainly present. The
+    // second pass drops the filter and recognises the box by its advertised
+    // name instead. Foreground only, which is where a user-visible connect
+    // runs; iOS returns nothing for an unfiltered scan in the background,
+    // and that case just falls through to the same timeout as before.
+    const half = Math.floor(timeoutMs / 2);
+    const found =
+      (await this.scanOnce([SERVICE_UUID], half, () => true)) ??
+      (await this.scanOnce(null, timeoutMs - half, isPhoneBox));
+    if (found) return found;
+    throw new Error('No PhoneBox found in range -- tap the screen on the box to wake it, then try again.');
+  }
+
+  /** One scan pass: the first device `accept` likes, or null on timeout.
+   * A failed START rejects (see scanForBox's history above); a failed STOP is
+   * swallowed. */
+  private scanOnce(
+    uuids: string[] | null,
+    timeoutMs: number,
+    accept: (d: Device) => boolean,
+  ): Promise<Device | null> {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.manager.stopDeviceScan().catch(() => {});
-        reject(new Error('No PhoneBox found in range -- tap the screen on the box to wake it, then try again.'));
+        resolve(null);
       }, timeoutMs);
       this.manager
-        .startDeviceScan([SERVICE_UUID], null, (error, device) => {
+        .startDeviceScan(uuids, null, (error, device) => {
           if (error) {
             clearTimeout(timer);
             this.manager.stopDeviceScan().catch(() => {});
             reject(error);
             return;
           }
-          if (device) {
+          if (device && accept(device)) {
             clearTimeout(timer);
             this.manager.stopDeviceScan().catch(() => {});
             resolve(device);

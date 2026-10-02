@@ -300,8 +300,22 @@ describe('scanForBox', () => {
     const client = new PhoneBoxClient();
     const scan = client.scanForBox(10_000);
     const settled = expect(scan).rejects.toThrow('No PhoneBox found in range');
-    jest.advanceTimersByTime(10_000);
+    // Two passes of half the window each (filtered, then by name).
+    await jest.advanceTimersByTimeAsync(10_000);
     await settled;
+  });
+
+  it('falls back to an unfiltered scan and finds the box by its name', async () => {
+    jest.useFakeTimers();
+    const client = new PhoneBoxClient();
+    const scan = client.scanForBox(10_000);
+    // Filtered pass sees nothing and runs out its half of the window.
+    await jest.advanceTimersByTimeAsync(5_000);
+    // A stranger is ignored; the box is taken by name.
+    mockScan.listener!(null, { id: 'tv', name: 'Living Room TV', serviceUUIDs: null });
+    mockScan.listener!(null, { id: 'box-2', name: null, localName: 'PhoneBox', serviceUUIDs: null });
+
+    await expect(scan).resolves.toMatchObject({ id: 'box-2' });
   });
 
   it('resolves with the box even if stopping the scan rejects', async () => {
