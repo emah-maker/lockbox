@@ -691,6 +691,11 @@ export const useStore = create<AppState>((set, get) => {
           scheduleReconnect();
         },
       };
+      // What the remembered-box attempt died of, kept so a scan that then
+      // also fails does not present itself as the whole story: a handshake
+      // failure on that path reads, after the fall-through, as "No PhoneBox
+      // found", which sends the user hunting for a box that was right there.
+      let rememberedBoxError: string | null = null;
       try {
         set({ conn: 'scanning', error: null });
         await owner.waitForPoweredOn();
@@ -715,8 +720,9 @@ export const useStore = create<AppState>((set, get) => {
             }
             await afterConnected();
             return;
-          } catch {
+          } catch (e: any) {
             if (abandoned()) return;
+            rememberedBoxError = e?.message ?? null;
             // remembered box isn't reachable directly (out of range, OS forgot
             // the peripheral) -- fall through to a normal scan below
             set({ conn: 'scanning' });
@@ -747,7 +753,11 @@ export const useStore = create<AppState>((set, get) => {
         // either with a spurious error state, or arm a reconnect against a
         // connection that is fine.
         if (abandoned()) return;
-        set({ conn: 'error', error: e?.message ?? 'Connection failed' });
+        const base = e?.message ?? 'Connection failed';
+        set({
+          conn: 'error',
+          error: rememberedBoxError ? `${base} (first attempt, to the remembered box: ${rememberedBoxError})` : base,
+        });
         scheduleReconnect();
       }
     },

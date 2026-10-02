@@ -98,6 +98,8 @@ export default function DashboardScreen() {
   // (and on every other screen) is already a selector.
   const conn = useStore((st) => st.conn);
   const connError = useStore((st) => st.error);
+  // Mid-attempt the store ignores Connect, so the button has to be the way out.
+  const busy = conn === 'scanning' || conn === 'connecting';
   const status = useStore((st) => st.status);
   const sessions = useStore((st) => st.sessions);
   const currentTopic = useStore((st) => st.currentTopic);
@@ -415,11 +417,11 @@ export default function DashboardScreen() {
         <View />
         <AnimatedPressable
           style={s.connectBtn}
-          onPress={connected ? disconnect : connect}
+          onPress={connected || busy ? disconnect : connect}
           accessibilityRole="button"
-          accessibilityLabel={connected ? 'Disconnect from box' : 'Connect to box'}
+          accessibilityLabel={connected ? 'Disconnect from box' : busy ? 'Cancel connecting' : 'Connect to box'}
         >
-          <Text style={s.connectBtnText}>{connected ? 'Disconnect' : 'Connect'}</Text>
+          <Text style={s.connectBtnText}>{connected ? 'Disconnect' : busy ? 'Cancel' : 'Connect'}</Text>
         </AnimatedPressable>
       </View>
 
