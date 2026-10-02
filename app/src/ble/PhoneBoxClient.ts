@@ -142,6 +142,13 @@ export class PhoneBoxClient implements BoxClient {
 
   /** Scan for the first box advertising our service UUID.
    *
+   * The 30s default (was 10s) and the "wake it" hint in the timeout error are
+   * firmware facts, not politeness: lock_ble.py's _want_advertise only
+   * advertises while the box's screen is on or a session is locked
+   * (BLE_ADV_WHEN_LOCKED). An idle box with its screen asleep is invisible
+   * to any scan, and the firmware can no longer be changed in the field, so
+   * the app has to wait out a wake-up and tell the user to cause one.
+   *
    * Both scan calls return promises -- react-native-ble-plx documents each
    * as rejecting "if the operation is impossible to perform" -- and both
    * were invoked bare. That cost this method its only honest failure
@@ -157,11 +164,11 @@ export class PhoneBoxClient implements BoxClient {
    * so it is swallowed rather than allowed to overturn an outcome, or
    * escape (which on Node 24 and on Hermes with no handler is not a
    * warning; it takes the process down). */
-  scanForBox(timeoutMs = 10000): Promise<Device> {
+  scanForBox(timeoutMs = 30000): Promise<Device> {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.manager.stopDeviceScan().catch(() => {});
-        reject(new Error('No PhoneBox found in range'));
+        reject(new Error('No PhoneBox found in range -- tap the screen on the box to wake it, then try again.'));
       }, timeoutMs);
       this.manager
         .startDeviceScan([SERVICE_UUID], null, (error, device) => {
