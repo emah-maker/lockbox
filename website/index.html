@@ -3,13 +3,13 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Phone Box — a smart focus lockbox built by Evan Mah</title>
-  <meta name="description" content="Phone Box is a phone lockbox I designed and printed myself, with firmware and an iOS companion app I specified, tested, and debugged using Claude Code. A personal project, never sold." />
+  <title>Phone Box — project documentation by Evan Mah</title>
+  <meta name="description" content="Project documentation for Phone Box, a phone lockbox I designed and printed myself, with firmware and an iOS companion app I specified, tested, and debugged using Claude Code. A personal project, never sold." />
 
   <!-- Open Graph: without these, sharing this URL anywhere renders a blank card. -->
   <meta property="og:type" content="website" />
   <meta property="og:site_name" content="Phone Box" />
-  <meta property="og:title" content="Phone Box — a smart focus lockbox built by Evan Mah" />
+  <meta property="og:title" content="Phone Box — project documentation by Evan Mah" />
   <meta property="og:description" content="A phone lockbox I designed and printed over summer 2026: servo latch, 1.47-inch touchscreen, ESP32-S3, and an iOS companion app over BLE. Two enclosure revisions in SolidWorks; Claude Code wrote the firmware and app while I specified, tested, and debugged them. Never sold." />
   <meta property="og:url" content="https://phonebox-d14b7.web.app/" />
   <meta property="og:image" content="https://phonebox-d14b7.web.app/assets/og-image.png" />
@@ -19,7 +19,7 @@
 
   <!-- Twitter Card: mirrors the Open Graph tags above so X/Twitter previews match. -->
   <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:title" content="Phone Box — a smart focus lockbox built by Evan Mah" />
+  <meta name="twitter:title" content="Phone Box — project documentation by Evan Mah" />
   <meta name="twitter:description" content="A phone lockbox I designed and printed over summer 2026 — servo latch, touchscreen, ESP32-S3, BLE companion app. Two enclosure revisions in SolidWorks; Claude Code wrote the code while I specified, tested, and debugged. Never sold." />
   <meta name="twitter:image" content="https://phonebox-d14b7.web.app/assets/og-image.png" />
 
@@ -37,7 +37,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Archivo:wght@400;500;600;700&family=Courier+Prime:wght@400;700&family=VT323&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="css/styles.css" />
   <link rel="stylesheet" href="css/overrideInset.css" />
-  <noscript><style>.reveal { opacity: 1 !important; transform: none !important; }</style></noscript>
+  <link rel="stylesheet" href="css/docs.css" />
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to content</a>
@@ -45,7 +45,7 @@
   <!-- ===== NAV ===== -->
   <header class="nav" id="top">
     <div class="wrap nav__inner">
-      <a class="brand" href="#top" aria-label="Phone Box home">
+      <a class="brand" href="#top" aria-label="Phone Box documentation, top">
         <span class="brand__mark" aria-hidden="true">
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" role="img" aria-hidden="true">
             <rect x="4" y="2.5" width="16" height="19" rx="3" stroke="currentColor" stroke-width="1.8"/>
@@ -54,6 +54,7 @@
           </svg>
         </span>
         <span class="brand__name">Phone&nbsp;Box</span>
+        <span class="brand__docs">Docs</span>
       </a>
       <button type="button" class="nav__toggle" id="navToggle" aria-expanded="false" aria-controls="navMenu" aria-label="Open menu">
         <span class="nav__toggle-bars" aria-hidden="true"></span>
@@ -61,487 +62,409 @@
       <div class="nav__menu" id="navMenu">
         <div class="nav__menu-inner">
           <nav class="nav__links" aria-label="Primary">
-            <a href="#build">The build</a>
-            <a href="#pillars">Features</a>
-            <a href="#how">How it works</a>
-            <a href="#compare">Compare</a>
-            <a href="#faq">FAQ</a>
-            <a href="#builder">Who built it</a>
+            <a href="#hardware">Hardware</a>
+            <a href="#firmware">Firmware</a>
+            <a href="#app">App</a>
+            <a href="#credits">Credits</a>
+            <a href="#author">Author</a>
           </nav>
         </div>
       </div>
     </div>
   </header>
 
-  <main id="main">
-    <!-- ===== HERO ===== -->
-    <section class="hero" aria-labelledby="hero-title">
-      <div class="wrap hero__grid">
-        <div class="hero__copy reveal">
-          <h1 id="hero-title">The smart focus lockbox.</h1>
-          <p class="lead">
-            I built this for myself over summer 2026: set a timer, drop your phone in,
-            and a servo-driven latch keeps it physically locked away until you're done.
-            A touchscreen countdown, a tunable emergency override, and
-            <strong>a BLE companion app.</strong>
-          </p>
-          <div class="hero__cta">
-            <a class="btn btn--primary btn--lg" href="#how">See how it works</a>
-            <a class="btn btn--ghost btn--lg" href="#compare">Why a box, not an app</a>
-          </div>
-          <p style="margin-top:18px;">
-            <span class="ticket-badge">Personal project · not for sale</span>
-          </p>
-          <p class="hero__byline">Built by <a href="#builder">Evan Mah</a> — mechanical engineering undergraduate, Northeastern University.</p>
-          <ul class="hero__points">
-            <li>True physical lockaway</li>
-            <li>Two full enclosure revisions</li>
-            <li>Rechargeable &amp; opaque</li>
-          </ul>
-        </div>
+  <div class="wrap docs">
+    <!-- ===== TABLE OF CONTENTS ===== -->
+    <aside class="docs__toc">
+      <details class="toc" id="toc" open>
+        <summary class="toc__title">On this page</summary>
+        <nav aria-label="On this page">
+          <ol class="toc__list">
+            <li><a href="#overview">1. Overview</a></li>
+            <li><a href="#operation">2. Operation</a>
+              <ol>
+                <li><a href="#lock-cycle">Lock cycle</a></li>
+                <li><a href="#states">Firmware states</a></li>
+                <li><a href="#override">Emergency override</a></li>
+              </ol>
+            </li>
+            <li><a href="#hardware">3. Hardware</a>
+              <ol>
+                <li><a href="#components">Components</a></li>
+                <li><a href="#wiring">Wiring</a></li>
+                <li><a href="#enclosure">Enclosure</a></li>
+                <li><a href="#power">Power &amp; fuel gauge</a></li>
+              </ol>
+            </li>
+            <li><a href="#firmware">4. Firmware</a>
+              <ol>
+                <li><a href="#touch">Touch driver</a></li>
+                <li><a href="#persistence">Persistence</a></li>
+                <li><a href="#settings">Settings</a></li>
+              </ol>
+            </li>
+            <li><a href="#app">5. Companion app</a>
+              <ol>
+                <li><a href="#ble">BLE interface</a></li>
+                <li><a href="#app-features">Features</a></li>
+              </ol>
+            </li>
+            <li><a href="#debugging">6. Debugging log</a></li>
+            <li><a href="#credits">7. Credits</a></li>
+            <li><a href="#prior-art">8. Prior art</a></li>
+            <li><a href="#author">9. Author</a></li>
+          </ol>
+        </nav>
+      </details>
+    </aside>
 
-        <!-- ===== DEVICE MOCKUP (pure CSS/SVG) ===== -->
-        <div class="hero__device reveal">
-          <div class="checkpoint">
-            <div class="checkpoint__tray">
-              <figure class="device" role="img"
-                aria-label="Illustration of the Phone Box device: an opaque 3D-printed lockbox with a small portrait touchscreen showing a red SEIZED countdown timer and a battery indicator, sitting in a stainless checkpoint tray with an attached claim ticket.">
-                <div class="device__lid"></div>
-                <div class="device__screen" id="mockScreen">
-                  <div class="scr">
-                    <div class="scr__status">
-                      <span class="scr__lock" id="scrLockLabel">LOCKED</span>
-                      <span class="scr__batt" aria-hidden="true">
-                        <span class="scr__batt-body"><span class="scr__batt-fill"></span></span>
-                        <span class="scr__batt-cap"></span>
-                        <span class="scr__batt-pct">82%</span>
-                      </span>
-                    </div>
-                    <div class="scr__main">
-                      <div class="scr__label">FOCUS</div>
-                      <div class="scr__time" id="mockTime">0:24:59</div>
-                      <div class="scr__bar"><span id="mockBar"></span></div>
-                    </div>
-                    <div class="scr__foot">
-                      <span class="scr__hint">PRESS OVERRIDE &times;25</span>
-                    </div>
-                  </div>
-                </div>
-                <div class="device__latch" aria-hidden="true"></div>
-              </figure>
-              <span class="checkpoint__label">Checkpoint tray · 02</span>
-              <div class="claim-tag" aria-hidden="true">
-                <span class="claim-tag__hole"></span>
-                <div class="claim-tag__head">Claim ticket</div>
-                <div class="claim-tag__num">No. 0417</div>
-                <div class="barcode"></div>
-                <span class="claim-tag__stamp stamp stamp--seized">Seized</span>
-              </div>
-            </div>
-            <p class="checkpoint__cap">3D-printed enclosure · 1.47" touchscreen · servo latch · USB-C</p>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- ===== PROBLEM ===== -->
-    <section class="problem" aria-labelledby="problem-title">
-      <div class="wrap problem__inner reveal">
-        <h2 id="problem-title">Your phone always wins.</h2>
-        <p>
-          App blockers are one settings toggle from defeat. A drawer is one weak
-          moment away. Willpower loses to a device engineered to capture it. The only
-          thing that reliably works is putting the phone somewhere you genuinely
-          can't reach it — and then making that easy, honest, and safe.
+    <main id="main" class="doc">
+      <!-- ===== 1. OVERVIEW ===== -->
+      <section class="doc-section doc-section--first" id="overview" aria-labelledby="overview-title">
+        <p class="doc__eyebrow">Project documentation &middot; Summer 2026</p>
+        <h1 id="overview-title">Phone Box</h1>
+        <p class="doc__lead">
+          A lockbox that physically holds a phone shut for a set focus session. You close the lid,
+          set a time on its touchscreen, and a servo latch keeps it closed until the timer runs out.
+          It works on its own with no account and no connection, and an optional iOS companion app
+          pairs over Bluetooth Low Energy for live status and focus stats.
         </p>
-        <div class="ledger-strip reveal">
-          <div class="barcode" aria-hidden="true"></div>
-          <div class="ledger-strip__row">
-            <span class="ledger-strip__item"><span class="num">1</span>toggle to defeat a software blocker</span>
-            <span class="ledger-strip__item"><span class="num">0</span>notifications you can see through an opaque box</span>
-            <span class="ledger-strip__item"><span class="num">25</span>deliberate presses for the emergency way out</span>
-          </div>
-        </div>
-      </div>
-    </section>
 
-    <!-- ===== THE BUILD (process + honest attribution) ===== -->
-    <section class="build" id="build" aria-labelledby="build-title">
-      <div class="wrap">
-        <div class="section-head reveal">
-          <h2 id="build-title">How it actually got built.</h2>
-          <p class="section-sub">Two enclosure revisions, a pile of test prints, and a clear line between what I did and what an agent did.</p>
-        </div>
+        <dl class="docmeta">
+          <div><dt>Status</dt><dd>Working prototype. A personal project: never sold, not for sale.</dd></div>
+          <div><dt>Built</dt><dd>Summer 2026 &middot; enclosure V1 17&ndash;22 Aug, V2 assembly 24 Aug</dd></div>
+          <div><dt>Hardware</dt><dd>ESP32-S3 with 1.47&Prime; touchscreen, servo latch, MAX17043 fuel gauge, LiPo, USB-C</dd></div>
+          <div><dt>Software</dt><dd>CircuitPython firmware &middot; React Native (Expo) iOS app &middot; Firebase backend</dd></div>
+          <div><dt>Roles</dt><dd>Evan Mah: design, fabrication, testing &middot; Claude Code: most of the code (<a href="#credits">details</a>)</dd></div>
+          <div><dt>Source</dt><dd>Private repository, 240+ commits. Walkthroughs on request.</dd></div>
+        </dl>
 
-        <div class="proof reveal">
+        <div class="proof">
           <figure class="proof__item">
-            <img src="assets/photos/device-battery.webp" width="780" height="1040" loading="lazy" decoding="async"
+            <img src="assets/photos/device-battery.webp" width="780" height="1040" decoding="async"
                  alt="The finished Phone Box: a matte black 3D-printed enclosure with visible layer lines, its 1.47-inch touchscreen reading BATTERY, 88 percent, 4.01 volts, held in one hand." />
-            <figcaption>The battery view, reading off the MAX17043 &mdash; 88%, 4.01&nbsp;V.</figcaption>
+            <figcaption>Fig. 1 &mdash; Battery view, read from the MAX17043: 88%, 4.01&nbsp;V.</figcaption>
           </figure>
           <figure class="proof__item">
-            <img src="assets/photos/device-timer.webp" width="780" height="1040" loading="lazy" decoding="async"
+            <img src="assets/photos/device-timer.webp" width="780" height="1040" decoding="async"
                  alt="The same box with a finger on the touchscreen, setting a timer that reads 0:05, with the lock button below it." />
-            <figcaption>Setting a lock on the panel itself. No phone involved.</figcaption>
+            <figcaption>Fig. 2 &mdash; Setting a session on the panel itself. No phone involved.</figcaption>
           </figure>
           <p class="proof__note">
-            Both are frames lifted from a clip of the actual box, so they are softer than
-            I would like. They are here because a render proves nothing and this proves
-            the thing exists. The source is a private repo &mdash; happy to walk anyone
-            through the tree.
+            Both are frames from a video of the actual box, so they are softer than a proper photo.
           </p>
         </div>
 
-        <!-- iteration evidence -->
-        <div class="manifest">
-          <article class="manifest__row reveal">
-            <span class="manifest__num">No. 1</span>
-            <div class="manifest__body">
-              <h3>Print the joint before you print the box</h3>
-              <p>
-                The enclosure is mine end to end &mdash; modelled in <strong>SolidWorks</strong>
-                and drawn for FDM printing, through two full revisions. Every interface that
-                could bite got its own throwaway coupon first: a hinge, the charger port, the
-                screen bezel, the latch tab, the power switch, and a housing for the on/off
-                button. Each one printed, offered up to the real component, and binned.
-              </p>
-              <p>
-                Only once those passed did a full V2 assembly get committed to a multi-hour
-                print. The dates below are the CAD files themselves &mdash; six coupons in five days, five of
-                them in a single session, then the assembly.
-              </p>
-              <div class="printlog">
-                <div class="printlog__head">
-                  <span class="spec-sheet__title">Fit-test log</span>
-                  <span class="spec-sheet__num">V1 &rarr; V2</span>
-                </div>
-                <dl class="printlog__list">
-                  <div class="printlog__row"><dt>Main case + lid, rev 1</dt><dd>17&ndash;22 Aug</dd></div>
-                  <div class="printlog__row"><dt>Hinge coupon</dt><dd>18 Aug</dd></div>
-                  <div class="printlog__row"><dt>Charger-port coupon</dt><dd>18 Aug</dd></div>
-                  <div class="printlog__row"><dt>Latch-tab coupon</dt><dd>18 Aug</dd></div>
-                  <div class="printlog__row"><dt>Power-switch coupon</dt><dd>18 Aug</dd></div>
-                  <div class="printlog__row"><dt>On/off button housing</dt><dd>18 Aug</dd></div>
-                  <div class="printlog__row"><dt>Screen-bezel coupon</dt><dd>22 Aug</dd></div>
-                  <div class="printlog__row printlog__row--final"><dt>Full V2 assembly</dt><dd>24 Aug</dd></div>
-                </dl>
-              </div>
-              <span class="card__tag stamp stamp--note">SolidWorks &middot; FDM &middot; two revisions</span>
-            </div>
-          </article>
+        <h3>Motivation</h3>
+        <p>
+          Software blockers can be turned off with one settings toggle, and the phone stays in your
+          hand the whole time. Commercial lockboxes solve that but are usually transparent, use a
+          mechanical dial, and offer either no way out or a weak one. I wanted a box that enforces the
+          session physically while still giving a deliberate way out in an emergency.
+        </p>
 
-          <article class="manifest__row reveal">
-            <span class="manifest__num">No. 2</span>
-            <div class="manifest__body">
-              <h3>The servo kept dying, and only on real hardware</h3>
-              <p>
-                Locks failed intermittently, and never in anything I could reason about on
-                screen. I found it by running lock cycles on the bench until the pattern
-                showed up. It turned out to be two faults wearing one coat: the CPU clock
-                scaling out from under the servo's PWM timer, and a motor that pulls close
-                to an amp hanging off a rail that cannot supply it. The firmware re-asserts
-                50&nbsp;Hz on every move, and the servo runs from the battery rail with
-                bulk capacitance rather than 3.3&nbsp;V.
-              </p>
-              <span class="card__tag stamp stamp--note">Found on hardware</span>
-            </div>
-          </article>
+        <h3>Design goals</h3>
+        <ul class="doc__bullets">
+          <li><strong>Physical enforcement.</strong> The latch, not software on the phone, keeps the session.</li>
+          <li><strong>A controlled exit.</strong> A tunable press-count override instead of a bypass or no exit at all.</li>
+          <li><strong>Self-contained.</strong> All core functions run on the box with no app, account, or network.</li>
+          <li><strong>Opaque and rechargeable.</strong> No seeing notifications through the case, and USB-C charging.</li>
+        </ul>
+      </section>
 
-          <article class="manifest__row reveal">
-            <span class="manifest__num">No. 3</span>
-            <div class="manifest__body">
-              <h3>Getting a battery reading at all</h3>
-              <p>
-                The ESP32-S3 board has no fuel gauge. I bought a MAX17043 breakout and
-                modified it by hand &mdash; disconnecting lines, soldering, crimping &mdash;
-                until the box could report a real state of charge instead of guessing from
-                a raw ADC voltage.
-              </p>
-              <span class="card__tag stamp stamp--note">Soldering &middot; crimping</span>
-            </div>
-          </article>
+      <!-- ===== 2. OPERATION ===== -->
+      <section class="doc-section" id="operation" aria-labelledby="operation-title">
+        <h2 id="operation-title"><span class="sec-num">2</span>Operation</h2>
 
-          <figure class="wiring reveal">
-            <img src="assets/wiring-diagram.svg" width="2000" height="1250" loading="lazy" decoding="async"
-                 alt="Electrical wiring diagram for Phone Box: the ESP32-S3 board with its 1.47-inch touchscreen, the MAX17043 fuel gauge on I2C, the LiPo cell and USB-C charge path, the servo on GPIO5 powered from the battery rail rather than 3.3 volts, and the override button." />
-            <figcaption>
-              What is actually wired together inside the box &mdash; the servo on its own supply
-              rather than the 3.3&nbsp;V rail, and the MAX17043 on I2C.
-              <a class="wiring__open" href="assets/wiring-diagram.svg" target="_blank" rel="noopener">Open it full size</a>
-              if the pin labels are too small to read here.
-            </figcaption>
-          </figure>
+        <h3 id="lock-cycle">Lock cycle</h3>
+        <ol class="doc__steps">
+          <li><strong>Close the lid.</strong> The lid presses a sensor button and the servo latches. No countdown runs yet.</li>
+          <li><strong>Set the time.</strong> Swipe on the touchscreen to set hours, minutes and seconds, up to 9&nbsp;h&nbsp;55&nbsp;min.</li>
+          <li><strong>Tap LOCK.</strong> The countdown starts. While it runs, the clock is the only screen available.</li>
+          <li><strong>Session ends.</strong> When the timer expires the latch releases and the session is logged.</li>
+        </ol>
+
+        <h3 id="states">Firmware states</h3>
+        <p>
+          The controller in <code>lock_controller_states.py</code> is a small state machine. The app
+          receives the current state verbatim over BLE.
+        </p>
+        <div class="table-scroll" role="region" aria-label="Firmware states, scrollable" tabindex="0">
+          <table class="doc-table">
+            <thead><tr><th scope="col">State</th><th scope="col">Latch</th><th scope="col">Meaning</th></tr></thead>
+            <tbody>
+              <tr><td><code>idle</code></td><td>Open</td><td>No session. Lid open or not yet detected.</td></tr>
+              <tr><td><code>closed</code></td><td>Latched</td><td>Lid sensor tripped and servo latched; waiting for LOCK.</td></tr>
+              <tr><td><code>picking</code></td><td>Either</td><td>On-box tag picker shown before a session starts.</td></tr>
+              <tr><td><code>confirming</code></td><td>Either</td><td>Confirm or change a session topic the app sent ahead of time.</td></tr>
+              <tr><td><code>running</code></td><td>Latched</td><td>Countdown active. Only the override or the timer ends it.</td></tr>
+              <tr><td><code>done</code></td><td>Releasing</td><td>Session over by timer, override, or app unlock. Completed runs are logged.</td></tr>
+            </tbody>
+          </table>
         </div>
-        <!-- chain of custody: honest split of who did what -->
-        <div class="custody reveal">
-          <div class="custody__head">
-            <span class="spec-sheet__title">Chain of custody</span>
-            <span class="spec-sheet__num">No. 0417</span>
+
+        <h3 id="override">Emergency override</h3>
+        <div class="override-figure">
+          <figure class="override-inset">
+            <div class="override-inset__frame">
+              <video class="override-inset__video" muted loop playsinline autoplay preload="metadata" width="172" height="320" poster="assets/video/screen/override-view-still.png">
+                <source src="assets/video/screen/override-loop.webm" type="video/webm" media="(prefers-reduced-motion: no-preference)">
+              </video>
+            </div>
+            <figcaption class="override-inset__caption">Override screen, redrawn from the firmware&rsquo;s UI geometry</figcaption>
+          </figure>
+          <div>
+            <p>
+              Pressing the override button a set number of times releases the latch early. The count
+              is 25 by default and can be set from 5 to 500 in steps of 5. Every release is written to
+              on-device memory, so using it is never silent. If more than a second passes between
+              presses (adjustable from 0.3 to 10&nbsp;s), the count resets to zero, so the presses
+              have to be one deliberate sequence rather than a tally built up over time.
+            </p>
+            <p>
+              The iOS app can also unlock the box automatically when a phone call comes in. This is off
+              by default. Otherwise, the press-count override is the only way to end a session early.
+            </p>
           </div>
-          <div class="barcode" aria-hidden="true"></div>
+        </div>
+        <div class="override-demo note">
+          <p class="note__label">Try it: a 25-press override in the browser</p>
+          <div class="override-demo__row">
+            <button type="button" class="override-demo__btn" id="overrideBtn">Press to release</button>
+            <div class="override-demo__ticks" id="overrideTicks" aria-hidden="true"></div>
+            <span class="override-demo__status" id="overrideStatus" role="status" aria-live="polite" aria-atomic="true">0 / 25</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== 3. HARDWARE ===== -->
+      <section class="doc-section" id="hardware" aria-labelledby="hardware-title">
+        <h2 id="hardware-title"><span class="sec-num">3</span>Hardware</h2>
+
+        <h3 id="components">Components</h3>
+        <div class="table-scroll" role="region" aria-label="Components, scrollable" tabindex="0">
+          <table class="doc-table">
+            <thead><tr><th scope="col">Part</th><th scope="col">Role</th><th scope="col">Notes</th></tr></thead>
+            <tbody>
+              <tr><td>ESP32-S3 board, 1.47&Prime; touchscreen</td><td>Controller and UI</td><td>Runs CircuitPython; AXS5106L touch controller on I2C</td></tr>
+              <tr><td>Servo</td><td>Latch actuator</td><td>Signal on GPIO5; powered from the battery rail, not 3.3&nbsp;V</td></tr>
+              <tr><td>Lid sensor button</td><td>Lid detection</td><td>GPIO1; closing the lid presses it and the servo latches</td></tr>
+              <tr><td>MAX17043 breakout</td><td>Fuel gauge</td><td>Hand-modified; shares the I2C bus at 0x36</td></tr>
+              <tr><td>LiPo cell, USB-C</td><td>Power</td><td>Rechargeable; brighter backlight on USB, dimmer on battery</td></tr>
+              <tr><td>Override button</td><td>Emergency exit</td><td>GPIO10; press count set in firmware settings</td></tr>
+              <tr><td>3D-printed enclosure</td><td>Housing</td><td>Opaque, FDM, designed in SolidWorks</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <figure class="wiring" id="wiring">
+          <img src="assets/wiring-diagram.svg" width="2000" height="1250" loading="lazy" decoding="async"
+               alt="Electrical wiring diagram for Phone Box: the ESP32-S3 board with its 1.47-inch touchscreen, the MAX17043 fuel gauge on I2C, the LiPo cell and USB-C charge path, the servo on GPIO5 powered from the battery rail rather than 3.3 volts, and the override button." />
+          <figcaption>
+            Fig. 3 &mdash; Wiring. The servo runs on its own supply rather than the 3.3&nbsp;V rail, and the
+            MAX17043 sits on I2C. <a class="wiring__open" href="assets/wiring-diagram.svg" target="_blank" rel="noopener">Open full size</a>
+            if the pin labels are too small to read.
+          </figcaption>
+        </figure>
+
+        <h3 id="enclosure">Enclosure</h3>
+        <p>
+          The enclosure is modelled in <strong>SolidWorks</strong> and drawn for FDM printing, through two
+          full revisions. Each interface that could fail got its own small test print (a coupon) first:
+          the hinge, charger port, screen bezel, latch tab, power switch, and on/off button housing. Each
+          was checked against the real component before the full V2 assembly went to a multi-hour print.
+        </p>
+        <div class="printlog">
+          <div class="printlog__head">
+            <span class="spec-sheet__title">Fit-test log</span>
+            <span class="spec-sheet__num">V1 &rarr; V2</span>
+          </div>
+          <dl class="printlog__list">
+            <div class="printlog__row"><dt>Main case + lid, rev 1</dt><dd>17&ndash;22 Aug</dd></div>
+            <div class="printlog__row"><dt>Hinge coupon</dt><dd>18 Aug</dd></div>
+            <div class="printlog__row"><dt>Charger-port coupon</dt><dd>18 Aug</dd></div>
+            <div class="printlog__row"><dt>Latch-tab coupon</dt><dd>18 Aug</dd></div>
+            <div class="printlog__row"><dt>Power-switch coupon</dt><dd>18 Aug</dd></div>
+            <div class="printlog__row"><dt>On/off button housing</dt><dd>18 Aug</dd></div>
+            <div class="printlog__row"><dt>Screen-bezel coupon</dt><dd>22 Aug</dd></div>
+            <div class="printlog__row printlog__row--final"><dt>Full V2 assembly</dt><dd>24 Aug</dd></div>
+          </dl>
+        </div>
+        <p class="doc__caption">Dates are from the CAD files: six coupons in five days, then the assembly.</p>
+
+        <h3 id="power">Power &amp; fuel gauge</h3>
+        <p>
+          The ESP32-S3 board has no fuel gauge, so a raw ADC voltage was the only battery signal. I added
+          a MAX17043 breakout and modified it by hand: cutting the traces that tied its 3&nbsp;V rail to
+          the battery rail, then soldering and crimping it in. It shares the touchscreen&rsquo;s I2C bus at
+          address 0x36, so it uses no extra GPIO and reports a real state of charge.
+        </p>
+      </section>
+
+      <!-- ===== 4. FIRMWARE ===== -->
+      <section class="doc-section" id="firmware" aria-labelledby="firmware-title">
+        <h2 id="firmware-title"><span class="sec-num">4</span>Firmware</h2>
+        <p>
+          CircuitPython on the ESP32-S3, about 8,000 lines across roughly 30 modules in
+          <code>firmware/lib</code>: the controller and its state machine, the servo, power and battery
+          handling, BLE, settings, logging, and the touchscreen UI.
+        </p>
+
+        <h3 id="touch">Touch driver</h3>
+        <p>
+          The AXS5106L touch controller had no CircuitPython driver, so the box runs a custom one over
+          I2C (<code>axs5106l.py</code>). It includes a debounce fix for frames the controller
+          intermittently drops mid-touch.
+        </p>
+
+        <h3 id="persistence">Persistence and brownout recovery</h3>
+        <p>
+          Settings, schedules, routines and focus streaks live in the microcontroller&rsquo;s non-volatile
+          memory rather than a host-writable filesystem, so state survives a full power cut. A brownout
+          counter in the same memory drives automatic recovery if the servo&rsquo;s inrush current
+          browns out the board mid-lock.
+        </p>
+
+        <h3 id="settings">Settings</h3>
+        <p>All settings are changed on the touchscreen and saved on the device.</p>
+        <div class="table-scroll" role="region" aria-label="Settings, scrollable" tabindex="0">
+          <table class="doc-table">
+            <thead><tr><th scope="col">Setting</th><th scope="col">Range</th><th scope="col">Default</th></tr></thead>
+            <tbody>
+              <tr><td>Emergency override</td><td>5&ndash;500 presses, steps of 5</td><td>25</td></tr>
+              <tr><td>Override press window</td><td>0.3&ndash;10&nbsp;s between presses</td><td>1.0&nbsp;s</td></tr>
+              <tr><td>Focus length</td><td>Up to 9:55:00</td><td>&mdash;</td></tr>
+              <tr><td>Screen sleep (on battery)</td><td>Never, 10, 20, 30, 60&nbsp;s</td><td>20&nbsp;s</td></tr>
+              <tr><td>Brightness</td><td>10, 30, 50, 70, 100%</td><td>50%</td></tr>
+              <tr><td>Schedules, routines, streaks</td><td>On-device</td><td>&mdash;</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ===== 5. COMPANION APP ===== -->
+      <section class="doc-section" id="app" aria-labelledby="app-title">
+        <h2 id="app-title"><span class="sec-num">5</span>Companion app</h2>
+        <p>
+          An iOS app built with React Native (Expo), backed by Firebase. It is optional: the box does
+          everything in sections 2&ndash;4 without it. Two small native iOS modules,
+          <code>call-observer</code> and <code>background-wake</code>, cover what React Native cannot reach.
+        </p>
+
+        <h3 id="ble">BLE interface</h3>
+        <p>
+          One custom GATT service. The UUIDs and payload shapes are defined twice, in the firmware&rsquo;s
+          <code>lock_config.py</code> and the app&rsquo;s <code>protocol.ts</code>, and kept in sync by hand.
+        </p>
+        <div class="table-scroll" role="region" aria-label="BLE characteristics, scrollable" tabindex="0">
+          <table class="doc-table">
+            <thead><tr><th scope="col">Characteristic</th><th scope="col">Access</th><th scope="col">Purpose</th></tr></thead>
+            <tbody>
+              <tr><td><code>status</code></td><td>Read, notify</td><td>State, battery, configured duration (box &rarr; app)</td></tr>
+              <tr><td><code>history</code></td><td>Read, notify</td><td>Logged sessions (box &rarr; app)</td></tr>
+              <tr><td><code>command</code></td><td>Write</td><td>Lock, unlock and other opcodes (app &rarr; box)</td></tr>
+              <tr><td><code>settings</code></td><td>Read, write</td><td>Device settings, round-trip</td></tr>
+              <tr><td><code>timeSync</code></td><td>Write</td><td>Current time as epoch seconds</td></tr>
+              <tr><td><code>alert</code></td><td>Write</td><td>Incoming-call label for auto-unlock</td></tr>
+              <tr><td><code>labels</code></td><td>Write</td><td>Custom session-tag list</td></tr>
+              <tr><td><code>pendingTopic</code></td><td>Write</td><td>Topic suggested for the next session</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3 id="app-features">Features</h3>
+        <ul class="doc__bullets">
+          <li><strong>Live status.</strong> Lock state, countdown and battery from the box.</li>
+          <li><strong>Focus stats.</strong> Session history, streaks, and time per topic.</li>
+          <li><strong>Goals and calendar.</strong> Focus goals with reminders, and planned sessions.</li>
+          <li><strong>Call unlock.</strong> Optional automatic release when a call comes in. Off by default.</li>
+          <li><strong>Sync.</strong> Sessions sync through Firebase and are viewable on the web <a href="dashboard.html">dashboard</a> (sign-in required).</li>
+        </ul>
+      </section>
+
+      <!-- ===== 6. DEBUGGING LOG ===== -->
+      <section class="doc-section" id="debugging" aria-labelledby="debugging-title">
+        <h2 id="debugging-title"><span class="sec-num">6</span>Debugging log</h2>
+        <p>Problems that only appeared on the physical device, and how they were resolved.</p>
+        <div class="manifest">
+          <article class="manifest__row">
+            <span class="manifest__num">6.1</span>
+            <div class="manifest__body">
+              <h3>Intermittent servo failures</h3>
+              <p>
+                Locks failed intermittently, never in a way that could be reasoned about on screen. Running
+                lock cycles on the bench until the pattern appeared showed two separate faults: the CPU
+                clock scaling out from under the servo&rsquo;s PWM timer, and a motor drawing close to an amp
+                from a rail that could not supply it. The firmware now re-asserts 50&nbsp;Hz on every move,
+                and the servo runs from the battery rail with bulk capacitance instead of 3.3&nbsp;V.
+              </p>
+            </div>
+          </article>
+          <article class="manifest__row">
+            <span class="manifest__num">6.2</span>
+            <div class="manifest__body">
+              <h3>Dropped touch frames</h3>
+              <p>
+                The touch controller occasionally drops frames in the middle of a touch, which chopped taps and
+                swipes into separate touches. The firmware now requires a few consecutive empty reads before
+                treating a touch as released.
+              </p>
+            </div>
+          </article>
+          <article class="manifest__row">
+            <span class="manifest__num">6.3</span>
+            <div class="manifest__body">
+              <h3>No real battery reading</h3>
+              <p>
+                With no fuel gauge on the board, the state of charge was a guess from ADC voltage. Fixed in
+                hardware with the modified MAX17043 described in <a href="#power">Power &amp; fuel gauge</a>.
+              </p>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <!-- ===== 7. CREDITS ===== -->
+      <section class="doc-section" id="credits" aria-labelledby="credits-title">
+        <h2 id="credits-title"><span class="sec-num">7</span>Credits</h2>
+        <p>A plain split of who did what.</p>
+        <div class="custody">
           <div class="custody__cols">
             <div class="custody__col">
-              <h3 class="custody__label">Signed by me</h3>
+              <h3 class="custody__label">Evan Mah</h3>
               <ul>
-                <li>Industrial and mechanical design &mdash; two full enclosure revisions in SolidWorks, drawn for FDM printing</li>
+                <li>Industrial and mechanical design: two full enclosure revisions in SolidWorks, drawn for FDM printing</li>
                 <li>Every fit-test part, printed and checked against the real component before committing to an assembly</li>
-                <li>The MAX17043 breakout modification &mdash; lines disconnected, soldered, crimped by hand</li>
-                <li>Finding the faults on real hardware: the intermittent servo failures and the touchscreen dropping frames</li>
+                <li>The MAX17043 breakout modification: traces cut, soldered, crimped by hand</li>
+                <li>Finding the faults on real hardware: the intermittent servo failures and the dropped touch frames</li>
                 <li>Specifying what the box should do, testing every build on the physical device, and debugging what came back wrong</li>
-                <li>Tooling calls: parametric-CAD MCP to screen battery candidates for enclosure fit, and cutting an agent-swarm framework whose subagents cut token cost but never reported results back</li>
+                <li>Tooling calls: parametric-CAD MCP to screen battery candidates for enclosure fit, and cutting an agent-swarm framework whose subagents never reported results back</li>
               </ul>
             </div>
             <div class="custody__col">
-              <h3 class="custody__label">Signed by Claude Code</h3>
+              <h3 class="custody__label">Claude Code</h3>
               <ul>
                 <li>Most of the CircuitPython firmware, including the servo state machine and the custom AXS5106L touch driver</li>
-                <li>Most of the React Native (Expo) companion app and the Firebase backend behind it, plus the two native iOS modules it leans on &mdash; <code>call-observer</code> and <code>background-wake</code></li>
-                <li>Diagnosing the root cause of the servo brownout once I'd found it, and the capacitor fix that solved it</li>
-                <li>The touch debounce fix for the frames the controller drops mid-touch</li>
-                <li>The wiring diagram above, derived from the firmware&rsquo;s own config and driver files</li>
+                <li>Most of the React Native (Expo) companion app and its Firebase backend, plus the two native iOS modules</li>
+                <li>Diagnosing the root cause of the servo brownout once I had found it, and the capacitor fix</li>
+                <li>The touch debounce fix</li>
+                <li>The wiring diagram, derived from the firmware&rsquo;s own config and driver files</li>
               </ul>
             </div>
           </div>
           <p class="custody__note">
-            I can't write React Native cold and I didn't write the firmware. I decided what the
-            box should do, built the thing it runs inside, tested every revision on real
-            hardware, and drove the agent that wrote the code across 200-plus commits. Saying
-            that plainly seemed better than letting anyone find out in an interview.
+            I can&rsquo;t write React Native cold and I didn&rsquo;t write the firmware. I decided what the box
+            should do, built the thing it runs inside, tested every revision on real hardware, and drove the
+            agent that wrote the code across 240-plus commits.
           </p>
         </div>
-      </div>
-    </section>
+      </section>
 
-    <!-- ===== PILLARS ===== -->
-    <section class="pillars" id="pillars" aria-labelledby="pillars-title">
-      <div class="wrap">
-        <div class="section-head reveal">
-          <h2 id="pillars-title">Engineered like a real device, not a phone jail.</h2>
-        </div>
-        <div class="manifest">
-          <article class="manifest__row reveal">
-            <span class="manifest__num">No. 1</span>
-            <div class="manifest__body">
-              <h3>Real enforcement, a sane escape hatch</h3>
-              <p>
-                A servo-driven latch holds the box physically shut until your timer
-                ends. Need out early? A <strong>tunable press-count override</strong>
-                (default 25) is your controlled way back in — not a bypass hole, not
-                a total dead end like kSafe.
-              </p>
-              <span class="card__tag stamp stamp--note">Core mechanism</span>
-            </div>
-          </article>
-
-          <article class="manifest__row reveal">
-            <span class="manifest__num">No. 2</span>
-            <div class="manifest__body">
-              <h3>A touchscreen in a category of dials</h3>
-              <p>
-                Swipe to set hours, minutes and seconds. Watch a live countdown,
-                check the battery, tweak settings — all on a crisp 1.47" screen. The
-                AXS5106L touch controller had no CircuitPython driver, so the box runs
-                a custom one over I2C — including a debounce fix for the frames the
-                controller intermittently drops mid-touch.
-              </p>
-            </div>
-          </article>
-
-          <article class="manifest__row reveal">
-            <span class="manifest__num">No. 3</span>
-            <div class="manifest__body">
-              <h3>Every routine lives on the device</h3>
-              <p>
-                Schedules, routines and focus streaks live in the microcontroller's own
-                non-volatile memory — no cloud account, no host-writable filesystem. State
-                survives a full power cut, and a brownout counter in that same NVM drives
-                automatic recovery when the servo's inrush current browns out the board
-                mid-lock.
-              </p>
-            </div>
-          </article>
-
-          <article class="manifest__row reveal">
-            <span class="manifest__num">No. 4</span>
-            <div class="manifest__body">
-              <h3>Opaque, rechargeable, honest build</h3>
-              <p>
-                An opaque enclosure means no seeing notifications through the case.
-                USB-C charging and a rechargeable LiPo. The board has no fuel gauge, so I added
-                one: a MAX17043 breakout, modified by hand — cutting the traces tying its
-                3 V rail to the battery rail, then soldering and crimping it in. It shares
-                the touchscreen's I2C bus at 0x36, so it costs no extra GPIO.
-              </p>
-            </div>
-          </article>
-        </div>
-      </div>
-    </section>
-
-    <!-- ===== HOW IT WORKS ===== -->
-    <section class="how" id="how" aria-labelledby="how-title">
-      <div class="wrap">
-        <div class="section-head reveal">
-          <h2 id="how-title">Four steps to a focused hour.</h2>
-        </div>
-
-        <ol class="steps">
-          <li class="step reveal">
-            <span class="step__tag">No. 1</span>
-            <h3>Set your timer</h3>
-            <p>Swipe up or down on the touchscreen to dial in hours, minutes and seconds — anywhere from a few minutes to 9 hours.</p>
-          </li>
-          <li class="step reveal">
-            <span class="step__tag">No. 2</span>
-            <h3>Drop the phone in</h3>
-            <p>Place your phone inside and close the opaque lid. Out of sight, out of reach, out of mind.</p>
-          </li>
-          <li class="step reveal">
-            <span class="step__tag">No. 3</span>
-            <h3>The box locks</h3>
-            <p>The servo drives the latch shut and the countdown begins. The box will not open on its own until time is up.</p>
-          </li>
-          <li class="step reveal">
-            <span class="step__tag">No. 4</span>
-            <h3>Unlock when done</h3>
-            <p>When the timer expires the latch releases automatically. In a real emergency, the press-count override lets you out early.</p>
-          </li>
-        </ol>
-      </div>
-    </section>
-
-    <!-- ===== ADJUST / SETTINGS ===== -->
-    <section class="adjust" id="adjust" aria-labelledby="adjust-title">
-      <div class="wrap">
-        <div class="section-head reveal">
-          <h2 id="adjust-title">You decide how strict it is.</h2>
-          <p class="section-sub">Phone Box bends to how <em>you</em> focus. Dial these in right on the touchscreen &mdash; your settings are saved on the device and survive a power-off. No app required to use the core lock.</p>
-        </div>
-        <div class="adjust__grid">
-          <article class="setting reveal">
-            <div class="setting__head setting__head--override">
-              <div class="setting__head-text">
-                <h3>Emergency override</h3>
-                <span class="setting__value">5&ndash;500 presses</span>
-              </div>
-              <figure class="override-inset">
-                <div class="override-inset__frame">
-                  <video class="override-inset__video" muted loop playsinline autoplay preload="metadata" width="172" height="320" poster="assets/video/screen/override-view-still.png">
-                    <source src="assets/video/screen/override-loop.webm" type="video/webm" media="(prefers-reduced-motion: no-preference)">
-                  </video>
-                </div>
-                <figcaption class="override-inset__caption">Override screen, redrawn from the firmware’s own UI geometry</figcaption>
-              </figure>
-            </div>
-            <p>Set how hard it is to bail out early. Make it a light 5-press nudge or a serious 500-press commitment, in steps of 5. Default is 25.</p>
-            <div class="setting__track" aria-hidden="true"><span class="setting__fill" style="--w:4%"></span><span class="setting__thumb" style="--x:4%"></span></div>
-            <div class="setting__scale" aria-hidden="true"><span>5</span><span>Default 25</span><span>500</span></div>
-            <div class="override-demo">
-              <div class="tear" style="color:var(--border-soft);"></div>
-              <p class="section-sub" style="margin:0 0 0;font-size:13.5px;text-align:left;">Try the default 25-press override right here. On the box itself, every release is written to on-device memory:</p>
-              <div class="override-demo__row">
-                <button type="button" class="override-demo__btn" id="overrideBtn">Press to release</button>
-                <div class="override-demo__ticks" id="overrideTicks" aria-hidden="true"></div>
-                <span class="override-demo__status" id="overrideStatus" role="status" aria-live="polite" aria-atomic="true">0 / 25</span>
-              </div>
-            </div>
-          </article>
-
-          <article class="setting reveal">
-            <div class="setting__head">
-              <h3>Focus length</h3>
-              <span class="setting__value">Up to 9 hours</span>
-            </div>
-            <p>Swipe to set hours, minutes and seconds &mdash; a quick 20-minute sprint or a full 9-hour deep-work day.</p>
-            <div class="setting__track" aria-hidden="true"><span class="setting__fill" style="--w:60%"></span><span class="setting__thumb" style="--x:60%"></span></div>
-            <div class="setting__scale" aria-hidden="true"><span>0:00:05</span><span>9:00:00</span></div>
-          </article>
-
-          <article class="setting reveal">
-            <div class="setting__head">
-              <h3>Screen sleep</h3>
-              <span class="setting__value">On battery</span>
-            </div>
-            <p>Choose how quickly the display sleeps to stretch battery life while the countdown keeps running.</p>
-            <div class="setting__pills" role="group" aria-label="Screen sleep options in seconds">
-              <span class="pill">10s</span><span class="pill pill--on">20s</span><span class="pill">30s</span><span class="pill">60s</span>
-            </div>
-          </article>
-
-          <article class="setting reveal">
-            <div class="setting__head">
-              <h3>Brightness</h3>
-              <span class="setting__value">10&ndash;100%</span>
-            </div>
-            <p>Set the backlight to taste. Phone Box also brightens on USB power and dims on battery on its own.</p>
-            <div class="setting__pills" role="group" aria-label="Brightness options in percent">
-              <span class="pill">10%</span><span class="pill">30%</span><span class="pill pill--on">50%</span><span class="pill">70%</span><span class="pill">100%</span>
-            </div>
-          </article>
-
-          <article class="setting reveal">
-            <div class="setting__head">
-              <h3>Schedules &amp; streaks</h3>
-              <span class="setting__value">Built in</span>
-            </div>
-            <p>Recurring focus routines and on-device streaks live entirely in the firmware &mdash; no app or account needed to use them.</p>
-            <div class="setting__pills" role="group" aria-label="Programmable features">
-              <span class="pill pill--on">Routines</span><span class="pill pill--on">Streaks</span><span class="pill pill--on">Focus stats</span>
-            </div>
-          </article>
-
-          <article class="setting reveal">
-            <div class="setting__head">
-              <h3>It remembers</h3>
-              <span class="setting__value">Saved on device</span>
-            </div>
-            <p>Every preference is written to on-board memory, so your setup is exactly how you left it after a recharge or reboot. Set it once.</p>
-            <div class="setting__pills" role="group" aria-label="Persistence">
-              <span class="pill pill--on">Persistent</span><span class="pill pill--on">No account</span><span class="pill pill--on">Offline</span>
-            </div>
-          </article>
-        </div>
-      </div>
-    </section>
-
-    <!-- ===== SPEC SHEET ===== -->
-    <section class="spec" id="spec" aria-labelledby="spec-title">
-      <div class="wrap">
-        <div class="section-head reveal">
-          <h2 id="spec-title">The manifest, plainly stated.</h2>
-          <p class="section-sub">No vague &ldquo;smart&rdquo; marketing &mdash; this is the actual hardware inside the box.</p>
-        </div>
-        <div class="spec-sheet reveal">
-          <div class="spec-sheet__head">
-            <span class="spec-sheet__title">Property manifest</span>
-            <span class="spec-sheet__num">No. 0417</span>
-          </div>
-          <div class="barcode" aria-hidden="true"></div>
-          <dl class="spec-sheet__list">
-            <div class="spec-sheet__row"><dt>Display</dt><dd>1.47&Prime; touchscreen</dd></div>
-            <div class="spec-sheet__row"><dt>Latch mechanism</dt><dd>Servo-driven, physically locked</dd></div>
-            <div class="spec-sheet__row"><dt>Charging</dt><dd>USB-C</dd></div>
-            <div class="spec-sheet__row"><dt>Power</dt><dd>Rechargeable LiPo battery</dd></div>
-            <div class="spec-sheet__row"><dt>Enclosure</dt><dd>Opaque, 3D-printed</dd></div>
-            <div class="spec-sheet__row"><dt>Emergency override</dt><dd>5&ndash;500 presses, tunable (default 25)</dd></div>
-            <div class="spec-sheet__row"><dt>Focus session length</dt><dd>Up to 9 hours</dd></div>
-            <div class="spec-sheet__row"><dt>Settings storage</dt><dd>On-device, survives power-off</dd></div>
-            <div class="spec-sheet__row"><dt>Connectivity required</dt><dd>None &mdash; no account, fully offline</dd></div>
-            <div class="spec-sheet__row"><dt>Firmware</dt><dd>CircuitPython on ESP32-S3</dd></div>
-            <div class="spec-sheet__row"><dt>Companion app</dt><dd>iOS, custom BLE protocol</dd></div>
-          </dl>
-        </div>
-      </div>
-    </section>
-
-    <!-- ===== COMPARISON ===== -->
-    <section class="compare" id="compare" aria-labelledby="compare-title">
-      <div class="wrap">
-        <div class="section-head reveal">
-          <h2 id="compare-title">Why a box, not an app.</h2>
-          <p class="section-sub">I looked at software blockers and dumb lockboxes before building this one. Here's how they actually compare.</p>
-        </div>
-        <div class="table-scroll reveal" role="region" aria-label="Feature comparison, scrollable" tabindex="0">
+      <!-- ===== 8. PRIOR ART ===== -->
+      <section class="doc-section" id="prior-art" aria-labelledby="prior-art-title">
+        <h2 id="prior-art-title"><span class="sec-num">8</span>Prior art</h2>
+        <p>Existing products I looked at before building this one.</p>
+        <div class="table-scroll" role="region" aria-label="Comparison with existing products, scrollable" tabindex="0">
           <table class="cmp">
             <caption class="visually-hidden">Comparison of Phone Box against kSafe, generic Amazon boxes, Brick, Opal, and GoAro</caption>
             <thead>
@@ -595,136 +518,43 @@
             </tbody>
           </table>
         </div>
-        <p class="compare__note reveal">To be fair: a commodity box is cheaper, and Brick fits in a pocket. Neither has a touchscreen or a tunable override — and building one myself was half the point.</p>
-      </div>
-    </section>
+        <p class="compare__note">A commodity box is cheaper, and Brick fits in a pocket. Neither has a touchscreen or a tunable override, and building one myself was half the point.</p>
+      </section>
 
-    <!-- ===== FAQ ===== -->
-    <section class="faq" id="faq" aria-labelledby="faq-title">
-      <div class="wrap faq__inner">
-        <div class="section-head reveal">
-          <h2 id="faq-title">Questions you're already asking.</h2>
-        </div>
-        <div class="accordion reveal">
-          <div class="acc__item">
-            <h3>
-              <button type="button" class="acc__btn" aria-expanded="false" aria-controls="a1" id="q1">
-                <span>Why not the $25 Amazon box?</span>
-                <span class="acc__chev" aria-hidden="true"></span>
-              </button>
-            </h3>
-            <div class="acc__panel" id="a1" role="region" aria-labelledby="q1" hidden>
-              <p>Those boxes are usually transparent, feel disposable, and either have no override or an override so weak (access holes, prying) that it defeats the purpose. Phone Box is opaque, rechargeable, has a real touchscreen interface, and gives you a controlled, tunable way out for genuine emergencies.</p>
-            </div>
-          </div>
-
-          <div class="acc__item">
-            <h3>
-              <button type="button" class="acc__btn" aria-expanded="false" aria-controls="a2" id="q2">
-                <span>Why not just a free app?</span>
-                <span class="acc__chev" aria-hidden="true"></span>
-              </button>
-            </h3>
-            <div class="acc__panel" id="a2" role="region" aria-labelledby="q2" hidden>
-              <p>A software blocker is one settings toggle away from defeat, and the phone stays in your hand the whole time. Phone Box physically holds the phone until the timer ends — there's no toggle, because there's no software layer to switch off.</p>
-            </div>
-          </div>
-
-          <div class="acc__item">
-            <h3>
-              <button type="button" class="acc__btn" aria-expanded="false" aria-controls="a3" id="q3">
-                <span>Why not just use willpower?</span>
-                <span class="acc__chev" aria-hidden="true"></span>
-              </button>
-            </h3>
-            <div class="acc__panel" id="a3" role="region" aria-labelledby="q3" hidden>
-              <p>Precommitment beats willpower — that's the premise the entire category is built on, backed by behavioral research from Princeton, Harvard, Stanford and Yale. You decide once, up front, when you're thinking clearly; the box holds you to it when the urge hits.</p>
-            </div>
-          </div>
-
-          <div class="acc__item">
-            <h3>
-              <button type="button" class="acc__btn" aria-expanded="false" aria-controls="a4" id="q4">
-                <span>What if I have an emergency?</span>
-                <span class="acc__chev" aria-hidden="true"></span>
-              </button>
-            </h3>
-            <div class="acc__panel" id="a4" role="region" aria-labelledby="q4" hidden>
-              <p>Press the override button a set number of times (25 by default, adjustable from 5 to 500 in settings, in steps of 5) and the latch releases early. It's deliberate enough that you won't do it on a whim, but always available when you truly need it — the sane middle path between kSafe's no-way-out and a cheap box's easy bypass.</p>
-            </div>
-          </div>
-
-          <div class="acc__item">
-            <h3>
-              <button type="button" class="acc__btn" aria-expanded="false" aria-controls="a5" id="q5">
-                <span>Is there a companion app?</span>
-                <span class="acc__chev" aria-hidden="true"></span>
-              </button>
-            </h3>
-            <div class="acc__panel" id="a5" role="region" aria-labelledby="q5" hidden>
-              <p>Yes — an iOS app pairs with the box over Bluetooth for live status and focus stats, and can optionally unlock the box automatically when a call comes in (off by default, toggled in settings). Outside of a call trigger, the manual press-count override is still the only way to end a lock early.</p>
-            </div>
-          </div>
-
-          <div class="acc__item">
-            <h3>
-              <button type="button" class="acc__btn" aria-expanded="false" aria-controls="a6" id="q6">
-                <span>Can I buy one?</span>
-                <span class="acc__chev" aria-hidden="true"></span>
-              </button>
-            </h3>
-            <div class="acc__panel" id="a6" role="region" aria-labelledby="q6" hidden>
-              <p>No — Phone Box has never been sold and isn't for sale. It&rsquo;s a personal project I built for my own use over summer 2026 — I designed and printed the enclosure, modified the electronics by hand, and used Claude Code to write the firmware and the iOS app while I specified, tested, and debugged them. This site exists to show how it was built, not to sell it.</p>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-    <!-- ===== WHO BUILT THIS ===== -->
-    <section class="builder" id="builder" aria-labelledby="builder-title">
-      <div class="wrap builder__inner reveal">
+      <!-- ===== 9. AUTHOR ===== -->
+      <section class="doc-section" id="author" aria-labelledby="author-title">
+        <h2 id="author-title"><span class="sec-num">9</span>Author</h2>
         <div class="builder__card">
-          <div class="custody__head">
-            <span class="spec-sheet__title">Claimed by</span>
-            <span class="spec-sheet__num">No. 0417</span>
-          </div>
-          <div class="barcode" aria-hidden="true"></div>
-          <h2 id="builder-title">Evan Mah</h2>
+          <p class="builder__name">Evan Mah</p>
           <p class="builder__role">Mechanical engineering undergraduate, Northeastern University &middot; Boston, MA</p>
           <p class="builder__bio">
-            I build hardware and drive agents to write the software around it. Phone Box was
-            a summer 2026 project: I wanted one, nothing on the market did what I needed, so
-            I designed the enclosure in SolidWorks, modified the electronics by hand, and
-            used Claude Code to take it from firmware through a React Native app on iOS. It has never
-            been sold. It sits on my desk and it works.
+            I build hardware and drive agents to write the software around it. I wanted a box like this,
+            nothing on the market did what I needed, so I designed the enclosure, modified the electronics,
+            and used Claude Code to take it from firmware through an iOS app. It sits on my desk and it works.
           </p>
-          <p class="builder__bio">
-            I&rsquo;m looking for a mechanical engineering co-op for July&ndash;December 2027.
-          </p>
+          <p class="builder__bio">I&rsquo;m looking for a mechanical engineering co-op for July&ndash;December 2027.</p>
           <div class="builder__links">
             <a class="btn btn--primary" href="mailto:mah.e@northeastern.edu">Email me</a>
             <a class="btn btn--ghost" href="https://www.linkedin.com/in/evan-mah-855b57269" target="_blank" rel="noopener">LinkedIn</a>
           </div>
         </div>
-      </div>
-    </section>
-  </main>
+      </section>
+    </main>
+  </div>
 
   <!-- ===== FOOTER ===== -->
   <footer class="footer">
     <div class="wrap footer__inner">
       <div class="footer__brand">
         <span class="brand__name">Phone&nbsp;Box</span>
-        <p>A phone lockbox I designed and built for myself, with an agent on the code.</p>
-        <p class="footer__by">Built by <a href="#builder">Evan Mah</a> · <a href="mailto:mah.e@northeastern.edu">mah.e@northeastern.edu</a></p>
+        <p>Documentation for a phone lockbox I designed and built for myself, with an agent on the code.</p>
+        <p class="footer__by">Built by <a href="#author">Evan Mah</a> · <a href="mailto:mah.e@northeastern.edu">mah.e@northeastern.edu</a></p>
       </div>
       <nav class="footer__links" aria-label="Footer">
-        <a href="#pillars">Features</a>
-        <a href="#how">How it works</a>
-        <a href="#adjust">Settings</a>
-        <a href="#compare">Compare</a>
-        <a href="#faq">FAQ</a>
-        <a href="#builder">Who built it</a>
+        <a href="#overview">Overview</a>
+        <a href="#hardware">Hardware</a>
+        <a href="#firmware">Firmware</a>
+        <a href="#app">App</a>
         <a href="dashboard.html">Dashboard (sign-in)</a>
         <a href="privacy.html">Privacy</a>
       </nav>
