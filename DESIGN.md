@@ -87,8 +87,10 @@ menu open, scrolled down far enough that only a sliver of the hero device,
 the claim-ticket graphic, and the top edge of the hero heading peek out
 below the menu panel. `pricing-revealed.png` (389x842, mobile) is the one
 that actually matches its name: the `#pricing` section scrolled to the top,
-showing the "Pay once. Focus for years." heading and the full $79/$99
-price card. Three older root-level renders (`hero.png`, `phonebox-hero.png`,
+showing the "Pay once. Focus for years." heading and the $79/$99 price card.
+That section, and all pricing, was removed from the site on 2026-09-10
+(`6aa989f`) when it became a not-for-sale personal project, so this render
+now shows content the live page no longer has. Three older root-level renders (`hero.png`, `phonebox-hero.png`,
 `phonebox-desktop-1280.png`) used to sit alongside these: the first two
 predated even the coral palette (different nav/copy entirely) and the third
 was already mint-toned but stale content-wise. All three were deleted as dead
