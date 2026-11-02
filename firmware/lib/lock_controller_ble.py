@@ -5,7 +5,7 @@
 # method OF LockController -- `self` is the whole controller, and the
 # attributes are the ones its __init__ creates.
 
-from lock_config import BUILTIN_TOPICS
+from lock_config import BUILTIN_TOPICS, LOG_BATCH_MAX
 import lock_protocol
 from lock_topic_confirm import find_topic
 from lock_controller_const import OVERRIDDEN
@@ -105,7 +105,7 @@ class BleMixin:
             self.state, rem, int(self.set_seconds), self._battery_pct(now), topic)
 
     def ble_history_json(self):
-        return self.log.to_json()
+        return self.log.to_json(LOG_BATCH_MAX)
 
     def ble_settings_json(self):
         return lock_protocol.encode_settings(self.settings)

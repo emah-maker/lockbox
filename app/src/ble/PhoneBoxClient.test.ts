@@ -424,3 +424,41 @@ describe('disconnect', () => {
     expect(client.connected).toBe(false);
   });
 });
+
+describe('a history notify cut off at the MTU', () => {
+  const full =
+    '[{"p":3600,"a":3600,"c":1,"t":1793600000},{"p":1500,"a":1500,"c":1,"t":1793605000},' +
+    '{"p":1500,"a":1500,"c":1,"t":1793610000},{"p":1500,"a":1500,"c":1,"t":1793615000},' +
+    '{"p":1500,"a":1500,"c":1,"t":1793620000}]';
+  const flush = () => new Promise<void>((r) => setImmediate(r));
+
+  it('reads the whole characteristic instead of dropping the batch', async () => {
+    const onHistory = jest.fn();
+    const client = new PhoneBoxClient();
+    const device = makeDevice();
+    device.readCharacteristicForService.mockImplementation(async (_svc: string, char: string) => ({
+      value: char === CHAR.history ? encode(full) : null,
+    }));
+    await client.connect(device as never, { onHistory });
+
+    device.notify(CHAR.history, full.slice(0, 182));
+    await flush();
+
+    expect(onHistory).toHaveBeenCalledTimes(1);
+    expect(onHistory.mock.calls[0][0]).toHaveLength(5);
+  });
+
+  it('does not read back for an empty queue', async () => {
+    const onHistory = jest.fn();
+    const client = new PhoneBoxClient();
+    const device = makeDevice();
+    await client.connect(device as never, { onHistory });
+    device.readCharacteristicForService.mockClear();
+
+    device.notify(CHAR.history, '[]');
+    await flush();
+
+    expect(device.readCharacteristicForService).not.toHaveBeenCalled();
+    expect(onHistory).not.toHaveBeenCalled();
+  });
+});

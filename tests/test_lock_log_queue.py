@@ -599,5 +599,34 @@ for _prefix in ("lock_battery", "lock_controller", "lock_log", "lock_protocol",
 check("the shared clamp() is genuinely adopted elsewhere (>=15 call sites)",
       _converted >= 15)
 
+# ---------------------------------------------------------------------------
+# Batched push (LOG_BATCH_MAX): a backlog drains one notify-sized batch at a
+# time instead of one oversized value the app cannot parse
+# ---------------------------------------------------------------------------
+from lock_config import LOG_BATCH_MAX
+
+new_nvm()
+log = SessionLog()
+for i in range(8):
+    log.record(3600, 3600, True, 10000 + i * 4000)
+check("a full-hour entry fits in under 64 bytes (smaller than status)",
+      len(log.to_json(1)) < 64)
+batch = log.to_json(LOG_BATCH_MAX)
+check("batched to_json carries only the oldest LOG_BATCH_MAX entries",
+      batch.count('"p"') == LOG_BATCH_MAX and '"t":10000}' in batch)
+seq = log.mark_sent(LOG_BATCH_MAX)
+check("batched mark_sent returns the batch size, not the queue length",
+      seq == LOG_BATCH_MAX)
+log.ack(seq)
+check("acking a batch leaves the rest queued",
+      len(entries_of(log)) == 8 - LOG_BATCH_MAX)
+check("the next batch is the next-oldest entry",
+      '"t":{}'.format(10000 + LOG_BATCH_MAX * 4000) in log.to_json(LOG_BATCH_MAX))
+drained = 0
+while log.has_pending and drained < 20:
+    log.ack(log.mark_sent(LOG_BATCH_MAX))
+    drained += 1
+check("repeated batch acks drain the whole backlog", not log.has_pending)
+
 print("\n{} passed, {} failed".format(_passed, _failed))
 sys.exit(1 if _failed else 0)

@@ -51,7 +51,7 @@ from lock_config import (
     BLE_ADV_REASSERT_S, BLE_CMD_MIN_INTERVAL,
     BLE_SERVICE_UUID, BLE_UUID_STATUS, BLE_UUID_HISTORY, BLE_UUID_COMMAND,
     BLE_UUID_SETTINGS, BLE_UUID_TIME, BLE_UUID_ALERT, BLE_UUID_LABELS,
-    BLE_UUID_PENDING_TOPIC,
+    BLE_UUID_PENDING_TOPIC, LOG_BATCH_MAX,
 )
 
 _LOCKED_STATES = ("running", "closed")
@@ -277,7 +277,7 @@ class PhoneBoxBLE:
                 # behavior) could lose the box's only copy if the app missed
                 # it. mark_sent() remembers how many entries this batch
                 # covers so a later ack can be validated against it.
-                ctrl.log.mark_sent()
+                ctrl.log.mark_sent(LOG_BATCH_MAX)
 
     def _drain_inbound(self, ctrl, now):
         # `command` is polled every single loop iteration (~50Hz) --

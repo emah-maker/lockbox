@@ -402,8 +402,25 @@ export class PhoneBoxClient implements BoxClient {
         d.monitorCharacteristicForService(SERVICE_UUID, CHAR.history, (err, c) => {
           if (err) console.warn('[PhoneBoxClient] history notify error:', err.message);
           if (err || !c) return;
-          const entries = parseHistoryEntries(fromB64(c.value));
-          if (entries.length) cb.onHistory!(entries);
+          const text = fromB64(c.value);
+          const entries = parseHistoryEntries(text);
+          if (entries.length) {
+            cb.onHistory!(entries);
+            return;
+          }
+          // A notify carries at most ATT_MTU-3 bytes, and firmware older
+          // than lock_config.LOG_BATCH_MAX pushed its whole queue as one
+          // value -- past ~5 sessions the app got cut-off JSON, parsed
+          // nothing, never acked, and every later session queued behind it
+          // forever. A read is not capped that way (iOS does a long read up
+          // to the characteristic's 512 bytes), so fetch the full value.
+          if (!text || text === '[]') return;
+          d.readCharacteristicForService(SERVICE_UUID, CHAR.history)
+            .then((full) => {
+              const all = parseHistoryEntries(fromB64(full.value));
+              if (all.length && this.device === d) cb.onHistory!(all);
+            })
+            .catch((e: Error) => console.warn('[PhoneBoxClient] history read error:', e.message));
         }),
       );
     }

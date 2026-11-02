@@ -398,6 +398,17 @@ BLE_UUID_PENDING_TOPIC = "6b9a7e00-4c2a-4f8e-9b21-9d7a5e3c0009"  # WRITE (topic 
 # cap itself should be re-checked on real hardware before shipping.
 LOG_MAX_PENDING = 200
 
+# Most queued sessions one `history` push carries. A BLE notify delivers at
+# most ATT_MTU-3 bytes, and the whole queue used to go out as one value: at
+# ~44 bytes an entry, five or so overflowed what iOS negotiates, so the app
+# got cut-off JSON it could not parse, never acked, and the box resent the
+# same oversized queue on every connection -- every later session stuck
+# behind it, none ever reaching the app. One entry is always smaller than the
+# `status` payload, which already arrives fine; the ack of each batch shrinks
+# the queue, which changes to_json's text, which makes _push_outbound send
+# the next one a second later.
+LOG_BATCH_MAX = 1
+
 # ----- NVM region map -----
 # One place that says who owns which NVM byte, because nothing on the device
 # enforces it: every module just indexes microcontroller.nvm directly, so two

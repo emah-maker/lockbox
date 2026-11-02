@@ -146,21 +146,23 @@ class SessionLog:
     def has_pending(self):
         return bool(self._pending)
 
-    def to_json(self):
+    def to_json(self, limit=None):
         # Only the first 4 fields are wire format -- the 5th (mono, see
         # record()) is RAM-only backfill bookkeeping, never shipped to the app.
+        # `limit` takes just the oldest entries -- see LOG_BATCH_MAX.
+        pending = self._pending if limit is None else self._pending[:limit]
         parts = [
-            '{{"p":{},"a":{},"c":{},"t":{}}}'.format(*e[:4]) for e in self._pending
+            '{{"p":{},"a":{},"c":{},"t":{}}}'.format(*e[:4]) for e in pending
         ]
         return '[' + ','.join(parts) + ']'
 
-    def mark_sent(self):
+    def mark_sent(self, limit=None):
         """Called by lock_ble._push_outbound right after writing the current
         to_json() batch to the `history` characteristic. Remembers how many
         entries (from the front) that batch covered, so a later ack can be
         validated against a specific, resendable batch instead of clearing
         blindly on every notify (the original, non-lossless behavior)."""
-        self._sent_batch = len(self._pending)
+        self._sent_batch = len(self._pending) if limit is None else min(limit, len(self._pending))
         self._sent_live = self._sent_batch
         return self._sent_batch
 
