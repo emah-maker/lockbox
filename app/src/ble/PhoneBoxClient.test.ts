@@ -440,6 +440,8 @@ describe('a history notify cut off at the MTU', () => {
       value: char === CHAR.history ? encode(full) : null,
     }));
     await client.connect(device as never, { onHistory });
+    await flush();
+    onHistory.mockClear(); // the read-on-connect already delivered once
 
     device.notify(CHAR.history, full.slice(0, 182));
     await flush();
@@ -460,5 +462,33 @@ describe('a history notify cut off at the MTU', () => {
 
     expect(device.readCharacteristicForService).not.toHaveBeenCalled();
     expect(onHistory).not.toHaveBeenCalled();
+  });
+});
+
+describe('history pushed before the app subscribed', () => {
+  const flush = () => new Promise<void>((r) => setImmediate(r));
+
+  it('is read once on connect, so a session finished while disconnected still arrives', async () => {
+    const onHistory = jest.fn();
+    const client = new PhoneBoxClient();
+    const device = makeDevice();
+    device.readCharacteristicForService.mockImplementation(async (_svc: string, char: string) => ({
+      value: char === CHAR.history ? encode('[{"p":3600,"a":3600,"c":1,"t":1793600000}]') : null,
+    }));
+
+    await client.connect(device as never, { onHistory });
+    await flush();
+
+    expect(onHistory).toHaveBeenCalledTimes(1);
+    expect(onHistory.mock.calls[0][0]).toEqual([{ p: 3600, a: 3600, c: 1, t: 1793600000 }]);
+  });
+
+  it('does not fail the connection when that read rejects', async () => {
+    const client = new PhoneBoxClient();
+    const device = makeDevice();
+    device.readCharacteristicForService.mockImplementation(async () => {
+      throw new Error('read failed');
+    });
+    await expect(client.connect(device as never, { onHistory: jest.fn() })).resolves.toBeUndefined();
   });
 });

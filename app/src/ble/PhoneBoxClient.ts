@@ -398,6 +398,14 @@ export class PhoneBoxClient implements BoxClient {
       );
     }
     if (cb.onHistory) {
+      const readHistory = () =>
+        d
+          .readCharacteristicForService(SERVICE_UUID, CHAR.history)
+          .then((full) => {
+            const all = parseHistoryEntries(fromB64(full.value));
+            if (all.length && this.device === d) cb.onHistory!(all);
+          })
+          .catch((e: Error) => console.warn('[PhoneBoxClient] history read error:', e.message));
       sessionSubs.push(
         d.monitorCharacteristicForService(SERVICE_UUID, CHAR.history, (err, c) => {
           if (err) console.warn('[PhoneBoxClient] history notify error:', err.message);
@@ -415,14 +423,21 @@ export class PhoneBoxClient implements BoxClient {
           // forever. A read is not capped that way (iOS does a long read up
           // to the characteristic's 512 bytes), so fetch the full value.
           if (!text || text === '[]') return;
-          d.readCharacteristicForService(SERVICE_UUID, CHAR.history)
-            .then((full) => {
-              const all = parseHistoryEntries(fromB64(full.value));
-              if (all.length && this.device === d) cb.onHistory!(all);
-            })
-            .catch((e: Error) => console.warn('[PhoneBoxClient] history read error:', e.message));
+          readHistory();
         }),
       );
+      // The box pushes its queue on its first loop after the link comes up
+      // (lock_ble.py's _on_connected forces it), which is before this side
+      // has finished service discovery and subscribed -- so that notify
+      // went to nobody, the box marked the batch sent, and did not resend
+      // it for the rest of the connection. Since the phone is locked in the
+      // box for the whole session, almost every session finishes while
+      // disconnected and only ever crosses on that first push: none arrived.
+      // The characteristic still holds the value, so read it once now.
+      // Re-reading a batch that was already stored is harmless --
+      // appendSessions dedupes, and the box ignores an ack that matches no
+      // in-flight batch.
+      readHistory();
     }
     // push the current wall clock so the box can date future history/schedules.
     // A rejection here propagates out of connect()/connectById(), and every
